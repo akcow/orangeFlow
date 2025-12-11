@@ -15,8 +15,7 @@ import { BingIcon } from "@/icons/Bing";
 import { BotMessageSquareIcon } from "@/icons/BotMessageSquare";
 import { DoubaoTTSIcon } from "@/icons/DoubaoTTS";
 import { DoubaoVideoGeneratorIcon } from "@/icons/DoubaoVideoGenerator";
-import { DoubaoImageGeneratorIcon } from "@/icons/DoubaoImageGenerator";
-import { DoubaoImageEditorIcon } from "@/icons/DoubaoImageEditor";
+import { DoubaoImageCreatorIcon } from "@/icons/DoubaoImageCreator";
 import { BWPythonIcon } from "@/icons/BW python";
 import { CassandraIcon } from "@/icons/Cassandra";
 import { ChromaIcon } from "@/icons/ChromaIcon";
@@ -140,8 +139,7 @@ export const eagerIconsMapping = {
   BotMessageSquare: BotMessageSquareIcon,
   DoubaoTTS: DoubaoTTSIcon,
   DoubaoVideoGenerator: DoubaoVideoGeneratorIcon,
-  DoubaoImageGenerator: DoubaoImageGeneratorIcon,
-  DoubaoImageEditor: DoubaoImageEditorIcon,
+  DoubaoImageCreator: DoubaoImageCreatorIcon,
   BWPython: BWPythonIcon,
   Cassandra: CassandraIcon,
   Chroma: ChromaIcon,

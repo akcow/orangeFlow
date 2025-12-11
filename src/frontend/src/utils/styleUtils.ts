@@ -6,8 +6,7 @@ import { ENABLE_KNOWLEDGE_BASES } from "@/customization/feature-flags";
 import { BotMessageSquareIcon } from "@/icons/BotMessageSquare";
 import { DoubaoTTSIcon } from "@/icons/DoubaoTTS";
 import { DoubaoVideoGeneratorIcon } from "@/icons/DoubaoVideoGenerator";
-import { DoubaoImageGeneratorIcon } from "@/icons/DoubaoImageGenerator";
-import { DoubaoImageEditorIcon } from "@/icons/DoubaoImageEditor";
+import { DoubaoImageCreatorIcon } from "@/icons/DoubaoImageCreator";
 import { fontAwesomeIcons, isFontAwesomeIcon } from "@/icons/fontAwesomeIcons";
 import { GradientSave } from "@/icons/GradientSparkles";
 
@@ -124,8 +123,7 @@ export const nodeColors: { [char: string]: string } = {
   // Doubao AI Components
   DoubaoTTS: "#FF6B6B",
   DoubaoVideoGenerator: "#4ECDC4",
-  DoubaoImageGenerator: "#45B7D1", 
-  DoubaoImageEditor: "#96CEB4",
+  DoubaoImageCreator: "#45B7D1",
   
   retrievers: "#e6b25a",
   str: "#4F46E5",
@@ -182,8 +180,7 @@ export const nodeColorsName: { [char: string]: string } = {
   // Doubao AI Components
   DoubaoTTS: "rose",
   DoubaoVideoGenerator: "teal", 
-  DoubaoImageGenerator: "sky",
-  DoubaoImageEditor: "emerald",
+  DoubaoImageCreator: "sky",
   
   retrievers: "yellow",
   str: "indigo",
@@ -519,8 +516,7 @@ export const nodeIconToDisplayIconMap: Record<string, string> = {
   // Doubao AI Components
   DoubaoTTS: "DoubaoTTS",
   DoubaoVideoGenerator: "DoubaoVideoGenerator", 
-  DoubaoImageGenerator: "DoubaoImageGenerator",
-  DoubaoImageEditor: "DoubaoImageEditor",
+  DoubaoImageCreator: "DoubaoImageCreator",
 };
 
 export const getLucideIconName = (name: string): string => {
@@ -550,8 +546,7 @@ export const eagerLoadedIconsMap = {
   BotMessageSquareIcon: BotMessageSquareIcon,
   DoubaoTTS: DoubaoTTSIcon,
   DoubaoVideoGenerator: DoubaoVideoGeneratorIcon,
-  DoubaoImageGenerator: DoubaoImageGeneratorIcon,
-  DoubaoImageEditor: DoubaoImageEditorIcon,
+  DoubaoImageCreator: DoubaoImageCreatorIcon,
 
   // React icon
   FaApple: FaApple,

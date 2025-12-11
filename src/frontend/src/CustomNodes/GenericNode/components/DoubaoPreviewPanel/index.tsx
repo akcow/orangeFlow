@@ -21,14 +21,13 @@ import { ForwardedIconComponent } from "@/components/common/genericIconComponent
 import { useDoubaoPreview } from "../../../hooks/use-doubao-preview";
 
 const PANEL_BG = {
-  image: "bg-emerald-50 dark:bg-emerald-950/40",
-  video: "bg-sky-50 dark:bg-sky-950/40",
-  audio: "bg-rose-50 dark:bg-rose-950/40",
+  image: "bg-emerald-50/80 dark:bg-emerald-950/30",
+  video: "bg-sky-50/80 dark:bg-sky-950/30",
+  audio: "bg-rose-50/80 dark:bg-rose-950/20",
 };
 
 const DOUBAO_KIND: Record<string, "image" | "video" | "audio"> = {
-  DoubaoImageGenerator: "image",
-  DoubaoImageEditor: "image",
+  DoubaoImageCreator: "image",
   DoubaoVideoGenerator: "video",
   DoubaoTTS: "audio",
 };
@@ -38,7 +37,15 @@ type Props = {
   componentName?: string;
 };
 
-// Lazy load renderers to reduce bundle size
+type GalleryItem = {
+  imageSource: string;
+  downloadSource: string;
+  size?: string;
+  width?: number;
+  height?: number;
+  label?: string;
+};
+
 const ImagePreview = lazy(() => import("./ImageRenderer"));
 const VideoPreview = lazy(() => import("./VideoRenderer"));
 const AudioPreview = lazy(() => import("./AudioRenderer"));
@@ -65,46 +72,89 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const [transientBadge, setTransientBadge] = useState<string | null>(null);
     const showTransientBadge = useCallback((label: string) => {
       setTransientBadge(label);
-      const timer = window.setTimeout(() => setTransientBadge(null), 3000);
+      const timer = window.setTimeout(() => setTransientBadge(null), 2500);
       return () => window.clearTimeout(timer);
     }, []);
 
     const handleModalError = useCallback(
       (error: Error) => {
         console.error("Modal error:", error);
-        showTransientBadge("加载错误");
+        showTransientBadge("加载失败");
       },
       [showTransientBadge],
     );
 
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
+    const [activeImageIndex, setActiveImageIndex] = useState(0);
 
-    const imagePreview = useMemo(() => {
+    const imageGallery = useMemo<GalleryItem[] | null>(() => {
       if (kind !== "image" || !preview?.payload) return null;
-      const dataUrlCandidate =
-        preview.payload?.image_data_url ||
-        preview.payload?.preview_base64 ||
-        preview.payload?.preview_data_url;
-      const remoteUrlCandidate =
-        preview.payload?.image_url ||
-        preview.payload?.edited_image_url ||
-        preview.payload?.original_image_url;
-      const sanitizedDataUrl =
-        typeof dataUrlCandidate === "string" &&
-        dataUrlCandidate.trim().startsWith("data:image")
-          ? dataUrlCandidate.replace(/\s+/g, "")
-          : undefined;
-      const imageSource = remoteUrlCandidate || sanitizedDataUrl;
-      if (!imageSource) return null;
-      const size =
-        preview.payload?.width && preview.payload?.height
-          ? `${preview.payload.width}×${preview.payload.height}`
-          : undefined;
-      return {
-        imageSource,
-        size,
-        extension: inferExtensionFromSource(imageSource, "png"),
-      };
+      const payload: any = preview.payload;
+      const galleryItems: GalleryItem[] = [];
+
+      if (Array.isArray(payload.images)) {
+        payload.images.forEach((entry: any, idx: number) => {
+          const inlineSource = sanitizePreviewDataUrl(
+            entry?.image_data_url ??
+              entry?.preview_base64 ??
+              entry?.preview_data_url ??
+              entry?.data_url,
+          );
+          const remoteSource =
+            entry?.image_url ??
+            entry?.url ??
+            entry?.edited_image_url ??
+            entry?.original_image_url;
+          const resolvedSource = inlineSource ?? remoteSource;
+          if (!resolvedSource) return;
+
+          galleryItems.push({
+            imageSource: resolvedSource,
+            downloadSource: remoteSource ?? inlineSource ?? resolvedSource,
+            size:
+              entry?.size ??
+              (entry?.width && entry?.height
+                ? `${entry.width}×${entry.height}`
+                : undefined),
+            width: entry?.width,
+            height: entry?.height,
+            label: entry?.label ?? `第 ${idx + 1} 张`,
+          });
+        });
+      }
+
+      if (galleryItems.length) {
+        return galleryItems;
+      }
+
+      const inlineFallback = sanitizePreviewDataUrl(
+        payload.image_data_url ??
+          payload.preview_base64 ??
+          payload.preview_data_url,
+      );
+      const remoteFallback =
+        payload.image_url ??
+        payload.edited_image_url ??
+        payload.original_image_url ??
+        null;
+
+      if (!inlineFallback && !remoteFallback) {
+        return null;
+      }
+
+      return [
+        {
+          imageSource: inlineFallback ?? remoteFallback!,
+          downloadSource: remoteFallback ?? inlineFallback ?? "",
+          size:
+            payload.width && payload.height
+              ? `${payload.width}×${payload.height}`
+              : undefined,
+          width: payload.width,
+          height: payload.height,
+          label: "第 1 张",
+        },
+      ];
     }, [kind, preview]);
 
     const videoPreview = useMemo(() => {
@@ -136,59 +186,41 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       };
     }, [kind, preview]);
 
-    const previewNode = useMemo(() => {
-      if (!preview?.available) return null;
-      switch (kind) {
-        case "video":
-          if (!videoPreview) return null;
-          return (
-            <Suspense
-              fallback={<EmptyPreview isBuilding={isBuilding} kind={kind} />}
-            >
-              <VideoPreview
-                videoUrl={videoPreview.videoUrl}
-                poster={videoPreview.poster}
-                duration={videoPreview.duration}
-              />
-            </Suspense>
-          );
-        case "audio":
-          if (!audioPreview) return null;
-          return (
-            <Suspense
-              fallback={<EmptyPreview isBuilding={isBuilding} kind={kind} />}
-            >
-              <AudioPreview audioUrl={audioPreview.audioUrl} />
-            </Suspense>
-          );
-        case "image":
-        default:
-          if (!imagePreview) return null;
-          return (
-            <Suspense
-              fallback={<EmptyPreview isBuilding={isBuilding} kind={kind} />}
-            >
-              <ImagePreview
-                src={imagePreview.imageSource}
-                size={imagePreview.size}
-                onError={handleModalError}
-                meta={{ model_display_name: preview.payload?.model_display_name }}
-                onExpand={() => setPreviewModalOpen(true)}
-              />
-            </Suspense>
-          );
-      }
-    }, [
-      preview,
-      kind,
-      isBuilding,
-      handleModalError,
-      imagePreview,
-      videoPreview,
-      audioPreview,
-    ]);
+    const currentImage = imageGallery?.length
+      ? imageGallery[Math.min(activeImageIndex, imageGallery.length - 1)]
+      : null;
 
-    const hasRenderablePreview = Boolean(preview?.available && previewNode);
+    const handleNavigateImages = useCallback(
+      (delta: number) => {
+        if (!imageGallery?.length) return;
+        const total = imageGallery.length;
+        const next = (activeImageIndex + delta + total) % total;
+        setActiveImageIndex(next);
+      },
+      [imageGallery, activeImageIndex],
+    );
+
+    const handleSelectImage = useCallback(
+      (index: number) => {
+        if (!imageGallery?.length) return;
+        const total = imageGallery.length;
+        const normalized = ((index % total) + total) % total;
+        setActiveImageIndex(normalized);
+      },
+      [imageGallery],
+    );
+
+    const hasRenderablePreview = Boolean(
+      preview?.available &&
+        ((kind === "image" && imageGallery?.length) ||
+          (kind === "video" && videoPreview) ||
+          (kind === "audio" && audioPreview)),
+    );
+
+    const openModal = useCallback(() => {
+      if (!hasRenderablePreview) return;
+      setPreviewModalOpen(true);
+    }, [hasRenderablePreview]);
 
     useEffect(() => {
       if (!hasRenderablePreview) {
@@ -198,16 +230,35 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     useEffect(() => {
       setPreviewModalOpen(false);
+      setActiveImageIndex(0);
     }, [preview?.token]);
+
+    useEffect(() => {
+      if (!imageGallery?.length) {
+        if (activeImageIndex !== 0) {
+          setActiveImageIndex(0);
+        }
+        return;
+      }
+      if (activeImageIndex >= imageGallery.length) {
+        setActiveImageIndex(0);
+      }
+    }, [imageGallery, activeImageIndex]);
 
     const downloadInfo = useMemo<DownloadInfo | null>(() => {
       if (!preview?.available) return null;
       switch (kind) {
         case "image":
-          if (!imagePreview) return null;
+          if (!currentImage) return null;
           return {
-            source: imagePreview.imageSource,
-            fileName: buildFileName(preview.token, imagePreview.extension),
+            source: currentImage.downloadSource || currentImage.imageSource,
+            fileName: buildFileName(
+              preview.token,
+              inferExtensionFromSource(
+                currentImage.downloadSource || currentImage.imageSource,
+                "png",
+              ),
+            ),
           };
         case "video":
           if (!videoPreview) return null;
@@ -227,7 +278,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         default:
           return null;
       }
-    }, [preview, kind, imagePreview, videoPreview, audioPreview]);
+    }, [preview, kind, currentImage, videoPreview, audioPreview]);
 
     const handleDownload = useCallback(async () => {
       if (!downloadInfo) return;
@@ -242,102 +293,148 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const hasError = preview?.error;
 
-    const fallbackContent = (
-      <EmptyPreview
-        isBuilding={hasError ? false : isBuilding}
-        kind={kind}
-      />
-    );
-
-    const content = hasRenderablePreview && previewNode ? (
-      <div className="relative">
-        {previewNode}
-        {downloadInfo && (
-          <button
-            onClick={handleDownload}
-            className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-800 shadow-lg transition hover:bg-white"
-          >
-            <ForwardedIconComponent name="Download" className="h-4 w-4" />
-            <span>保存结果</span>
-          </button>
+    const inlinePreview = hasRenderablePreview ? (
+      <Suspense
+        fallback={<EmptyPreview isBuilding={isBuilding} kind={kind} />}
+      >
+        {kind === "video" && videoPreview ? (
+          <VideoPreview
+            videoUrl={videoPreview.videoUrl}
+            poster={videoPreview.poster}
+            duration={videoPreview.duration}
+          />
+        ) : kind === "audio" && audioPreview ? (
+          <AudioPreview audioUrl={audioPreview.audioUrl} />
+        ) : kind === "image" && imageGallery?.length ? (
+          <ImagePreview
+            gallery={imageGallery}
+            currentIndex={activeImageIndex}
+            onNavigate={handleNavigateImages}
+            onSelect={handleSelectImage}
+            onError={handleModalError}
+          />
+        ) : (
+          <EmptyPreview isBuilding={isBuilding} kind={kind} />
         )}
-      </div>
+      </Suspense>
     ) : (
-      fallbackContent
+      <EmptyPreview isBuilding={hasError ? false : isBuilding} kind={kind} />
     );
 
     const timestampLabel =
       hasRenderablePreview && preview?.generated_at
-        ? `更新时间 ${formatTimestamp(preview.generated_at)}`
-        : null;
-    const showExpandButton = hasRenderablePreview && kind !== "image";
+        ? `最近更新：${formatTimestamp(preview.generated_at)}`
+        : isBuilding
+          ? "生成中，完成后自动更新"
+          : "结果生成后将在此展示";
 
-    const infoRow =
-      timestampLabel || showExpandButton ? (
-        <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-          <span>{timestampLabel ?? ""}</span>
-          {showExpandButton && (
-            <Button
-              variant="secondary"
-              size="sm"
-              ignoreTitleCase
-              className="h-8 px-3"
-              onClick={() => setPreviewModalOpen(true)}
-            >
-              <ForwardedIconComponent name="Maximize2" className="h-4 w-4" />
-              <span>放大预览</span>
-            </Button>
-          )}
-        </div>
-      ) : null;
-
-    const modalContent = useMemo(() => {
-      if (!hasRenderablePreview) return null;
+    const modalContent = (() => {
+      if (!hasRenderablePreview) {
+        return (
+          <p className="text-center text-sm text-muted-foreground">
+            暂无可放大的内容
+          </p>
+        );
+      }
       switch (kind) {
         case "video":
           return videoPreview ? (
-            <video
-              src={videoPreview.videoUrl}
-              poster={videoPreview.poster}
-              controls
-              className="max-h-[65vh] w-full rounded-lg bg-black object-contain"
-            />
+            <Suspense
+              fallback={<EmptyPreview isBuilding={false} kind={kind} />}
+            >
+              <VideoPreview
+                videoUrl={videoPreview.videoUrl}
+                poster={videoPreview.poster}
+                duration={videoPreview.duration}
+                variant="modal"
+                showSpeedControl
+                onDownloadClick={handleDownload}
+              />
+            </Suspense>
           ) : null;
         case "audio":
           return audioPreview ? (
-            <audio controls src={audioPreview.audioUrl} className="w-full">
-              您的浏览器不支持音频播放
-            </audio>
+            <Suspense
+              fallback={<EmptyPreview isBuilding={false} kind={kind} />}
+            >
+              <AudioPreview
+                audioUrl={audioPreview.audioUrl}
+                variant="modal"
+                showSpeedControl
+                onDownloadClick={handleDownload}
+              />
+            </Suspense>
           ) : null;
         case "image":
         default:
-          return imagePreview ? (
-            <div className="h-[65vh] w-full">
-              <ImageViewer image={imagePreview.imageSource} />
+          if (!imageGallery?.length || !currentImage) {
+            return null;
+          }
+          return (
+            <div className="flex flex-col gap-4">
+              <div className="h-[65vh] w-full">
+                <ImageViewer image={currentImage.imageSource} />
+              </div>
+              {imageGallery.length > 1 && (
+                <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-3"
+                    onClick={() => handleNavigateImages(-1)}
+                  >
+                    <ForwardedIconComponent
+                      name="ChevronLeft"
+                      className="h-4 w-4"
+                    />
+                    上一张
+                  </Button>
+                  <span>
+                    第 {activeImageIndex + 1} / {imageGallery.length} 张
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-3"
+                    onClick={() => handleNavigateImages(1)}
+                  >
+                    下一张
+                    <ForwardedIconComponent
+                      name="ChevronRight"
+                      className="h-4 w-4"
+                    />
+                  </Button>
+                </div>
+              )}
             </div>
-          ) : null;
+          );
       }
-    }, [hasRenderablePreview, kind, imagePreview, videoPreview, audioPreview]);
+    })();
 
     return (
       <>
         <div
           ref={forwardedRef}
-          className={cn("mt-3 rounded-2xl border border-muted p-3 text-sm", panelClass)}
+          className="mt-3 rounded-3xl border border-muted-foreground/20 bg-white/80 p-4 text-sm shadow-sm dark:bg-slate-900/60"
         >
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-2 font-medium">
-              <ForwardedIconComponent
-                name={
-                  kind === "audio"
-                    ? "Waveform"
-                    : kind === "video"
-                      ? "Clapperboard"
-                      : "Image"
-                }
-                className="h-4 w-4"
-              />
-              <span>实时预览</span>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 font-medium text-foreground">
+                <ForwardedIconComponent
+                  name={
+                    kind === "audio"
+                      ? "Waveform"
+                      : kind === "video"
+                        ? "Clapperboard"
+                        : "Image"
+                  }
+                  className="h-4 w-4"
+                />
+                <span>实时预览</span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {timestampLabel}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               {hasError && (
@@ -352,12 +449,47 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               )}
             </div>
           </div>
-          {infoRow}
-          {content}
+
+          <div
+            className={cn(
+              "relative overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3",
+              panelClass,
+            )}
+          >
+            {inlinePreview}
+
+            {hasRenderablePreview && (
+              <button
+                type="button"
+                aria-label="放大预览"
+                onClick={openModal}
+                className="group absolute -top-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-muted-foreground/40 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-md transition hover:border-muted-foreground/60 hover:bg-white dark:bg-slate-900"
+              >
+                <ForwardedIconComponent
+                  name="Maximize2"
+                  className="h-4 w-4 text-current"
+                />
+                <span>放大预览</span>
+              </button>
+            )}
+
+            {downloadInfo && (
+              <button
+                onClick={handleDownload}
+                className="absolute bottom-4 right-4 flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-800 shadow-lg transition hover:bg-white dark:bg-slate-900 dark:text-slate-100"
+              >
+                <ForwardedIconComponent name="Download" className="h-4 w-4" />
+                <span>下载结果</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <Dialog open={isPreviewModalOpen} onOpenChange={setPreviewModalOpen}>
-          <DialogContent className="w-[90vw] max-w-3xl" aria-describedby={undefined}>
+          <DialogContent
+            className="w-[92vw] max-w-4xl"
+            aria-describedby={undefined}
+          >
             <DialogHeader className="flex flex-row items-center justify-between gap-4">
               <DialogTitle className="text-base">生成结果详情</DialogTitle>
               {hasRenderablePreview && downloadInfo && (
@@ -368,12 +500,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                   className="h-9 px-4"
                   onClick={handleDownload}
                 >
-                  <ForwardedIconComponent name="Download" className="h-4 w-4" />
-                  <span>保存结果</span>
+                  <ForwardedIconComponent
+                    name="Download"
+                    className="h-4 w-4"
+                  />
+                  <span>下载结果</span>
                 </Button>
               )}
             </DialogHeader>
-            <div className="max-h-[70vh] overflow-auto rounded-lg bg-muted/40 p-3">
+            <div className="max-h-[70vh] overflow-auto rounded-2xl bg-muted/50 p-4">
               {modalContent ?? (
                 <p className="text-center text-sm text-muted-foreground">
                   暂无可放大的内容
@@ -390,6 +525,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 DoubaoPreviewPanel.displayName = "DoubaoPreviewPanel";
 
 export default DoubaoPreviewPanel;
+
+function sanitizePreviewDataUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("data:image")) return undefined;
+  return trimmed.replace(/\s+/g, "");
+}
 
 function inferExtensionFromSource(source: string, fallback: string): string {
   if (!source) return fallback;
@@ -442,7 +584,6 @@ async function downloadPreviewFile(source: string, fileName: string) {
       shouldRevoke = true;
     }
   } catch (error) {
-    // Fall back to opening the resource directly if CORS blocks the fetch.
     const link = document.createElement("a");
     link.href = source;
     link.download = fileName;
@@ -495,23 +636,21 @@ function EmptyPreview({
   return (
     <div
       className={cn(
-        "flex aspect-[16/9] items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 text-sm",
+        "flex aspect-[16/9] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-muted-foreground/30 text-sm text-muted-foreground",
         PANEL_BG[kind],
-        isBuilding && "opacity-60",
+        isBuilding && "opacity-70",
       )}
     >
-      <div className="text-center">
-        {isBuilding ? (
-          <div className="flex flex-col items-center gap-2">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            <span className="text-xs text-muted-foreground">
-              构建中，稍后自动更新
-            </span>
-          </div>
-        ) : (
-          <span className="text-muted-foreground">暂无生成结果</span>
-        )}
-      </div>
+      {isBuilding ? (
+        <div className="flex flex-col items-center gap-2">
+          <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="text-xs text-muted-foreground">
+            构建中，稍后自动更新
+          </span>
+        </div>
+      ) : (
+        <span>暂无生成结果</span>
+      )}
     </div>
   );
 }

@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell:*)",
+      "Bash(if exist:*)",
+      "Bash(npm run build)",
+      "Bash(npm install:*)",
+      "Bash(set:*)",
+      "Bash(C:UserswangDesktoplangflow-cleansrclfxsrc)",
+      "Bash(python -m langflow run:*)",
+      "Bash(cmd:*)",
+      "Bash(dir:*)",
+      "Bash(export PYTHONPATH=\"C:\\Users\\wang\\Desktop\\langflow-clean\\src\\backend\\base;C:\\Users\\wang\\Desktop\\langflow-clean\\src\\lfx\\src:*)",
+      "Bash(export LANGFLOW_COMPONENTS_PATH=\"C:\\Users\\wang\\Desktop\\langflow-clean\\src\\lfx\\src\\lfx\\components\":*)",
+      "Bash(export:*)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(C:UserswangDesktoplangflow-cleanstart-langflow-simple.bat)",
+      "Bash(git pull:*)",
+      "Bash(ping:*)",
+      "Bash(cmd /c \"C:\\Users\\wang\\Desktop\\langflow-clean\\start-langflow-simple.bat\")",
+      "Bash(find:*)",
+      "Bash(set PYTHONPATH=C:UserswangDesktoplangflow-cleansrcbackendbase)",
+      "Bash(set LANGFLOW_SKIP_AUTH_AUTO_LOGIN=true)",
+      "Bash(python:*)",
+      "Bash(set PYTHONIOENCODING=utf-8:*)",
+      "Bash(npm run build:*)",
+      "Bash(cmd /c \"C:\\Users\\wang\\Desktop\\langflow-clean\\start-clean-service.bat\")",
+      "Bash(cmd /c \"C:\\Users\\wang\\Desktop\\langflow-clean\\start-service-simple.bat\")",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

@@ -15,10 +15,8 @@ from volcenginesdkarkruntime import Ark
 from lfx.custom.custom_component.component import Component
 from lfx.schema.data import Data
 from lfx.inputs.inputs import (
-    BoolInput,
     DropdownInput,
     IntInput,
-    MessageTextInput,
     SecretStrInput,
     MultilineInput
 )
@@ -75,27 +73,6 @@ class DoubaoVideoGenerator(Component):
             value=5,
             info="生成视频的时长（秒），范围2-12秒。",
         ),
-        BoolInput(
-            name="camera_fixed",
-            display_name="固定镜头",
-            value=False,
-            required=False,
-            info="是否使用固定镜头模式，False表示允许动态镜头。",
-        ),
-        BoolInput(
-            name="watermark",
-            display_name="添加水印",
-            value=True,
-            required=False,
-            info="是否在生成的视频中添加水印。",
-        ),
-        BoolInput(
-            name="enable_preview",
-            display_name="启用预览",
-            value=True,
-            required=False,
-            info="是否在结果中包含视频封面图片的base64预览。",
-        ),
         SecretStrInput(
             name="api_key",
             display_name="豆包 API 密钥",
@@ -134,8 +111,9 @@ class DoubaoVideoGenerator(Component):
         try:
             resolution = str(self.resolution or "1080p")
             duration = int(self.duration or 5)
-            camera_fixed = bool(self.camera_fixed)
-            watermark = bool(self.watermark)
+            camera_fixed = False
+            watermark = False
+            enable_preview = True
             # 使用固定的轮询参数（不在UI中显示）
             polling_interval = 3  # 固定3秒轮询间隔
             max_wait_time = 300   # 固定5分钟最大等待时间
@@ -323,7 +301,6 @@ class DoubaoVideoGenerator(Component):
             result_data["video_count"] = len(video_results)
 
             # 添加可选的预览功能
-            enable_preview = bool(self.enable_preview)
             result_data["preview_enabled"] = enable_preview
 
             if enable_preview and video_results:

@@ -19,9 +19,15 @@ jest.mock("@/components/ui/dialog", () => ({
     children: React.ReactNode;
     open?: boolean;
   }) => (open ? <div>{children}</div> : null),
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogHeader: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogTitle: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 jest.mock("@/components/common/genericIconComponent", () => ({
@@ -29,7 +35,9 @@ jest.mock("@/components/common/genericIconComponent", () => ({
   ForwardedIconComponent: ({ children }: { children?: React.ReactNode }) => (
     <span>{children}</span>
   ),
-  default: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+  default: ({ children }: { children?: React.ReactNode }) => (
+    <span>{children}</span>
+  ),
 }));
 
 jest.mock("@/components/common/ImageViewer", () => ({
@@ -52,7 +60,7 @@ beforeAll(() => {
 
 describe("DoubaoPreviewPanel", () => {
   const mockNodeId = "test-node-id";
-  const mockComponentName = "DoubaoImageGenerator";
+  const mockComponentName = "DoubaoImageCreator";
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -144,12 +152,46 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    const expandButton = await screen.findByRole("button", { name: "放大预览" });
+    const expandButton = await screen.findByRole("button", {
+      name: "放大预览",
+    });
     fireEvent.click(expandButton);
     expect(await screen.findByText("生成结果详情")).toBeInTheDocument();
-    const saveButtons = await screen.findAllByText("保存结果");
+    const saveButtons = await screen.findAllByText("下载结果");
     expect(saveButtons).toHaveLength(2);
     expect(await screen.findByText("512×512")).toBeInTheDocument();
+  });
+
+  test("supports multi image carousel navigation", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: {
+        kind: "image",
+        available: true,
+        payload: {
+          images: [
+            { image_url: "https://example.com/a.png", size: "1024×1024" },
+            { image_url: "https://example.com/b.png", size: "2048×2048" },
+          ],
+        },
+        token: "gallery-token",
+      },
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={mockComponentName}
+      />,
+    );
+
+    expect(await screen.findByText("第 1 / 2 张")).toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText("下一张"));
+    expect(await screen.findByText("第 2 / 2 张")).toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText("上一张"));
+    expect(await screen.findByText("第 1 / 2 张")).toBeInTheDocument();
   });
 
   test("renders video preview when video data is available", async () => {
@@ -181,7 +223,7 @@ describe("DoubaoPreviewPanel", () => {
 
     await screen.findByText("放大预览");
     expect(await screen.findByText("预计时长：00:10")).toBeInTheDocument();
-    const saveButtons = await screen.findAllByText("保存结果");
+    const saveButtons = await screen.findAllByText("下载结果");
     expect(saveButtons).toHaveLength(1);
   });
 
@@ -209,7 +251,7 @@ describe("DoubaoPreviewPanel", () => {
     );
 
     await screen.findByText("放大预览");
-    const saveButtons = await screen.findAllByText("保存结果");
+    const saveButtons = await screen.findAllByText("下载结果");
     expect(saveButtons).toHaveLength(1);
   });
 });

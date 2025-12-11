@@ -5,8 +5,7 @@ import type { OutputLogType } from '@/types/api';
 
 // Doubao组件类型映射 - 也在节点渲染时复用
 export const DOUBAO_COMPONENTS = new Set<string>([
-  'DoubaoImageGenerator',
-  'DoubaoImageEditor',
+  'DoubaoImageCreator',
   'DoubaoVideoGenerator',
   'DoubaoTTS'
 ]);
@@ -16,8 +15,7 @@ export const isDoubaoComponent = (componentName?: string): boolean =>
 
 // 默认类型映射
 const COMPONENT_KIND_MAP: Record<string, 'image' | 'video' | 'audio'> = {
-  DoubaoImageGenerator: 'image',
-  DoubaoImageEditor: 'image',
+  DoubaoImageCreator: 'image',
   DoubaoVideoGenerator: 'video',
   DoubaoTTS: 'audio',
 };

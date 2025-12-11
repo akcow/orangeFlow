@@ -31,6 +31,11 @@ rm -rf src/lfx/src/lfx/__pycache__
 
 # 清理构建缓存
 rm -rf src/frontend/build
+
+# 清理组件索引缓存（必须，避免旧仓库的 component_index.json 覆盖当前代码）
+python -m scripts.clear_component_cache
+# 或手动删除 %LOCALAPPDATA%\langflow\lfx\Cache\component_index.json
+# 手动路径示例：C:\Users\<用户名>\AppData\Local\langflow\lfx\Cache\component_index.json
 ```
 
 ### 3. 重新构建前端
@@ -45,59 +50,22 @@ npm run build
 Copy-Item -Path "src/frontend/build/*" -Destination "src/backend/base/langflow/frontend/" -Recurse -Force
 ```
 
-### 5. 启动LangFlow服务
+### 5. ??LangFlow??
+
+???????????? `start_service.py`????????????? 2-4????? %LOCALAPPDATA%\langflow\lfx\Cache\component_index.json??????????????????????
+
 ```bash
-cd langflow-pro
-export PYTHONPATH="C:\Users\wang\Desktop\langflow(2)\langflow-pro\src\backend\base;C:\Users\wang\Desktop\langflow(2)\langflow-pro\src\lfx\src" && ^
-export LANGFLOW_COMPONENTS_PATH="C:\Users\wang\Desktop\langflow(2)\langflow-pro\src\lfx\src\lfx\components" && ^
-export LANGFLOW_SKIP_AUTH_AUTO_LOGIN="true" && ^
-python -m langflow run --host 0.0.0.0 --port 7860
+python start_service.py
 ```
 
-## 🔧 完整启动脚本 (推荐)
+???????
 
-创建一个启动脚本 `start-langflow.bat`:
+- ?? `.vite`?`__pycache__`?`src/frontend/build` ????????????
+- ?? `npm run build` ?? `src/frontend/build` ??? `src/backend/base/langflow/frontend`
+- ?? `PYTHONPATH`?`LANGFLOW_COMPONENTS_PATH`?`LANGFLOW_SKIP_AUTH_AUTO_LOGIN=true`?`LFX_DEV=1`
+- ? `python -m langflow run --host 0.0.0.0 --port 7860` ????
 
-```batch
-@echo off
-echo 🛑 停止现有服务...
-for /f "tokens=*" %%i in ('tasklist /fi "IMAGENAME eq python.exe" ^| findstr "python.exe"') do (
-    if not "%%i"=="" (
-        taskkill /f /im python.exe /pid "%%~i" >nul 2>&1
-    )
-)
-
-echo 🧹 清理缓存...
-cd /d "%~dp0"langflow-pro
-if exist "src\frontend\.vite" rmdir /s /q "src\frontend\.vite"
-if exist "src\frontend\node_modules\.vite" rmdir /s /q "src\frontend\node_modules\.vite"
-if exist "src\backend\base\__pycache__" rmdir /s /q "src\backend\base\__pycache__"
-if exist "src\backend\base\langflow\__pycache__" rmdir /s /q "src\backend\base\langflow\__pycache__"
-if exist "src\lfx\src\lfx\__pycache__" rmdir /s /q "src\lfx\src\lfx\__pycache__"
-if exist "src\frontend\build" rmdir /s /q "src\frontend\build"
-
-echo 🔨 重新构建前端...
-cd src\frontend
-npm run build
-
-echo 📦 同步前端文件...
-cd ..\
-powershell -Command "Copy-Item -Path 'src\frontend\build\*' -Destination 'src\backend\base\langflow\frontend\' -Recurse -Force"
-
-echo 🚀 启动LangFlow服务...
-cd langflow-pro
-set PYTHONPATH=C:\Users\wang\Desktop\langflow(2)\langflow-pro\src\backend\base;C:\Users\wang\Desktop\langflow(2)\langflow-pro\src\lfx\src
-set LANGFLOW_COMPONENTS_PATH=C:\Users\wang\Desktop\langflow(2)\langflow-pro\src\lfx\src\lfx\components
-set LANGFLOW_SKIP_AUTH_AUTO_LOGIN=true
-
-echo 📱 服务地址: http://localhost:7860
-echo 🔧 开发模式已启用 - 自动登录禁用
-echo 🎯 豆包图片编辑组件已加载
-
-python -m langflow run --host 0.0.0.0 --port 7860
-
-pause
-```
+????????????????? `start_service.py` ???????????????????????????????????????
 
 ## 🎯 功能特性
 
@@ -110,28 +78,27 @@ pause
 
 ### 📋 完整豆包组件列表
 
-#### 1. 豆包图片编辑 (DoubaoImageEditor)
-- **功能**: 基于提示词编辑现有图片
-- **模型**: Doubao-SeedEdit-3.0-i2i｜250628
-- **主要参数**:
-  - 图片编辑提示词（必需）
-  - 原图片URL（必需）
-  - 添加水印（可选）
-  - 启用预览（默认开启）
-- **输出**: 编辑后的图片URL和预览数据
-- **特色**: 支持base64图片预览，实时状态反馈
-
-#### 2. 豆包文生图 (DoubaoImageGenerator)
-- **功能**: 根据文本提示生成新图片
-- **模型**: Doubao-Seedream-3.0-t2i｜250415
-- **主要参数**:
-  - 生成提示词（必需）
-  - 图片宽度（默认512px）
-  - 图片高度（默认512px）
-  - 是否添加水印（可选）
-  - 启用实时预览（默认开启）
-- **输出**: 生成图片的URL和预览数据
-- **特色**: 自定义尺寸，引导强度控制，支持多种图片格式
+#### 1. 即梦图片创作 (DoubaoImageCreator)
+- **功能**: 统一文生图、图生图、多图融合与组图输出能力。
+- **模型**: Seedream 4.5 · 旗舰 (doubao-seedream-4-5-251128)、Seedream 4.0 · 灵动 (doubao-seedream-4-0-250828)。
+- **界面字段**（严格只展示以下 8 项）：
+  1. 实时预览框（支持组图翻页、放大查看、下载）
+  2. 模型选择（4.0/4.5）
+  3. 提示词输入（支持多行及上游 Message/Data/Text）
+  4. 图像分辨率（1K/2K/4K）
+  5. 图像比例（1:1、3:4、4:3、16:9、9:16、3:2、2:3）
+  6. 生成张数（1～6，>1 时自动进入组图模式）
+  7. 图片上传（多选按钮，点击后弹出中文指引的选择界面，可上传 1–14 张参考图）
+  8. API Key 输入（默认为 .env 中的 ARK_API_KEY）
+- **隐藏参数**: `watermark=false`、`sequential_image_generation=auto`，无需在 UI 中暴露。
+- **输出**:
+  - `generated_images` 数组（包含 URL、Base64 预览、尺寸信息）
+  - `doubao_preview` 结构（前端实时预览、翻页、下载所需）
+- **特色**:
+  - 自动校准分辨率/比例，确保满足 Seedream 4.x 像素区间限制
+  - 参考图既可来自本地多选上传，也可由上游节点传入
+  - 实时预览框支持组图翻页 + 弹窗放大，满足“实时预览框支持组图翻页”的需求
+  - 按生成张数自动配置 sequential_image_generation_options，实现顺序组图输出
 
 #### 3. 豆包语音合成 v3 (DoubaoTTS)
 - **功能**: 将文本转换为高质量语音
@@ -230,7 +197,33 @@ TS_TOKEN=your_access_token_here  # 火山引擎语音合成v3页面获取的Acce
 
 ## 🚨 故障排除
 
-### 问题1: 页面显示异常（色块、图形错乱）
+### 问题1: 页面白屏 (最常见问题)
+**现象**: 访问 http://localhost:7860 显示空白页面，但检查网络请求发现 assets/*.js 返回的是 HTML 而不是 JavaScript 文件。
+
+**根本原因**: 环境变量未正确设置，LangFlow 从全局安装位置读取前端资源，而不是使用我们构建的前端文件。
+
+**详细分析**:
+1. 直接访问 `http://127.0.0.1:7860/assets/index-*.js` 得到的是 HTML（约 1142 字节）而不是 JS 文件
+2. FastAPI 的 SPA fallback 把首页又回传了一遍
+3. 浏览器加载不到任何 React 代码，导致白屏
+
+**原因追踪**: 使用混合了 Bash (`export`) 和 cmd (`&& ^`) 的语法，导致在 PowerShell 中这些命令被当成普通字符串，环境变量完全没有设置成功。
+
+**立即解决**:
+1. **停止当前服务**: `Ctrl + C`
+2. **使用正确的方法启动** (见上文第5步的任一方法)
+3. **验证环境变量设置**:
+   ```powershell
+   echo $env:PYTHONPATH
+   echo $env:LANGFLOW_COMPONENTS_PATH
+   ```
+
+**预防措施**:
+- 使用 PowerShell 脚本或批处理文件
+- 不要混合使用不同 shell 的语法
+- 确保路径指向当前仓库，而不是旧的全局安装
+
+### 问题2: 页面显示异常（色块、图形错乱）
 **解决方案**:
 1. **强制刷新浏览器**: `Ctrl + Shift + R`
 2. **清除浏览器缓存**:
@@ -238,16 +231,16 @@ TS_TOKEN=your_access_token_here  # 火山引擎语音合成v3页面获取的Acce
    - 或按 `F12` -> 右键刷新按钮 -> "清空缓存并硬性重新加载"
 3. **使用无痕模式**: `Ctrl + Shift + N`
 
-### 问题2: 连接被拒绝 (localhost 拒绝连接)
+### 问题3: 连接被拒绝 (localhost 拒绝连接)
 **解决方案**:
 1. **检查端口占用**:
    ```bash
    netstat -ano | findstr ":7860"
    ```
-2. **使用完整脚本**: 运行上面的 `start-langflow.bat`
+2. **使用完整脚本**: 运行上面的 `python start_service.py`
 3. **检查环境变量**: 确保 PYTHONPATH 和 LANGFLOW_COMPONENTS_PATH 正确设置
 
-### 问题3: 组件未找到
+### 问题4: 组件未找到
 **解决方案**:
 1. **检查组件路径**:
    ```bash
@@ -277,11 +270,17 @@ set LANGFLOW_LOG_LEVEL=debug
 启动后请确认以下项目：
 
 - [ ] http://localhost:7860 可以正常访问
+- [ ] **页面正常显示（非白屏）** - 检查浏览器开发者工具网络标签页，确认 assets/*.js 文件返回的是 JavaScript 而非 HTML
 - [ ] 页面显示正常的LangFlow界面（无色块或错乱图形）
 - [ ] 豆包图片编辑组件在组件库中可见
 - [ ] 可以创建包含豆包组件的新流程
 - [ ] 豆包组件的预览功能正常工作
 - [ ] 控制台无严重错误信息
+- [ ] **环境变量验证**：
+  ```powershell
+  echo $env:PYTHONPATH      # 应包含当前仓库的 backend/base 和 lfx/src 路径
+  echo $env:LANGFLOW_COMPONENTS_PATH  # 应包含当前仓库的 lfx/components 路径
+  ```
 
 ## 🔄 日常开发流程
 
