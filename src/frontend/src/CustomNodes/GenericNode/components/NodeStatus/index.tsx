@@ -42,6 +42,7 @@ export default function NodeStatus({
   isUserEdited,
   isBreakingChange,
   getValidationStatus,
+  hideRunButton = false,
 }: {
   nodeId: string;
   display_name: string;
@@ -56,6 +57,7 @@ export default function NodeStatus({
   isUserEdited: boolean;
   isBreakingChange: boolean;
   getValidationStatus: (data) => VertexBuildTypeAPI | null;
+  hideRunButton?: boolean;
 }) {
   const nodeId_ = data.node?.flow?.data
     ? (findLastNode(data.node?.flow.data!)?.id ?? nodeId)
@@ -489,7 +491,7 @@ export default function NodeStatus({
           )}
         </div>
       )}
-      {showNode && (
+      {showNode && !hideRunButton && (
         <ShadTooltip content={getTooltipContent()}>
           <div
             onMouseEnter={() => setIsHovered(true)}

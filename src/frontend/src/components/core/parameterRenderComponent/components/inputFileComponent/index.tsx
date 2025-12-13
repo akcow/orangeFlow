@@ -30,6 +30,10 @@ export default function InputFileComponent({
   tempFile = true,
   editNode = false,
   id,
+  variant = "default",
+  triggerLabel,
+  triggerClassName,
+  onUploadComplete,
 }: InputProps<string, FileComponentType>): JSX.Element {
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
   const setErrorData = useAlertStore((state) => state.setErrorData);
@@ -131,6 +135,7 @@ export default function InputFileComponent({
                 value: isList ? fileNames : fileNames[0],
                 file_path: isList ? filePaths : filePaths[0],
               });
+              onUploadComplete?.();
             }
           })
           .catch((e) => {
@@ -195,6 +200,29 @@ export default function InputFileComponent({
     }
   }, [files, value, file_path]);
 
+  if (variant === "minimal") {
+    return (
+      <div className="flex w-full flex-col gap-3">
+        <Button
+          className={cn(
+            "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-muted text-sm font-medium text-foreground",
+            triggerClassName,
+          )}
+          onClick={handleButtonClick}
+          disabled={isDisabled}
+        >
+          <ForwardedIconComponent name="Upload" className="h-4 w-4" />
+          <span>{triggerLabel ?? "上传文件"}</span>
+        </Button>
+        {selectedFiles.length > 0 && (
+          <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+            已选择 {selectedFiles.length} 个文件
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
       <div className="flex flex-col gap-2.5">
@@ -240,6 +268,7 @@ export default function InputFileComponent({
                         ? selectedFiles
                         : (selectedFiles[0] ?? ""),
                     });
+                    onUploadComplete?.();
                   }}
                   disabled={isDisabled}
                   types={fileTypes}

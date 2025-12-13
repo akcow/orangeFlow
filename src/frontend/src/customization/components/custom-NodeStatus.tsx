@@ -17,6 +17,7 @@ export function CustomNodeStatus({
   isUserEdited,
   isBreakingChange,
   getValidationStatus,
+  hideRunButton,
 }: {
   nodeId: string;
   display_name: string;
@@ -31,6 +32,7 @@ export function CustomNodeStatus({
   isUserEdited: boolean;
   isBreakingChange: boolean;
   getValidationStatus: (data) => VertexBuildTypeAPI | null;
+  hideRunButton?: boolean;
 }) {
   return (
     <NodeStatus
@@ -47,6 +49,7 @@ export function CustomNodeStatus({
       getValidationStatus={getValidationStatus}
       dismissAll={dismissAll}
       isBreakingChange={isBreakingChange}
+      hideRunButton={hideRunButton}
     />
   );
 }

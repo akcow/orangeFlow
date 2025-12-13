@@ -1,24 +1,45 @@
-import { useCallback, useState, useRef } from 'react';
-import ForwardedIconComponent from '@/components/common/genericIconComponent';
+import { useCallback, useRef, useState } from "react";
+import { cn } from "@/utils/utils";
+import ForwardedIconComponent from "@/components/common/genericIconComponent";
 
-type ImageRendererProps = {
-  src: string;
+export type ImageGalleryItem = {
+  imageSource: string;
   size?: string;
-  onError?: (error: Error) => void;
-  onMeta?: (meta: any) => void;
-  meta?: Record<string, any>;
-  onExpand?: () => void;
+  label?: string;
 };
 
-const ImageRenderer = ({ src, size, onError, onMeta, meta, onExpand }: ImageRendererProps) => {
+type ImageRendererProps = {
+  gallery: ImageGalleryItem[] | null;
+  currentIndex: number;
+  onNavigate: (delta: number) => void;
+  onSelect?: (index: number) => void;
+  onError?: (error: Error) => void;
+  onMeta?: (meta: any) => void;
+};
+
+const ImageRenderer = ({
+  gallery,
+  currentIndex,
+  onNavigate,
+  onSelect,
+  onError,
+  onMeta,
+}: ImageRendererProps) => {
   const [imageError, setImageError] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const handleImageError = useCallback((error: React.SyntheticEvent<HTMLImageElement>) => {
-    console.error('Image load error:', error);
-    setImageError(true);
-    onError?.(new Error('Failed to load image'));
-  }, [onError]);
+  const total = gallery?.length ?? 0;
+  const safeIndex = total ? Math.min(Math.max(currentIndex, 0), total - 1) : 0;
+  const current = total ? gallery![safeIndex] : null;
+
+  const handleImageError = useCallback(
+    (error: React.SyntheticEvent<HTMLImageElement>) => {
+      console.error("Image load error:", error);
+      setImageError(true);
+      onError?.(new Error("Failed to load image"));
+    },
+    [onError],
+  );
 
   const handleImageLoad = useCallback(() => {
     setImageError(false);
@@ -26,55 +47,89 @@ const ImageRenderer = ({ src, size, onError, onMeta, meta, onExpand }: ImageRend
       onMeta({
         width: imgRef.current.naturalWidth,
         height: imgRef.current.naturalHeight,
-        aspectRatio: imgRef.current.naturalWidth / imgRef.current.naturalHeight,
+        aspectRatio:
+          imgRef.current.naturalWidth / imgRef.current.naturalHeight || 1,
       });
     }
   }, [onMeta]);
 
-  if (imageError) {
+  if (!total) {
     return (
-      <div className="flex aspect-[16/9] items-center justify-center rounded-lg bg-red-50 text-red-600">
+      <div className="flex aspect-[16/9] items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-emerald-50/70 text-xs text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+        暂无图片可预览
+      </div>
+    );
+  }
+
+  if (imageError || !current) {
+    return (
+      <div className="flex aspect-[16/9] items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-600 dark:border-red-800 dark:bg-red-950/40">
         <div className="text-center">
-          <ForwardedIconComponent name="ImageOff" className="mx-auto h-8 w-8" />
+          <ForwardedIconComponent name="ImageOff" className="mx-auto h-7 w-7" />
           <p className="mt-2 text-xs">图片加载失败</p>
         </div>
       </div>
     );
   }
 
-  const handleExpand = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
-      onExpand?.();
-    },
-    [onExpand],
-  );
-
   return (
-    <div className="group relative overflow-hidden rounded-lg transition-transform hover:scale-[1.02]">
+    <div className="relative overflow-hidden rounded-2xl border border-emerald-200/60 bg-white/90 shadow-inner dark:border-emerald-500/40 dark:bg-emerald-950/30">
       <img
         ref={imgRef}
-        src={src}
-        alt="Generated image"
-        className="max-h-48 w-full rounded-lg object-cover"
+        src={current.imageSource}
+        alt={current.label ?? "生成结果预览"}
+        className="h-48 w-full rounded-2xl object-cover"
         onError={handleImageError}
         onLoad={handleImageLoad}
         loading="lazy"
       />
-      <button
-        type="button"
-        aria-label="放大预览"
-        onClick={handleExpand}
-        className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 group-hover:bg-black/30 group-hover:opacity-100"
-      >
-        <div className="rounded-full bg-white/90 p-2 shadow-lg">
-          <ForwardedIconComponent name="ZoomIn" className="h-4 w-4 text-gray-800" />
+
+      {current.size && (
+        <div className="absolute bottom-3 left-3 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white shadow">
+          {current.size}
         </div>
-      </button>
-      {size && (
-        <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs text-white">
-          {size}
-        </div>
+      )}
+
+      {total > 1 && (
+        <>
+          <div className="absolute top-3 left-3 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-emerald-700 shadow dark:bg-slate-900/80 dark:text-emerald-100">
+            第 {safeIndex + 1} / {total} 张
+          </div>
+          <button
+            type="button"
+            aria-label="上一张"
+            className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-emerald-700 shadow transition hover:bg-white dark:bg-slate-900"
+            onClick={() => onNavigate(-1)}
+          >
+            <ForwardedIconComponent name="ChevronLeft" className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="下一张"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-emerald-700 shadow transition hover:bg-white dark:bg-slate-900"
+            onClick={() => onNavigate(1)}
+          >
+            <ForwardedIconComponent name="ChevronRight" className="h-4 w-4" />
+          </button>
+          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-2 rounded-full bg-black/30 px-3 py-1">
+            {gallery!.map((item, idx) => (
+              <button
+                key={`dot-${idx}`}
+                type="button"
+                aria-label={`查看第 ${idx + 1} 张`}
+                className={cn(
+                  "h-2.5 w-2.5 rounded-full border border-white/60 transition",
+                  idx === safeIndex
+                    ? "bg-emerald-400"
+                    : "bg-white/40 hover:bg-white/70",
+                )}
+                onClick={() => onSelect?.(idx)}
+              >
+                <span className="sr-only">{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

@@ -14,6 +14,10 @@ export default function CustomInputFileComponent({
   tempFile = true,
   editNode = false,
   id,
+  variant = "default",
+  triggerLabel,
+  triggerClassName,
+  onUploadComplete,
 }: InputProps<string, FileComponentType>): JSX.Element {
   return (
     <InputFileComponent
@@ -26,6 +30,10 @@ export default function CustomInputFileComponent({
       tempFile={tempFile}
       editNode={editNode}
       id={`inputfile_${id}`}
+      variant={variant}
+      triggerLabel={triggerLabel}
+      triggerClassName={triggerClassName}
+      onUploadComplete={onUploadComplete}
     />
   );
 }

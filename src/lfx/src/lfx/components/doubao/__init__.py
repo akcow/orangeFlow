@@ -7,17 +7,15 @@ from lfx.components._importing import import_mod
 if TYPE_CHECKING:
     from lfx.components.doubao.doubao_tts_perfect import DoubaoTTS
     from lfx.components.doubao.doubao_video_generator import DoubaoVideoGenerator
-    from lfx.components.doubao.doubao_image_generator import DoubaoImageGenerator
-    from lfx.components.doubao.doubao_image_editor import DoubaoImageEditor
+    from lfx.components.doubao.doubao_image_creator import DoubaoImageCreator
 
 _dynamic_imports = {
     "DoubaoTTS": "doubao_tts_perfect",
     "DoubaoVideoGenerator": "doubao_video_generator",
-    "DoubaoImageGenerator": "doubao_image_generator",
-    "DoubaoImageEditor": "doubao_image_editor",
+    "DoubaoImageCreator": "doubao_image_creator",
 }
 
-__all__ = ["DoubaoTTS", "DoubaoVideoGenerator", "DoubaoImageGenerator", "DoubaoImageEditor"]
+__all__ = ["DoubaoTTS", "DoubaoVideoGenerator", "DoubaoImageCreator"]
 
 
 def __getattr__(attr_name: str) -> Any:

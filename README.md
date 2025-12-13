@@ -10,7 +10,7 @@
 ## 🎯 项目特色
 
 - **🎨 8个核心组件** - 精选的输入输出组件，专注核心功能
-- **🤖 豆包AI集成** - 集成 DoubaoTTS、DoubaoVideoGenerator、DoubaoImageGenerator 等豆包AI服务
+- **🤖 豆包AI集成** - 集成 DoubaoTTS、DoubaoVideoGenerator、DoubaoImageCreator 等豆包AI服务
 - **🌐 简洁界面** - 清爽的组件展示，专为豆包AI优化的图标和分类
 - **⚡ 快速启动** - 一键启动，开箱即用
 - **🔧 精简配置** - 移除冗余功能，专注核心体验
@@ -64,8 +64,7 @@ cd langflow-pro
 
 - **DoubaoTTS** - 豆包语音合成
 - **DoubaoVideoGenerator** - 豆包视频生成
-- **DoubaoImageGenerator** - 豆包图像生成
-- **DoubaoImageEditor** - 豆包图像编辑
+- **DoubaoImageCreator** - 即梦图片创作（Seedream 4.0/4.5 文生图、图生图、组图预览）
 
 ## ⚙️ 配置说明
 

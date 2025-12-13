@@ -32,6 +32,9 @@ import NodeUpdateComponent from "./components/NodeUpdateComponent";
 import { NodeIcon } from "./components/nodeIcon";
 import RenderInputParameters from "./components/RenderInputParameters";
 import DoubaoPreviewPanel from "./components/DoubaoPreviewPanel";
+import DoubaoImageCreatorLayout from "./components/DoubaoImageCreatorLayout";
+import DoubaoVideoGeneratorLayout from "./components/DoubaoVideoGeneratorLayout";
+import DoubaoAudioLayout from "./components/DoubaoAudioLayout";
 import { isDoubaoComponent } from "../hooks/use-doubao-preview";
 import { useBuildStatus } from "./hooks/use-get-build-status";
 
@@ -113,6 +116,16 @@ function GenericNode({
   );
 
   const showNode = data.showNode ?? true;
+  const isDoubaoImageCreator = data.type === "DoubaoImageCreator";
+  const isDoubaoVideoGenerator = data.type === "DoubaoVideoGenerator";
+  const isDoubaoAudioGenerator = data.type === "DoubaoTTS";
+  const usesWideDoubaoLayout =
+    isDoubaoImageCreator || isDoubaoVideoGenerator || isDoubaoAudioGenerator;
+  const nodeWidthClass = useMemo(() => {
+    if (!showNode) return "w-48";
+    if (usesWideDoubaoLayout) return "w-[760px]";
+    return "w-80";
+  }, [showNode, usesWideDoubaoLayout]);
 
   const getValidationStatus = useCallback((data) => {
     setValidationStatus(data);
@@ -417,11 +430,16 @@ function GenericNode({
               setHasChangedNodeDescription(false);
             }}
             className={cn(
-              "nodrag absolute left-1/2 z-50 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md",
+              "nodrag absolute z-50 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md",
+              !usesWideDoubaoLayout && "left-1/2",
               "transform transition-all duration-300 ease-out",
               showNode
-                ? "top-2 translate-x-[10.4rem]"
-                : "top-0 translate-x-[6.4rem]",
+                ? usesWideDoubaoLayout
+                  ? "top-2 right-6"
+                  : "top-2 left-1/2 translate-x-[10.4rem]"
+                : usesWideDoubaoLayout
+                  ? "top-0 right-6"
+                  : "top-0 left-1/2 translate-x-[6.4rem]",
               editedNameDescription
                 ? "bg-accent-emerald"
                 : "bg-zinc-foreground",
@@ -464,6 +482,7 @@ function GenericNode({
     toggleEditNameDescription,
     selectedNodesCount,
     rightClickedNodeId,
+    usesWideDoubaoLayout,
   ]);
   useEffect(() => {
     if (hiddenOutputs && hiddenOutputs.length === 0) {
@@ -490,9 +509,10 @@ function GenericNode({
       <div
         className={cn(
           borderColor,
-          showNode ? "w-80" : `w-48`,
+          nodeWidthClass,
           "generic-node-div group/node relative rounded-xl border shadow-sm hover:shadow-md",
           !hasOutputs && "pb-4",
+          usesWideDoubaoLayout && "overflow-visible",
         )}
       >
         {openUpdateModal && (
@@ -601,10 +621,11 @@ function GenericNode({
               isUserEdited={isUserEdited}
               isBreakingChange={hasBreakingChange}
               getValidationStatus={getValidationStatus}
+              hideRunButton={usesWideDoubaoLayout}
             />
           </div>
           {showNode && (hasDescription || editNameDescription) && (
-            <div className="px-4 pb-3">
+            <div className={cn("px-4 pb-3", usesWideDoubaoLayout && "px-6")}>
               <MemoizedNodeDescription
                 description={data.node?.description}
                 charLimit={1000}
@@ -618,59 +639,179 @@ function GenericNode({
             </div>
           )}
           {/* 豆包组件预览面板 */}
-          {showNode && isDoubaoComponent(data.type) && (
-            <div className="px-4 pb-3">
-              <DoubaoPreviewPanel nodeId={data.id} componentName={data.type} />
-            </div>
-          )}
+          {showNode &&
+            isDoubaoComponent(data.type) &&
+            !usesWideDoubaoLayout && (
+              <div className="px-4 pb-3">
+                <DoubaoPreviewPanel nodeId={data.id} componentName={data.type} />
+              </div>
+            )}
         </div>
         {showNode && (
           <div className="nopan nodelete nodrag noflow relative cursor-auto">
-            <>
-              <MemoizedRenderInputParameters
-                data={data}
-                types={types}
-                isToolMode={isToolMode}
-                showNode={showNode}
-                shownOutputs={shownOutputs}
-                showHiddenOutputs={showHiddenOutputs}
-              />{" "}
-              <div
-                className={classNames(
-                  Object.keys(data.node!.template).length < 1 ? "hidden" : "",
-                  "flex-max-width justify-center",
-                )}
-              >
-                {" "}
-              </div>
-              <MemoizedNodeOutputs
-                outputs={shownOutputs}
-                keyPrefix={"shown"}
-                data={data}
-                types={types}
-                selected={selected ?? false}
-                showNode={showNode}
-                isToolMode={isToolMode}
-                showHiddenOutputs={showHiddenOutputs}
-                selectedOutput={selectedOutput}
-                handleSelectOutput={handleSelectOutput}
-                hasExistingHiddenOutputs={
-                  !!hiddenOutputs && hiddenOutputs.length > 0
-                }
-              />
-              <MemoizedNodeOutputs
-                outputs={hiddenOutputs}
-                keyPrefix="hidden"
-                data={data}
-                types={types}
-                selected={selected ?? false}
-                showNode={showNode}
-                isToolMode={isToolMode}
-                showHiddenOutputs={true}
-                selectedOutput={selectedOutput}
-                handleSelectOutput={handleSelectOutput}
-              />
-            </>
+            {usesWideDoubaoLayout ? (
+              isDoubaoImageCreator ? (
+                <DoubaoImageCreatorLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  outputsSection={
+                    <>
+                      <MemoizedNodeOutputs
+                        outputs={shownOutputs}
+                        keyPrefix={"doubao-shown"}
+                        data={data}
+                        types={types}
+                        selected={selected ?? false}
+                        showNode={showNode}
+                        isToolMode={isToolMode}
+                        showHiddenOutputs={showHiddenOutputs}
+                        selectedOutput={selectedOutput}
+                        handleSelectOutput={handleSelectOutput}
+                        hasExistingHiddenOutputs={
+                          !!hiddenOutputs && hiddenOutputs.length > 0
+                        }
+                      />
+                      <MemoizedNodeOutputs
+                        outputs={hiddenOutputs}
+                        keyPrefix="doubao-hidden"
+                        data={data}
+                        types={types}
+                        selected={selected ?? false}
+                        showNode={showNode}
+                        isToolMode={isToolMode}
+                        showHiddenOutputs={true}
+                        selectedOutput={selectedOutput}
+                        handleSelectOutput={handleSelectOutput}
+                      />
+                    </>
+                  }
+                />
+              ) : isDoubaoVideoGenerator ? (
+                <DoubaoVideoGeneratorLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  outputsSection={
+                    <>
+                      <MemoizedNodeOutputs
+                        outputs={shownOutputs}
+                        keyPrefix={"doubao-video-shown"}
+                        data={data}
+                        types={types}
+                        selected={selected ?? false}
+                        showNode={showNode}
+                        isToolMode={isToolMode}
+                        showHiddenOutputs={showHiddenOutputs}
+                        selectedOutput={selectedOutput}
+                        handleSelectOutput={handleSelectOutput}
+                        hasExistingHiddenOutputs={
+                          !!hiddenOutputs && hiddenOutputs.length > 0
+                        }
+                      />
+                      <MemoizedNodeOutputs
+                        outputs={hiddenOutputs}
+                        keyPrefix="doubao-video-hidden"
+                        data={data}
+                        types={types}
+                        selected={selected ?? false}
+                        showNode={showNode}
+                        isToolMode={isToolMode}
+                        showHiddenOutputs={true}
+                        selectedOutput={selectedOutput}
+                        handleSelectOutput={handleSelectOutput}
+                      />
+                    </>
+                  }
+                />
+              ) : (
+                <DoubaoAudioLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  outputsSection={
+                    <>
+                      <MemoizedNodeOutputs
+                        outputs={shownOutputs}
+                        keyPrefix={"doubao-audio-shown"}
+                        data={data}
+                        types={types}
+                        selected={selected ?? false}
+                        showNode={showNode}
+                        isToolMode={isToolMode}
+                        showHiddenOutputs={showHiddenOutputs}
+                        selectedOutput={selectedOutput}
+                        handleSelectOutput={handleSelectOutput}
+                        hasExistingHiddenOutputs={
+                          !!hiddenOutputs && hiddenOutputs.length > 0
+                        }
+                      />
+                      <MemoizedNodeOutputs
+                        outputs={hiddenOutputs}
+                        keyPrefix="doubao-audio-hidden"
+                        data={data}
+                        types={types}
+                        selected={selected ?? false}
+                        showNode={showNode}
+                        isToolMode={isToolMode}
+                        showHiddenOutputs={true}
+                        selectedOutput={selectedOutput}
+                        handleSelectOutput={handleSelectOutput}
+                      />
+                    </>
+                  }
+                />
+              )
+            ) : (
+              <>
+                <MemoizedRenderInputParameters
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  showNode={showNode}
+                  shownOutputs={shownOutputs}
+                  showHiddenOutputs={showHiddenOutputs}
+                />
+                <div
+                  className={classNames(
+                    Object.keys(data.node!.template).length < 1 ? "hidden" : "",
+                    "flex-max-width justify-center",
+                  )}
+                >
+                  {" "}
+                </div>
+                <MemoizedNodeOutputs
+                  outputs={shownOutputs}
+                  keyPrefix={"shown"}
+                  data={data}
+                  types={types}
+                  selected={selected ?? false}
+                  showNode={showNode}
+                  isToolMode={isToolMode}
+                  showHiddenOutputs={showHiddenOutputs}
+                  selectedOutput={selectedOutput}
+                  handleSelectOutput={handleSelectOutput}
+                  hasExistingHiddenOutputs={
+                    !!hiddenOutputs && hiddenOutputs.length > 0
+                  }
+                />
+                <MemoizedNodeOutputs
+                  outputs={hiddenOutputs}
+                  keyPrefix="hidden"
+                  data={data}
+                  types={types}
+                  selected={selected ?? false}
+                  showNode={showNode}
+                  isToolMode={isToolMode}
+                  showHiddenOutputs={true}
+                  selectedOutput={selectedOutput}
+                  handleSelectOutput={handleSelectOutput}
+                />
+              </>
+            )}
           </div>
         )}
       </div>

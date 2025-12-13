@@ -11,8 +11,7 @@ COMPONENT_WHITELIST = {
     # 4个豆包AI节点
     "DoubaoTTS",
     "DoubaoVideoGenerator",
-    "DoubaoImageGenerator",
-    "DoubaoImageEditor"
+    "DoubaoImageCreator",
 }
 
 def apply_whitelist_filter(components_dict):

@@ -6,6 +6,18 @@ import getFieldTitle from "@/CustomNodes/utils/get-field-title";
 import { scapedJSONStringfy } from "@/utils/reactflowUtils";
 import NodeInputField from "../NodeInputField";
 
+type RenderInputParametersProps = {
+  data;
+  types;
+  isToolMode;
+  showNode;
+  shownOutputs;
+  showHiddenOutputs;
+  filterFields?: string[];
+  filterMode?: "include" | "exclude";
+  fieldOverrides?: Record<string, { placeholder?: string }>;
+};
+
 const RenderInputParameters = ({
   data,
   types,
@@ -13,7 +25,15 @@ const RenderInputParameters = ({
   showNode,
   shownOutputs,
   showHiddenOutputs,
-}) => {
+  filterFields,
+  filterMode = "exclude",
+  fieldOverrides,
+}: RenderInputParametersProps) => {
+  const filterSet = useMemo(
+    () => (filterFields ? new Set(filterFields) : null),
+    [filterFields],
+  );
+
   const templateFields = useMemo(() => {
     return Object.keys(data.node?.template || {})
       .filter((templateField) => templateField.charAt(0) !== "_")
@@ -30,6 +50,15 @@ const RenderInputParameters = ({
 
   const shownTemplateFields = useMemo(() => {
     return templateFields.filter((templateField) => {
+      if (filterSet) {
+        const shouldInclude =
+          filterMode === "include"
+            ? filterSet.has(templateField)
+            : !filterSet.has(templateField);
+        if (!shouldInclude) {
+          return false;
+        }
+      }
       const template = data.node?.template[templateField];
       return (
         template?.show &&
@@ -91,6 +120,7 @@ const RenderInputParameters = ({
 
       const memoizedColor = memoizedColors.get(templateField);
       const memoizedKey = memoizedKeys.get(templateField);
+      const overrides = fieldOverrides?.[templateField];
 
       return (
         <NodeInputField
@@ -118,6 +148,7 @@ const RenderInputParameters = ({
           showNode={showNode}
           colorName={memoizedColor.colorsName}
           isToolMode={isToolMode && template.tool_mode}
+          placeholderOverride={overrides?.placeholder}
         />
       );
     },

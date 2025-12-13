@@ -76,6 +76,10 @@ export type FileComponentType = {
   file_path?: string | string[];
   isList?: boolean;
   tempFile?: boolean;
+  variant?: "default" | "minimal";
+  triggerLabel?: string;
+  triggerClassName?: string;
+  onUploadComplete?: () => void;
 };
 
 export type PromptAreaComponentType = {

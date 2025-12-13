@@ -44,6 +44,7 @@ export default function NodeInputField({
   showNode,
   colorName,
   isToolMode = false,
+  placeholderOverride,
 }: NodeInputFieldComponentType): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -218,9 +219,10 @@ export default function NodeInputField({
             handleNodeClass={handleNodeClass}
             nodeClass={data.node!}
             placeholder={
-              isToolMode
+              placeholderOverride ??
+              (isToolMode
                 ? DEFAULT_TOOLSET_PLACEHOLDER
-                : data.node?.template[name].placeholder
+                : data.node?.template[name].placeholder)
             }
             isToolMode={isToolMode}
             nodeInformationMetadata={nodeInformationMetadata}
