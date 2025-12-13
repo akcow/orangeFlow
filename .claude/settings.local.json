@@ -31,7 +31,9 @@
       "Bash(cmd /c \"C:\\Users\\wang\\Desktop\\langflow-clean\\start-clean-service.bat\")",
       "Bash(cmd /c \"C:\\Users\\wang\\Desktop\\langflow-clean\\start-service-simple.bat\")",
       "Bash(git checkout:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git fetch:*)",
+      "Bash(git clean:*)"
     ]
   }
 }
