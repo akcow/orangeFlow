@@ -77,6 +77,8 @@ export default function TextAreaComponent({
   const [passwordVisible, setPasswordVisible] = useState(false);
   const webhookAuthEnable = useUtilityStore((state) => state.webhookAuthEnable);
   const [cursor, setCursor] = useState<number | null>(null);
+  const [isComposing, setIsComposing] = useState(false);
+  const [compositionValue, setCompositionValue] = useState<string | null>(null);
 
   const isWebhook = useMemo(
     () => nodeInformationMetadata?.nodeType === "webhook",
@@ -128,7 +130,24 @@ export default function TextAreaComponent({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCursor(e.target.selectionStart);
+    if (isComposing) {
+      setCompositionValue(e.target.value);
+      return;
+    }
     handleOnNewValue({ value: e.target.value });
+  };
+
+  const handleCompositionStart = () => {
+    setIsComposing(true);
+  };
+
+  const handleCompositionEnd = (
+    e: React.CompositionEvent<HTMLInputElement>,
+  ) => {
+    setIsComposing(false);
+    const finalValue = compositionValue ?? e.currentTarget.value;
+    setCompositionValue(null);
+    handleOnNewValue({ value: finalValue });
   };
 
   const changeWebhookFormat = (format: "multiline" | "singleline") => {
@@ -186,6 +205,12 @@ export default function TextAreaComponent({
     </div>
   );
 
+  const resolvedValue = disabled
+    ? ""
+    : isComposing && compositionValue !== null
+      ? compositionValue
+      : value;
+
   return (
     <div className={cn("w-full", disabled && "pointer-events-none")}>
       <Input
@@ -193,7 +218,7 @@ export default function TextAreaComponent({
         onBlur={() => setIsFocused(false)}
         id={id}
         data-testid={id}
-        value={disabled ? "" : value}
+        value={resolvedValue}
         onChange={handleInputChange}
         disabled={disabled}
         className={getInputClassName()}
@@ -201,6 +226,8 @@ export default function TextAreaComponent({
         aria-label={disabled ? value : undefined}
         ref={inputRef}
         type={password ? (passwordVisible ? "text" : "password") : "text"}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         readOnly={isWebhook}
       />
 
@@ -211,12 +238,15 @@ export default function TextAreaComponent({
         disabled={disabled}
         onCloseModal={() => changeWebhookFormat("singleline")}
       >
-        <div
+        <button
+          type="button"
+          aria-label="放大输入"
+          title="放大输入"
           onClick={() => changeWebhookFormat("multiline")}
-          className="relative w-full"
+          className="relative block w-full focus-visible:outline-none"
         >
           {renderIcon()}
-        </div>
+        </button>
       </ComponentTextModal>
       {password && !isFocused && (
         <div

@@ -71,12 +71,6 @@ def copy_frontend_build() -> None:
     shutil.copytree(FRONTEND_BUILD_DIR, BACKEND_FRONTEND_DIR)
     print(f"[copy] synced build to {BACKEND_FRONTEND_DIR.relative_to(REPO_ROOT)}")
 
-def _env_flag(var_name: str, default: bool) -> bool:
-    value = os.environ.get(var_name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
 
 def build_env() -> dict[str, str]:
     env = os.environ.copy()
@@ -87,13 +81,8 @@ def build_env() -> dict[str, str]:
         injected_paths + ([existing_py_path] if existing_py_path else [])
     )
     env["LANGFLOW_COMPONENTS_PATH"] = str(COMPONENTS_PATH)
-
-    auto_login_enabled = _env_flag("START_SERVICE_AUTO_LOGIN", True)
-    env["LANGFLOW_AUTO_LOGIN"] = "true" if auto_login_enabled else "false"
     env["LANGFLOW_SKIP_AUTH_AUTO_LOGIN"] = "true"
-
-    # Allow freshly created accounts to log in immediately in dev mode.
-    env["LANGFLOW_NEW_USER_IS_ACTIVE"] = "true"
+    env["LANGFLOW_AUTO_LOGIN"] = "false"
     env.setdefault("LFX_DEV", "1")
     return env
 
@@ -117,9 +106,6 @@ def main() -> None:
     print("\n[4/5] Environment summary:")
     print(f"   LANGFLOW_COMPONENTS_PATH={env['LANGFLOW_COMPONENTS_PATH']}")
     print(f"   PYTHONPATH={env['PYTHONPATH']}")
-    print(f"   LANGFLOW_AUTO_LOGIN={env['LANGFLOW_AUTO_LOGIN']}")
-    print(f"   LANGFLOW_SKIP_AUTH_AUTO_LOGIN={env['LANGFLOW_SKIP_AUTH_AUTO_LOGIN']}")
-    print(f"   LANGFLOW_NEW_USER_IS_ACTIVE={env['LANGFLOW_NEW_USER_IS_ACTIVE']}")
     print(f"   LFX_DEV={env['LFX_DEV']}")
 
     print("\n[5/5] Starting LangFlow (Ctrl+C to stop)...")

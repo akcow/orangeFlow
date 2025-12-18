@@ -101,6 +101,39 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       () => (isMinimal ? "" : PANEL_BG[kind]),
       [kind, isMinimal],
     );
+    const minimalAspectClass = useMemo(() => {
+      if (!isMinimal) return "";
+      if (appearance === "videoGenerator" || isAudioMinimal) {
+        return "aspect-[170/100]";
+      }
+      return "aspect-square";
+    }, [appearance, isMinimal, isAudioMinimal]);
+
+    const containerClassName = cn(
+      "text-sm",
+      isMinimal
+        ? "h-full text-foreground"
+        : "mt-3 rounded-3xl border border-muted-foreground/20 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-slate-900/60",
+    );
+
+    const previewFrameClassName = cn(
+      "relative flex",
+      isMinimal
+        ? cn(
+            "w-full max-w-full",
+            minimalAspectClass,
+            "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
+          )
+        : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10",
+      panelClass,
+    );
+
+    const previewSurfaceClassName = cn(
+      "flex h-full w-full items-center justify-center",
+      isMinimal
+        ? "rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
+        : "min-h-[320px]",
+    );
 
     const [transientBadge, setTransientBadge] = useState<string | null>(null);
     const showTransientBadge = useCallback((label: string) => {
@@ -216,6 +249,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         })
         .filter(Boolean) as GalleryItem[];
     }, [kind, referenceImages]);
+    const referenceSelectionCount = referenceGallery.length;
 
     const videoPreview = useMemo(() => {
       if (kind !== "video" || !preview?.payload) return null;
@@ -385,12 +419,20 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     }, [downloadInfo, showTransientBadge]);
 
     const hasError = preview?.error;
-    const showUploadOverlay = Boolean(
+    const shouldShowImageUploadOverlay =
       appearance === "imageCreator" &&
-        onRequestUpload &&
-        kind === "image" &&
-        (galleryForRenderer?.length || referenceGallery.length),
+      kind === "image" &&
+      (galleryForRenderer?.length || referenceGallery.length);
+    const shouldShowVideoUploadOverlay = false;
+    const showUploadOverlay = Boolean(
+      onRequestUpload &&
+        (shouldShowImageUploadOverlay || shouldShowVideoUploadOverlay),
     );
+    const uploadButtonLabel = "上传";
+    const showReferenceSelectionBadge =
+      appearance === "imageCreator" &&
+      referenceSelectionCount > 0 &&
+      !hasGeneratedImagePreview;
 
     const inlinePreview = hasRenderablePreview ? (
       <Suspense
@@ -535,15 +577,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     return (
       <>
-        <div
-          ref={forwardedRef}
-          className={cn(
-            "mt-3 text-sm",
-            isMinimal
-              ? "rounded-[18px] border border-[#E4E7F3] bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.08)]"
-              : "rounded-3xl border border-muted-foreground/20 bg-white/80 p-4 shadow-sm dark:bg-slate-900/60",
-          )}
-        >
+        <div ref={forwardedRef} className={containerClassName}>
           {!isMinimal && (
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
@@ -579,24 +613,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             </div>
           )}
 
-          <div
-            className={cn(
-              "relative",
-              isMinimal
-                ? "rounded-[20px] border border-[#E7EBF6] bg-gradient-to-b from-white to-[#F7F8FD] p-4"
-                : "overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3",
-              panelClass,
-            )}
-          >
-            <div
-              className={cn(
-                isMinimal
-                  ? "min-h-[220px] rounded-[16px] border border-[#E1E5F5] bg-[#F9FAFE] p-4"
-                  : "",
-              )}
-            >
+          <div className={previewFrameClassName}>
+            <div className={previewSurfaceClassName}>
               {inlinePreview}
             </div>
+            {showReferenceSelectionBadge && (
+              <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
+                已选 {referenceSelectionCount}
+              </div>
+            )}
 
             {isMinimal ? (
               (showUploadOverlay || hasRenderablePreview || (isAudioMinimal && downloadInfo)) && (
@@ -611,7 +636,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                         onRequestUpload?.();
                       }}
                     >
-                      上传
+                      {uploadButtonLabel}
                     </button>
                   )}
                   {isAudioMinimal && downloadInfo && (
@@ -832,31 +857,50 @@ function EmptyPreview({
     appearance === "imageCreator" ||
     appearance === "videoGenerator" ||
     appearance === "audioCreator";
+  const uploadLinkLabel =
+    appearance === "videoGenerator"
+      ? "暂无生成结果，可上传图片作为视频首帧"
+      : "暂无生成结果，请上传图片";
   if (isMinimal) {
     if (appearance === "videoGenerator") {
-      const suggestions = [
-        { label: "首尾帧生成视频", icon: "Eye" as const },
-        { label: "首帧生成视频", icon: "Sparkles" as const },
-      ];
+      const suggestions = ["图生图", "图生视频", "图片换背景", "首帧图生视频"];
       return (
-        <div className="flex min-h-[220px] flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81]">
-          <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF]">
-            <span className="font-medium text-[#444A63]">尝试：</span>
-            <div className="grid gap-1 text-sm text-[#4B526B]">
+        <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
+          <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF] dark:text-slate-400">
+            <span className="font-medium text-[#444A63] dark:text-slate-200">尝试：</span>
+            <div className="grid gap-1 text-sm text-[#4B526B] dark:text-slate-200">
               {suggestions.map((item) => (
-                <div key={item.label} className="flex items-center justify-center gap-2">
+                <div key={item} className="flex items-center justify-center gap-2">
                   <ForwardedIconComponent
-                    name={item.icon}
-                    className="h-3 w-3 text-[#A4AAC6]"
+                    name="ChevronRight"
+                    className="h-3 w-3 text-[#A4AAC6] dark:text-slate-400"
                   />
-                  <span>{item.label}</span>
+                  <span>{item}</span>
                 </div>
               ))}
             </div>
           </div>
-          <p className="mt-4 text-base font-medium text-[#4B5168]">
-            {isBuilding ? "构建中，稍后自动更新" : "暂无生成结果"}
-          </p>
+          <div className="mt-5">
+            {isBuilding ? (
+              <p className="text-base font-medium text-[#4B5168] dark:text-slate-100">
+                构建中，稍后自动更新
+              </p>
+            ) : (
+              onUploadClick && (
+                <button
+                  type="button"
+                  className="text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onUploadClick();
+                  }}
+                >
+                  {uploadLinkLabel}
+                </button>
+              )
+            )}
+          </div>
         </div>
       );
     }
@@ -866,22 +910,22 @@ function EmptyPreview({
         { label: "音频生视频", icon: "Music" as const },
       ];
       return (
-        <div className="flex min-h-[220px] flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81]">
-          <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF]">
-            <span className="font-medium text-[#444A63]">尝试：</span>
-            <div className="grid gap-1 text-sm text-[#4B526B]">
+        <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
+          <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF] dark:text-slate-400">
+            <span className="font-medium text-[#444A63] dark:text-slate-200">尝试：</span>
+            <div className="grid gap-1 text-sm text-[#4B526B] dark:text-slate-200">
               {suggestions.map((item) => (
                 <div key={item.label} className="flex items-center justify-center gap-2">
                   <ForwardedIconComponent
                     name={item.icon}
-                    className="h-3 w-3 text-[#A4AAC6]"
+                    className="h-3 w-3 text-[#A4AAC6] dark:text-slate-400"
                   />
                   <span>{item.label}</span>
                 </div>
               ))}
             </div>
           </div>
-          <p className="mt-4 text-base font-medium text-[#4B5168]">
+          <p className="mt-4 text-base font-medium text-[#4B5168] dark:text-slate-100">
             {isBuilding ? "构建中，稍后自动更新" : "暂无生成结果"}
           </p>
         </div>
@@ -895,15 +939,15 @@ function EmptyPreview({
       "首帧图生视频",
     ];
     return (
-      <div className="flex min-h-[220px] flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81]">
-        <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF]">
-          <span className="font-medium text-[#444A63]">尝试：</span>
-          <div className="grid gap-1 text-sm text-[#4B526B]">
+      <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
+        <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF] dark:text-slate-400">
+          <span className="font-medium text-[#444A63] dark:text-slate-200">尝试：</span>
+          <div className="grid gap-1 text-sm text-[#4B526B] dark:text-slate-200">
             {suggestions.map((item) => (
               <div key={item} className="flex items-center justify-center gap-2">
                 <ForwardedIconComponent
                   name="ChevronRight"
-                  className="h-3 w-3 text-[#A4AAC6]"
+                  className="h-3 w-3 text-[#A4AAC6] dark:text-slate-400"
                 />
                 <span>{item}</span>
               </div>
@@ -912,7 +956,7 @@ function EmptyPreview({
         </div>
         <button
           type="button"
-          className="mt-4 text-base font-medium text-[#1B66FF] hover:underline"
+          className="mt-4 text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff] dark:hover:text-[#a6c4ff]"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -924,7 +968,7 @@ function EmptyPreview({
             window.dispatchEvent(uploadEvent);
           }}
         >
-          {isBuilding ? "构建中，稍后自动更新" : "暂无生成结果，请上传图片"}
+          {isBuilding ? "构建中，稍后自动更新" : uploadLinkLabel}
         </button>
       </div>
     );
@@ -933,7 +977,7 @@ function EmptyPreview({
   return (
     <div
       className={cn(
-        "flex aspect-[16/9] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-muted-foreground/30 text-sm text-muted-foreground",
+        "flex h-full min-h-[320px] w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-muted-foreground/30 text-sm text-muted-foreground",
         PANEL_BG[kind],
         isBuilding && "opacity-70",
       )}

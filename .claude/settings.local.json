@@ -41,7 +41,10 @@
       "Bash($env:LANGFLOW_NEW_USER_IS_ACTIVE=\"true\")",
       "Bash($env:LFX_DEV=\"1\")",
       "Bash(timeout:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(cmd //c \"taskkill:*)",
+      "Bash(robocopy:*)",
+      "Bash(copy:*)"
     ]
   }
 }

@@ -734,7 +734,7 @@ export default function Page({
     };
   }, [shadowBoxWidth, shadowBoxHeight]);
 
-  const MIN_ZOOM = 0.25;
+  const MIN_ZOOM = 0.1;
   const MAX_ZOOM = 2;
   const fitViewOptions = {
     minZoom: MIN_ZOOM,

@@ -422,7 +422,7 @@ function GenericNode({
             openDropdownOnRightClick={isRightClicked}
           />
         </div>
-        <div className="-z-10">
+        <div>
           <Button
             unstyled
             onClick={() => {
@@ -656,37 +656,6 @@ function GenericNode({
                   types={types}
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
-                  outputsSection={
-                    <>
-                      <MemoizedNodeOutputs
-                        outputs={shownOutputs}
-                        keyPrefix={"doubao-shown"}
-                        data={data}
-                        types={types}
-                        selected={selected ?? false}
-                        showNode={showNode}
-                        isToolMode={isToolMode}
-                        showHiddenOutputs={showHiddenOutputs}
-                        selectedOutput={selectedOutput}
-                        handleSelectOutput={handleSelectOutput}
-                        hasExistingHiddenOutputs={
-                          !!hiddenOutputs && hiddenOutputs.length > 0
-                        }
-                      />
-                      <MemoizedNodeOutputs
-                        outputs={hiddenOutputs}
-                        keyPrefix="doubao-hidden"
-                        data={data}
-                        types={types}
-                        selected={selected ?? false}
-                        showNode={showNode}
-                        isToolMode={isToolMode}
-                        showHiddenOutputs={true}
-                        selectedOutput={selectedOutput}
-                        handleSelectOutput={handleSelectOutput}
-                      />
-                    </>
-                  }
                 />
               ) : isDoubaoVideoGenerator ? (
                 <DoubaoVideoGeneratorLayout
@@ -694,37 +663,6 @@ function GenericNode({
                   types={types}
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
-                  outputsSection={
-                    <>
-                      <MemoizedNodeOutputs
-                        outputs={shownOutputs}
-                        keyPrefix={"doubao-video-shown"}
-                        data={data}
-                        types={types}
-                        selected={selected ?? false}
-                        showNode={showNode}
-                        isToolMode={isToolMode}
-                        showHiddenOutputs={showHiddenOutputs}
-                        selectedOutput={selectedOutput}
-                        handleSelectOutput={handleSelectOutput}
-                        hasExistingHiddenOutputs={
-                          !!hiddenOutputs && hiddenOutputs.length > 0
-                        }
-                      />
-                      <MemoizedNodeOutputs
-                        outputs={hiddenOutputs}
-                        keyPrefix="doubao-video-hidden"
-                        data={data}
-                        types={types}
-                        selected={selected ?? false}
-                        showNode={showNode}
-                        isToolMode={isToolMode}
-                        showHiddenOutputs={true}
-                        selectedOutput={selectedOutput}
-                        handleSelectOutput={handleSelectOutput}
-                      />
-                    </>
-                  }
                 />
               ) : (
                 <DoubaoAudioLayout
@@ -732,37 +670,6 @@ function GenericNode({
                   types={types}
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
-                  outputsSection={
-                    <>
-                      <MemoizedNodeOutputs
-                        outputs={shownOutputs}
-                        keyPrefix={"doubao-audio-shown"}
-                        data={data}
-                        types={types}
-                        selected={selected ?? false}
-                        showNode={showNode}
-                        isToolMode={isToolMode}
-                        showHiddenOutputs={showHiddenOutputs}
-                        selectedOutput={selectedOutput}
-                        handleSelectOutput={handleSelectOutput}
-                        hasExistingHiddenOutputs={
-                          !!hiddenOutputs && hiddenOutputs.length > 0
-                        }
-                      />
-                      <MemoizedNodeOutputs
-                        outputs={hiddenOutputs}
-                        keyPrefix="doubao-audio-hidden"
-                        data={data}
-                        types={types}
-                        selected={selected ?? false}
-                        showNode={showNode}
-                        isToolMode={isToolMode}
-                        showHiddenOutputs={true}
-                        selectedOutput={selectedOutput}
-                        handleSelectOutput={handleSelectOutput}
-                      />
-                    </>
-                  }
                 />
               )
             ) : (

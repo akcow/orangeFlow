@@ -55,7 +55,7 @@ const ImageRenderer = ({
 
   if (!total) {
     return (
-      <div className="flex aspect-[16/9] items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-emerald-50/70 text-xs text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+      <div className="flex h-full min-h-[240px] w-full items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-emerald-50/70 text-xs text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200">
         暂无图片可预览
       </div>
     );
@@ -63,7 +63,7 @@ const ImageRenderer = ({
 
   if (imageError || !current) {
     return (
-      <div className="flex aspect-[16/9] items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-600 dark:border-red-800 dark:bg-red-950/40">
+      <div className="flex h-full min-h-[240px] w-full items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-red-600 dark:border-red-800 dark:bg-red-950/40">
         <div className="text-center">
           <ForwardedIconComponent name="ImageOff" className="mx-auto h-7 w-7" />
           <p className="mt-2 text-xs">图片加载失败</p>
@@ -73,12 +73,12 @@ const ImageRenderer = ({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-emerald-200/60 bg-white/90 shadow-inner dark:border-emerald-500/40 dark:bg-emerald-950/30">
+    <div className="relative flex h-full min-h-[320px] w-full flex-col overflow-hidden rounded-2xl border border-emerald-200/60 bg-white/95 shadow-inner dark:border-emerald-500/40 dark:bg-emerald-950/30">
       <img
         ref={imgRef}
         src={current.imageSource}
         alt={current.label ?? "生成结果预览"}
-        className="h-48 w-full rounded-2xl object-cover"
+        className="h-full w-full flex-1 rounded-2xl object-contain"
         onError={handleImageError}
         onLoad={handleImageLoad}
         loading="lazy"

@@ -15,7 +15,15 @@ type RenderInputParametersProps = {
   showHiddenOutputs;
   filterFields?: string[];
   filterMode?: "include" | "exclude";
-  fieldOverrides?: Record<string, { placeholder?: string }>;
+  fieldOverrides?: Record<
+    string,
+    {
+      placeholder?: string;
+      inputTypes?: string[];
+      type?: string;
+      tooltip?: string;
+    }
+  >;
 };
 
 const RenderInputParameters = ({
@@ -121,6 +129,34 @@ const RenderInputParameters = ({
       const memoizedColor = memoizedColors.get(templateField);
       const memoizedKey = memoizedKeys.get(templateField);
       const overrides = fieldOverrides?.[templateField];
+      const resolvedInputTypes =
+        overrides?.inputTypes ?? template.input_types;
+      const resolvedType = overrides?.type ?? template.type;
+      const tooltipTitle =
+        overrides?.tooltip ??
+        resolvedInputTypes?.join("\n") ??
+        resolvedType;
+      const colorSource =
+        overrides?.inputTypes || overrides?.type
+          ? {
+              colors: getNodeInputColors(resolvedInputTypes, resolvedType, types),
+              colorsName: getNodeInputColorsName(
+                resolvedInputTypes,
+                resolvedType,
+                types,
+              ),
+            }
+          : memoizedColor;
+      const resolvedKey =
+        overrides?.inputTypes || overrides?.type
+          ? scapedJSONStringfy({
+              inputTypes: resolvedInputTypes,
+              type: resolvedType,
+              id: data.id,
+              fieldName: templateField,
+              proxy: template.proxy,
+            })
+          : memoizedKey;
 
       return (
         <NodeInputField
@@ -128,25 +164,26 @@ const RenderInputParameters = ({
             !(shownOutputs.length > 0 || showHiddenOutputs) &&
             idx === shownTemplateFields.length - 1
           }
-          key={memoizedKey}
+          key={resolvedKey}
           data={data}
-          colors={memoizedColor.colors}
+          colors={colorSource.colors}
           title={getFieldTitle(data.node?.template!, templateField)}
           info={template.info!}
           name={templateField}
-          tooltipTitle={template.input_types?.join("\n") ?? template.type}
+          tooltipTitle={tooltipTitle}
           required={template.required}
           id={{
-            inputTypes: template.input_types,
-            type: template.type,
+            inputTypes: resolvedInputTypes,
+            type: resolvedType,
             id: data.id,
             fieldName: templateField,
+            proxy: template.proxy,
           }}
-          type={template.type}
-          optionalHandle={template.input_types}
+          type={resolvedType}
+          optionalHandle={resolvedInputTypes}
           proxy={template.proxy}
           showNode={showNode}
-          colorName={memoizedColor.colorsName}
+          colorName={colorSource.colorsName}
           isToolMode={isToolMode && template.tool_mode}
           placeholderOverride={overrides?.placeholder}
         />

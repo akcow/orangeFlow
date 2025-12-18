@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,10 +9,11 @@ import {
 } from "@/components/ui/dialog";
 import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
-import InputFileComponent from "@/components/core/parameterRenderComponent/components/inputFileComponent";
 import RenderInputParameters from "./RenderInputParameters";
 import { cn } from "@/utils/utils";
-import useHandleOnNewValue from "../../hooks/use-handle-new-value";
+import useHandleOnNewValue, {
+  type handleOnNewValueType,
+} from "../../hooks/use-handle-new-value";
 import type { InputFieldType } from "@/types/api";
 import type { NodeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
@@ -24,13 +25,23 @@ import HandleRenderComponent from "./handleRenderComponent";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
 import { useTypesStore } from "@/stores/typesStore";
+import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-colors";
+import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
 import { BASE_URL_API } from "@/constants/constants";
 import {
   DoubaoParameterButton,
   type DoubaoControlConfig,
   buildRangeOptions,
+  DOUBAO_CONTROL_HINTS,
+  DOUBAO_CONFIG_TOOLTIP,
 } from "./DoubaoParameterButton";
 import type { TypesStoreType } from "@/types/zustand/types";
+import { createFileUpload } from "@/helpers/create-file-upload";
+import useAlertStore from "@/stores/alertStore";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
+import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
+import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_constants";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px] grow-[2]" },
@@ -41,13 +52,23 @@ const CONTROL_FIELDS = [
 
 const PROMPT_NAME = "prompt";
 const REFERENCE_FIELD = "reference_images";
+const MAX_REFERENCE_IMAGES = 14;
+const DEFAULT_REFERENCE_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "bmp",
+  "gif",
+  "tiff",
+];
+const SENSITIVE_FIELDS = ["api_key"];
 
 type DoubaoImageCreatorLayoutProps = {
   data: NodeDataType;
   types: TypesStoreType["types"];
   isToolMode: boolean;
   buildStatus: BuildStatus;
-  outputsSection?: ReactNode;
 };
 
 export default function DoubaoImageCreatorLayout({
@@ -55,14 +76,17 @@ export default function DoubaoImageCreatorLayout({
   types,
   isToolMode,
   buildStatus,
-  outputsSection,
 }: DoubaoImageCreatorLayoutProps) {
   const template = data.node?.template ?? {};
   const customFields = new Set<string>([
     PROMPT_NAME,
     REFERENCE_FIELD,
     ...CONTROL_FIELDS.map((item) => item.name),
+    ...SENSITIVE_FIELDS,
   ]);
+  const hasAdditionalFields = Object.keys(template).some(
+    (field) => !customFields.has(field),
+  );
 
   const referenceField = template[REFERENCE_FIELD];
   const referencePreviews = useMemo<DoubaoReferenceImage[]>(
@@ -77,11 +101,19 @@ export default function DoubaoImageCreatorLayout({
     referenceField?.fileTypesList;
 
   const [isUploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const handleReferenceChange = useHandleOnNewValue({
+  const [isReferenceUploadPending, setReferenceUploadPending] = useState(false);
+  const [managedPreviewIndex, setManagedPreviewIndex] = useState<number | null>(
+    null,
+  );
+  const { handleOnNewValue: handleReferenceChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
     name: REFERENCE_FIELD,
   });
+  const setErrorData = useAlertStore((state) => state.setErrorData);
+  const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
+  const { mutateAsync: uploadReferenceFile } = usePostUploadFile();
+  const { validateFileSize } = useFileSizeValidator();
 
   const [isRunHovering, setRunHovering] = useState(false);
   const buildFlow = useFlowStore((state) => state.buildFlow);
@@ -132,24 +164,236 @@ export default function DoubaoImageCreatorLayout({
         options = buildRangeOptions(templateField);
       }
 
+      const tooltipText =
+        DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
       return {
         ...field,
         template: templateField,
         options,
         value: templateField.value,
+        tooltip: tooltipText,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
   }, [template]);
 
-  const openUploadDialog = () => {
+  const maxReferenceEntries = useMemo(() => {
+    const explicitLimit =
+      (typeof referenceField?.max_length === "number" && referenceField?.max_length) ||
+      (typeof referenceField?.max_files === "number" && referenceField?.max_files) ||
+      (typeof referenceField?.list_max === "number" && referenceField?.list_max);
+    if (typeof explicitLimit === "number" && explicitLimit > 0) {
+      return explicitLimit;
+    }
+    return MAX_REFERENCE_IMAGES;
+  }, [referenceField]);
+  const canAddMoreReferences = selectedReferenceCount < maxReferenceEntries;
+
+  const allowedExtensions = useMemo(() => {
+    const source = referenceFileTypes && referenceFileTypes.length > 0
+      ? referenceFileTypes
+      : DEFAULT_REFERENCE_EXTENSIONS;
+    return source.map((ext) => ext.replace(/^\./, "").toLowerCase());
+  }, [referenceFileTypes]);
+
+  const filePickerAccept = useMemo(
+    () => allowedExtensions.map((ext) => `.${ext}`).join(","),
+    [allowedExtensions],
+  );
+
+  const openUploadDialog = useCallback(() => {
+    if (!referenceField) {
+      setErrorData({
+        title: "无法上传参考图",
+        list: ["当前组件未暴露参考图输入。"],
+      });
+      return;
+    }
+    if (isReferenceUploadPending) return;
     setUploadDialogOpen(true);
-  };
+  }, [referenceField, isReferenceUploadPending, setErrorData]);
+
+  const triggerReferenceUpload = useCallback(() => {
+    if (!referenceField || isReferenceUploadPending) {
+      if (!referenceField) {
+        setErrorData({
+          title: "无法上传参考图",
+          list: ["当前组件未暴露参考图输入。"],
+        });
+      }
+      return;
+    }
+    if (!canAddMoreReferences) {
+      setErrorData({
+        title: "已达到参考图上限",
+        list: [`最多可保留 ${maxReferenceEntries} 张参考图，请删除后再上传。`],
+      });
+      return;
+    }
+    void handleReferenceUpload({
+      referenceField,
+      accept: filePickerAccept,
+      maxEntries: maxReferenceEntries,
+      allowedExtensions,
+      currentFlowId,
+      uploadReferenceFile,
+      validateFileSize,
+      handleReferenceChange,
+      setErrorData,
+      setReferenceUploadPending,
+    });
+  }, [
+    referenceField,
+    isReferenceUploadPending,
+    filePickerAccept,
+    maxReferenceEntries,
+    allowedExtensions,
+    currentFlowId,
+    uploadReferenceFile,
+    validateFileSize,
+    handleReferenceChange,
+    setErrorData,
+    setReferenceUploadPending,
+    canAddMoreReferences,
+  ]);
+
+  const handleReferenceRemove = useCallback(
+    (index: number) => {
+      if (!referenceField) {
+        setErrorData({
+          title: "无法管理参考图",
+          list: ["当前组件未暴露参考图输入。"],
+        });
+        return;
+      }
+      const entries = collectReferenceEntries(referenceField);
+      if (!entries.length) return;
+      const filtered = entries.filter((_, idx) => idx !== index);
+      handleReferenceChange({
+        value: filtered.map((entry) => entry.name),
+        file_path: filtered.map((entry) => entry.path),
+      });
+    },
+    [referenceField, handleReferenceChange, setErrorData],
+  );
+
+  const handleReferenceReplace = useCallback(
+    async (index: number) => {
+      if (!referenceField) {
+        setErrorData({
+          title: "无法替换参考图",
+          list: ["当前组件未暴露参考图输入。"],
+        });
+        return;
+      }
+      if (!currentFlowId) {
+        setErrorData({
+          title: "无法替换参考图",
+          list: ["请先保存或重新打开画布后再试。"],
+        });
+        return;
+      }
+      if (isReferenceUploadPending) return;
+      const files = await createFileUpload({
+        multiple: false,
+        accept: filePickerAccept,
+      });
+      const file = files[0];
+      if (!file) return;
+      try {
+        validateFileSize(file);
+      } catch (error) {
+        if (error instanceof Error) {
+          setErrorData({ title: error.message });
+        }
+        return;
+      }
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      if (
+        allowedExtensions.length &&
+        (!extension || !allowedExtensions.includes(extension))
+      ) {
+        setErrorData({
+          title: INVALID_FILE_ALERT,
+          list: [allowedExtensions.map((ext) => ext.toUpperCase()).join(", ")],
+        });
+        return;
+      }
+      setReferenceUploadPending(true);
+      try {
+        const response = await uploadReferenceFile({
+          file,
+          id: currentFlowId,
+        });
+        const serverPath = response?.file_path;
+        if (!serverPath) {
+          throw new Error("缺少文件路径");
+        }
+        const entries = collectReferenceEntries(referenceField);
+        if (index >= 0 && index < entries.length) {
+          entries[index] = { name: file.name, path: serverPath };
+        } else {
+          entries.push({ name: file.name, path: serverPath });
+        }
+        const limitedEntries =
+          entries.length > maxReferenceEntries
+            ? entries.slice(-maxReferenceEntries)
+            : entries;
+        handleReferenceChange({
+          value: limitedEntries.map((entry) => entry.name),
+          file_path: limitedEntries.map((entry) => entry.path),
+        });
+      } catch (error) {
+        console.error(CONSOLE_ERROR_MSG, error);
+        setErrorData({
+          title: "上传失败",
+          list: [
+            error?.response?.data?.detail ??
+              "网络异常，稍后再试或检查后端日志。",
+          ],
+        });
+      } finally {
+        setReferenceUploadPending(false);
+      }
+    },
+    [
+      referenceField,
+      setErrorData,
+      currentFlowId,
+      isReferenceUploadPending,
+      filePickerAccept,
+      allowedExtensions,
+      uploadReferenceFile,
+      validateFileSize,
+      maxReferenceEntries,
+      handleReferenceChange,
+      setReferenceUploadPending,
+    ],
+  );
 
   useEffect(() => {
     const listener = () => openUploadDialog();
     window.addEventListener("doubao-preview-upload", listener);
     return () => window.removeEventListener("doubao-preview-upload", listener);
   }, []);
+
+  useEffect(() => {
+    if (!isUploadDialogOpen) {
+      setManagedPreviewIndex(null);
+    }
+  }, [isUploadDialogOpen]);
+
+  useEffect(() => {
+    if (!referencePreviews.length) {
+      setManagedPreviewIndex(null);
+      return;
+    }
+    if (
+      managedPreviewIndex !== null &&
+      managedPreviewIndex >= referencePreviews.length
+    ) {
+      setManagedPreviewIndex(referencePreviews.length - 1);
+    }
+  }, [managedPreviewIndex, referencePreviews]);
 
   const referenceHandleMeta = useMemo(() => {
     if (!referenceField) return null;
@@ -181,17 +425,38 @@ export default function DoubaoImageCreatorLayout({
     };
   }, [referenceField, types, data.id]);
 
+  const previewOutputHandles = useMemo(() => {
+    const outputs = data.node?.outputs ?? [];
+    return outputs
+      .filter((output) => !output.hidden)
+      .map((output) => {
+        const colors = getNodeOutputColors(output, data, types);
+        const colorName = getNodeOutputColorsName(output, data, types);
+        const resolvedType = output.selected ?? output.types?.[0] ?? "Data";
+        return {
+          id: {
+            output_types: [resolvedType],
+            id: data.id,
+            dataType: data.type,
+            name: output.name,
+          },
+          colors,
+          colorName,
+          tooltip:
+            output.selected ??
+            output.types?.[0] ??
+            output.display_name ??
+            "图片创作结果",
+          title: output.display_name ?? output.name,
+          proxy: output.proxy,
+        };
+      });
+  }, [data.id, data.node?.outputs, data.type, types]);
+
   return (
     <div className="space-y-4 px-4 pb-4">
-      <div className="rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[#6F768F]">
-          <span>
-            可上传参考图增强生成效果
-            {selectedReferenceCount > 0 && ` · 已选 ${selectedReferenceCount}`}
-          </span>
-        </div>
-
-        <div className="mt-5 flex flex-col gap-5 rounded-[26px] border border-[#EEF1F9] bg-[#F9FAFF] p-5">
+      <div className="rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]">
+        <div className="mt-5 flex flex-col gap-5">
           <div className="relative flex flex-col gap-4 lg:flex-row">
             {referenceHandleMeta && (
               <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:block">
@@ -220,26 +485,49 @@ export default function DoubaoImageCreatorLayout({
                 onRequestUpload={openUploadDialog}
               />
             </div>
-            {outputsSection && (
+            {previewOutputHandles.length > 0 && (
               <div
                 className={cn(
-                  "absolute left-full top-1/2 hidden translate-x-6 -translate-y-1/2 lg:block",
+                  "absolute left-full top-1/2 hidden -translate-y-1/2 pl-6 lg:flex lg:flex-col lg:items-start",
                 )}
               >
-                {outputsSection}
+                {previewOutputHandles.map((handle, index) => (
+                  <div
+                    key={`${handle.id.name ?? "output"}-${index}`}
+                    className="mb-3 last:mb-0"
+                  >
+                    <HandleRenderComponent
+                      left={false}
+                      tooltipTitle={handle.tooltip}
+                      id={handle.id}
+                      title={handle.title}
+                      nodeId={data.id}
+                      myData={typeData}
+                      colors={handle.colors}
+                      setFilterEdge={setFilterEdge}
+                      showNode={true}
+                      testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
+                      proxy={handle.proxy}
+                      colorName={handle.colorName}
+                    />
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          <div className="space-y-3 rounded-[20px] border border-[#E6EAF7] bg-white p-4 text-sm text-[#3C4057] shadow-[0_18px_35px_rgba(15,23,42,0.07)]">
+          <div className="space-y-3">
             <div
               className={cn(
-                "rounded-[12px] border border-[#E8ECF6] bg-[#FDFEFE] p-3",
+                "rounded-[12px] p-3",
                 "[&_.primary-input]:bg-transparent",
                 "[&_.primary-input]:text-[#1C202D]",
                 "[&_.primary-input]:text-sm",
                 "[&_.primary-input]:placeholder:text-[#9CA3C0]",
                 "[&_.text-muted-foreground]:text-[#8D92A8]",
+                "dark:[&_.primary-input]:text-white",
+                "dark:[&_.primary-input]:placeholder:text-slate-400",
+                "dark:[&_.text-muted-foreground]:text-slate-400",
               )}
             >
               <RenderInputParameters
@@ -256,6 +544,7 @@ export default function DoubaoImageCreatorLayout({
                     {
                       placeholder:
                         "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
+                      inputTypes: ["Message"],
                     },
                 }}
               />
@@ -286,46 +575,179 @@ export default function DoubaoImageCreatorLayout({
         </div>
       </div>
 
-      <div className="rounded-[20px] border border-[#ECEFF6] bg-white p-5 shadow-sm">
-        <RenderInputParameters
-          data={data}
-          types={types}
-          isToolMode={isToolMode}
-          showNode
-          shownOutputs={[]}
-          showHiddenOutputs={false}
-          filterFields={Array.from(customFields)}
-          filterMode="exclude"
-        />
-      </div>
+      {hasAdditionalFields && (
+        <div className="mt-5">
+          <RenderInputParameters
+            data={data}
+            types={types}
+            isToolMode={isToolMode}
+            showNode
+            shownOutputs={[]}
+            showHiddenOutputs={false}
+            filterFields={Array.from(customFields)}
+            filterMode="exclude"
+          />
+        </div>
+      )}
 
       <Dialog open={isUploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogContent className="w-[400px]" aria-describedby={undefined}>
+        <DialogContent className="w-[480px]" aria-describedby={undefined}>
           <DialogHeader>
-            <DialogTitle>选择图片</DialogTitle>
+            <DialogTitle>上传参考图</DialogTitle>
             <DialogDescription>
-              支持 JPG/PNG 格式，每张不超过 10MB。
+              支持 JPG/PNG/WebP 等格式，每张不超过 10MB。
             </DialogDescription>
           </DialogHeader>
-          {referenceField && (
-            <InputFileComponent
-              value={referenceField.value}
-              file_path={referenceField.file_path}
-              handleOnNewValue={handleReferenceChange}
-              disabled={false}
-              fileTypes={referenceFileTypes}
-              isList={referenceField.is_list ?? referenceField.list ?? true}
-              tempFile={referenceField.temp_file ?? true}
-              id={`${data.id}-reference-images`}
-              variant="minimal"
-              triggerLabel="从设备上传"
-              triggerClassName="bg-[#F4F5F9] text-[#13141A]"
-              onUploadComplete={() => setUploadDialogOpen(false)}
-            />
+          {referenceField ? (
+            <div className="space-y-4">
+              <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 dark:border dark:border-white/10 dark:bg-[#111a2b]/80">
+                <p className="text-sm font-medium text-foreground">
+                  选择要上传的图片（支持多选）
+                </p>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#F4F5F9] text-sm font-medium text-[#13141A] dark:bg-white/5 dark:text-white",
+                    (isReferenceUploadPending || !canAddMoreReferences) &&
+                      "opacity-70",
+                  )}
+                  onClick={triggerReferenceUpload}
+                  disabled={isReferenceUploadPending || !canAddMoreReferences}
+                >
+                  <ForwardedIconComponent
+                    name={isReferenceUploadPending ? "Loader2" : "Upload"}
+                    className={cn(
+                      "h-4 w-4",
+                      isReferenceUploadPending && "animate-spin",
+                    )}
+                  />
+                  <span>{isReferenceUploadPending ? "上传中..." : "从设备上传"}</span>
+                </button>
+                <p className="text-xs text-muted-foreground">
+                  已选择 {selectedReferenceCount} / {maxReferenceEntries} 张参考图
+                </p>
+                {!canAddMoreReferences && (
+                  <p className="text-xs text-amber-600">
+                    已达到参考图上限，请删除不需要的图片后再上传。
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-3 rounded-2xl border border-dashed border-[#E0E5F2] bg-white/80 p-3 dark:border-white/15 dark:bg-[#0a1220]/70">
+                <div className="flex items-center justify-between text-xs text-[#636A86] dark:text-slate-300">
+                  <span>图片上传管理</span>
+                  <span className="font-medium text-[#1B66FF]">
+                    {selectedReferenceCount} / {maxReferenceEntries}
+                  </span>
+                </div>
+
+                {selectedReferenceCount > 0 ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      {referencePreviews.map((preview, index) => (
+                        <div
+                          key={preview.id ?? `${preview.imageSource}-${index}`}
+                          className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
+                        >
+                          <button
+                            type="button"
+                            className="h-28 w-full overflow-hidden"
+                            onClick={() => setManagedPreviewIndex(index)}
+                          >
+                            <img
+                              src={preview.imageSource}
+                              alt={
+                                preview.label ??
+                                preview.fileName ??
+                                `参考图 ${index + 1}`
+                              }
+                              className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                            />
+                          </button>
+                          <div className="flex items-center justify-between px-3 py-2 text-xs text-[#4B5168] dark:text-slate-200">
+                            <span className="line-clamp-1">
+                              {preview.label ??
+                                preview.fileName ??
+                                `参考图 ${index + 1}`}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                onClick={() => handleReferenceReplace(index)}
+                                disabled={isReferenceUploadPending}
+                              >
+                                替换
+                              </button>
+                              <span className="text-[#CDD2E4] dark:text-slate-600">|</span>
+                              <button
+                                type="button"
+                                className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                onClick={() => setManagedPreviewIndex(index)}
+                              >
+                                查看
+                              </button>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="删除参考图"
+                            className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 shadow transition group-hover:opacity-100"
+                            onClick={() => handleReferenceRemove(index)}
+                          >
+                            <ForwardedIconComponent
+                              name="Trash2"
+                              className="h-3.5 w-3.5"
+                            />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    {managedPreviewIndex !== null &&
+                      referencePreviews[managedPreviewIndex] && (
+                        <div className="space-y-2 rounded-xl border border-[#E2E7F5] bg-[#F8FAFF] p-3 dark:border-white/10 dark:bg-white/5">
+                          <div className="flex items-center justify-between text-xs text-[#4A5168] dark:text-slate-200">
+                            <span>
+                              预览：
+                              {referencePreviews[managedPreviewIndex].label ??
+                                referencePreviews[managedPreviewIndex].fileName ??
+                                `参考图 ${managedPreviewIndex + 1}`}
+                            </span>
+                            <button
+                              type="button"
+                              className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                              onClick={() => setManagedPreviewIndex(null)}
+                            >
+                              收起
+                            </button>
+                          </div>
+                          <div className="h-48 w-full overflow-hidden rounded-lg bg-[#F4F6FB] dark:bg-slate-900/50">
+                            <img
+                              src={
+                                referencePreviews[managedPreviewIndex].imageSource
+                              }
+                              alt="参考图预览"
+                              className="h-full w-full object-contain"
+                            />
+                          </div>
+                        </div>
+                      )}
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    你还没有上传任何参考图。
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              当前组件不支持参考图上传。
+            </p>
           )}
           <DialogFooter>
             <p className="w-full text-center text-xs text-muted-foreground">
-              可多选图片，帮助模型理解目标风格
+              最多可保留 {maxReferenceEntries} 张参考图，支持多选。
             </p>
           </DialogFooter>
         </DialogContent>
@@ -459,4 +881,143 @@ function extractFileName(value: string): string | undefined {
   const sanitized = value.replace(/\\/g, "/");
   const parts = sanitized.split("/");
   return parts.pop() || undefined;
+}
+
+type ReferenceEntry = { name: string; path: string };
+
+type ReferenceUploadMutation = (
+  payload: { file: File; id: string },
+  options?: any,
+) => Promise<{ file_path?: string }>;
+
+async function handleReferenceUpload({
+  referenceField,
+  accept,
+  maxEntries,
+  allowedExtensions,
+  currentFlowId,
+  uploadReferenceFile,
+  validateFileSize,
+  handleReferenceChange,
+  setErrorData,
+  setReferenceUploadPending,
+}: {
+  referenceField: InputFieldType;
+  accept: string;
+  maxEntries: number;
+  allowedExtensions: string[];
+  currentFlowId: string;
+  uploadReferenceFile: ReferenceUploadMutation;
+  validateFileSize: (file: File) => void;
+  handleReferenceChange: handleOnNewValueType;
+  setErrorData: ReturnType<typeof useAlertStore>["setErrorData"];
+  setReferenceUploadPending: (loading: boolean) => void;
+}) {
+  if (!referenceField) return;
+  if (!currentFlowId) {
+    setErrorData({
+      title: "无法上传参考图",
+      list: ["请先保存或重新打开画布后再试。"],
+    });
+    return;
+  }
+
+  const files = await createFileUpload({
+    multiple: true,
+    accept,
+  });
+  if (!files.length) return;
+
+  for (const file of files) {
+    try {
+      validateFileSize(file);
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorData({ title: error.message });
+      }
+      return;
+    }
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (
+      allowedExtensions.length &&
+      (!extension || !allowedExtensions.includes(extension))
+    ) {
+      setErrorData({
+        title: INVALID_FILE_ALERT,
+        list: [allowedExtensions.map((ext) => ext.toUpperCase()).join(", ")],
+      });
+      return;
+    }
+  }
+
+  setReferenceUploadPending(true);
+  try {
+    const uploadedEntries: ReferenceEntry[] = [];
+    for (const file of files) {
+      try {
+        const response = await uploadReferenceFile({
+          file,
+          id: currentFlowId,
+        });
+        const serverPath = response?.file_path;
+        if (!serverPath) {
+          throw new Error("缺少文件路径");
+        }
+        uploadedEntries.push({ name: file.name, path: serverPath });
+      } catch (error) {
+        console.error(CONSOLE_ERROR_MSG, error);
+        setErrorData({
+          title: "上传失败",
+          list: [
+            error?.response?.data?.detail ??
+              "网络异常，稍后再试或检查后端日志。",
+          ],
+        });
+        return;
+      }
+    }
+
+    if (!uploadedEntries.length) return;
+
+    const existingEntries = collectReferenceEntries(referenceField);
+    const mergedEntries = [...existingEntries, ...uploadedEntries];
+    const limitedEntries =
+      mergedEntries.length > maxEntries
+        ? mergedEntries.slice(-maxEntries)
+        : mergedEntries;
+
+    handleReferenceChange({
+      value: limitedEntries.map((entry) => entry.name),
+      file_path: limitedEntries.map((entry) => entry.path),
+    });
+  } finally {
+    setReferenceUploadPending(false);
+  }
+}
+
+function collectReferenceEntries(field?: InputFieldType): ReferenceEntry[] {
+  if (!field) return [];
+  const values = toArray(field.value);
+  const paths = toArray(field.file_path);
+  const length = Math.max(values.length, paths.length);
+  const entries: ReferenceEntry[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const resolvedPath =
+      extractReferenceSource(paths[index]) ??
+      (typeof paths[index] === "string" ? (paths[index] as string) : null);
+    if (!resolvedPath) continue;
+    const rawValue = values[index];
+    const resolvedName =
+      (typeof rawValue === "string" && rawValue.trim()) ||
+      (rawValue && typeof rawValue === "object"
+        ? extractReferenceLabel(rawValue)
+        : undefined) ||
+      extractFileName(resolvedPath) ||
+      `参考图 ${index + 1}`;
+    entries.push({
+      name: resolvedName,
+      path: resolvedPath,
+    });
+  }
+  return entries;
 }
