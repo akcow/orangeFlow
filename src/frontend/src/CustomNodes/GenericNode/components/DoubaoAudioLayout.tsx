@@ -30,6 +30,7 @@ type Props = {
   types: any;
   isToolMode: boolean;
   buildStatus: BuildStatus;
+  selected?: boolean;
 };
 
 export default function DoubaoAudioLayout({
@@ -37,8 +38,10 @@ export default function DoubaoAudioLayout({
   types,
   isToolMode,
   buildStatus,
+  selected = false,
 }: Props) {
   const template = data.node?.template ?? {};
+  const showExpanded = Boolean(selected);
 
   const [isRunHovering, setRunHovering] = useState(false);
   const buildFlow = useFlowStore((state) => state.buildFlow);
@@ -163,6 +166,7 @@ export default function DoubaoAudioLayout({
             )}
           </div>
 
+          {showExpanded && (
           <div className="space-y-3 text-sm text-[#3C4057] dark:text-slate-100">
             <div
               className={cn(
@@ -218,6 +222,7 @@ export default function DoubaoAudioLayout({
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
 

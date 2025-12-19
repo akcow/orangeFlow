@@ -80,6 +80,7 @@ type Props = {
   types: any;
   isToolMode: boolean;
   buildStatus: BuildStatus;
+  selected?: boolean;
 };
 
 export default function DoubaoVideoGeneratorLayout({
@@ -87,8 +88,10 @@ export default function DoubaoVideoGeneratorLayout({
   types,
   isToolMode,
   buildStatus,
+  selected = false,
 }: Props) {
   const template = data.node?.template ?? {};
+  const showExpanded = Boolean(selected);
   const customFields = new Set<string>([
     PROMPT_NAME,
     FIRST_FRAME_FIELD,
@@ -396,6 +399,7 @@ export default function DoubaoVideoGeneratorLayout({
             )}
           </div>
 
+          {showExpanded && (
           <div className="space-y-3 text-sm text-[#3C4057] dark:text-slate-100">
             <div
               className={cn(
@@ -451,10 +455,11 @@ export default function DoubaoVideoGeneratorLayout({
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
 
-      {hasAdditionalFields && (
+      {showExpanded && hasAdditionalFields && (
         <div className="mt-5">
           <RenderInputParameters
             data={data}
@@ -469,7 +474,10 @@ export default function DoubaoVideoGeneratorLayout({
         </div>
       )}
 
-      <Dialog open={isFirstFrameDialogOpen} onOpenChange={setFirstFrameDialogOpen}>
+      <Dialog
+        open={isFirstFrameDialogOpen}
+        onOpenChange={setFirstFrameDialogOpen}
+      >
         <DialogContent className="w-[500px]" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>上传首帧图片</DialogTitle>

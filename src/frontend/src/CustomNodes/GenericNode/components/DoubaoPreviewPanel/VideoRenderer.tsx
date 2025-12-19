@@ -131,7 +131,9 @@ const VideoRenderer = ({
   return (
     <div
       className={
-        isModal ? "flex flex-col gap-4" : "relative overflow-hidden rounded-2xl bg-black"
+        isModal
+          ? "flex flex-col gap-4"
+          : "relative overflow-hidden rounded-2xl bg-black min-h-[220px]"
       }
     >
       <video
@@ -141,7 +143,7 @@ const VideoRenderer = ({
         className={
           isModal
             ? "max-h-[60vh] w-full rounded-xl object-contain"
-            : "max-h-48 w-full rounded-2xl object-cover"
+            : "w-full rounded-2xl object-contain aspect-video max-h-[420px]"
         }
         preload="metadata"
         playsInline

@@ -82,6 +82,7 @@ type DoubaoImageCreatorLayoutProps = {
   types: TypesStoreType["types"];
   isToolMode: boolean;
   buildStatus: BuildStatus;
+  selected?: boolean;
 };
 
 export default function DoubaoImageCreatorLayout({
@@ -89,8 +90,10 @@ export default function DoubaoImageCreatorLayout({
   types,
   isToolMode,
   buildStatus,
+  selected = false,
 }: DoubaoImageCreatorLayoutProps) {
   const template = data.node?.template ?? {};
+  const showExpanded = Boolean(selected);
   const customFields = new Set<string>([
     PROMPT_NAME,
     REFERENCE_FIELD,
@@ -525,6 +528,7 @@ export default function DoubaoImageCreatorLayout({
             )}
           </div>
 
+          {showExpanded && (
           <div className="space-y-3">
             <div
               className={cn(
@@ -581,10 +585,11 @@ export default function DoubaoImageCreatorLayout({
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
 
-      {hasAdditionalFields && (
+      {showExpanded && hasAdditionalFields && (
         <div className="mt-5">
           <RenderInputParameters
             data={data}

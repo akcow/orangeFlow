@@ -9,6 +9,7 @@ import useAlertStore from "../../../stores/alertStore";
 import { Separator } from "../../ui/separator";
 import ForwardedIconComponent from "../genericIconComponent";
 import { sanitizePreviewDataUrl } from "@/CustomNodes/GenericNode/components/DoubaoPreviewPanel/helpers";
+import { toRenderableImageSource } from "@/CustomNodes/GenericNode/components/DoubaoPreviewPanel/helpers";
 
 export default function ImageViewer({ image }: { image: string }) {
   const viewerRef = useRef(null);
@@ -16,64 +17,85 @@ export default function ImageViewer({ image }: { image: string }) {
   const setErrorList = useAlertStore((state) => state.setErrorData);
   const [_initialMsg, _setInicialMsg] = useState("Please build your flow");
 
-  const normalizedImage =
-    sanitizePreviewDataUrl(image) ?? image;
+  const normalizedImage = sanitizePreviewDataUrl(image) ?? image;
+  const [renderSource, setRenderSource] = useState(normalizedImage);
 
   useEffect(() => {
-    try {
-      if (viewerRef.current) {
-        // Initialize OpenSeadragon viewer
-        const viewer = OpenSeadragon({
-          element: viewerRef.current,
-          prefixUrl:
-            "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.4.2/images/", // Optional: Set the path to OpenSeadragon images
-          tileSources: { type: "image", url: normalizedImage },
-          defaultZoomLevel: 1,
-          maxZoomPixelRatio: 4,
-          showNavigationControl: false,
-        });
-        const zoomInButton = document.getElementById("zoom-in-button");
-        const zoomOutButton = document.getElementById("zoom-out-button");
-        const homeButton = document.getElementById("home-button");
-        const fullPageButton = document.getElementById("full-page-button");
+    let revoke: (() => void) | undefined;
+    let destroyed = false;
+    const setup = async () => {
+      const { url, revoke: revokeFn } = await toRenderableImageSource(
+        normalizedImage,
+      );
+      if (destroyed) {
+        revokeFn?.();
+        return;
+      }
+      setRenderSource(url);
+      revoke = revokeFn;
+      try {
+        if (viewerRef.current) {
+          const viewer = OpenSeadragon({
+            element: viewerRef.current,
+            prefixUrl:
+              "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.4.2/images/",
+            tileSources: { type: "image", url },
+            defaultZoomLevel: 1,
+            maxZoomPixelRatio: 4,
+            showNavigationControl: false,
+          });
+          const zoomInButton = document.getElementById("zoom-in-button");
+          const zoomOutButton = document.getElementById("zoom-out-button");
+          const homeButton = document.getElementById("home-button");
+          const fullPageButton = document.getElementById("full-page-button");
 
-        zoomInButton!.addEventListener("click", () =>
-          viewer.viewport.zoomBy(1.2),
-        );
-        zoomOutButton!.addEventListener("click", () =>
-          viewer.viewport.zoomBy(0.8),
-        );
-        homeButton!.addEventListener("click", () => viewer.viewport.goHome());
-        fullPageButton!.addEventListener("click", () =>
-          viewer.setFullScreen(true),
-        );
-
-        // Optionally, you can set additional viewer options here
-
-        // Cleanup function
-        return () => {
-          viewer.destroy();
-          zoomInButton!.removeEventListener("click", () =>
+          zoomInButton!.addEventListener("click", () =>
             viewer.viewport.zoomBy(1.2),
           );
-          zoomOutButton!.removeEventListener("click", () =>
+          zoomOutButton!.addEventListener("click", () =>
             viewer.viewport.zoomBy(0.8),
           );
-          homeButton!.removeEventListener("click", () =>
+          homeButton!.addEventListener("click", () =>
             viewer.viewport.goHome(),
           );
-          fullPageButton!.removeEventListener("click", () =>
+          fullPageButton!.addEventListener("click", () =>
             viewer.setFullScreen(true),
           );
-        };
+
+          return () => {
+            viewer.destroy();
+            zoomInButton!.removeEventListener("click", () =>
+              viewer.viewport.zoomBy(1.2),
+            );
+            zoomOutButton!.removeEventListener("click", () =>
+              viewer.viewport.zoomBy(0.8),
+            );
+            homeButton!.removeEventListener("click", () =>
+              viewer.viewport.goHome(),
+            );
+            fullPageButton!.removeEventListener("click", () =>
+              viewer.setFullScreen(true),
+            );
+          };
+        }
+      } catch (error) {
+        console.error("Error initializing OpenSeadragon:", error);
       }
-    } catch (error) {
-      console.error("Error initializing OpenSeadragon:", error);
-    }
+    };
+
+    const cleanupOrchestrator = setup();
+
+    return () => {
+      destroyed = true;
+      revoke?.();
+      if (typeof cleanupOrchestrator === "function") {
+        cleanupOrchestrator();
+      }
+    };
   }, [normalizedImage]);
 
   function download() {
-    const imageUrl = normalizedImage;
+    const imageUrl = renderSource || normalizedImage;
     // Fetch the image data
     fetch(imageUrl)
       .then((response) => response.blob())

@@ -681,6 +681,7 @@ function GenericNode({
                   types={types}
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
+                  selected={selected ?? false}
                 />
               ) : isDoubaoVideoGenerator ? (
                 <DoubaoVideoGeneratorLayout
@@ -688,6 +689,7 @@ function GenericNode({
                   types={types}
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
+                  selected={selected ?? false}
                 />
               ) : (
                 <DoubaoAudioLayout
@@ -695,6 +697,7 @@ function GenericNode({
                   types={types}
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
+                  selected={selected ?? false}
                 />
               )
             ) : (
