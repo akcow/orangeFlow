@@ -45,6 +45,18 @@ const MemoizedNodeStatus = memo(CustomNodeStatus);
 const MemoizedNodeDescription = memo(NodeDescription);
 const MemoizedNodeOutputs = memo(NodeOutputs);
 
+const DOUBAO_DEFAULT_DESCRIPTIONS: Record<string, Array<string>> = {
+  DoubaoImageCreator: [
+    "基于多种图片创作模型，提供文本生成图片、参考图编辑与组图能力，支持实时预览、多图上传、分辨率与比例一体化配置。",
+  ],
+  DoubaoVideoGenerator: [
+    "调用豆包视频生成接口，支持文生视频和图生视频，可自定义模型、提示词与分辨率等参数。",
+  ],
+  DoubaoTTS: [
+    "调用豆包语音合成v3双向流式接口，将文本转换为语音。",
+  ],
+};
+
 const _HiddenOutputsButton = memo(
   ({
     showHiddenOutputs,
@@ -366,9 +378,22 @@ function GenericNode({
   const editedNameDescription =
     editNameDescription && hasChangedNodeDescription;
 
+  const rawDescription = data.node?.description ?? "";
+  const sanitizedDescription = rawDescription.trim();
+  const isDoubaoType = isDoubaoComponent(data.type);
+
+  const isLegacyDoubaoDescription = useMemo(() => {
+    if (!isDoubaoType || sanitizedDescription === "") return false;
+    const defaults = DOUBAO_DEFAULT_DESCRIPTIONS[data.type] ?? [];
+    return defaults.includes(sanitizedDescription);
+  }, [data.type, isDoubaoType, sanitizedDescription]);
+
+  const effectiveDescription = isLegacyDoubaoDescription ? "" : rawDescription;
+
   const hasDescription = useMemo(() => {
-    return data.node?.description && data.node?.description !== "";
-  }, [data.node?.description]);
+    if (effectiveDescription.trim() === "") return false;
+    return true;
+  }, [effectiveDescription]);
 
   const selectedNodesCount = useMemo(() => {
     return useFlowStore.getState().nodes.filter((node) => node.selected).length;
@@ -627,7 +652,7 @@ function GenericNode({
           {showNode && (hasDescription || editNameDescription) && (
             <div className={cn("px-4 pb-3", usesWideDoubaoLayout && "px-6")}>
               <MemoizedNodeDescription
-                description={data.node?.description}
+                description={effectiveDescription}
                 charLimit={1000}
                 mdClassName={"dark:prose-invert"}
                 nodeId={data.id}

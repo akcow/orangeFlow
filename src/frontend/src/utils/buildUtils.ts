@@ -162,6 +162,8 @@ export async function buildFlowVerticesWithFallback(
 }
 
 const MIN_VISUAL_BUILD_TIME_MS = 300;
+const NO_BUILD_RESULTS_ERROR_MESSAGE =
+  "No components were executed. Please check required inputs and try again.";
 
 async function pollBuildEvents(
   url: string,
@@ -571,7 +573,23 @@ async function onEvent(
       return true;
     }
     case "end": {
-      const allNodesValid = buildResults.every((result) => result);
+      const expectedVertices =
+        useFlowStore.getState().verticesBuild?.verticesToRun ?? [];
+      const hasBuildResults = buildResults.length > 0;
+      const allNodesValid =
+        hasBuildResults && buildResults.every((result) => result);
+
+      if (!hasBuildResults && onBuildError) {
+        const targetIds =
+          expectedVertices.length > 0
+            ? expectedVertices.map((id) => ({ id }))
+            : undefined;
+        onBuildError(
+          "Error Building Flow",
+          [NO_BUILD_RESULTS_ERROR_MESSAGE],
+          targetIds,
+        );
+      }
       onBuildComplete && onBuildComplete(allNodesValid);
       useFlowStore.getState().setIsBuilding(false);
       return true;
@@ -649,6 +667,22 @@ export async function buildVertices({
   let currentLayerIndex = 0; // Start with the first layer
   // Set each vertex state to building
   const buildResults: Array<boolean> = [];
+  const finalizeBuild = () => {
+    const hasBuildResults = buildResults.length > 0;
+    const allNodesValid =
+      hasBuildResults && buildResults.every((result) => result);
+    if (!hasBuildResults && onBuildError) {
+      onBuildError(
+        "Error Building Flow",
+        [NO_BUILD_RESULTS_ERROR_MESSAGE],
+        verticesIds.map((id) => ({ id })),
+      );
+    }
+    if (onBuildComplete) {
+      onBuildComplete(allNodesValid);
+    }
+    useFlowStore.getState().setIsBuilding(false);
+  };
 
   // Build each layer
   while (
@@ -660,11 +694,7 @@ export async function buildVertices({
       useFlowStore.getState().verticesBuild?.verticesLayers![currentLayerIndex];
     // If there are no more layers, we are done
     if (!currentLayer) {
-      if (onBuildComplete) {
-        const allNodesValid = buildResults.every((result) => result);
-        onBuildComplete(allNodesValid);
-        useFlowStore.getState().setIsBuilding(false);
-      }
+      finalizeBuild();
       return;
     }
     // If there is a callback for the start of the build, call it
@@ -729,11 +759,7 @@ export async function buildVertices({
       break;
     }
   }
-  if (onBuildComplete) {
-    const allNodesValid = buildResults.every((result) => result);
-    onBuildComplete(allNodesValid);
-    useFlowStore.getState().setIsBuilding(false);
-  }
+  finalizeBuild();
 }
 
 async function buildVertex({

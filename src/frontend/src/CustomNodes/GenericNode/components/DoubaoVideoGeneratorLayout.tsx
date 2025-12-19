@@ -61,6 +61,19 @@ const DEFAULT_FIRST_FRAME_EXTENSIONS = [
 ];
 const FIRST_FRAME_MAX_UPLOADS = 6;
 const SENSITIVE_FIELDS = ["api_key"];
+const FIRST_FRAME_FIELD_FALLBACK: InputFieldType = {
+  type: "file",
+  required: false,
+  placeholder: "",
+  list: true,
+  show: true,
+  readonly: false,
+  name: "first_frame_image",
+  display_name: "首帧图输入",
+  input_types: ["Data"],
+  file_types: DEFAULT_FIRST_FRAME_EXTENSIONS,
+  fileTypes: DEFAULT_FIRST_FRAME_EXTENSIONS,
+};
 
 type Props = {
   data: NodeDataType;
@@ -85,7 +98,29 @@ export default function DoubaoVideoGeneratorLayout({
   const hasAdditionalFields = Object.keys(template).some(
     (field) => !customFields.has(field),
   );
-  const firstFrameField = template[FIRST_FRAME_FIELD];
+  const firstFrameFieldRaw = template[FIRST_FRAME_FIELD];
+  const firstFrameField = useMemo<InputFieldType>(() => {
+    if (!firstFrameFieldRaw) return FIRST_FRAME_FIELD_FALLBACK;
+    const normalizedInputTypes =
+      firstFrameFieldRaw.input_types && firstFrameFieldRaw.input_types.length > 0
+        ? firstFrameFieldRaw.input_types
+        : FIRST_FRAME_FIELD_FALLBACK.input_types;
+    const normalizedFileTypes =
+      firstFrameFieldRaw.file_types && firstFrameFieldRaw.file_types.length > 0
+        ? firstFrameFieldRaw.file_types
+        : FIRST_FRAME_FIELD_FALLBACK.file_types;
+    const normalizedCamelFileTypes =
+      firstFrameFieldRaw.fileTypes && firstFrameFieldRaw.fileTypes.length > 0
+        ? firstFrameFieldRaw.fileTypes
+        : FIRST_FRAME_FIELD_FALLBACK.fileTypes;
+    return {
+      ...FIRST_FRAME_FIELD_FALLBACK,
+      ...firstFrameFieldRaw,
+      input_types: normalizedInputTypes,
+      file_types: normalizedFileTypes,
+      fileTypes: normalizedCamelFileTypes,
+    };
+  }, [firstFrameFieldRaw]);
   const [isFirstFrameDialogOpen, setFirstFrameDialogOpen] = useState(false);
   const [isFirstFrameUploadPending, setFirstFrameUploadPending] = useState(false);
   const { handleOnNewValue: handleFirstFrameChange } = useHandleOnNewValue({
@@ -185,7 +220,6 @@ export default function DoubaoVideoGeneratorLayout({
   );
 
   const firstFrameHandleMeta = useMemo(() => {
-    if (!firstFrameField) return null;
     const colors = getNodeInputColors(
       firstFrameField.input_types,
       firstFrameField.type,
@@ -215,25 +249,12 @@ export default function DoubaoVideoGeneratorLayout({
   }, [firstFrameField, types, data.id]);
 
   const openFirstFrameDialog = useCallback(() => {
-    if (!firstFrameField) {
-      setErrorData({
-        title: "无法上传首帧图",
-        list: ["当前组件未暴露首帧图片输入。"],
-      });
-      return;
-    }
     if (isFirstFrameUploadPending) return;
     setFirstFrameDialogOpen(true);
-  }, [firstFrameField, isFirstFrameUploadPending, setErrorData]);
+  }, [isFirstFrameUploadPending]);
 
   const triggerFirstFrameUpload = useCallback(() => {
-    if (!firstFrameField || isFirstFrameUploadPending) {
-      if (!firstFrameField) {
-        setErrorData({
-          title: "无法上传首帧图",
-          list: ["当前组件未暴露首帧图片输入。"],
-        });
-      }
+    if (isFirstFrameUploadPending) {
       return;
     }
     void handleFirstFrameUpload({
@@ -262,7 +283,6 @@ export default function DoubaoVideoGeneratorLayout({
 
   const handleFirstFrameRemove = useCallback(
     (index: number) => {
-      if (!firstFrameField) return;
       const entries = collectFirstFrameEntries(firstFrameField);
       if (!entries.length || index < 0 || index >= entries.length) return;
       entries.splice(index, 1);
@@ -276,7 +296,7 @@ export default function DoubaoVideoGeneratorLayout({
 
   const handleSetPrimaryFirstFrame = useCallback(
     (index: number) => {
-      if (!firstFrameField || index <= 0) return;
+      if (index <= 0) return;
       const entries = collectFirstFrameEntries(firstFrameField);
       if (index >= entries.length) return;
       const [selected] = entries.splice(index, 1);
@@ -600,7 +620,6 @@ async function handleFirstFrameUpload({
   setReferenceUploadPending: (loading: boolean) => void;
   maxEntries: number;
 }) {
-  if (!referenceField) return;
   if (!currentFlowId) {
     setErrorData({
       title: "无法上传首帧图",
@@ -682,8 +701,7 @@ async function handleFirstFrameUpload({
   }
 }
 
-function collectFirstFrameEntries(field?: InputFieldType): FirstFrameEntry[] {
-  if (!field) return [];
+function collectFirstFrameEntries(field: InputFieldType): FirstFrameEntry[] {
   const values = toArray(field.value);
   const paths = toArray(field.file_path);
   const length = Math.max(values.length, paths.length);
@@ -710,9 +728,8 @@ function collectFirstFrameEntries(field?: InputFieldType): FirstFrameEntry[] {
 }
 
 function buildFirstFramePreviewItems(
-  field: InputFieldType | undefined,
+  field: InputFieldType,
 ): DoubaoReferenceImage[] {
-  if (!field) return [];
   const pathEntries = toArray(field?.file_path);
   const valueEntries = toArray(field?.value);
   const maxLength = Math.max(pathEntries.length, valueEntries.length);

@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 import time
 import base64
+import mimetypes
 import requests
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -18,7 +20,8 @@ from lfx.inputs.inputs import (
     DropdownInput,
     IntInput,
     SecretStrInput,
-    MultilineInput
+    MultilineInput,
+    FileInput,
 )
 from lfx.template.field.base import Output
 
@@ -29,7 +32,7 @@ class DoubaoVideoGenerator(Component):
     """调用豆包文生视频接口的 LFX 组件，支持异步生成和状态轮询。"""
 
     display_name = "豆包文生视频"
-    description = "调用豆包视频生成接口，支持文生视频和图生视频，可自定义模型、提示词与分辨率等参数。"
+    description = ""
     icon = "DoubaoVideoGenerator"
     name = "DoubaoVideoGenerator"
 
@@ -72,6 +75,15 @@ class DoubaoVideoGenerator(Component):
             required=False,
             value=5,
             info="生成视频的时长（秒），范围2-12秒。",
+        ),
+        FileInput(
+            name="first_frame_image",
+            display_name="首帧图输入",
+            is_list=True,
+            list_add_label="继续添加候选图",
+            file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"],
+            input_types=["Data"],
+            info="可选：上传参考图或连接上游图片节点，用作图生视频首帧。",
         ),
         SecretStrInput(
             name="api_key",
@@ -372,37 +384,129 @@ class DoubaoVideoGenerator(Component):
 
         return video_results
 
+    INLINE_KEYS = ["image_data_url", "data_url", "preview_base64", "image_base64"]
+    URL_KEYS = ["edited_image_url", "image_url", "url", "video_url"]
+
     def _extract_image_url(self, image_input: Any) -> str | None:
-        """从输入中提取图片URL"""
+        """从输入或手柄中提取首帧图片引用，支持 Data、字典、列表及本地路径。"""
         if image_input is None:
             return None
 
+        if isinstance(image_input, (list, tuple)):
+            for entry in image_input:
+                resolved = self._extract_image_url(entry)
+                if resolved:
+                    return resolved
+            return None
+
+        if isinstance(image_input, Data):
+            return self._extract_image_url(image_input.data)
+
+        if isinstance(image_input, dict):
+            inline_value = self._first_non_empty(image_input, self.INLINE_KEYS)
+            if inline_value:
+                normalized = self._normalize_data_url(inline_value)
+                if normalized:
+                    return normalized
+            url_value = self._first_non_empty(image_input, self.URL_KEYS)
+            if url_value:
+                return str(url_value).strip()
+            path_candidate = image_input.get("file_path") or image_input.get("path") or image_input.get("value")
+            if isinstance(path_candidate, str):
+                encoded = self._encode_local_image(path_candidate)
+                if encoded:
+                    return encoded
+
+            nested_lists = [
+                image_input.get("images"),
+                image_input.get("generated_images"),
+            ]
+            for nested in nested_lists:
+                if isinstance(nested, list):
+                    for entry in nested:
+                        if isinstance(entry, dict):
+                            nested_url = self._extract_image_url(entry)
+                            if nested_url:
+                                return nested_url
+
+            preview = image_input.get("doubao_preview")
+            if isinstance(preview, dict):
+                return self._extract_image_url(preview)
+
+            return None
+
+        if hasattr(image_input, "get_text"):
+            return self._extract_image_url(image_input.get_text())
+
+        if hasattr(image_input, "text"):
+            return self._extract_image_url(image_input.text)
+
+        if hasattr(image_input, "data") and isinstance(image_input.data, dict):
+            return self._extract_image_url(image_input.data)
+
+        if isinstance(image_input, str):
+            trimmed = image_input.strip()
+            if not trimmed:
+                return None
+            if trimmed.startswith(("http://", "https://", "data:")):
+                return trimmed
+            encoded = self._encode_local_image(trimmed)
+            if encoded:
+                return encoded
+
+        return None
+
+    @staticmethod
+    def _first_non_empty(container: dict[str, Any], keys: list[str]) -> str | None:
+        for key in keys:
+            value = container.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    @staticmethod
+    def _normalize_data_url(value: str | None) -> str | None:
+        if not value:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if trimmed.startswith("data:"):
+            return trimmed
         try:
-            # LFX系统的数据处理
-            if hasattr(image_input, 'get_text'):
-                text = image_input.get_text()
-            elif hasattr(image_input, 'text'):
-                text = image_input.text
-            elif hasattr(image_input, 'data') and isinstance(image_input.data, dict):
-                # 检查Data中是否有图片相关字段
-                for field in ['edited_image_url', 'image_url', 'url', 'image', 'video_url']:
-                    if field in image_input.data and image_input.data[field]:
-                        url_str = str(image_input.data[field])
-                        if url_str.startswith(('http://', 'https://')):
-                            return url_str
-                text = str(image_input.data)
-            else:
-                text = str(image_input)
+            base64.b64decode(trimmed)
+            return f"data:image/png;base64,{trimmed}"
+        except Exception:
+            return None
 
-            text = text.strip()
-            if text.startswith(('http://', 'https://')):
-                return text
+    def _encode_local_image(self, path_value: str) -> str | None:
+        try:
+            file_path = self._resolve_local_path(path_value)
+            if not file_path or not file_path.exists():
+                return None
+            mime_type, _ = mimetypes.guess_type(file_path.name)
+            mime_type = mime_type or "image/png"
+            encoded = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+            return f"data:{mime_type};base64,{encoded}"
+        except Exception:
+            return None
 
-        except Exception as e:
-            # 记录错误但不中断流程
-            if hasattr(self, 'status'):
-                self.status = f"⚠️ 提取图片URL时出错: {str(e)[:100]}"
-
+    def _resolve_local_path(self, path_value: str) -> Path | None:
+        candidate = Path(path_value)
+        if candidate.exists():
+            return candidate
+        try:
+            resolved = Path(self.resolve_path(path_value))
+            if resolved.exists():
+                return resolved
+        except Exception:
+            pass
+        try:
+            full = Path(self.get_full_path(path_value))
+            if full.exists():
+                return full
+        except Exception:
+            pass
         return None
 
     @staticmethod

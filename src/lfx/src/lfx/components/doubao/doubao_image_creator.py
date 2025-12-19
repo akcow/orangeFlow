@@ -7,6 +7,7 @@ import mimetypes
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any
 from uuid import uuid4
 
@@ -28,10 +29,7 @@ class DoubaoImageCreator(Component):
     """整合多种图片创作模型，支持文生图、图生图与组图输出的统一节点。"""
 
     display_name = "图片创作"
-    description = (
-        "基于多种图片创作模型，提供文本生成图片、参考图编辑与组图能力，"
-        "支持实时预览、多图上传、分辨率与比例一体化配置。"
-    )
+    description = ""
     icon = "DoubaoImageCreator"
     name = "DoubaoImageCreator"
 
@@ -114,6 +112,7 @@ class DoubaoImageCreator(Component):
             is_list=True,
             list_add_label="继续选择图片",
             file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"],
+            input_types=["Data"],
             info=(
                 "点击按钮选择 1-14 张本地参考图，系统将弹出中文指引的文件选择窗口。\n"
                 "支持 png/jpg/webp/bmp/tiff/gif，单图 ≤10MB，可与上游节点联动实现图生图。"
@@ -336,6 +335,10 @@ class DoubaoImageCreator(Component):
         metadata: list[dict[str, Any]] = []
 
         for item in raw_items:
+            if len(payloads) >= self.MAX_REFERENCE_IMAGES:
+                break
+            if self._try_append_data_payloads(item, payloads, metadata):
+                continue
             path_value = self._extract_file_path(item)
             if not path_value:
                 continue
@@ -372,6 +375,123 @@ class DoubaoImageCreator(Component):
             )
 
         return payloads, metadata
+
+    def _try_append_data_payloads(
+        self,
+        item: Any,
+        payloads: list[str],
+        metadata: list[dict[str, Any]],
+    ) -> bool:
+        containers = self._collect_reference_containers(item)
+        appended = False
+        for container in containers:
+            if len(payloads) >= self.MAX_REFERENCE_IMAGES:
+                break
+            inline_value = self._first_non_empty(
+                container,
+                ["image_data_url", "data_url", "preview_base64", "image_base64"],
+            )
+            if inline_value:
+                normalized = self._normalize_reference_data_url(inline_value)
+                if normalized:
+                    payloads.append(normalized)
+                    metadata.append(
+                        {
+                            "filename": container.get("filename")
+                            or container.get("file_name")
+                            or container.get("label")
+                            or "reference.png",
+                            "source": container.get("origin", "data_handle"),
+                            "width": container.get("width"),
+                            "height": container.get("height"),
+                        }
+                    )
+                    appended = True
+                    continue
+
+            url_value = self._first_non_empty(
+                container,
+                ["image_url", "edited_image_url", "url"],
+            )
+            if url_value:
+                inline_data, meta = self._download_reference_from_url(str(url_value))
+                if inline_data:
+                    payloads.append(inline_data)
+                    metadata.append(meta)
+                    appended = True
+        return appended
+
+    def _collect_reference_containers(self, item: Any) -> list[dict[str, Any]]:
+        containers: list[dict[str, Any]] = []
+
+        def enqueue(candidate: Any) -> None:
+            if isinstance(candidate, Data):
+                enqueue(candidate.data)
+                return
+            if not isinstance(candidate, dict):
+                return
+            containers.append(candidate)
+            nested_candidates = []
+            for key in ("images", "generated_images", "reference_images", "doubao_preview", "items"):
+                value = candidate.get(key)
+                if isinstance(value, list):
+                    nested_candidates.extend(value)
+                elif isinstance(value, dict):
+                    nested_candidates.append(value)
+            for nested in nested_candidates:
+                enqueue(nested)
+
+        enqueue(item)
+        return containers
+
+    @staticmethod
+    def _first_non_empty(container: dict[str, Any], keys: list[str]) -> str | None:
+        for key in keys:
+            value = container.get(key)
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    return stripped
+        return None
+
+    @staticmethod
+    def _normalize_reference_data_url(value: str | None) -> str | None:
+        if not value:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if trimmed.startswith("data:"):
+            return trimmed
+        try:
+            base64.b64decode(trimmed)
+            return f"data:image/png;base64,{trimmed}"
+        except Exception:
+            return None
+
+    def _download_reference_from_url(self, url: str) -> tuple[str | None, dict[str, Any]]:
+        try:
+            response = requests.get(url, timeout=self.PREVIEW_TIMEOUT)
+            response.raise_for_status()
+            if len(response.content) > self.MAX_REFERENCE_FILE_SIZE:
+                return None, {
+                    "warning": f"参考图超过 {self.MAX_REFERENCE_FILE_SIZE // (1024 * 1024)}MB",
+                    "source_url": url,
+                }
+            mime_type = response.headers.get("Content-Type", "image/png").split(";")[0]
+            encoded = base64.b64encode(response.content).decode("utf-8")
+            filename = Path(urlparse(url).path).name or "reference.png"
+            return (
+                f"data:{mime_type};base64,{encoded}",
+                {
+                    "filename": filename,
+                    "mime_type": mime_type,
+                    "size_bytes": len(response.content),
+                    "source_url": url,
+                },
+            )
+        except Exception as exc:
+            return None, {"error": f"下载参考图失败：{exc}", "source_url": url}
 
     @staticmethod
     def _extract_file_path(value: Any) -> str | None:

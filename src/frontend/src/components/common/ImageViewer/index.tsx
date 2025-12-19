@@ -8,12 +8,16 @@ import {
 import useAlertStore from "../../../stores/alertStore";
 import { Separator } from "../../ui/separator";
 import ForwardedIconComponent from "../genericIconComponent";
+import { sanitizePreviewDataUrl } from "@/CustomNodes/GenericNode/components/DoubaoPreviewPanel/helpers";
 
 export default function ImageViewer({ image }: { image: string }) {
   const viewerRef = useRef(null);
   const [_errorDownloading, _setErrordownloading] = useState(false);
   const setErrorList = useAlertStore((state) => state.setErrorData);
   const [_initialMsg, _setInicialMsg] = useState("Please build your flow");
+
+  const normalizedImage =
+    sanitizePreviewDataUrl(image) ?? image;
 
   useEffect(() => {
     try {
@@ -23,7 +27,7 @@ export default function ImageViewer({ image }: { image: string }) {
           element: viewerRef.current,
           prefixUrl:
             "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.4.2/images/", // Optional: Set the path to OpenSeadragon images
-          tileSources: { type: "image", url: image },
+          tileSources: { type: "image", url: normalizedImage },
           defaultZoomLevel: 1,
           maxZoomPixelRatio: 4,
           showNavigationControl: false,
@@ -66,10 +70,10 @@ export default function ImageViewer({ image }: { image: string }) {
     } catch (error) {
       console.error("Error initializing OpenSeadragon:", error);
     }
-  }, [image]);
+  }, [normalizedImage]);
 
   function download() {
-    const imageUrl = image;
+    const imageUrl = normalizedImage;
     // Fetch the image data
     fetch(imageUrl)
       .then((response) => response.blob())

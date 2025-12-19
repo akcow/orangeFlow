@@ -452,7 +452,7 @@ class DoubaoTTS(Component):
     """豆包语音合成 LFX 组件 - 适配版 v3 双向流式"""
 
     display_name = "豆包语音合成 v3"
-    description = "调用豆包语音合成v3双向流式接口，将文本转换为语音。"
+    description = ""
     icon = "DoubaoTTS"
     name = "DoubaoTTS"
 

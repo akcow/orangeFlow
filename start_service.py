@@ -82,7 +82,8 @@ def build_env() -> dict[str, str]:
     )
     env["LANGFLOW_COMPONENTS_PATH"] = str(COMPONENTS_PATH)
     env["LANGFLOW_SKIP_AUTH_AUTO_LOGIN"] = "true"
-    env["LANGFLOW_AUTO_LOGIN"] = "false"
+    # Always auto-login during local development so the UI skips the sign-in screen.
+    env["LANGFLOW_AUTO_LOGIN"] = "true"
     env.setdefault("LFX_DEV", "1")
     return env
 

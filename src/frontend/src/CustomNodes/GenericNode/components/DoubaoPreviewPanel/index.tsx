@@ -19,6 +19,7 @@ import ImageViewer from "@/components/common/ImageViewer";
 import { cn } from "@/utils/utils";
 import { ForwardedIconComponent } from "@/components/common/genericIconComponent";
 import { useDoubaoPreview } from "../../../hooks/use-doubao-preview";
+import { sanitizePreviewDataUrl } from "./helpers";
 
 const PANEL_BG = {
   image: "bg-emerald-50/80 dark:bg-emerald-950/30",
@@ -175,7 +176,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           if (!resolvedSource) return;
 
           galleryItems.push({
-            imageSource: resolvedSource,
+            imageSource: sanitizePreviewDataUrl(resolvedSource) ?? resolvedSource,
             downloadSource: remoteSource ?? inlineSource ?? resolvedSource,
             size:
               entry?.size ??
@@ -741,13 +742,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 DoubaoPreviewPanel.displayName = "DoubaoPreviewPanel";
 
 export default DoubaoPreviewPanel;
-
-function sanitizePreviewDataUrl(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("data:image")) return undefined;
-  return trimmed.replace(/\s+/g, "");
-}
 
 function inferExtensionFromSource(source: string, fallback: string): string {
   if (!source) return fallback;

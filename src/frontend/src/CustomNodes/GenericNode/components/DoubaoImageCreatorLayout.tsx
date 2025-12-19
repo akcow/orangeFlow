@@ -63,6 +63,19 @@ const DEFAULT_REFERENCE_EXTENSIONS = [
   "tiff",
 ];
 const SENSITIVE_FIELDS = ["api_key"];
+const REFERENCE_FIELD_FALLBACK: InputFieldType = {
+  type: "file",
+  required: false,
+  placeholder: "",
+  list: true,
+  show: true,
+  readonly: false,
+  name: "reference_images",
+  display_name: "参考图输入",
+  input_types: ["Data"],
+  file_types: DEFAULT_REFERENCE_EXTENSIONS,
+  fileTypes: DEFAULT_REFERENCE_EXTENSIONS,
+};
 
 type DoubaoImageCreatorLayoutProps = {
   data: NodeDataType;
@@ -88,7 +101,30 @@ export default function DoubaoImageCreatorLayout({
     (field) => !customFields.has(field),
   );
 
-  const referenceField = template[REFERENCE_FIELD];
+  const referenceFieldRaw = template[REFERENCE_FIELD];
+  const referenceField = useMemo<InputFieldType>(() => {
+    if (!referenceFieldRaw) return REFERENCE_FIELD_FALLBACK;
+    const normalizedInputTypes =
+      referenceFieldRaw.input_types && referenceFieldRaw.input_types.length > 0
+        ? referenceFieldRaw.input_types
+        : REFERENCE_FIELD_FALLBACK.input_types;
+    const normalizedFileTypes =
+      referenceFieldRaw.file_types && referenceFieldRaw.file_types.length > 0
+        ? referenceFieldRaw.file_types
+        : REFERENCE_FIELD_FALLBACK.file_types;
+    const normalizedCamelFileTypes =
+      referenceFieldRaw.fileTypes && referenceFieldRaw.fileTypes.length > 0
+        ? referenceFieldRaw.fileTypes
+        : REFERENCE_FIELD_FALLBACK.fileTypes;
+
+    return {
+      ...REFERENCE_FIELD_FALLBACK,
+      ...referenceFieldRaw,
+      input_types: normalizedInputTypes,
+      file_types: normalizedFileTypes,
+      fileTypes: normalizedCamelFileTypes,
+    };
+  }, [referenceFieldRaw]);
   const referencePreviews = useMemo<DoubaoReferenceImage[]>(
     () => buildReferencePreviewItems(referenceField),
     [referenceField],
@@ -96,9 +132,9 @@ export default function DoubaoImageCreatorLayout({
   const selectedReferenceCount = referencePreviews.length;
 
   const referenceFileTypes =
-    referenceField?.fileTypes ??
-    referenceField?.file_types ??
-    referenceField?.fileTypesList;
+    referenceField.fileTypes ??
+    referenceField.file_types ??
+    referenceField.fileTypesList;
 
   const [isUploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [isReferenceUploadPending, setReferenceUploadPending] = useState(false);
@@ -201,25 +237,12 @@ export default function DoubaoImageCreatorLayout({
   );
 
   const openUploadDialog = useCallback(() => {
-    if (!referenceField) {
-      setErrorData({
-        title: "无法上传参考图",
-        list: ["当前组件未暴露参考图输入。"],
-      });
-      return;
-    }
     if (isReferenceUploadPending) return;
     setUploadDialogOpen(true);
-  }, [referenceField, isReferenceUploadPending, setErrorData]);
+  }, [isReferenceUploadPending]);
 
   const triggerReferenceUpload = useCallback(() => {
-    if (!referenceField || isReferenceUploadPending) {
-      if (!referenceField) {
-        setErrorData({
-          title: "无法上传参考图",
-          list: ["当前组件未暴露参考图输入。"],
-        });
-      }
+    if (isReferenceUploadPending) {
       return;
     }
     if (!canAddMoreReferences) {
@@ -258,13 +281,6 @@ export default function DoubaoImageCreatorLayout({
 
   const handleReferenceRemove = useCallback(
     (index: number) => {
-      if (!referenceField) {
-        setErrorData({
-          title: "无法管理参考图",
-          list: ["当前组件未暴露参考图输入。"],
-        });
-        return;
-      }
       const entries = collectReferenceEntries(referenceField);
       if (!entries.length) return;
       const filtered = entries.filter((_, idx) => idx !== index);
@@ -273,18 +289,11 @@ export default function DoubaoImageCreatorLayout({
         file_path: filtered.map((entry) => entry.path),
       });
     },
-    [referenceField, handleReferenceChange, setErrorData],
+    [referenceField, handleReferenceChange],
   );
 
   const handleReferenceReplace = useCallback(
     async (index: number) => {
-      if (!referenceField) {
-        setErrorData({
-          title: "无法替换参考图",
-          list: ["当前组件未暴露参考图输入。"],
-        });
-        return;
-      }
       if (!currentFlowId) {
         setErrorData({
           title: "无法替换参考图",
@@ -913,7 +922,6 @@ async function handleReferenceUpload({
   setErrorData: ReturnType<typeof useAlertStore>["setErrorData"];
   setReferenceUploadPending: (loading: boolean) => void;
 }) {
-  if (!referenceField) return;
   if (!currentFlowId) {
     setErrorData({
       title: "无法上传参考图",
@@ -995,8 +1003,7 @@ async function handleReferenceUpload({
   }
 }
 
-function collectReferenceEntries(field?: InputFieldType): ReferenceEntry[] {
-  if (!field) return [];
+function collectReferenceEntries(field: InputFieldType): ReferenceEntry[] {
   const values = toArray(field.value);
   const paths = toArray(field.file_path);
   const length = Math.max(values.length, paths.length);

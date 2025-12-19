@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/utils";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
+import { sanitizePreviewDataUrl } from "./helpers";
 
 export type ImageGalleryItem = {
   imageSource: string;
@@ -31,6 +32,14 @@ const ImageRenderer = ({
   const total = gallery?.length ?? 0;
   const safeIndex = total ? Math.min(Math.max(currentIndex, 0), total - 1) : 0;
   const current = total ? gallery![safeIndex] : null;
+  const sanitizedSource =
+    current?.imageSource &&
+    (sanitizePreviewDataUrl(current.imageSource) ?? current.imageSource);
+
+  useEffect(() => {
+    // Reset error state when switching to a new image source so new previews can render.
+    setImageError(false);
+  }, [sanitizedSource]);
 
   const handleImageError = useCallback(
     (error: React.SyntheticEvent<HTMLImageElement>) => {
@@ -76,7 +85,7 @@ const ImageRenderer = ({
     <div className="relative flex h-full min-h-[320px] w-full flex-col overflow-hidden rounded-2xl border border-emerald-200/60 bg-white/95 shadow-inner dark:border-emerald-500/40 dark:bg-emerald-950/30">
       <img
         ref={imgRef}
-        src={current.imageSource}
+        src={sanitizedSource ?? current.imageSource}
         alt={current.label ?? "生成结果预览"}
         className="h-full w-full flex-1 rounded-2xl object-contain"
         onError={handleImageError}
