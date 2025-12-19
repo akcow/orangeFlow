@@ -11,8 +11,9 @@ export async function toRenderableImageSource(
   source: string | undefined,
 ): Promise<{ url: string; revoke?: () => void }> {
   if (!source) return { url: "" };
-  if (!source.startsWith("data:image")) {
-    return { url: source };
+  // For data URLs, keep them as-is after sanitization; this avoids fetch failures on very long URIs.
+  if (source.startsWith("data:image")) {
+    return { url: sanitizePreviewDataUrl(source) ?? source };
   }
   try {
     const response = await fetch(source);

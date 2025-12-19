@@ -605,7 +605,7 @@ export default function DoubaoImageCreatorLayout({
       )}
 
       <Dialog open={isUploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogContent className="w-[480px]" aria-describedby={undefined}>
+        <DialogContent className="w-[480px]">
           <DialogHeader>
             <DialogTitle>上传参考图</DialogTitle>
             <DialogDescription>

@@ -172,7 +172,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             entry?.url ??
             entry?.edited_image_url ??
             entry?.original_image_url;
-          const resolvedSource = inlineSource ?? remoteSource;
+          const resolvedSource = remoteSource ?? inlineSource ?? entry?.data_url;
           if (!resolvedSource) return;
 
           galleryItems.push({
@@ -705,7 +705,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         <Dialog open={isPreviewModalOpen} onOpenChange={setPreviewModalOpen}>
           <DialogContent
             className="w-[92vw] max-w-4xl"
-            aria-describedby={undefined}
           >
             <DialogHeader className="flex flex-row items-center justify-between gap-4">
               <DialogTitle className="text-base">生成结果详情</DialogTitle>

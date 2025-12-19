@@ -478,7 +478,7 @@ export default function DoubaoVideoGeneratorLayout({
         open={isFirstFrameDialogOpen}
         onOpenChange={setFirstFrameDialogOpen}
       >
-        <DialogContent className="w-[500px]" aria-describedby={undefined}>
+        <DialogContent className="w-[500px]">
           <DialogHeader>
             <DialogTitle>上传首帧图片</DialogTitle>
             <DialogDescription>
