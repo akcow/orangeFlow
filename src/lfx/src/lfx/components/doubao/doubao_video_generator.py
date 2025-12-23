@@ -16,6 +16,7 @@ from volcenginesdkarkruntime import Ark
 # LFX系统导入
 from lfx.custom.custom_component.component import Component
 from lfx.schema.data import Data
+from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.inputs.inputs import (
     DropdownInput,
     IntInput,
@@ -109,7 +110,13 @@ class DoubaoVideoGenerator(Component):
         if not merged_prompt:
             return self._error("提示词不能为空，请输入或连接提示词。")
 
-        api_key = (self.api_key or os.getenv("ARK_API_KEY", "")).strip()
+        creds = resolve_credentials(
+            component_app_id=None,
+            component_access_token=None,
+            component_api_key=self.api_key,
+            env_api_key_var="ARK_API_KEY",
+        )
+        api_key = (creds.api_key or "").strip()
         if not api_key:
             return self._error("未检测到豆包 API 密钥，请在节点或 .env 中配置 ARK_API_KEY。")
 

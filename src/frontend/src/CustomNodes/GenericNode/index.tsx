@@ -35,6 +35,7 @@ import DoubaoPreviewPanel from "./components/DoubaoPreviewPanel";
 import DoubaoImageCreatorLayout from "./components/DoubaoImageCreatorLayout";
 import DoubaoVideoGeneratorLayout from "./components/DoubaoVideoGeneratorLayout";
 import DoubaoAudioLayout from "./components/DoubaoAudioLayout";
+import TextCreationLayout from "./components/TextCreationLayout";
 import { isDoubaoComponent } from "../hooks/use-doubao-preview";
 import { useBuildStatus } from "./hooks/use-get-build-status";
 
@@ -131,13 +132,18 @@ function GenericNode({
   const isDoubaoImageCreator = data.type === "DoubaoImageCreator";
   const isDoubaoVideoGenerator = data.type === "DoubaoVideoGenerator";
   const isDoubaoAudioGenerator = data.type === "DoubaoTTS";
+  const isTextCreation = data.type === "TextCreation";
   const usesWideDoubaoLayout =
-    isDoubaoImageCreator || isDoubaoVideoGenerator || isDoubaoAudioGenerator;
+    isDoubaoImageCreator ||
+    isDoubaoVideoGenerator ||
+    isDoubaoAudioGenerator ||
+    isTextCreation;
   const nodeWidthClass = useMemo(() => {
     if (!showNode) return "w-48";
+    if (isTextCreation) return "w-[520px]";
     if (usesWideDoubaoLayout) return "w-[760px]";
     return "w-80";
-  }, [showNode, usesWideDoubaoLayout]);
+  }, [showNode, usesWideDoubaoLayout, isTextCreation]);
 
   const getValidationStatus = useCallback((data) => {
     setValidationStatus(data);
@@ -388,7 +394,11 @@ function GenericNode({
     return defaults.includes(sanitizedDescription);
   }, [data.type, isDoubaoType, sanitizedDescription]);
 
-  const effectiveDescription = isLegacyDoubaoDescription ? "" : rawDescription;
+  const effectiveDescription = isTextCreation
+    ? ""
+    : isLegacyDoubaoDescription
+      ? ""
+      : rawDescription;
 
   const hasDescription = useMemo(() => {
     if (effectiveDescription.trim() === "") return false;
@@ -584,12 +594,19 @@ function GenericNode({
               className="flex-max-width items-center overflow-hidden"
               data-testid="generic-node-title-arrangement"
             >
-              <MemoizedNodeIcon
-                dataType={data.type}
-                icon={data.node?.icon}
-                isGroup={!!data.node?.flow}
-              />
-              <div className="ml-3 flex flex-1 overflow-hidden">
+              {!isTextCreation && (
+                <MemoizedNodeIcon
+                  dataType={data.type}
+                  icon={data.node?.icon}
+                  isGroup={!!data.node?.flow}
+                />
+              )}
+              <div
+                className={cn(
+                  "ml-3 flex flex-1 overflow-hidden",
+                  isTextCreation && "ml-0",
+                )}
+              >
                 <MemoizedNodeName
                   display_name={data.node?.display_name}
                   nodeId={data.id}
@@ -691,8 +708,16 @@ function GenericNode({
                   buildStatus={buildStatus}
                   selected={selected ?? false}
                 />
-              ) : (
+              ) : isDoubaoAudioGenerator ? (
                 <DoubaoAudioLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  selected={selected ?? false}
+                />
+              ) : (
+                <TextCreationLayout
                   data={data}
                   types={types}
                   isToolMode={isToolMode}

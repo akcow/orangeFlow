@@ -36,6 +36,7 @@ import GlobalVariablesPage from "./pages/SettingsPage/pages/GlobalVariablesPage"
 import MCPServersPage from "./pages/SettingsPage/pages/MCPServersPage";
 import MessagesPage from "./pages/SettingsPage/pages/messagesPage";
 import ShortcutsPage from "./pages/SettingsPage/pages/ShortcutsPage";
+import ProviderCredentialsPage from "./pages/SettingsPage/pages/ProviderCredentialsPage";
 import ViewPage from "./pages/ViewPage";
 
 const AdminPage = lazy(() => import("./pages/AdminPage"));
@@ -138,6 +139,10 @@ const router = createBrowserRouter(
                   <Route
                     path="global-variables"
                     element={<GlobalVariablesPage />}
+                  />
+                  <Route
+                    path="provider-credentials"
+                    element={<ProviderCredentialsPage />}
                   />
                   <Route path="mcp-servers" element={<MCPServersPage />} />
                   <Route path="api-keys" element={<ApiKeysPage />} />

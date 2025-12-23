@@ -19,6 +19,7 @@ from volcenginesdkarkruntime.types.images.images import SequentialImageGeneratio
 from lfx.custom.custom_component.component import Component
 from lfx.field_typing.range_spec import RangeSpec
 from lfx.inputs.inputs import DropdownInput, FileInput, IntInput, MultilineInput, SecretStrInput
+from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.schema.data import Data
 from lfx.template.field.base import Output
 
@@ -141,7 +142,13 @@ class DoubaoImageCreator(Component):
         if not prompt:
             return self._error("提示词不能为空，请输入或连接上游节点。")
 
-        api_key = (self.api_key or os.getenv("ARK_API_KEY", "")).strip()
+        creds = resolve_credentials(
+            component_app_id=None,
+            component_access_token=None,
+            component_api_key=self.api_key,
+            env_api_key_var="ARK_API_KEY",
+        )
+        api_key = (creds.api_key or "").strip()
         if not api_key:
             return self._error("未检测到 Doubao API Key，请在节点或 .env 中配置 ARK_API_KEY。")
 

@@ -49,6 +49,16 @@ export default function SettingsPage(): JSX.Element {
       ),
     },
     {
+      title: "Secret Keys",
+      href: "/settings/provider-credentials",
+      icon: (
+        <ForwardedIconComponent
+          name="KeyRound"
+          className="w-4 flex-shrink-0 justify-start stroke-[1.5]"
+        />
+      ),
+    },
+    {
       title: "Global Variables",
       href: "/settings/global-variables",
       icon: (

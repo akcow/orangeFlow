@@ -49,7 +49,10 @@
       "Bash(git push:*)",
       "Bash(wmic process where \"ProcessId=59928\" delete:*)",
       "Bash(wmic process where processid=142784 delete:*)",
-      "Bash(powershell \"Stop-Process -Id 133888 -Force\")"
+      "Bash(powershell \"Stop-Process -Id 133888 -Force\")",
+      "Bash(wmic:*)",
+      "Bash(powershell \"Stop-Process -Id 46900 -Force\")",
+      "Bash(git clean:*)"
     ]
   }
 }

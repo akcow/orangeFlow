@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 # LFX系统导入
 from lfx.custom.custom_component.component import Component
 from lfx.schema.data import Data
+from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.inputs.inputs import (
     BoolInput,
     DropdownInput,
@@ -558,8 +559,13 @@ class DoubaoTTS(Component):
         if not merged_text:
             return self._error("合成文本不能为空，请输入文本或连接上游文本节点。")
 
-        app_id = (self.app_id or os.getenv("TTS_APP_ID", "")).strip()
-        access_token = (self.access_token or os.getenv("TTS_TOKEN", "")).strip()
+        creds = resolve_credentials(
+            component_app_id=self.app_id,
+            component_access_token=self.access_token,
+            component_api_key=None,
+        )
+        app_id = (creds.app_id or "").strip()
+        access_token = (creds.access_token or "").strip()
 
         # 基本格式验证
         if app_id and not app_id.isdigit():

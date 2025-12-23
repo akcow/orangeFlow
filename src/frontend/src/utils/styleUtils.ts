@@ -124,9 +124,11 @@ export const nodeColors: { [char: string]: string } = {
   DoubaoTTS: "#FF6B6B",
   DoubaoVideoGenerator: "#4ECDC4",
   DoubaoImageCreator: "#45B7D1",
+  TextCreation: "#4F46E5",
   
   retrievers: "#e6b25a",
   str: "#4F46E5",
+  text: "#4F46E5",
   Text: "#4F46E5",
   unknown: "#9CA3AF",
   Document: "#65a30d",
@@ -181,9 +183,11 @@ export const nodeColorsName: { [char: string]: string } = {
   DoubaoTTS: "rose",
   DoubaoVideoGenerator: "teal", 
   DoubaoImageCreator: "sky",
+  TextCreation: "indigo",
   
   retrievers: "yellow",
   str: "indigo",
+  text: "indigo",
   number: "purple",
   Text: "indigo",
   unknown: "gray",
@@ -225,6 +229,7 @@ export const FILE_ICONS = {
 export const SIDEBAR_CATEGORIES = [
   { display_name: "Saved", name: "saved_components", icon: "GradientSave" },
   { display_name: "Doubao AI", name: "doubao_ai", icon: "DoubaoTTS" },
+  { display_name: "Text", name: "text", icon: "ToyBrick" },
   { display_name: "Input / Output", name: "input_output", icon: "Cable" },
   { display_name: "Agents", name: "agents", icon: "Bot" },
   { display_name: "Models", name: "models", icon: "BrainCog" },

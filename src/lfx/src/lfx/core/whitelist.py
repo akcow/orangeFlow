@@ -12,6 +12,7 @@ COMPONENT_WHITELIST = {
     "DoubaoTTS",
     "DoubaoVideoGenerator",
     "DoubaoImageCreator",
+    "TextCreation",
 }
 
 def apply_whitelist_filter(components_dict):

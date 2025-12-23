@@ -35,7 +35,6 @@ import {
   updateFlowPosition,
 } from "../../../../utils/reactflowUtils";
 import { cn, getNodeLength } from "../../../../utils/utils";
-import { ToolbarButton } from "./components/toolbar-button";
 import ToolbarModals from "./components/toolbar-modals";
 import useShortcuts from "./hooks/use-shortcuts";
 import ShortcutDisplay from "./shortcutDisplay";
@@ -459,114 +458,7 @@ const NodeToolbarComponent = memo(
       return isCustom;
     }, [data.type, data.node]);
 
-    const renderToolbarButtons = useMemo(
-      () => (
-        <>
-          {hasCode && (
-            <ToolbarButton
-              className={isCustomComponent ? "animate-pulse-pink" : ""}
-              icon="Code"
-              label="Code"
-              onClick={() => setOpenModal(true)}
-              shortcut={shortcuts.find((s) =>
-                s.name.toLowerCase().startsWith("code"),
-              )}
-              dataTestId="code-button-modal"
-            />
-          )}
-          {nodeLength > 0 && (
-            <ToolbarButton
-              icon="SlidersHorizontal"
-              label="Controls"
-              onClick={() => setShowModalAdvanced(true)}
-              shortcut={shortcuts.find((s) =>
-                s.name.toLowerCase().startsWith("advanced"),
-              )}
-              dataTestId="edit-button-modal"
-            />
-          )}
-          {!hasToolMode && (
-            <ToolbarButton
-              icon="FreezeAll"
-              label="Freeze"
-              dataTestId="freeze-all-button-modal"
-              onClick={() => {
-                takeSnapshot();
-                FreezeAllVertices({
-                  flowId: currentFlowId,
-                  stopNodeId: data.id,
-                });
-              }}
-              shortcut={shortcuts.find((s) =>
-                s.name.toLowerCase().startsWith("freeze"),
-              )}
-              className={cn("node-toolbar-buttons", frozen && "text-blue-500")}
-            />
-          )}
-          {hasToolMode && (
-            <ShadTooltip
-              content={
-                <ShortcutDisplay
-                  {...shortcuts.find(
-                    ({ name }) => name.toLowerCase() === "tool mode",
-                  )!}
-                />
-              }
-              side="top"
-            >
-              <Button
-                className={cn(
-                  "node-toolbar-buttons h-[2rem]",
-                  toolMode && "text-primary",
-                )}
-                variant="ghost"
-                onClick={(event) => {
-                  event.preventDefault();
-                  takeSnapshot();
-                  handleSelectChange("toolMode");
-                }}
-                size="node-toolbar"
-                data-testid="tool-mode-button"
-              >
-                <IconComponent
-                  name="Hammer"
-                  className={cn(
-                    "h-4 w-4 transition-all",
-                    toolMode ? "text-primary" : "",
-                  )}
-                />
-                <span className="text-mmd font-medium">Tool Mode</span>
-                <ToggleShadComponent
-                  value={toolMode}
-                  editNode={false}
-                  handleOnNewValue={() => {
-                    takeSnapshot();
-                    handleSelectChange("toolMode");
-                  }}
-                  disabled={false}
-                  size="medium"
-                  showToogle={false}
-                  id="tool-mode-toggle"
-                />
-              </Button>
-            </ShadTooltip>
-          )}
-        </>
-      ),
-      [
-        hasCode,
-        nodeLength,
-        hasToolMode,
-        toolMode,
-        data.id,
-        takeSnapshot,
-        FreezeAllVertices,
-        currentFlowId,
-        shortcuts,
-        frozen,
-        handleSelectChange,
-      ],
-    );
+    const renderToolbarButtons = useMemo(() => <></>, []);
 
     return (
       <>
@@ -579,8 +471,8 @@ const NodeToolbarComponent = memo(
               onOpenChange={handleOpenChange}
               open={dropdownOpen}
             >
-              <SelectTrigger className="w-62">
-                <ShadTooltip content="Show More" side="top">
+                <SelectTrigger className="w-62">
+                <ShadTooltip content="更多操作" side="top">
                   <div data-testid="more-options-modal">
                     <Button
                       className="node-toolbar-buttons h-[2rem] w-[2rem]"
@@ -600,24 +492,13 @@ const NodeToolbarComponent = memo(
               <SelectContentWithoutPortal
                 className={"relative top-1 w-56 bg-background"}
               >
-                <SelectItem value={"save"}>
-                  <ToolbarSelectItem
-                    shortcut={
-                      shortcuts.find((obj) => obj.name === "Save Component")
-                        ?.shortcut!
-                    }
-                    value={"Save"}
-                    icon={"SaveAll"}
-                    dataTestId="save-button-modal"
-                  />
-                </SelectItem>
                 <SelectItem value={"duplicate"}>
                   <ToolbarSelectItem
                     shortcut={
                       shortcuts.find((obj) => obj.name === "Duplicate")
                         ?.shortcut!
                     }
-                    value={"Duplicate"}
+                    value={"克隆"}
                     icon={"Copy"}
                     dataTestId="copy-button-modal"
                   />
@@ -627,131 +508,22 @@ const NodeToolbarComponent = memo(
                     shortcut={
                       shortcuts.find((obj) => obj.name === "Copy")?.shortcut!
                     }
-                    value={"Copy"}
+                    value={"复制"}
                     icon={"Clipboard"}
                     dataTestId="copy-button-modal"
                   />
                 </SelectItem>
-                {isOutdated && (
-                  <SelectItem value={"update"}>
-                    <ToolbarSelectItem
-                      shortcut={
-                        shortcuts.find((obj) => obj.name === "Update")
-                          ?.shortcut!
-                      }
-                      style={
-                        hasBreakingChange ? "text-accent-amber-foreground" : ""
-                      }
-                      value={isUserEdited ? "Restore" : "Update"}
-                      icon={isUserEdited ? "RefreshCcwDot" : "CircleArrowUp"}
-                      dataTestId="update-button-modal"
-                    />
-                  </SelectItem>
-                )}
-                {hasStore && (
-                  <SelectItem
-                    value={"Share"}
-                    disabled={!hasApiKey || !validApiKey}
-                  >
-                    <ToolbarSelectItem
-                      shortcut={
-                        shortcuts.find((obj) => obj.name === "Component Share")
-                          ?.shortcut!
-                      }
-                      value={"Share"}
-                      icon={"Share3"}
-                      dataTestId="share-button-modal"
-                    />
-                  </SelectItem>
-                )}
-
-                <SelectItem
-                  value={"documentation"}
-                  disabled={data.node?.documentation === ""}
-                >
+                <SelectItem value={"delete"} className="focus:bg-red-400/[.20]">
                   <ToolbarSelectItem
+                    value={"删除"}
+                    icon={"Trash2"}
+                    dataTestId="delete-button-modal"
+                    className="text-status-red"
                     shortcut={
-                      shortcuts.find((obj) => obj.name === "Docs")?.shortcut!
-                    }
-                    value={"Docs"}
-                    icon={"FileText"}
-                    dataTestId="docs-button-modal"
-                  />
-                </SelectItem>
-                {(isMinimal || !showNode) && (
-                  <SelectItem
-                    value={"show"}
-                    data-testid={`${
-                      showNode ? "minimize" : "expand"
-                    }-button-modal`}
-                  >
-                    <ToolbarSelectItem
-                      shortcut={
-                        shortcuts.find((obj) => obj.name === "Minimize")
-                          ?.shortcut!
-                      }
-                      value={showNode ? "Minimize" : "Expand"}
-                      icon={showNode ? "Minimize2" : "Maximize2"}
-                    />
-                  </SelectItem>
-                )}
-                {isGroup && (
-                  <SelectItem value="ungroup">
-                    <ToolbarSelectItem
-                      shortcut={
-                        shortcuts.find((obj) => obj.name === "Group")?.shortcut!
-                      }
-                      value={"Ungroup"}
-                      icon={"Ungroup"}
-                      dataTestId="group-button-modal"
-                    />
-                  </SelectItem>
-                )}
-                {hasToolMode && (
-                  <SelectItem
-                    value="freezeAll"
-                    data-testid="freeze-all-button-modal"
-                  >
-                    <ToolbarSelectItem
-                      shortcut={
-                        shortcuts.find((obj) =>
-                          obj.name.toLowerCase().startsWith("freeze"),
-                        )?.shortcut!
-                      }
-                      value={"Freeze"}
-                      icon={"FreezeAll"}
-                      dataTestId="freeze-path-button"
-                      style={`${frozen ? " text-ice" : ""} transition-all`}
-                    />
-                  </SelectItem>
-                )}
-                <SelectItem value="Download">
-                  <ToolbarSelectItem
-                    shortcut={
-                      shortcuts.find((obj) => obj.name === "Download")
+                      shortcuts.find((obj) => obj.name === "Delete")
                         ?.shortcut!
                     }
-                    value={"Download"}
-                    icon={"Download"}
-                    dataTestId="download-button-modal"
                   />
-                </SelectItem>
-                <SelectItem value={"delete"} className="focus:bg-red-400/[.20]">
-                  <div className="font-red flex text-status-red">
-                    <IconComponent
-                      name="Trash2"
-                      className="relative top-0.5 mr-2 h-4 w-4"
-                    />{" "}
-                    <span className="">Delete</span>{" "}
-                    <span
-                      className={`absolute right-2 top-2 flex items-center justify-center rounded-sm px-1 py-[0.2]`}
-                    >
-                      <IconComponent
-                        name="Delete"
-                        className="h-4 w-4 stroke-2 text-red-400"
-                      ></IconComponent>
-                    </span>
-                  </div>
                 </SelectItem>
               </SelectContentWithoutPortal>
             </Select>
