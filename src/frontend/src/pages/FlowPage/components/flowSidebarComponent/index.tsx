@@ -13,7 +13,6 @@ import {
 import { useHotkeys } from "react-hotkeys-hook";
 import { useShallow } from "zustand/react/shallow";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -26,17 +25,14 @@ import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
 import { useAddComponent } from "@/hooks/use-add-component";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import { setLocalStorage } from "@/utils/local-storage-util";
-import {
-  nodeColors,
-  SIDEBAR_BUNDLES,
-  SIDEBAR_CATEGORIES,
-} from "@/utils/styleUtils";
-import { cn, getBooleanFromStorage } from "@/utils/utils";
+import { nodeColors } from "@/utils/styleUtils";
+import { cn, getBooleanFromStorage, removeCountFromString } from "@/utils/utils";
 import useFlowStore from "../../../../stores/flowStore";
 import { useTypesStore } from "../../../../stores/typesStore";
 import type { APIClassType } from "../../../../types/api";
 import isWrappedWithClass from "../PageComponent/utils/is-wrapped-with-class";
-import { CategoryGroup } from "./components/categoryGroup";
+import ShadTooltip from "@/components/common/shadTooltipComponent";
+import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
 import NoResultsMessage from "./components/emptySearchComponent";
 import McpSidebarGroup from "./components/McpSidebarGroup";
 import MemoizedSidebarGroup from "./components/sidebarBundles";
@@ -53,8 +49,36 @@ import { normalizeString } from "./helpers/normalize-string";
 import sensitiveSort from "./helpers/sensitive-sort";
 import { traditionalSearchMetadata } from "./helpers/traditional-search-metadata";
 
-const CATEGORIES = SIDEBAR_CATEGORIES;
-const BUNDLES = SIDEBAR_BUNDLES;
+const CUSTOM_COMPONENT_KEYS = [
+  "DoubaoImageCreator",
+  "DoubaoVideoGenerator",
+  "DoubaoTTS",
+  "TextCreation",
+];
+const CUSTOM_CATEGORY_NAME = "custom_components";
+const CUSTOM_CATEGORY_META = {
+  display_name: "自定义组件",
+  name: CUSTOM_CATEGORY_NAME,
+  icon: "ToyBrick",
+};
+const CATEGORIES = [CUSTOM_CATEGORY_META];
+const BUNDLES: any[] = [];
+const customNodeColors = { ...nodeColors, [CUSTOM_CATEGORY_NAME]: "#2563eb" };
+
+function extractCustomComponents(data: Record<string, any>) {
+  const result: Record<string, Record<string, any>> = {
+    [CUSTOM_CATEGORY_NAME]: {},
+  };
+  Object.values(data ?? {}).forEach((category: any) => {
+    Object.entries(category ?? {}).forEach(([key, value]) => {
+      const typeName = value?.type ?? key;
+      if (CUSTOM_COMPONENT_KEYS.includes(typeName)) {
+        result[CUSTOM_CATEGORY_NAME][key] = value;
+      }
+    });
+  });
+  return result;
+}
 
 // Search context for the sidebar
 export type SearchContextType = {
@@ -222,7 +246,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const [mcpSearchData, setMcpSearchData] = useState<any[]>([]);
 
   // Create base data that includes MCP category when available
-  const baseData = useMemo(() => {
+  const rawBaseData = useMemo(() => {
     if (mcpSuccess && mcpServers && data["agents"]?.["MCPTools"]) {
       const mcpComponent = data["agents"]["MCPTools"];
       const newMcpSearchData = mcpServers.map((mcpServer) => ({
@@ -253,7 +277,13 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
     return data;
   }, [data, mcpSuccess, mcpServers]);
 
+  const baseData = useMemo(
+    () => extractCustomComponents(rawBaseData),
+    [rawBaseData],
+  );
+
   const [dataFilter, setFilterData] = useState(baseData);
+  const customItems = dataFilter[CUSTOM_CATEGORY_NAME] ?? {};
 
   const customComponent = useMemo(() => {
     return data?.["custom_component"]?.["CustomComponent"] ?? null;
@@ -614,19 +644,61 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                 {hasResults ? (
                   <>
                     {showComponents && (
-                      <CategoryGroup
-                        dataFilter={dataFilter}
-                        sortedCategories={sortedCategories}
-                        CATEGORIES={CATEGORIES}
-                        openCategories={openCategories}
-                        setOpenCategories={setOpenCategories}
-                        search={search}
-                        nodeColors={nodeColors}
-                        onDragStart={onDragStart}
-                        sensitiveSort={sensitiveSort}
-                        showConfig={showConfig}
-                        setShowConfig={setShowConfig}
-                      />
+                      <div className="p-3 pr-2">
+                        <div className="flex flex-col gap-1 py-1">
+                          {Object.keys(customItems).length === 0 ? (
+                            <NoResultsMessage
+                              onClearSearch={handleClearSearch}
+                              showConfig={showConfig}
+                              setShowConfig={setShowConfig}
+                            />
+                          ) : (
+                            Object.keys(customItems)
+                              .sort((a, b) =>
+                                sensitiveSort(
+                                  customItems[a].display_name,
+                                  customItems[b].display_name,
+                                ),
+                              )
+                              .map((itemName) => {
+                                const currentItem = customItems[itemName];
+                                return (
+                                  <ShadTooltip
+                                    content={currentItem.display_name}
+                                    side="right"
+                                    key={itemName}
+                                  >
+                                    <SidebarDraggableComponent
+                                      sectionName={CUSTOM_CATEGORY_NAME}
+                                      apiClass={currentItem}
+                                      icon={
+                                        currentItem.icon ??
+                                        CUSTOM_CATEGORY_META.icon
+                                      }
+                                      onDragStart={(event) =>
+                                        onDragStart(event, {
+                                          type: removeCountFromString(
+                                            itemName,
+                                          ),
+                                          node: currentItem,
+                                        })
+                                      }
+                                      color={customNodeColors[CUSTOM_CATEGORY_NAME]}
+                                      itemName={itemName}
+                                      error={!!currentItem.error}
+                                      display_name={currentItem.display_name}
+                                      official={currentItem.official !== false}
+                                      beta={currentItem.beta ?? false}
+                                      legacy={currentItem.legacy ?? false}
+                                      disabled={false}
+                                      disabledTooltip=""
+                                    />
+                                  </ShadTooltip>
+                                );
+                              })
+                          )}
+                        </div>
+                      </div>
                     )}
                     {showMcp && (
                       <McpSidebarGroup
@@ -670,21 +742,6 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                         showConfig={showConfig}
                         setShowConfig={setShowConfig}
                       />
-                    )}
-                    {showComponents && (
-                      <Button
-                        onClick={() => setActiveSection("bundles")}
-                        variant="ghost"
-                        className="bg-muted hover:bg-muted/70 mx-3 px-2.5 !text-[13px] font-normal line-height-[16px] mb-3 group -mt-3 h-[34px]"
-                      >
-                        <span className="text-muted-foreground flex items-center">
-                          <ForwardedIconComponent
-                            name="blocks"
-                            className="h-4 w-4"
-                          />
-                        </span>
-                        Discover more components
-                      </Button>
                     )}
                   </>
                 ) : (
