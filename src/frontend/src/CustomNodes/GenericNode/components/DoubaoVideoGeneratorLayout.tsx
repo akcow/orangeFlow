@@ -80,7 +80,7 @@ const MODEL_LIMITS: Record<
     enableLastFrame: true,
   },
   "Doubao-Seedance-1.0-pro-fast｜251015": {
-    resolutions: ["480p", "720p"],
+    resolutions: ["480p", "720p", "1080p"],
     minDuration: 2,
     maxDuration: 12,
     enableLastFrame: false,
