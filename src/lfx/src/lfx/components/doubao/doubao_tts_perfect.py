@@ -1,4 +1,4 @@
-"""豆包语音合成 LFX 组件 - 适配版 v3"""
+"""音频合成 LFX 组件 - 适配版 v3"""
 
 from __future__ import annotations
 
@@ -450,9 +450,9 @@ async def protocol_task_request(websocket, payload: bytes, session_id: str) -> N
 
 
 class DoubaoTTS(Component):
-    """豆包语音合成 LFX 组件 - 适配版 v3 双向流式"""
+    """音频合成 LFX 组件 - 适配版 v3 双向流式"""
 
-    display_name = "豆包语音合成 v3"
+    display_name = "音频合成"
     description = ""
     icon = "DoubaoTTS"
     name = "DoubaoTTS"

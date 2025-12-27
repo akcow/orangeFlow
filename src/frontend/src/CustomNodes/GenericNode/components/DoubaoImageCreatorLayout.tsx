@@ -42,6 +42,7 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_constants";
+import { scapeJSONParse } from "@/utils/reactflowUtils";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px] grow-[2]" },
@@ -104,6 +105,8 @@ export default function DoubaoImageCreatorLayout({
     (field) => !customFields.has(field),
   );
 
+  const nodes = useFlowStore((state) => state.nodes);
+  const edges = useFlowStore((state) => state.edges);
   const referenceFieldRaw = template[REFERENCE_FIELD];
   const referenceField = useMemo<InputFieldType>(() => {
     if (!referenceFieldRaw) return REFERENCE_FIELD_FALLBACK;
@@ -128,11 +131,49 @@ export default function DoubaoImageCreatorLayout({
       fileTypes: normalizedCamelFileTypes,
     };
   }, [referenceFieldRaw]);
+  const upstreamReferenceFields = useMemo<InputFieldType[]>(() => {
+    const incomingEdges = edges?.filter(
+      (edge) => edge.target === data.id && edge.targetHandle,
+    );
+    const collected: InputFieldType[] = [];
+
+    incomingEdges?.forEach((edge) => {
+      try {
+        const targetHandle = scapeJSONParse(edge.targetHandle!);
+        const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+        if (fieldName !== REFERENCE_FIELD) return;
+      } catch {
+        return;
+      }
+
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      if (sourceNode?.data?.type !== "DoubaoImageCreator") return;
+
+      const sourceTemplateField =
+        sourceNode.data?.node?.template?.[REFERENCE_FIELD];
+
+      if (sourceTemplateField) {
+        collected.push(sourceTemplateField);
+      }
+    });
+
+    return collected;
+  }, [edges, nodes, data.id]);
   const referencePreviews = useMemo<DoubaoReferenceImage[]>(
     () => buildReferencePreviewItems(referenceField),
     [referenceField],
   );
-  const selectedReferenceCount = referencePreviews.length;
+  const upstreamReferencePreviews = useMemo<DoubaoReferenceImage[]>(
+    () => buildReferencePreviewItemsFromFields(upstreamReferenceFields),
+    [upstreamReferenceFields],
+  );
+  const combinedReferencePreviews = useMemo<DoubaoReferenceImage[]>(
+    () =>
+      mergeReferencePreviewLists(referencePreviews, upstreamReferencePreviews),
+    [referencePreviews, upstreamReferencePreviews],
+  );
+  const localReferenceCount = referencePreviews.length;
+  const selectedReferenceCount = combinedReferencePreviews.length;
 
   const referenceFileTypes =
     referenceField.fileTypes ??
@@ -225,7 +266,14 @@ export default function DoubaoImageCreatorLayout({
     }
     return MAX_REFERENCE_IMAGES;
   }, [referenceField]);
-  const canAddMoreReferences = selectedReferenceCount < maxReferenceEntries;
+  const maxLocalEntries = Math.max(
+    maxReferenceEntries - upstreamReferencePreviews.length,
+    0,
+  );
+  const uploadMaxEntries = Math.max(maxLocalEntries, localReferenceCount);
+  const canAddMoreReferences =
+    localReferenceCount < maxLocalEntries &&
+    selectedReferenceCount < maxReferenceEntries;
 
   const allowedExtensions = useMemo(() => {
     const source = referenceFileTypes && referenceFileTypes.length > 0
@@ -258,7 +306,7 @@ export default function DoubaoImageCreatorLayout({
     void handleReferenceUpload({
       referenceField,
       accept: filePickerAccept,
-      maxEntries: maxReferenceEntries,
+      maxEntries: uploadMaxEntries,
       allowedExtensions,
       currentFlowId,
       uploadReferenceFile,
@@ -272,6 +320,7 @@ export default function DoubaoImageCreatorLayout({
     isReferenceUploadPending,
     filePickerAccept,
     maxReferenceEntries,
+    uploadMaxEntries,
     allowedExtensions,
     currentFlowId,
     uploadReferenceFile,
@@ -284,6 +333,7 @@ export default function DoubaoImageCreatorLayout({
 
   const handleReferenceRemove = useCallback(
     (index: number) => {
+      if (index >= localReferenceCount) return;
       const entries = collectReferenceEntries(referenceField);
       if (!entries.length) return;
       const filtered = entries.filter((_, idx) => idx !== index);
@@ -292,11 +342,12 @@ export default function DoubaoImageCreatorLayout({
         file_path: filtered.map((entry) => entry.path),
       });
     },
-    [referenceField, handleReferenceChange],
+    [referenceField, handleReferenceChange, localReferenceCount],
   );
 
   const handleReferenceReplace = useCallback(
     async (index: number) => {
+      if (index >= localReferenceCount) return;
       if (!currentFlowId) {
         setErrorData({
           title: "无法替换参考图",
@@ -347,8 +398,8 @@ export default function DoubaoImageCreatorLayout({
           entries.push({ name: file.name, path: serverPath });
         }
         const limitedEntries =
-          entries.length > maxReferenceEntries
-            ? entries.slice(-maxReferenceEntries)
+          entries.length > uploadMaxEntries
+            ? entries.slice(-uploadMaxEntries)
             : entries;
         handleReferenceChange({
           value: limitedEntries.map((entry) => entry.name),
@@ -376,9 +427,10 @@ export default function DoubaoImageCreatorLayout({
       allowedExtensions,
       uploadReferenceFile,
       validateFileSize,
-      maxReferenceEntries,
       handleReferenceChange,
       setReferenceUploadPending,
+      uploadMaxEntries,
+      localReferenceCount,
     ],
   );
 
@@ -395,17 +447,17 @@ export default function DoubaoImageCreatorLayout({
   }, [isUploadDialogOpen]);
 
   useEffect(() => {
-    if (!referencePreviews.length) {
+    if (!combinedReferencePreviews.length) {
       setManagedPreviewIndex(null);
       return;
     }
     if (
       managedPreviewIndex !== null &&
-      managedPreviewIndex >= referencePreviews.length
+      managedPreviewIndex >= combinedReferencePreviews.length
     ) {
-      setManagedPreviewIndex(referencePreviews.length - 1);
+      setManagedPreviewIndex(combinedReferencePreviews.length - 1);
     }
-  }, [managedPreviewIndex, referencePreviews]);
+  }, [managedPreviewIndex, combinedReferencePreviews]);
 
   const referenceHandleMeta = useMemo(() => {
     if (!referenceField) return null;
@@ -493,7 +545,7 @@ export default function DoubaoImageCreatorLayout({
                 nodeId={data.id}
                 componentName={data.type}
                 appearance="imageCreator"
-                referenceImages={referencePreviews}
+                referenceImages={combinedReferencePreviews}
                 onRequestUpload={openUploadDialog}
               />
             </div>
@@ -658,73 +710,82 @@ export default function DoubaoImageCreatorLayout({
                 {selectedReferenceCount > 0 ? (
                   <>
                     <div className="grid grid-cols-2 gap-3">
-                      {referencePreviews.map((preview, index) => (
-                        <div
-                          key={preview.id ?? `${preview.imageSource}-${index}`}
-                          className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
-                        >
-                          <button
-                            type="button"
-                            className="h-28 w-full overflow-hidden"
-                            onClick={() => setManagedPreviewIndex(index)}
+                      {combinedReferencePreviews.map((preview, index) => {
+                        const isUpstream = index >= localReferenceCount;
+                        return (
+                          <div
+                            key={preview.id ?? `${preview.imageSource}-${index}`}
+                            className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
                           >
-                            <img
-                              src={preview.imageSource}
-                              alt={
-                                preview.label ??
-                                preview.fileName ??
-                                `参考图 ${index + 1}`
-                              }
-                              className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                            />
-                          </button>
-                          <div className="flex items-center justify-between px-3 py-2 text-xs text-[#4B5168] dark:text-slate-200">
-                            <span className="line-clamp-1">
-                              {preview.label ??
-                                preview.fileName ??
-                                `参考图 ${index + 1}`}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
-                                onClick={() => handleReferenceReplace(index)}
-                                disabled={isReferenceUploadPending}
-                              >
-                                替换
-                              </button>
-                              <span className="text-[#CDD2E4] dark:text-slate-600">|</span>
-                              <button
-                                type="button"
-                                className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
-                                onClick={() => setManagedPreviewIndex(index)}
-                              >
-                                查看
-                              </button>
+                            <button
+                              type="button"
+                              className="h-28 w-full overflow-hidden"
+                              onClick={() => setManagedPreviewIndex(index)}
+                            >
+                              <img
+                                src={preview.imageSource}
+                                alt={
+                                  preview.label ??
+                                  preview.fileName ??
+                                  `参考图 ${index + 1}`
+                                }
+                                className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                              />
+                            </button>
+                            <div className="flex items-center justify-between px-3 py-2 text-xs text-[#4B5168] dark:text-slate-200">
+                              <span className="line-clamp-1">
+                                {preview.label ??
+                                  preview.fileName ??
+                                  `参考图 ${index + 1}`}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                  onClick={() => handleReferenceReplace(index)}
+                                  disabled={isReferenceUploadPending || isUpstream}
+                                >
+                                  替换
+                                </button>
+                                <span className="text-[#CDD2E4] dark:text-slate-600">|</span>
+                                <button
+                                  type="button"
+                                  className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                  onClick={() => setManagedPreviewIndex(index)}
+                                >
+                                  查看
+                                </button>
+                              </div>
                             </div>
+                            <button
+                              type="button"
+                              aria-label="删除参考图"
+                              className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 shadow transition group-hover:opacity-100"
+                              onClick={() => handleReferenceRemove(index)}
+                              disabled={isUpstream}
+                            >
+                              <ForwardedIconComponent
+                                name="Trash2"
+                                className="h-3.5 w-3.5"
+                              />
+                            </button>
+                            {isUpstream && (
+                              <span className="absolute left-2 top-2 rounded-full bg-[#0f172a]/70 px-2 py-0.5 text-[10px] font-medium text-white shadow">
+                                上游
+                              </span>
+                            )}
                           </div>
-                          <button
-                            type="button"
-                            aria-label="删除参考图"
-                            className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 shadow transition group-hover:opacity-100"
-                            onClick={() => handleReferenceRemove(index)}
-                          >
-                            <ForwardedIconComponent
-                              name="Trash2"
-                              className="h-3.5 w-3.5"
-                            />
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     {managedPreviewIndex !== null &&
-                      referencePreviews[managedPreviewIndex] && (
+                      combinedReferencePreviews[managedPreviewIndex] && (
                         <div className="space-y-2 rounded-xl border border-[#E2E7F5] bg-[#F8FAFF] p-3 dark:border-white/10 dark:bg-white/5">
                           <div className="flex items-center justify-between text-xs text-[#4A5168] dark:text-slate-200">
                             <span>
                               预览：
-                              {referencePreviews[managedPreviewIndex].label ??
-                                referencePreviews[managedPreviewIndex].fileName ??
+                              {combinedReferencePreviews[managedPreviewIndex].label ??
+                                combinedReferencePreviews[managedPreviewIndex].fileName ??
                                 `参考图 ${managedPreviewIndex + 1}`}
                             </span>
                             <button
@@ -738,7 +799,7 @@ export default function DoubaoImageCreatorLayout({
                           <div className="h-48 w-full overflow-hidden rounded-lg bg-[#F4F6FB] dark:bg-slate-900/50">
                             <img
                               src={
-                                referencePreviews[managedPreviewIndex].imageSource
+                                combinedReferencePreviews[managedPreviewIndex].imageSource
                               }
                               alt="参考图预览"
                               className="h-full w-full object-contain"
@@ -801,6 +862,40 @@ function buildReferencePreviewItems(
   }
 
   return previews;
+}
+
+function buildReferencePreviewItemsFromFields(
+  fields: InputFieldType[],
+): DoubaoReferenceImage[] {
+  if (!fields.length) return [];
+  const previews: DoubaoReferenceImage[] = [];
+  fields.forEach((field) => {
+    previews.push(...buildReferencePreviewItems(field));
+  });
+  return dedupePreviews(previews);
+}
+
+function mergeReferencePreviewLists(
+  base: DoubaoReferenceImage[],
+  extras: DoubaoReferenceImage[],
+): DoubaoReferenceImage[] {
+  return dedupePreviews([...base, ...extras]);
+}
+
+function dedupePreviews(
+  previews: DoubaoReferenceImage[],
+): DoubaoReferenceImage[] {
+  const seen = new Set<string>();
+  const result: DoubaoReferenceImage[] = [];
+
+  previews.forEach((preview) => {
+    const key = preview.imageSource ?? preview.downloadSource ?? preview.id;
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    result.push(preview);
+  });
+
+  return result;
 }
 
 function toArray<T>(value: T | T[] | undefined): T[] {

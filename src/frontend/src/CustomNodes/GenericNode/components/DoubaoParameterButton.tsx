@@ -19,6 +19,7 @@ export type DoubaoControlConfig = {
   value: any;
   widthClass?: string;
   tooltip?: string;
+  disabledOptions?: Array<string | number>;
 };
 
 export const DOUBAO_CONFIG_TOOLTIP = "参数选择说明";
@@ -39,7 +40,7 @@ export function DoubaoParameterButton({
   data: NodeDataType;
   config: DoubaoControlConfig;
 }) {
-  const { name, icon, options, template, value, widthClass, tooltip } = config;
+  const { name, icon, options, template, value, widthClass, tooltip, disabledOptions } = config;
   const { handleOnNewValue } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
@@ -49,6 +50,7 @@ export function DoubaoParameterButton({
   const displayValue = formatControlValue(name, value);
 
   const handleSelect = (nextValue: string) => {
+    if (disabledOptions?.map(String).includes(nextValue)) return;
     const parsed =
       typeof template.value === "number" ? Number(nextValue) : nextValue;
     handleOnNewValue({ value: parsed });
@@ -100,6 +102,7 @@ export function DoubaoParameterButton({
               key={option}
               value={String(option)}
               className="text-sm"
+              disabled={disabledOptions?.map(String).includes(String(option))}
             >
               {formatControlValue(name, option)}
             </DropdownMenuRadioItem>

@@ -62,8 +62,8 @@ cd langflow-pro
 
 ### 豆包AI组件
 
-- **DoubaoTTS** - 豆包语音合成
-- **DoubaoVideoGenerator** - 豆包视频生成
+- **DoubaoTTS** - 音频合成
+- **DoubaoVideoGenerator** - 视频创作
 - **DoubaoImageCreator** - 即梦图片创作（Seedream 4.0/4.5 文生图、图生图、组图预览）
 
 ## ⚙️ 配置说明

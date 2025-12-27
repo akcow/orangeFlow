@@ -146,7 +146,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const handleModalError = useCallback(
       (error: Error) => {
         console.error("Modal error:", error);
-        showTransientBadge("加载失败");
+        showTransientBadge("Load failed");
       },
       [showTransientBadge],
     );
@@ -181,11 +181,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             size:
               entry?.size ??
               (entry?.width && entry?.height
-                ? `${entry.width}×${entry.height}`
+                ? `${entry.width}x${entry.height}`
                 : undefined),
             width: entry?.width,
             height: entry?.height,
-            label: entry?.label ?? `第 ${idx + 1} 张`,
+            label: entry?.label ?? `Image ${idx + 1}`,
             origin: "generated",
             fileName: entry?.filename ?? entry?.file_name,
           });
@@ -217,11 +217,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           downloadSource: remoteFallback ?? inlineFallback ?? "",
           size:
             payload.width && payload.height
-              ? `${payload.width}×${payload.height}`
+              ? `${payload.width}x${payload.height}`
               : undefined,
           width: payload.width,
           height: payload.height,
-          label: "第 1 张",
+          label: "Image 1",
           origin: "generated",
           fileName: payload.filename ?? payload.file_name,
         },
@@ -235,7 +235,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           if (!item?.imageSource) return null;
           const fallbackSize =
             item.width && item.height
-              ? `${item.width}×${item.height}`
+              ? `${item.width}x${item.height}`
               : undefined;
           return {
             imageSource: item.imageSource,
@@ -488,16 +488,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         return `最近更新：${formatTimestamp(preview.generated_at)}`;
       }
       if (isBuilding) {
-        return "生成中，完成后自动更新";
+        return "生成中……完成后将自动刷新";
       }
-      return "结果生成后将在此展示";
+      return "生成完成后将在此显示结果";
     })();
 
     const modalContent = (() => {
       if (!hasRenderablePreview) {
         return (
           <p className="text-center text-sm text-muted-foreground">
-            暂无可放大的内容
+            暂无可预览内容
           </p>
         );
       }
@@ -555,7 +555,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                     上一张
                   </Button>
                   <span>
-                    第 {activeImageIndex + 1} / {galleryForRenderer.length} 张
+                    图片 {activeImageIndex + 1} / {galleryForRenderer.length}
                   </span>
                   <Button
                     variant="ghost"
@@ -620,7 +620,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             </div>
             {showReferenceSelectionBadge && (
               <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
-                已选 {referenceSelectionCount}
+                已选择 {referenceSelectionCount}
               </div>
             )}
 
@@ -655,11 +655,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                   )}
                   {hasRenderablePreview && (
                     <button
-                      type="button"
-                      aria-label="放大预览"
-                      onClick={openModal}
-                      className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
-                    >
+                  type="button"
+                  aria-label="放大预览"
+                  onClick={openModal}
+                  className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
+                >
                       <ForwardedIconComponent
                         name="Maximize2"
                         className="h-4 w-4 text-current"
@@ -707,7 +707,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             className="w-[92vw] max-w-4xl"
           >
             <DialogHeader className="flex flex-row items-center justify-between gap-4">
-              <DialogTitle className="text-base">生成结果详情</DialogTitle>
+              <DialogTitle className="text-base">生成详情</DialogTitle>
               {hasRenderablePreview && downloadInfo && (
                 <Button
                   variant="secondary"
@@ -727,7 +727,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             <div className="max-h-[70vh] overflow-auto rounded-2xl bg-muted/50 p-4">
               {modalContent ?? (
                 <p className="text-center text-sm text-muted-foreground">
-                  暂无可放大的内容
+                  暂无可预览内容
                 </p>
               )}
             </div>
@@ -846,37 +846,61 @@ function EmptyPreview({
   appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
   onUploadClick?: () => void;
 }) {
+  const renderSuggestionButtons = (
+    items: Array<{ label: string; icon: string }>,
+  ) => (
+    <div className="w-full max-w-[520px] space-y-2 text-left">
+      <div className="text-xs font-semibold text-[#444A63] dark:text-slate-200">
+        尝试：
+      </div>
+      <div className="grid w-full gap-2 text-xs sm:grid-cols-2">
+        {items.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-[#3C4258] shadow-sm transition hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <ForwardedIconComponent
+              name={item.icon}
+              className="h-4 w-4 text-muted-foreground"
+            />
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   const isMinimal =
     appearance === "imageCreator" ||
     appearance === "videoGenerator" ||
     appearance === "audioCreator";
   const uploadLinkLabel =
     appearance === "videoGenerator"
-      ? "暂无生成结果，可上传图片作为视频首帧"
-      : "暂无生成结果，请上传图片";
+      ? "暂无结果，上传图片作为视频封面"
+      : "暂无结果，请上传图片";
+
   if (isMinimal) {
     if (appearance === "videoGenerator") {
-      const suggestions = ["图生图", "图生视频", "图片换背景", "首帧图生视频"];
+      const suggestions = [
+        { label: "以图生图", icon: "Wand2" },
+        { label: "图生视频", icon: "Clapperboard" },
+        { label: "替换背景", icon: "Eraser" },
+        { label: "封面转视频", icon: "Film" },
+      ];
       return (
         <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
-          <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF] dark:text-slate-400">
-            <span className="font-medium text-[#444A63] dark:text-slate-200">尝试：</span>
-            <div className="grid gap-1 text-sm text-[#4B526B] dark:text-slate-200">
-              {suggestions.map((item) => (
-                <div key={item} className="flex items-center justify-center gap-2">
-                  <ForwardedIconComponent
-                    name="ChevronRight"
-                    className="h-3 w-3 text-[#A4AAC6] dark:text-slate-400"
-                  />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
+          <div className="flex w-full justify-center">
+            {renderSuggestionButtons(suggestions)}
           </div>
           <div className="mt-5">
             {isBuilding ? (
               <p className="text-base font-medium text-[#4B5168] dark:text-slate-100">
-                构建中，稍后自动更新
+                生成中，将自动刷新
               </p>
             ) : (
               onUploadClick && (
@@ -897,55 +921,34 @@ function EmptyPreview({
         </div>
       );
     }
+
     if (appearance === "audioCreator") {
       const suggestions = [
         { label: "上传本地音频", icon: "Upload" as const },
-        { label: "音频生视频", icon: "Music" as const },
+        { label: "音频转视频", icon: "Music" as const },
       ];
       return (
         <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
-          <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF] dark:text-slate-400">
-            <span className="font-medium text-[#444A63] dark:text-slate-200">尝试：</span>
-            <div className="grid gap-1 text-sm text-[#4B526B] dark:text-slate-200">
-              {suggestions.map((item) => (
-                <div key={item.label} className="flex items-center justify-center gap-2">
-                  <ForwardedIconComponent
-                    name={item.icon}
-                    className="h-3 w-3 text-[#A4AAC6] dark:text-slate-400"
-                  />
-                  <span>{item.label}</span>
-                </div>
-              ))}
-            </div>
+          <div className="flex w-full justify-center">
+            {renderSuggestionButtons(suggestions)}
           </div>
           <p className="mt-4 text-base font-medium text-[#4B5168] dark:text-slate-100">
-            {isBuilding ? "构建中，稍后自动更新" : "暂无生成结果"}
+            {isBuilding ? "生成中，将自动刷新" : "暂无生成结果"}
           </p>
         </div>
       );
     }
 
     const suggestions = [
-      "图生图",
-      "图生视频",
-      "图片换背景",
-      "首帧图生视频",
+      { label: "以图生图", icon: "Wand2" },
+      { label: "图生视频", icon: "Clapperboard" },
+      { label: "替换背景", icon: "Eraser" },
+      { label: "封面转视频", icon: "Film" },
     ];
     return (
       <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
-        <div className="flex flex-col items-center gap-2 text-xs text-[#8E95AF] dark:text-slate-400">
-          <span className="font-medium text-[#444A63] dark:text-slate-200">尝试：</span>
-          <div className="grid gap-1 text-sm text-[#4B526B] dark:text-slate-200">
-            {suggestions.map((item) => (
-              <div key={item} className="flex items-center justify-center gap-2">
-                <ForwardedIconComponent
-                  name="ChevronRight"
-                  className="h-3 w-3 text-[#A4AAC6] dark:text-slate-400"
-                />
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
+        <div className="flex w-full justify-center">
+          {renderSuggestionButtons(suggestions)}
         </div>
         <button
           type="button"
@@ -961,7 +964,7 @@ function EmptyPreview({
             window.dispatchEvent(uploadEvent);
           }}
         >
-          {isBuilding ? "构建中，稍后自动更新" : uploadLinkLabel}
+          {isBuilding ? "生成中，将自动刷新" : uploadLinkLabel}
         </button>
       </div>
     );
@@ -979,7 +982,7 @@ function EmptyPreview({
         <div className="flex flex-col items-center gap-2">
           <div className="h-9 w-9 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span className="text-xs text-muted-foreground">
-            构建中，稍后自动更新
+            生成中，将自动刷新
           </span>
         </div>
       ) : (

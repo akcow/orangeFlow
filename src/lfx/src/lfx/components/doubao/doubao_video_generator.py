@@ -1,4 +1,4 @@
-"""豆包文生视频 LFX 组件 - 适配版"""
+"""视频创作 LFX 组件 - 适配版"""
 
 from __future__ import annotations
 
@@ -30,28 +30,51 @@ load_dotenv()
 
 
 class DoubaoVideoGenerator(Component):
-    """调用豆包文生视频接口的 LFX 组件，支持异步生成和状态轮询。"""
+    """调用豆包视频创作接口的 LFX 组件，支持异步生成和状态轮询。"""
 
-    display_name = "豆包文生视频"
+    display_name = "视频创作"
     description = ""
     icon = "DoubaoVideoGenerator"
     name = "DoubaoVideoGenerator"
 
     # 模型配置映射：UI显示名称 -> API端点ID
     MODEL_MAPPING = {
+        "Doubao-Seedance-1.5-pro｜251215": "doubao-seedance-1-5-pro-251215",
+        "Doubao-Seedance-1.0-pro｜250528": "doubao-seedance-1-0-pro-250528",
         "Doubao-Seedance-1.0-pro-fast｜251015": "ep-20251031203218-q62sm",
     }
+
+    MODEL_LIMITS = {
+        "Doubao-Seedance-1.5-pro｜251215": {
+            "resolutions": ["480p", "720p"],
+            "min_duration": 4,
+            "max_duration": 12,
+            "supports_last_frame": True,
+        },
+        "Doubao-Seedance-1.0-pro｜250528": {
+            "resolutions": ["480p", "720p", "1080p"],
+            "min_duration": 2,
+            "max_duration": 12,
+            "supports_last_frame": True,
+        },
+        "Doubao-Seedance-1.0-pro-fast｜251015": {
+            "resolutions": ["480p", "720p"],
+            "min_duration": 2,
+            "max_duration": 12,
+            "supports_last_frame": False,
+        },
+    }
+
+    SUPPORTED_RATIOS = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"]
 
     inputs = [
         DropdownInput(
             name="model_name",
             display_name="模型名称",
-            options=[
-                "Doubao-Seedance-1.0-pro-fast｜251015"
-            ],
+            options=list(MODEL_MAPPING.keys()),
             value="Doubao-Seedance-1.0-pro-fast｜251015",  # 使用UI显示的模型名称作为默认值
             required=True,
-            info="选择豆包文生视频模型，UI显示模型名称，API调用使用对应的端点ID。",
+            info="选择视频创作模型，UI显示模型名称，API调用使用对应的端点ID。",
         ),
         MultilineInput(
             name="prompt",
@@ -65,7 +88,7 @@ class DoubaoVideoGenerator(Component):
         DropdownInput(
             name="resolution",
             display_name="视频分辨率",
-            options=[ "480p","720p", "1080p"],
+            options=["480p", "720p", "1080p"],
             value="1080p",
             required=False,
             info="生成视频的分辨率，1080p为推荐选项。",
@@ -77,6 +100,14 @@ class DoubaoVideoGenerator(Component):
             value=5,
             info="生成视频的时长（秒），范围2-12秒。",
         ),
+        DropdownInput(
+            name="aspect_ratio",
+            display_name="视频宽高比",
+            options=SUPPORTED_RATIOS,
+            value="16:9",
+            required=False,
+            info="设置视频的宽高比，支持常见比例及adaptive自适应选项。",
+        ),
         FileInput(
             name="first_frame_image",
             display_name="首帧图输入",
@@ -85,6 +116,15 @@ class DoubaoVideoGenerator(Component):
             file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"],
             input_types=["Data"],
             info="可选：上传参考图或连接上游图片节点，用作图生视频首帧。",
+        ),
+        FileInput(
+            name="last_frame_image",
+            display_name="尾帧图输入",
+            is_list=False,
+            list_add_label="设置尾帧",
+            file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"],
+            input_types=["Data"],
+            info="可选：上传或指定尾帧图片，实现首尾帧衔接的视频生成。",
         ),
         SecretStrInput(
             name="api_key",
@@ -128,8 +168,20 @@ class DoubaoVideoGenerator(Component):
 
         # 准备API参数
         try:
+            model_name = str(self.model_name or "")
+            model_limits = self.MODEL_LIMITS.get(model_name, {})
             resolution = str(self.resolution or "1080p")
             duration = int(self.duration or 5)
+            aspect_ratio = str(self.aspect_ratio or "16:9")
+            allowed_resolutions = model_limits.get("resolutions") or []
+            if allowed_resolutions and resolution not in allowed_resolutions:
+                resolution = allowed_resolutions[0]
+            if aspect_ratio not in self.SUPPORTED_RATIOS:
+                aspect_ratio = self.SUPPORTED_RATIOS[0]
+            min_duration = model_limits.get("min_duration", 2)
+            max_duration = model_limits.get("max_duration", 12)
+            duration = max(min_duration, min(duration, max_duration))
+            supports_last_frame = model_limits.get("supports_last_frame", True)
             camera_fixed = False
             watermark = False
             enable_preview = True
@@ -143,7 +195,7 @@ class DoubaoVideoGenerator(Component):
             return self._error("参数格式错误，请检查输入的数值。")
 
         # 构建文本提示词参数
-        text_params = f"{merged_prompt} --resolution {resolution} --duration {duration} --camerafixed {str(camera_fixed).lower()} --watermark {str(watermark).lower()}"
+        text_params = f"{merged_prompt} --ratio {aspect_ratio} --dur {duration} --resolution {resolution} --camerafixed {str(camera_fixed).lower()} --watermark {str(watermark).lower()}"
 
         # 构建内容数组
         content = [
@@ -161,16 +213,37 @@ class DoubaoVideoGenerator(Component):
                 "type": "image_url",
                 "image_url": {
                     "url": first_frame_url
-                }
+                },
+                "role": "first_frame"
             })
         else:
             self.status = "📝 未提供首帧图片，进行纯文生视频"
 
+        last_frame_url = None
+        if supports_last_frame:
+            last_frame_url = self._extract_image_url(getattr(self, "last_frame_image", None))
+            if last_frame_url:
+                self.status = f"🖼️ 使用尾帧图片: {last_frame_url[:50]}..."
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": last_frame_url
+                    },
+                    "role": "last_frame"
+                })
+        elif getattr(self, "last_frame_image", None):
+            self.status = "ℹ️ 当前模型不支持尾帧，已忽略尾帧输入"
+
         # 构建生成参数
         generate_params = {
             "model": endpoint_id,  # 使用端点ID进行API调用
-            "content": content
+            "content": content,
+            "resolution": resolution,
+            "ratio": aspect_ratio,
+            "duration": duration,
         }
+        if supports_last_frame and (first_frame_url or last_frame_url):
+            generate_params["return_last_frame"] = True
 
         try:
             # 创建视频生成任务
@@ -212,11 +285,15 @@ class DoubaoVideoGenerator(Component):
                 "prompt": merged_prompt,
                 "resolution": resolution,
                 "duration": duration,
+                "aspect_ratio": aspect_ratio,
                 "camera_fixed": camera_fixed,
                 "watermark": watermark,
                 "model_display_name": self.model_name,  # UI显示的模型名称
                 "model_endpoint_id": endpoint_id,  # API调用使用的端点ID
+                "supports_last_frame": supports_last_frame,
                 "generation_time": int(time.time() - start_time),
+                "first_frame_used": bool(first_frame_url),
+                "last_frame_used": bool(last_frame_url) if supports_last_frame else False,
                 "debug_info": {
                     "has_results": hasattr(get_result, 'results'),
                     "has_data": hasattr(get_result, 'data'),
@@ -247,12 +324,13 @@ class DoubaoVideoGenerator(Component):
             # 尝试多种方式解析响应数据
             video_results = []
 
-            # 方法1: 检查 content 属性（豆包视频生成的主要方式）
+            # 方法1: 检查 content 属性（视频创作的主要方式）
             if hasattr(get_result, 'content') and get_result.content:
                 try:
                     content_obj = get_result.content
                     video_url = None
                     cover_url = None
+                    last_frame_resp = None
 
                     # 从content对象中提取URL
                     if hasattr(content_obj, 'video_url'):
@@ -261,12 +339,15 @@ class DoubaoVideoGenerator(Component):
                         cover_url = content_obj.cover_url
                     if hasattr(content_obj, 'last_frame_url'):
                         cover_url = content_obj.last_frame_url
+                        last_frame_resp = content_obj.last_frame_url
+                        result_data["last_frame_url"] = content_obj.last_frame_url
 
                     if video_url:
                         video_results = [{
                             "index": 0,
                             "video_url": video_url,
                             "cover_url": cover_url,
+                            "last_frame_url": last_frame_resp,
                             "duration": duration,
                             "source_attr": "content.video_url"
                         }]
@@ -358,6 +439,7 @@ class DoubaoVideoGenerator(Component):
                         "index": i,
                         "video_url": None,
                         "cover_url": None,
+                        "last_frame_url": None,
                         "duration": None,
                     }
 
@@ -370,6 +452,8 @@ class DoubaoVideoGenerator(Component):
                     # 尝试提取封面信息
                     if hasattr(result, 'cover_url'):
                         video_data["cover_url"] = result.cover_url
+                    if hasattr(result, 'last_frame_url'):
+                        video_data["last_frame_url"] = result.last_frame_url
 
                     # 尝试提取时长信息
                     if hasattr(result, 'duration'):
@@ -379,6 +463,7 @@ class DoubaoVideoGenerator(Component):
                     elif isinstance(result, dict):
                         video_data["video_url"] = result.get('url') or result.get('video_url')
                         video_data["cover_url"] = result.get('cover_url')
+                        video_data["last_frame_url"] = result.get('last_frame_url')
                         video_data["duration"] = result.get('duration')
 
                     # 如果获取到了视频URL，添加到结果中

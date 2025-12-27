@@ -51,10 +51,10 @@ const DOUBAO_DEFAULT_DESCRIPTIONS: Record<string, Array<string>> = {
     "基于多种图片创作模型，提供文本生成图片、参考图编辑与组图能力，支持实时预览、多图上传、分辨率与比例一体化配置。",
   ],
   DoubaoVideoGenerator: [
-    "调用豆包视频生成接口，支持文生视频和图生视频，可自定义模型、提示词与分辨率等参数。",
+    "视频创作：支持文生视频和图生视频，可自定义模型、提示词与分辨率等参数。",
   ],
   DoubaoTTS: [
-    "调用豆包语音合成v3双向流式接口，将文本转换为语音。",
+    "音频合成：调用双向流式接口，将文本转换为语音。",
   ],
 };
 
@@ -690,7 +690,7 @@ function GenericNode({
             )}
         </div>
         {showNode && (
-          <div className="nopan nodelete nodrag noflow relative cursor-auto">
+          <div className="nopan nodelete noflow relative cursor-auto">
             {usesWideDoubaoLayout ? (
               isDoubaoImageCreator ? (
                 <DoubaoImageCreatorLayout

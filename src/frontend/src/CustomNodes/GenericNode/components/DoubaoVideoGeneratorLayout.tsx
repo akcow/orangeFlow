@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
@@ -40,16 +40,52 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { BASE_URL_API } from "@/constants/constants";
+import { scapeJSONParse } from "@/utils/reactflowUtils";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[220px] grow" },
   { name: "resolution", icon: "Monitor", widthClass: "basis-[140px]" },
+  { name: "aspect_ratio", icon: "RectangleHorizontal", widthClass: "basis-[150px]" },
   { name: "duration", icon: "Timer", widthClass: "basis-[110px]" },
 ] as const;
 
 const PROMPT_NAME = "prompt";
 const DEFAULT_DURATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const FIRST_FRAME_FIELD = "first_frame_image";
+const LAST_FRAME_FIELD = "last_frame_image";
+const ASPECT_RATIO_FIELD = "aspect_ratio";
+const DEFAULT_ASPECT_RATIO_OPTIONS = [
+  "16:9",
+  "4:3",
+  "1:1",
+  "3:4",
+  "9:16",
+  "21:9",
+  "adaptive",
+];
+const MODEL_LIMITS: Record<
+  string,
+  { resolutions?: string[]; minDuration?: number; maxDuration?: number; enableLastFrame?: boolean }
+> = {
+  "Doubao-Seedance-1.5-pro｜251215": {
+    resolutions: ["480p", "720p"],
+    minDuration: 4,
+    maxDuration: 12,
+    enableLastFrame: true,
+  },
+  "Doubao-Seedance-1.0-pro｜250528": {
+    resolutions: ["480p", "720p", "1080p"],
+    minDuration: 2,
+    maxDuration: 12,
+    enableLastFrame: true,
+  },
+  "Doubao-Seedance-1.0-pro-fast｜251015": {
+    resolutions: ["480p", "720p"],
+    minDuration: 2,
+    maxDuration: 12,
+    enableLastFrame: false,
+  },
+};
 const DEFAULT_FIRST_FRAME_EXTENSIONS = [
   "png",
   "jpg",
@@ -74,6 +110,19 @@ const FIRST_FRAME_FIELD_FALLBACK: InputFieldType = {
   file_types: DEFAULT_FIRST_FRAME_EXTENSIONS,
   fileTypes: DEFAULT_FIRST_FRAME_EXTENSIONS,
 };
+const LAST_FRAME_FIELD_FALLBACK: InputFieldType = {
+  type: "file",
+  required: false,
+  placeholder: "",
+  list: false,
+  show: true,
+  readonly: false,
+  name: LAST_FRAME_FIELD,
+  display_name: "尾帧图输入",
+  input_types: ["Data"],
+  file_types: DEFAULT_FIRST_FRAME_EXTENSIONS,
+  fileTypes: DEFAULT_FIRST_FRAME_EXTENSIONS,
+};
 
 type Props = {
   data: NodeDataType;
@@ -92,9 +141,18 @@ export default function DoubaoVideoGeneratorLayout({
 }: Props) {
   const template = data.node?.template ?? {};
   const showExpanded = Boolean(selected);
+  const selectedModel =
+    (template.model_name?.value as string | undefined) ??
+    (template.model_name?.default as string | undefined) ??
+    (template.model_name?.options?.[0] as string | undefined) ??
+    "";
+  const normalizedModelName = selectedModel.toString().trim();
+  const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
+  const allowLastFrame = modelLimits?.enableLastFrame ?? true;
   const customFields = new Set<string>([
     PROMPT_NAME,
     FIRST_FRAME_FIELD,
+    LAST_FRAME_FIELD,
     ...CONTROL_FIELDS.map((item) => item.name),
     ...SENSITIVE_FIELDS,
   ]);
@@ -124,12 +182,40 @@ export default function DoubaoVideoGeneratorLayout({
       fileTypes: normalizedCamelFileTypes,
     };
   }, [firstFrameFieldRaw]);
+  const lastFrameFieldRaw = template[LAST_FRAME_FIELD];
+  const lastFrameField = useMemo<InputFieldType>(() => {
+    if (!lastFrameFieldRaw) return LAST_FRAME_FIELD_FALLBACK;
+    const normalizedInputTypes =
+      lastFrameFieldRaw.input_types && lastFrameFieldRaw.input_types.length > 0
+        ? lastFrameFieldRaw.input_types
+        : LAST_FRAME_FIELD_FALLBACK.input_types;
+    const normalizedFileTypes =
+      lastFrameFieldRaw.file_types && lastFrameFieldRaw.file_types.length > 0
+        ? lastFrameFieldRaw.file_types
+        : LAST_FRAME_FIELD_FALLBACK.file_types;
+    const normalizedCamelFileTypes =
+      lastFrameFieldRaw.fileTypes && lastFrameFieldRaw.fileTypes.length > 0
+        ? lastFrameFieldRaw.fileTypes
+        : LAST_FRAME_FIELD_FALLBACK.fileTypes;
+    return {
+      ...LAST_FRAME_FIELD_FALLBACK,
+      ...lastFrameFieldRaw,
+      input_types: normalizedInputTypes,
+      file_types: normalizedFileTypes,
+      fileTypes: normalizedCamelFileTypes,
+    };
+  }, [lastFrameFieldRaw]);
   const [isFirstFrameDialogOpen, setFirstFrameDialogOpen] = useState(false);
   const [isFirstFrameUploadPending, setFirstFrameUploadPending] = useState(false);
   const { handleOnNewValue: handleFirstFrameChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
     name: FIRST_FRAME_FIELD,
+  });
+  const { handleOnNewValue: handleLastFrameChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: LAST_FRAME_FIELD,
   });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -145,6 +231,8 @@ export default function DoubaoVideoGeneratorLayout({
   );
   const eventDeliveryConfig = useUtilityStore((state) => state.eventDelivery);
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
+  const nodes = useFlowStore((state) => state.nodes);
+  const edges = useFlowStore((state) => state.edges);
   const typeData = useTypesStore((state) => state.data);
 
   const nodeIdForRun = data.node?.flow?.data
@@ -181,10 +269,49 @@ export default function DoubaoVideoGeneratorLayout({
 
       let options: Array<string | number> =
         templateField.options ?? templateField.list ?? [];
+      let value = templateField.value;
+      let disabledOptions: Array<string | number> | undefined;
 
       if (field.name === "duration") {
         const rangeOptions = buildRangeOptions(templateField);
         options = rangeOptions.length ? rangeOptions : DEFAULT_DURATION_OPTIONS;
+        const minDuration = modelLimits?.minDuration ?? Math.min(...DEFAULT_DURATION_OPTIONS);
+        const maxDuration = modelLimits?.maxDuration ?? Math.max(...DEFAULT_DURATION_OPTIONS);
+        const disabled = options.filter((option) => {
+          const numeric = Number(option);
+          if (Number.isNaN(numeric)) return true;
+          return numeric < minDuration || numeric > maxDuration;
+        });
+        disabledOptions = disabled;
+        if (typeof value === "number" && (value < minDuration || value > maxDuration)) {
+          value = Math.min(Math.max(value, minDuration), maxDuration);
+        }
+      }
+
+      if (field.name === "resolution" && modelLimits?.resolutions?.length) {
+        const allowed = new Set(modelLimits.resolutions.map(String));
+        disabledOptions = options.filter((option) => !allowed.has(String(option)));
+      }
+
+      if (field.name === ASPECT_RATIO_FIELD) {
+        if (!options.length) {
+          options = DEFAULT_ASPECT_RATIO_OPTIONS;
+        }
+      }
+
+       // 如果当前值被禁用，自动落到首个可用选项
+      if (
+        disabledOptions?.length &&
+        disabledOptions.map(String).includes(String(value ?? ""))
+      ) {
+        const firstEnabled = options.find(
+          (option) => !disabledOptions!.map(String).includes(String(option)),
+        );
+        value = firstEnabled ?? value;
+      }
+
+      if (options.length && !options.map(String).includes(String(value ?? ""))) {
+        [value] = options;
       }
 
       const tooltipText =
@@ -193,19 +320,83 @@ export default function DoubaoVideoGeneratorLayout({
         ...field,
         template: templateField,
         options,
-        value: templateField.value,
+        value,
+        disabledOptions,
         tooltip: tooltipText,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [template]);
+  }, [modelLimits, template]);
+
+  const upstreamFirstFrameFields = useMemo<InputFieldType[]>(() => {
+    const incomingEdges = edges?.filter(
+      (edge) => edge.target === data.id && edge.targetHandle,
+    );
+    const collected: InputFieldType[] = [];
+
+    incomingEdges?.forEach((edge) => {
+      try {
+        const targetHandle = scapeJSONParse(edge.targetHandle!);
+        const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+        if (fieldName !== FIRST_FRAME_FIELD) return;
+      } catch {
+        return;
+      }
+
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const sourceType = sourceNode?.data?.type;
+      if (
+        sourceType !== "DoubaoVideoGenerator" &&
+        sourceType !== "DoubaoImageCreator"
+      ) {
+        return;
+      }
+
+      const sourceTemplateField =
+        sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
+        sourceNode.data?.node?.template?.["reference_images"];
+
+      if (sourceTemplateField) {
+        collected.push(sourceTemplateField);
+      }
+    });
+
+    return collected;
+  }, [edges, nodes, data.id]);
 
   const firstFramePreviews = useMemo<DoubaoReferenceImage[]>(
     () => buildFirstFramePreviewItems(firstFrameField),
     [firstFrameField],
   );
-  const selectedFirstFrame = firstFramePreviews[0] ?? null;
-  const firstFrameCount = firstFramePreviews.length;
-  const canUploadMoreFirstFrames = firstFrameCount < FIRST_FRAME_MAX_UPLOADS;
+  const upstreamFirstFramePreviews = useMemo<DoubaoReferenceImage[]>(
+    () => buildFirstFramePreviewItemsFromFields(upstreamFirstFrameFields),
+    [upstreamFirstFrameFields],
+  );
+  const combinedFirstFramePreviews = useMemo<DoubaoReferenceImage[]>(
+    () =>
+      mergeReferencePreviewLists(firstFramePreviews, upstreamFirstFramePreviews),
+    [firstFramePreviews, upstreamFirstFramePreviews],
+  );
+  const lastFramePreviews = useMemo<DoubaoReferenceImage[]>(
+    () => buildFirstFramePreviewItems(lastFrameField),
+    [lastFrameField],
+  );
+  const selectedLastFrame = lastFramePreviews[0] ?? null;
+  const selectedLastFrameSource = useMemo(
+    () =>
+      (selectedLastFrame?.downloadSource || selectedLastFrame?.imageSource || "")
+        .toString()
+        .trim(),
+    [selectedLastFrame],
+  );
+  const selectedFirstFrame = combinedFirstFramePreviews[0] ?? null;
+  const firstFrameCount = combinedFirstFramePreviews.length;
+  const localFirstFrameCount = firstFramePreviews.length;
+  const firstFrameEntries = useMemo(
+    () => collectFirstFrameEntries(firstFrameField),
+    [firstFrameField],
+  );
+  const canUploadMoreFirstFrames =
+    localFirstFrameCount < FIRST_FRAME_MAX_UPLOADS;
   const firstFrameFileTypes =
     firstFrameField?.fileTypes ??
     firstFrameField?.file_types ??
@@ -286,6 +477,7 @@ export default function DoubaoVideoGeneratorLayout({
 
   const handleFirstFrameRemove = useCallback(
     (index: number) => {
+      if (index >= localFirstFrameCount) return;
       const entries = collectFirstFrameEntries(firstFrameField);
       if (!entries.length || index < 0 || index >= entries.length) return;
       entries.splice(index, 1);
@@ -294,11 +486,12 @@ export default function DoubaoVideoGeneratorLayout({
         file_path: entries.map((entry) => entry.path),
       });
     },
-    [firstFrameField, handleFirstFrameChange],
+    [firstFrameField, handleFirstFrameChange, localFirstFrameCount],
   );
 
   const handleSetPrimaryFirstFrame = useCallback(
     (index: number) => {
+      if (index >= localFirstFrameCount) return;
       if (index <= 0) return;
       const entries = collectFirstFrameEntries(firstFrameField);
       if (index >= entries.length) return;
@@ -309,8 +502,39 @@ export default function DoubaoVideoGeneratorLayout({
         file_path: entries.map((entry) => entry.path),
       });
     },
-    [firstFrameField, handleFirstFrameChange],
+    [firstFrameField, handleFirstFrameChange, localFirstFrameCount],
   );
+
+  const handleSetLastFrame = useCallback(
+    (index: number) => {
+      if (index >= localFirstFrameCount) return;
+      const entries = firstFrameEntries;
+      if (!entries.length || index < 0 || index >= entries.length) return;
+      const target = entries[index];
+      handleLastFrameChange({
+        value: target.name,
+        file_path: target.path,
+      });
+    },
+    [firstFrameEntries, handleLastFrameChange, localFirstFrameCount],
+  );
+
+  const handleClearLastFrame = useCallback(() => {
+    handleLastFrameChange({ value: null, file_path: null });
+  }, [handleLastFrameChange]);
+
+  useEffect(() => {
+    if (!allowLastFrame) {
+      const hasLast =
+        (Array.isArray(lastFrameField?.value) && lastFrameField.value.length > 0) ||
+        (!!lastFrameField?.value && !Array.isArray(lastFrameField?.value)) ||
+        (Array.isArray(lastFrameField?.file_path) && lastFrameField.file_path.length > 0) ||
+        (!!lastFrameField?.file_path && !Array.isArray(lastFrameField?.file_path));
+      if (hasLast) {
+        handleClearLastFrame();
+      }
+    }
+  }, [allowLastFrame, lastFrameField, handleClearLastFrame]);
 
   const previewOutputHandles = useMemo(() => {
     const outputs = data.node?.outputs ?? [];
@@ -369,6 +593,7 @@ export default function DoubaoVideoGeneratorLayout({
                 nodeId={data.id}
                 componentName={data.type}
                 appearance="videoGenerator"
+                referenceImages={combinedFirstFramePreviews}
                 onRequestUpload={openFirstFrameDialog}
               />
             </div>
@@ -523,6 +748,28 @@ export default function DoubaoVideoGeneratorLayout({
                     当前首帧：{selectedFirstFrame.fileName ?? selectedFirstFrame.label}
                   </p>
                 )}
+                {allowLastFrame ? (
+                  selectedLastFrame ? (
+                    <div className="flex items-center justify-between text-xs text-[#4B5168] dark:text-slate-200">
+                      <span>
+                        当前尾帧：{selectedLastFrame.fileName ?? selectedLastFrame.label}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                        onClick={handleClearLastFrame}
+                      >
+                        清除尾帧
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#4B5168] dark:text-slate-200">
+                      请选择图片设置为尾帧，模型将按首尾衔接生成视频。
+                    </p>
+                  )
+                ) : (
+                  <p className="text-xs text-amber-700">当前模型不支持尾帧设置</p>
+                )}
               </div>
 
               <div className="space-y-3 rounded-2xl border border-dashed border-[#E0E5F2] bg-white/80 p-3 dark:border-white/15 dark:bg-[#0a1220]/70">
@@ -535,48 +782,81 @@ export default function DoubaoVideoGeneratorLayout({
 
                 {firstFrameCount > 0 ? (
                   <div className="grid grid-cols-2 gap-3">
-                    {firstFramePreviews.map((preview, index) => (
-                      <div
-                        key={preview.id ?? `${preview.imageSource}-${index}`}
-                        className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
-                      >
-                        <div className="relative h-28 w-full overflow-hidden">
-                          <img
-                            src={preview.imageSource}
-                            alt={preview.label ?? preview.fileName ?? `候选图 ${index + 1}`}
-                            className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                          />
-                          {index === 0 && (
-                            <span className="absolute left-3 top-3 rounded-full bg-[#1B66FF]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
-                              当前首帧
+                    {combinedFirstFramePreviews.map((preview, index) => {
+                      const previewSource =
+                        preview.downloadSource ?? preview.imageSource ?? "";
+                      const isSelectedLastFrame =
+                        allowLastFrame &&
+                        selectedLastFrameSource &&
+                        previewSource &&
+                        previewSource.toString().trim() === selectedLastFrameSource;
+                      const isUpstream = index >= localFirstFrameCount;
+
+                      return (
+                        <div
+                          key={preview.id ?? `${preview.imageSource}-${index}`}
+                          className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
+                        >
+                          <div className="relative h-28 w-full overflow-hidden">
+                            <img
+                              src={preview.imageSource}
+                              alt={preview.label ?? preview.fileName ?? `候选图 ${index + 1}`}
+                              className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                            />
+                            {index === 0 && (
+                              <span className="absolute left-3 top-3 rounded-full bg-[#1B66FF]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
+                                当前首帧
+                              </span>
+                            )}
+                            {isSelectedLastFrame && (
+                              <span className="absolute right-3 top-3 rounded-full bg-[#111827]/80 px-2 py-0.5 text-[11px] font-medium text-white shadow">
+                                当前尾帧
+                              </span>
+                            )}
+                            {isUpstream && (
+                              <span className="absolute left-3 bottom-3 rounded-full bg-[#0f172a]/70 px-2 py-0.5 text-[10px] font-medium text-white shadow">
+                                上游
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between px-3 py-2 text-[11px] text-[#5E6484] dark:text-slate-200">
+                            <span className="line-clamp-1">
+                              {preview.label ?? preview.fileName ?? `候选图 ${index + 1}`}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between px-3 py-2 text-[11px] text-[#5E6484] dark:text-slate-200">
-                          <span className="line-clamp-1">
-                            {preview.label ?? preview.fileName ?? `候选图 ${index + 1}`}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {index !== 0 && (
+                            <div className="flex items-center gap-2">
+                              {allowLastFrame && (
+                                <button
+                                  type="button"
+                                  className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                  onClick={() => handleSetLastFrame(index)}
+                                  disabled={isUpstream}
+                                >
+                                  {isSelectedLastFrame ? "已设尾帧" : "设为尾帧"}
+                                </button>
+                              )}
+                              {index !== 0 && (
+                                <button
+                                  type="button"
+                                  className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                  onClick={() => handleSetPrimaryFirstFrame(index)}
+                                  disabled={isUpstream}
+                                >
+                                  设为首帧
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
-                                onClick={() => handleSetPrimaryFirstFrame(index)}
+                                className="text-[#C93636] hover:underline dark:text-[#ff9a9a] disabled:text-[#C93636]/40 dark:disabled:text-[#ff9a9a]/50"
+                                onClick={() => handleFirstFrameRemove(index)}
+                                disabled={isUpstream}
                               >
-                                设为首帧
+                                删除
                               </button>
-                            )}
-                            <button
-                              type="button"
-                              className="text-[#C93636] hover:underline dark:text-[#ff9a9a]"
-                              onClick={() => handleFirstFrameRemove(index)}
-                            >
-                              删除
-                            </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
@@ -733,6 +1013,40 @@ function collectFirstFrameEntries(field: InputFieldType): FirstFrameEntry[] {
     });
   }
   return entries;
+}
+
+function buildFirstFramePreviewItemsFromFields(
+  fields: InputFieldType[],
+): DoubaoReferenceImage[] {
+  if (!fields.length) return [];
+  const previews: DoubaoReferenceImage[] = [];
+  fields.forEach((field) => {
+    previews.push(...buildFirstFramePreviewItems(field));
+  });
+  return dedupePreviews(previews);
+}
+
+function mergeReferencePreviewLists(
+  base: DoubaoReferenceImage[],
+  extras: DoubaoReferenceImage[],
+): DoubaoReferenceImage[] {
+  return dedupePreviews([...base, ...extras]);
+}
+
+function dedupePreviews(
+  previews: DoubaoReferenceImage[],
+): DoubaoReferenceImage[] {
+  const seen = new Set<string>();
+  const result: DoubaoReferenceImage[] = [];
+
+  previews.forEach((preview) => {
+    const key = preview.imageSource ?? preview.downloadSource ?? preview.id;
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    result.push(preview);
+  });
+
+  return result;
 }
 
 function buildFirstFramePreviewItems(
