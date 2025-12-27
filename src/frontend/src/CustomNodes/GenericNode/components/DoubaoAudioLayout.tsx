@@ -12,6 +12,8 @@ import { cn } from "@/utils/utils";
 import { useTypesStore } from "@/stores/typesStore";
 import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-colors";
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
+import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
+import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
 import {
   DoubaoParameterButton,
   type DoubaoControlConfig,
@@ -126,12 +128,63 @@ export default function DoubaoAudioLayout({
       });
   }, [data.id, data.node?.outputs, data.type, types]);
 
+  const promptField = template[PROMPT_FIELD];
+  const promptHandleMeta = useMemo(() => {
+    if (!promptField) return null;
+    const handleInputTypes = ["Data"];
+    const handleType = "Data";
+    const colors = getNodeInputColors(
+      handleInputTypes,
+      handleType,
+      types,
+    );
+    const colorName = getNodeInputColorsName(
+      handleInputTypes,
+      handleType,
+      types,
+    );
+    return {
+      id: {
+        inputTypes: handleInputTypes,
+        type: handleType,
+        id: data.id,
+        fieldName: PROMPT_FIELD,
+      },
+      colors,
+      colorName,
+      tooltip:
+        promptField.display_name ??
+        promptField.title ??
+        "文本输入",
+      title: promptField.display_name ?? "文本输入",
+      proxy: promptField.proxy,
+    };
+  }, [promptField, types, data.id]);
+
   return (
     <div className="space-y-4 px-4 pb-4">
       <div className="rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]">
 
         <div className="mt-5 flex flex-col gap-5">
           <div className="relative flex flex-col gap-4 lg:flex-row">
+            {promptHandleMeta && (
+              <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:block">
+                <HandleRenderComponent
+                  left
+                  tooltipTitle={promptHandleMeta.tooltip}
+                  id={promptHandleMeta.id}
+                  title={promptHandleMeta.title}
+                  nodeId={data.id}
+                  myData={typeData}
+                  colors={promptHandleMeta.colors}
+                  colorName={promptHandleMeta.colorName}
+                  setFilterEdge={setFilterEdge}
+                  showNode={true}
+                  testIdComplement={`${data.type?.toLowerCase()}-prompt-input`}
+                  proxy={promptHandleMeta.proxy}
+                />
+              </div>
+            )}
             <div className="flex-1">
               <DoubaoPreviewPanel
                 nodeId={data.id}
