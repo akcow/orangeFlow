@@ -61,7 +61,7 @@ class TextCreation(Component):
         MultilineInput(
             name="draft_text",
             display_name="文本预览",
-            show=False,
+            show=True,
             required=False,
             value="",
             input_types=["Data"],
@@ -79,8 +79,36 @@ class TextCreation(Component):
 
     def generate_text(self) -> Data:
         prompt = self._merge_prompt(self.prompt)
+        draft_text = self._merge_prompt(getattr(self, "draft_text", None))
+
+        # Passthrough mode: allow using the preview/draft text without calling the model.
+        # This enables downstream nodes (e.g., video generation) to consume the text even when
+        # the prompt input is intentionally left empty.
         if not prompt:
-            return self._error("提示词不能为空，请输入或连接上游节点。")
+            if not draft_text:
+                return self._error("提示词不能为空，请输入或连接上游节点。")
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_payload = {
+                "token": f"text-{uuid4().hex[:8]}",
+                "kind": "text",
+                "available": True,
+                "generated_at": generated_at,
+                "text": draft_text,
+                "model": "passthrough",
+                "prompt": "",
+            }
+
+            self.status = "✍️ 使用预览文本（未调用模型）"
+            return Data(
+                data={
+                    "text": draft_text,
+                    "prompt": "",
+                    "model": "passthrough",
+                    "text_preview": preview_payload,
+                },
+                text_key="text",
+            )
 
         api_key = self._resolve_api_key()
         if not api_key:

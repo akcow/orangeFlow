@@ -159,6 +159,7 @@ export default function DoubaoVideoGeneratorLayout({
   const hasAdditionalFields = Object.keys(template).some(
     (field) => !customFields.has(field),
   );
+  const promptField = template[PROMPT_NAME];
   const firstFrameFieldRaw = template[FIRST_FRAME_FIELD];
   const firstFrameField = useMemo<InputFieldType>(() => {
     if (!firstFrameFieldRaw) return FIRST_FRAME_FIELD_FALLBACK;
@@ -442,6 +443,33 @@ export default function DoubaoVideoGeneratorLayout({
     };
   }, [firstFrameField, types, data.id]);
 
+  const promptHandleMeta = useMemo(() => {
+    if (!promptField) return null;
+    const colors = getNodeInputColors(
+      promptField.input_types,
+      promptField.type,
+      types,
+    );
+    const colorName = getNodeInputColorsName(
+      promptField.input_types,
+      promptField.type,
+      types,
+    );
+    return {
+      id: {
+        inputTypes: promptField.input_types,
+        type: promptField.type,
+        id: data.id,
+        fieldName: PROMPT_NAME,
+      },
+      colors,
+      colorName,
+      tooltip: promptField.input_types?.join(", ") ?? promptField.type ?? "提示词输入",
+      title: promptField.display_name ?? "提示词输入",
+      proxy: promptField.proxy,
+    };
+  }, [promptField, types, data.id]);
+
   const openFirstFrameDialog = useCallback(() => {
     if (isFirstFrameUploadPending) return;
     setFirstFrameDialogOpen(true);
@@ -570,8 +598,25 @@ export default function DoubaoVideoGeneratorLayout({
 
         <div className="mt-5 flex flex-col gap-5">
           <div className="relative flex flex-col gap-4 lg:flex-row">
-            {firstFrameHandleMeta && (
-              <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:block">
+            {(promptHandleMeta || firstFrameHandleMeta) && (
+              <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:flex lg:flex-col lg:gap-3">
+                {promptHandleMeta && (
+                  <HandleRenderComponent
+                    left
+                    tooltipTitle={promptHandleMeta.tooltip}
+                    id={promptHandleMeta.id}
+                    title={promptHandleMeta.title}
+                    nodeId={data.id}
+                    myData={typeData}
+                    colors={promptHandleMeta.colors}
+                    colorName={promptHandleMeta.colorName}
+                    setFilterEdge={setFilterEdge}
+                    showNode={true}
+                    testIdComplement={`${data.type?.toLowerCase()}-prompt-handle`}
+                    proxy={promptHandleMeta.proxy}
+                  />
+                )}
+                {firstFrameHandleMeta && (
                 <HandleRenderComponent
                   left
                   tooltipTitle={firstFrameHandleMeta.tooltip}
@@ -586,6 +631,7 @@ export default function DoubaoVideoGeneratorLayout({
                   testIdComplement={`${data.type?.toLowerCase()}-first-frame-handle`}
                   proxy={firstFrameHandleMeta.proxy}
                 />
+                )}
               </div>
             )}
             <div className="flex-1">
@@ -652,7 +698,6 @@ export default function DoubaoVideoGeneratorLayout({
                   [PROMPT_NAME]: {
                     placeholder:
                       "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
-                    inputTypes: ["Message"],
                   },
                 }}
               />

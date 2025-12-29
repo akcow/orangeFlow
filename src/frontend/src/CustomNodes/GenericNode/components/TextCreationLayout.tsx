@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cloneDeep } from "lodash";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,9 +17,11 @@ import {
   type DoubaoControlConfig,
 } from "./DoubaoParameterButton";
 import HandleRenderComponent from "./handleRenderComponent";
-import { cn } from "@/utils/utils";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { scapeJSONParse, scapedJSONStringfy, getNodeId } from "@/utils/reactflowUtils";
+import { cn, getNodeRenderType } from "@/utils/utils";
 import { BuildStatus } from "@/constants/enums";
-import type { NodeDataType } from "@/types/flow";
+import type { AllNodeType, NodeDataType } from "@/types/flow";
 import type { TypesStoreType } from "@/types/zustand/types";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
@@ -62,6 +65,15 @@ export default function TextCreationLayout({
   buildStatus,
   selected = false,
 }: Props) {
+  const DOWNSTREAM_NODE_OFFSET_X = 700;
+  const IMAGE_UPSTREAM_NODE_OFFSET_X = 1000;
+  const nodes = useFlowStore((state) => state.nodes);
+  const edges = useFlowStore((state) => state.edges);
+  const setNodes = useFlowStore((state) => state.setNodes);
+  const onConnect = useFlowStore((state) => state.onConnect);
+  const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+  const templates = useTypesStore((state) => state.templates);
+
   const template = data.node?.template ?? {};
   const showExpanded = Boolean(selected);
   const customFields = useMemo(
@@ -113,6 +125,11 @@ export default function TextCreationLayout({
     nodeId: data.id,
     name: DRAFT_FIELD,
   });
+  const { handleOnNewValue: handlePromptChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: PROMPT_FIELD,
+  });
 
   const [previewText, setPreviewText] = useState<string>(
     draftField?.value ?? "",
@@ -162,6 +179,382 @@ export default function TextCreationLayout({
   const typeData = useTypesStore((state) => state.data);
 
   const busy = buildStatus === BuildStatus.BUILDING || isGlobalBuilding;
+
+  const handleCreateVideoNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const existingVideoNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== "DoubaoVideoGenerator") return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== "prompt") return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== PREFERRED_OUTPUT) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingVideoNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingVideoNodeId,
+        })),
+      );
+      return;
+    }
+
+    const videoComponentTemplate = templates["DoubaoVideoGenerator"];
+    if (!videoComponentTemplate) return;
+
+    const promptTemplateField = videoComponentTemplate.template?.prompt;
+    if (!promptTemplateField) return;
+
+    takeSnapshot();
+
+    const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+    const seededVideoComponent = cloneDeep(videoComponentTemplate);
+    if (seededVideoComponent.template?.prompt) {
+      seededVideoComponent.template.prompt.value = "根据文字描述生成视频";
+    }
+    const newVideoNode: AllNodeType = {
+      id: newVideoNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: seededVideoComponent,
+        showNode: !seededVideoComponent.minimized,
+        type: "DoubaoVideoGenerator",
+        id: newVideoNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({ ...node, selected: false }))
+        .concat(newVideoNode),
+    );
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? PREFERRED_OUTPUT,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: promptTemplateField.input_types,
+      type: promptTemplateField.type,
+      id: newVideoNodeId,
+      fieldName: "prompt",
+      ...(promptTemplateField.proxy ? { proxy: promptTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: data.id,
+      target: newVideoNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    track("TextCreation - Create Video Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newVideoNodeId,
+      targetComponent: "DoubaoVideoGenerator",
+    });
+  }, [data.id, data.node?.outputs, data.type, edges, nodes, onConnect, setNodes, takeSnapshot, templates]);
+
+  const handleCreateAudioNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const existingAudioNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== "DoubaoTTS") return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== "text") return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== PREFERRED_OUTPUT) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingAudioNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingAudioNodeId,
+        })),
+      );
+      return;
+    }
+
+    const audioComponentTemplate = templates["DoubaoTTS"];
+    if (!audioComponentTemplate) return;
+
+    const audioTextField = audioComponentTemplate.template?.text;
+    if (!audioTextField) return;
+
+    takeSnapshot();
+
+    const newAudioNodeId = getNodeId("DoubaoTTS");
+    const newAudioNode: AllNodeType = {
+      id: newAudioNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(audioComponentTemplate),
+        showNode: !audioComponentTemplate.minimized,
+        type: "DoubaoTTS",
+        id: newAudioNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({ ...node, selected: false }))
+        .concat(newAudioNode),
+    );
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? PREFERRED_OUTPUT,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: audioTextField.input_types,
+      type: audioTextField.type,
+      id: newAudioNodeId,
+      fieldName: "text",
+      ...(audioTextField.proxy ? { proxy: audioTextField.proxy } : {}),
+    };
+
+    onConnect({
+      source: data.id,
+      target: newAudioNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    track("TextCreation - Create Audio Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newAudioNodeId,
+      targetComponent: "DoubaoTTS",
+    });
+  }, [data.id, data.node?.outputs, data.type, edges, nodes, onConnect, setNodes, takeSnapshot, templates]);
+
+  const handleCreateImageUpstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const draftTemplateField = template[DRAFT_FIELD];
+    if (!draftTemplateField) return;
+
+    const ensureImageDraftConnection = (imageNodeId: string) => {
+      const latestEdges = useFlowStore.getState().edges;
+      const hasEdge = latestEdges.some((edge) => {
+        if (edge.source !== imageNodeId || edge.target !== data.id) return false;
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== DRAFT_FIELD) return false;
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        return sourceHandle?.name === "image";
+      });
+
+      if (hasEdge) return;
+
+      const sourceHandle = {
+        output_types: ["Data"],
+        id: imageNodeId,
+        dataType: "DoubaoImageCreator",
+        name: "image",
+      };
+
+      const targetHandle = {
+        inputTypes: draftTemplateField.input_types,
+        type: draftTemplateField.type,
+        id: data.id,
+        fieldName: DRAFT_FIELD,
+        ...(draftTemplateField.proxy ? { proxy: draftTemplateField.proxy } : {}),
+      };
+
+      onConnect({
+        source: imageNodeId,
+        target: data.id,
+        sourceHandle: scapedJSONStringfy(sourceHandle),
+        targetHandle: scapedJSONStringfy(targetHandle),
+      });
+    };
+
+    const existingImageNodeId = edges
+      .map((edge) => {
+        if (edge.target !== data.id) return null;
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        if (sourceNode?.data?.type !== "DoubaoImageCreator") return null;
+        if (sourceNode.position.x >= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== DRAFT_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== "image") return null;
+
+        return sourceNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    const applyReversePromptInstruction = () => {
+      handlePromptChange({ value: "根据图片生成提示词" }, { skipSnapshot: true });
+    };
+
+    if (existingImageNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingImageNodeId || node.id === data.id,
+        })),
+      );
+      ensureImageDraftConnection(existingImageNodeId);
+      queueMicrotask(() => ensureImageDraftConnection(existingImageNodeId));
+      applyReversePromptInstruction();
+      return;
+    }
+
+    const imageComponentTemplate = templates["DoubaoImageCreator"];
+    if (!imageComponentTemplate) return;
+
+    takeSnapshot();
+
+    const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const newImageNode: AllNodeType = {
+      id: newImageNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x - IMAGE_UPSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(imageComponentTemplate),
+        showNode: !imageComponentTemplate.minimized,
+        type: "DoubaoImageCreator",
+        id: newImageNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({ ...node, selected: node.id === data.id }))
+        .concat(newImageNode),
+    );
+
+    const sourceHandle = {
+      output_types: ["Data"],
+      id: newImageNodeId,
+      dataType: "DoubaoImageCreator",
+      name: "image",
+    };
+
+    const targetHandle = {
+      inputTypes: draftTemplateField.input_types,
+      type: draftTemplateField.type,
+      id: data.id,
+      fieldName: DRAFT_FIELD,
+      ...(draftTemplateField.proxy ? { proxy: draftTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: newImageNodeId,
+      target: data.id,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+    queueMicrotask(() => ensureImageDraftConnection(newImageNodeId));
+
+    applyReversePromptInstruction();
+
+    track("TextCreation - Create Image Upstream Node", {
+      sourceNodeId: newImageNodeId,
+      targetNodeId: data.id,
+      sourceComponent: "DoubaoImageCreator",
+    });
+  }, [
+    data.id,
+    IMAGE_UPSTREAM_NODE_OFFSET_X,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    templates,
+    template,
+    handlePromptChange,
+  ]);
 
   const handleRun = () => {
     if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
@@ -290,9 +683,23 @@ export default function TextCreationLayout({
               <button
                 key={item.label}
                 type="button"
-                onClick={() => {
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
                   if (item.label === "自己编写内容") {
                     setIsEditing(true);
+                    return;
+                  }
+                  if (item.label === "文字生成视频") {
+                    handleCreateVideoNode();
+                    return;
+                  }
+                  if (item.label === "文字生成音乐") {
+                    handleCreateAudioNode();
+                    return;
+                  }
+                  if (item.label === "图片反推提示词") {
+                    handleCreateImageUpstreamNode();
                   }
                 }}
                 className={cn(

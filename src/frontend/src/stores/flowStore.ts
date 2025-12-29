@@ -222,8 +222,18 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     set({ isPending });
   },
   resetFlow: (flow) => {
-    const nodes = flow?.data?.nodes ?? [];
-    const edges = flow?.data?.edges ?? [];
+    const nodes = cloneDeep(flow?.data?.nodes ?? []);
+    const edges = cloneDeep(flow?.data?.edges ?? []);
+
+    // Backward-compat: some custom layouts (e.g., TextCreation preview input) render handles for fields that are
+    // hidden in the template. If the template keeps `show=false`, edges get removed on reload by clean-up logic.
+    nodes.forEach((node) => {
+      if (node.type !== "genericNode") return;
+      if (node.data?.type !== "TextCreation") return;
+      const template = node.data.node?.template as any;
+      if (!template?.draft_text) return;
+      template.draft_text.show = true;
+    });
     const brokenEdges = detectBrokenEdgesEdges(nodes, edges);
     if (brokenEdges.length > 0) {
       useAlertStore.getState().setErrorData({

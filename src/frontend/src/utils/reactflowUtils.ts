@@ -79,6 +79,7 @@ export function cleanEdges(nodes: AllNodeType[], edges: EdgeType[]) {
     edges.map((edge) => ({ ...edge, selected: false, animated: false })),
   );
   edges.forEach((edge) => {
+    const newEdgeIndex = () => newEdges.findIndex((e) => e.id === edge.id);
     // check if the source and target node still exists
     const sourceNode = nodes.find((node) => node.id === edge.source);
     const targetNode = nodes.find((node) => node.id === edge.target);
@@ -131,7 +132,42 @@ export function cleanEdges(nodes: AllNodeType[], edges: EdgeType[]) {
         scapedJSONStringfy(id) !== targetHandle ||
         (targetNode.data.node?.tool_mode && isToolMode)
       ) {
-        newEdges = newEdges.filter((e) => e.id !== edge.id);
+        // If handle schema changed but the connection is still valid, auto-repair instead of removing.
+        if (targetNode.data.node?.tool_mode && isToolMode) {
+          newEdges = newEdges.filter((e) => e.id !== edge.id);
+          return;
+        }
+
+        const rebuiltTargetHandle = scapedJSONStringfy(id);
+        const targetCandidateIndex = newEdgeIndex();
+        const targetCandidate = targetCandidateIndex >= 0 ? newEdges[targetCandidateIndex] : null;
+        const sourceHandleForCheck = targetCandidate?.sourceHandle ?? edge.sourceHandle;
+        const connIsValid = sourceHandleForCheck
+          ? isValidConnection(
+              {
+                source: edge.source,
+                target: edge.target,
+                sourceHandle: sourceHandleForCheck,
+                targetHandle: rebuiltTargetHandle,
+              },
+              nodes,
+              newEdges,
+            )
+          : false;
+
+        if (connIsValid && targetCandidate) {
+          const updatedData = {
+            sourceHandle: scapeJSONParse(sourceHandleForCheck!) as sourceHandleType,
+            targetHandle: scapeJSONParse(rebuiltTargetHandle) as targetHandleType,
+          };
+          newEdges[targetCandidateIndex] = {
+            ...targetCandidate,
+            targetHandle: rebuiltTargetHandle,
+            data: updatedData,
+          };
+        } else {
+          newEdges = newEdges.filter((e) => e.id !== edge.id);
+        }
       }
     }
     if (sourceHandle) {
@@ -164,7 +200,40 @@ export function cleanEdges(nodes: AllNodeType[], edges: EdgeType[]) {
           };
 
           if (scapedJSONStringfy(id) !== sourceHandle) {
-            newEdges = newEdges.filter((e) => e.id !== edge.id);
+            const rebuiltSourceHandle = scapedJSONStringfy(id);
+            const sourceCandidateIndex = newEdgeIndex();
+            const sourceCandidate =
+              sourceCandidateIndex >= 0 ? newEdges[sourceCandidateIndex] : null;
+            const targetHandleForCheck =
+              sourceCandidate?.targetHandle ?? edge.targetHandle;
+
+            const connIsValid =
+              targetHandleForCheck && rebuiltSourceHandle
+                ? isValidConnection(
+                    {
+                      source: edge.source,
+                      target: edge.target,
+                      sourceHandle: rebuiltSourceHandle,
+                      targetHandle: targetHandleForCheck,
+                    },
+                    nodes,
+                    newEdges,
+                  )
+                : false;
+
+            if (connIsValid && sourceCandidate) {
+              const updatedData = {
+                sourceHandle: scapeJSONParse(rebuiltSourceHandle) as sourceHandleType,
+                targetHandle: scapeJSONParse(targetHandleForCheck!) as targetHandleType,
+              };
+              newEdges[sourceCandidateIndex] = {
+                ...sourceCandidate,
+                sourceHandle: rebuiltSourceHandle,
+                data: updatedData,
+              };
+            } else {
+              newEdges = newEdges.filter((e) => e.id !== edge.id);
+            }
           }
         } else {
           newEdges = newEdges.filter((e) => e.id !== edge.id);
@@ -172,7 +241,9 @@ export function cleanEdges(nodes: AllNodeType[], edges: EdgeType[]) {
       }
     }
 
-    newEdges = filterHiddenFieldsEdges(edge, newEdges, targetNode);
+    const edgeForHiddenCheck =
+      newEdges.find((e) => e.id === edge.id) ?? (edge as unknown as EdgeType);
+    newEdges = filterHiddenFieldsEdges(edgeForHiddenCheck, newEdges, targetNode);
   });
   return newEdges;
 }
@@ -236,7 +307,7 @@ export function filterHiddenFieldsEdges(
   return newEdges;
 }
 
-export function detectBrokenEdgesEdges(nodes: AllNodeType[], edges: Edge[]) {
+export function detectBrokenEdgesEdges(nodes: AllNodeType[], edges: EdgeType[]) {
   function generateAlertObject(sourceNode, targetNode, edge) {
     const targetHandleObject: targetHandleType = scapeJSONParse(
       edge.targetHandle,
@@ -1348,6 +1419,16 @@ export function validateSelection(
   clonedSelection.edges = connectedEdges;
 
   const errorsArray: Array<string> = [];
+
+  // Some custom nodes use wide/specialized layouts that don't render well inside Group nodes.
+  const nonGroupableTypes = new Set(["TextCreation", "DoubaoVideoGenerator"]);
+  if (
+    clonedSelection.nodes.some(
+      (node) => node?.data && nonGroupableTypes.has((node.data as any).type),
+    )
+  ) {
+    errorsArray.push("This selection contains components that cannot be grouped");
+  }
   // check if there is more than one node
   if (clonedSelection.nodes.length < 2) {
     errorsArray.push("Please select more than one component");

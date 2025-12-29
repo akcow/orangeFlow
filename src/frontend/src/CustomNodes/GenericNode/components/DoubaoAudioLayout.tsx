@@ -131,22 +131,20 @@ export default function DoubaoAudioLayout({
   const promptField = template[PROMPT_FIELD];
   const promptHandleMeta = useMemo(() => {
     if (!promptField) return null;
-    const handleInputTypes = ["Data"];
-    const handleType = "Data";
     const colors = getNodeInputColors(
-      handleInputTypes,
-      handleType,
+      promptField.input_types,
+      promptField.type,
       types,
     );
     const colorName = getNodeInputColorsName(
-      handleInputTypes,
-      handleType,
+      promptField.input_types,
+      promptField.type,
       types,
     );
     return {
       id: {
-        inputTypes: handleInputTypes,
-        type: handleType,
+        inputTypes: promptField.input_types,
+        type: promptField.type,
         id: data.id,
         fieldName: PROMPT_FIELD,
       },
@@ -247,7 +245,6 @@ export default function DoubaoAudioLayout({
                   [PROMPT_FIELD]: {
                     placeholder:
                       "描述你想要的语音内容，按需使用换行。",
-                    inputTypes: ["Message"],
                   },
                 }}
               />
