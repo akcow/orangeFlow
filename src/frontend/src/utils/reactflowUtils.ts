@@ -323,9 +323,28 @@ export function detectBrokenEdgesEdges(nodes: AllNodeType[], edges: Edge[]) {
           id.proxy = targetNode.data.node!.template[field]?.proxy;
         }
       }
-      if (scapedJSONStringfy(id) !== targetHandle) {
-        newEdges = newEdges.filter((e) => e.id !== edge.id);
-        BrokenEdges.push(generateAlertObject(sourceNode, targetNode, edge));
+      const rebuiltHandle = scapedJSONStringfy(id);
+      if (rebuiltHandle !== targetHandle) {
+        // If handle schema changed but the connection is still valid, auto-repair instead of removing.
+        const connIsValid = isValidConnection(
+          {
+            source: edge.source,
+            target: edge.target,
+            sourceHandle: edge.sourceHandle!,
+            targetHandle: rebuiltHandle,
+          },
+          nodes,
+          newEdges,
+        );
+        if (connIsValid) {
+          const idx = newEdges.findIndex((e) => e.id === edge.id);
+          if (idx >= 0) {
+            newEdges[idx] = { ...newEdges[idx], targetHandle: rebuiltHandle };
+          }
+        } else {
+          newEdges = newEdges.filter((e) => e.id !== edge.id);
+          BrokenEdges.push(generateAlertObject(sourceNode, targetNode, edge));
+        }
       }
     }
     if (sourceHandle) {
@@ -345,9 +364,33 @@ export function detectBrokenEdgesEdges(nodes: AllNodeType[], edges: Edge[]) {
             output_types: outputTypes,
             dataType: sourceNode.data.type,
           };
-          if (scapedJSONStringfy(id) !== sourceHandle) {
-            newEdges = newEdges.filter((e) => e.id !== edge.id);
-            BrokenEdges.push(generateAlertObject(sourceNode, targetNode, edge));
+          const rebuiltSourceHandle = scapedJSONStringfy(id);
+          if (rebuiltSourceHandle !== sourceHandle) {
+            const targetHandleForCheck =
+              newEdges.find((e) => e.id === edge.id)?.targetHandle ??
+              edge.targetHandle;
+            const connIsValid = isValidConnection(
+              {
+                source: edge.source,
+                target: edge.target,
+                sourceHandle: rebuiltSourceHandle,
+                targetHandle: targetHandleForCheck!,
+              },
+              nodes,
+              newEdges,
+            );
+            if (connIsValid) {
+              const idx = newEdges.findIndex((e) => e.id === edge.id);
+              if (idx >= 0) {
+                newEdges[idx] = {
+                  ...newEdges[idx],
+                  sourceHandle: rebuiltSourceHandle,
+                };
+              }
+            } else {
+              newEdges = newEdges.filter((e) => e.id !== edge.id);
+              BrokenEdges.push(generateAlertObject(sourceNode, targetNode, edge));
+            }
           }
         } else {
           newEdges = newEdges.filter((e) => e.id !== edge.id);
