@@ -24,9 +24,11 @@ from lfx.inputs.inputs import (
     DataInput,
     DropdownInput,
     FileInput,
+    FloatInput,
     IntInput,
     MultilineInput,
     SecretStrInput,
+    StrInput,
 )
 from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.schema.data import Data
@@ -89,11 +91,55 @@ class DoubaoImageCreator(Component):
         MultilineInput(
             name="prompt",
             display_name="提示词输入",
-            required=True,
+            required=False,
             value="",
             placeholder="示例：充满电影感的城市夜景，霓虹灯反射，主角穿着未来主义机甲。",
             info="支持中文/英文，亦可通过上游节点传入 Message/Data/Text。",
             input_types=["Message", "Data", "Text"],
+        ),
+        SecretStrInput(
+            name="ak",
+            display_name="AK (Optional)",
+            value=os.getenv("ARK_AK", ""),
+            advanced=True,
+            required=False,
+            info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
+        ),
+        SecretStrInput(
+            name="sk",
+            display_name="SK (Optional)",
+            value=os.getenv("ARK_SK", ""),
+            advanced=True,
+            required=False,
+            info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
+        ),
+        StrInput(
+            name="api_base",
+            display_name="API Base",
+            value="https://ark.cn-beijing.volces.com/api/v3",
+            advanced=True,
+            info="Ark API 基础地址，默认官方地址。网络/代理环境特殊时可调整。",
+        ),
+        StrInput(
+            name="region",
+            display_name="Region",
+            value="cn-beijing",
+            advanced=True,
+            info="Ark 区域，默认 cn-beijing。",
+        ),
+        IntInput(
+            name="max_retries",
+            display_name="Max Retries",
+            value=2,
+            advanced=True,
+            info="Ark SDK 重试次数（连接不稳定时可适当增大）。",
+        ),
+        FloatInput(
+            name="timeout_seconds",
+            display_name="Timeout Seconds",
+            value=600.0,
+            advanced=True,
+            info="请求超时时间（秒）。注意连接超时与读取超时均受此值影响。",
         ),
         DataInput(
             name="draft_output",
@@ -156,15 +202,59 @@ class DoubaoImageCreator(Component):
     def build_images(self) -> Data:
         prompt = self._merge_prompt(self.prompt)
         if not prompt:
-            draft = getattr(self, "draft_output", None)
-            if isinstance(draft, Data):
-                payload = draft.data
-            elif isinstance(draft, dict):
-                payload = draft
-            else:
-                payload = {}
+            uploads = getattr(self, "reference_images", None)
+            if uploads:
+                try:
+                    payloads, metadata = self._prepare_reference_images()
+                except Exception:
+                    payloads, metadata = [], []
 
-            payload = {**payload, "bridge_mode": True}
+                if payloads:
+                    images_payload: list[dict[str, Any]] = []
+                    for index, data_url in enumerate(payloads):
+                        meta = metadata[index] if index < len(metadata) else {}
+                        item: dict[str, Any] = {
+                            "image_data_url": data_url,
+                            "origin": "reference_images",
+                            **meta,
+                        }
+
+                        source_path = meta.get("source_path") if isinstance(meta, dict) else None
+                        if isinstance(source_path, str) and source_path.strip():
+                            try:
+                                file_path = Path(source_path)
+                                if file_path.name and file_path.parent.name:
+                                    item["image_url"] = f"/api/v1/files/images/{file_path.parent.name}/{file_path.name}"
+                            except Exception:
+                                pass
+
+                        images_payload.append(item)
+
+                    payload = {"images": images_payload, "source": "reference_images"}
+                else:
+                    raw_items = uploads if isinstance(uploads, list) else [uploads]
+                    payload = {"images": raw_items, "source": "reference_images"}
+            else:
+                draft = getattr(self, "draft_output", None)
+                if isinstance(draft, Data):
+                    payload = draft.data
+                elif isinstance(draft, dict):
+                    payload = draft
+                else:
+                    payload = {}
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            payload = {
+                **payload,
+                "bridge_mode": True,
+                "doubao_preview": {
+                    "token": f"{self.name}-bridge",
+                    "kind": "image",
+                    "available": bool(payload.get("images")),
+                    "generated_at": generated_at,
+                    "payload": payload,
+                },
+            }
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
             return Data(data=payload, type="image")
 
@@ -174,9 +264,19 @@ class DoubaoImageCreator(Component):
             component_api_key=self.api_key,
             env_api_key_var="ARK_API_KEY",
         )
-        api_key = (creds.api_key or "").strip()
-        if not api_key:
-            return self._error("未检测到 Doubao API Key，请在节点或 .env 中配置 ARK_API_KEY。")
+
+        def _normalize_api_key(value: str) -> str:
+            v = (value or "").strip().strip("'").strip('"')
+            if v.lower().startswith("bearer "):
+                v = v.split(" ", 1)[1].strip()
+            return v
+
+        api_key = _normalize_api_key(creds.api_key or "")
+        ak = _normalize_api_key(getattr(self, "ak", "") or "")
+        sk = _normalize_api_key(getattr(self, "sk", "") or "")
+
+        if not api_key and not (ak and sk):
+            return self._error("未检测到豆包 API Key 或 AK/SK，请在节点或环境变量中配置。")
 
         model_meta = self.MODEL_CATALOG.get(self.model_name)
         if not model_meta:
@@ -192,10 +292,19 @@ class DoubaoImageCreator(Component):
         except ValueError as exc:
             return self._error(str(exc))
 
-        client = Ark(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
-            api_key=api_key,
-        )
+        client_kwargs: dict[str, Any] = {
+            "base_url": (self.api_base or "https://ark.cn-beijing.volces.com/api/v3").strip(),
+            "region": (self.region or "cn-beijing").strip(),
+            "timeout": float(self.timeout_seconds or 600.0),
+            "max_retries": int(self.max_retries or 2),
+        }
+        if ak and sk:
+            client_kwargs["ak"] = ak
+            client_kwargs["sk"] = sk
+        else:
+            client_kwargs["api_key"] = api_key
+
+        client = Ark(**client_kwargs)
 
         request_kwargs: dict[str, Any] = {
             "model": model_meta["model_id"],
@@ -561,7 +670,28 @@ class DoubaoImageCreator(Component):
 
     @staticmethod
     def _error(message: str) -> Data:
-        return Data(data={"error": message}, type="error")
+        generated_at = datetime.now(timezone.utc).isoformat()
+        suggestion = ""
+        lowered = message.lower()
+        if "connection error" in lowered or "connect" in lowered:
+            suggestion = (
+                "（网络连接错误：请检查是否能访问 Ark 地址，或是否需要设置代理 HTTP_PROXY/HTTPS_PROXY，"
+                "以及防火墙/证书拦截等）"
+            )
+        return Data(
+            data={
+                "error": f"{message}{suggestion}",
+                "doubao_preview": {
+                    "token": f"error-{uuid4().hex[:8]}",
+                    "kind": "image",
+                    "available": False,
+                    "generated_at": generated_at,
+                    "payload": None,
+                    "error": f"{message}{suggestion}",
+                },
+            },
+            type="error",
+        )
 
     def _merge_prompt(self, prompt_source: Any | None) -> str:
         parts: list[str] = []

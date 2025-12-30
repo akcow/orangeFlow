@@ -30,7 +30,7 @@ class TextCreation(Component):
         MultilineInput(
             name="prompt",
             display_name="提示词输入",
-            required=True,
+            required=False,
             value="",
             placeholder="描述你想要生成的内容，按需使用换行。",
             info="支持中文/英文，可与上游 Message/Data/Text 联动。",

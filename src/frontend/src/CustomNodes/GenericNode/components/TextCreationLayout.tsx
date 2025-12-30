@@ -33,6 +33,7 @@ import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors"
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import { useTextCreationPreview } from "../../hooks/use-text-creation-preview";
+import OutputModal from "./outputModal";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px]" },
@@ -138,6 +139,7 @@ export default function TextCreationLayout({
     Boolean((draftField?.value ?? "").trim()),
   );
   const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
+  const [isLogsOpen, setLogsOpen] = useState(false);
   const [isRunHovering, setRunHovering] = useState(false);
 
   const { current, history, isBuilding, lastUpdated } = useTextCreationPreview(
@@ -674,17 +676,58 @@ export default function TextCreationLayout({
           >
             <ForwardedIconComponent name="Maximize2" className="h-4 w-4" />
           </button>
+          <div className="absolute bottom-3 left-3">
+            <OutputModal
+              open={isLogsOpen}
+              setOpen={setLogsOpen}
+              disabled={false}
+              nodeId={data.id}
+              outputName={PREFERRED_OUTPUT}
+            >
+              <button
+                type="button"
+                className={cn(
+                  "flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5]",
+                  "bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow transition hover:border-[#C7D2F4] hover:bg-white",
+                )}
+              >
+                <ForwardedIconComponent name="FileText" className="h-4 w-4" />
+                Logs
+              </button>
+            </OutputModal>
+          </div>
         </div>
       );
     }
     return (
       <div
         className={cn(
-          "flex h-full flex-col items-center justify-center gap-4 rounded-2xl border border-dashed",
+          "relative flex h-full flex-col items-center justify-center gap-4 rounded-2xl border border-dashed",
           "border-slate-200/70 bg-white/80 p-6 text-center text-sm text-muted-foreground",
           "dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200",
         )}
       >
+        <div className="absolute bottom-3 left-3">
+          <OutputModal
+            open={isLogsOpen}
+            setOpen={setLogsOpen}
+            disabled={false}
+            nodeId={data.id}
+            outputName={PREFERRED_OUTPUT}
+          >
+            <button
+              type="button"
+              className={cn(
+                "flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5]",
+                "bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow transition hover:border-[#C7D2F4] hover:bg-white",
+                "dark:border-white/10 dark:bg-slate-800/70 dark:text-slate-100",
+              )}
+            >
+              <ForwardedIconComponent name="FileText" className="h-4 w-4" />
+              Logs
+            </button>
+          </OutputModal>
+        </div>
         <div className="w-full space-y-2 text-left">
           <div className="text-xs font-semibold text-foreground dark:text-white">
             尝试：

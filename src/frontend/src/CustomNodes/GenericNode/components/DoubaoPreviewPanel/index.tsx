@@ -22,6 +22,7 @@ import { ForwardedIconComponent } from "@/components/common/genericIconComponent
 import { useDoubaoPreview } from "../../../hooks/use-doubao-preview";
 import { sanitizePreviewDataUrl } from "./helpers";
 import useFlowStore from "@/stores/flowStore";
+import OutputModal from "../outputModal";
 
 const PANEL_BG = {
   image: "bg-emerald-50/80 dark:bg-emerald-950/30",
@@ -30,6 +31,12 @@ const PANEL_BG = {
 };
 
 const DOUBAO_KIND: Record<string, "image" | "video" | "audio"> = {
+  DoubaoImageCreator: "image",
+  DoubaoVideoGenerator: "video",
+  DoubaoTTS: "audio",
+};
+
+const OUTPUT_NAME_BY_COMPONENT: Record<string, string> = {
   DoubaoImageCreator: "image",
   DoubaoVideoGenerator: "video",
   DoubaoTTS: "audio",
@@ -177,6 +184,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         ? "rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
         : "min-h-[320px]",
     );
+
+    const outputName = useMemo(() => {
+      if (componentName && OUTPUT_NAME_BY_COMPONENT[componentName]) {
+        return OUTPUT_NAME_BY_COMPONENT[componentName];
+      }
+      return "output";
+    }, [componentName]);
+    const [isLogsOpen, setLogsOpen] = useState(false);
 
     const [transientBadge, setTransientBadge] = useState<string | null>(null);
     const showTransientBadge = useCallback((label: string) => {
@@ -660,6 +675,27 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           )}
 
           <div className={previewFrameClassName}>
+            <div className="absolute bottom-4 left-4 z-10">
+              <OutputModal
+                open={isLogsOpen}
+                setOpen={setLogsOpen}
+                disabled={false}
+                nodeId={nodeId}
+                outputName={outputName}
+              >
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-7 rounded-full px-2 text-[11px]"
+                >
+                  <ForwardedIconComponent
+                    name="FileText"
+                    className="mr-1 h-3 w-3"
+                  />
+                  Logs
+                </Button>
+              </OutputModal>
+            </div>
             <div className={previewSurfaceClassName}>
               {inlinePreview}
             </div>

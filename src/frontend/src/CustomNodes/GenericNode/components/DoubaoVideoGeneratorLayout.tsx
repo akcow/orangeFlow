@@ -141,8 +141,12 @@ export default function DoubaoVideoGeneratorLayout({
   selected = false,
 }: Props) {
   const UPSTREAM_NODE_OFFSET_X = 950;
+  const UPSTREAM_NODE_OFFSET_Y = 750;
   const IMAGE_OUTPUT_NAME = "image";
   const FIRST_FRAME_BUTTON_LABEL = "首帧生成视频";
+  const FIRST_LAST_FRAME_BUTTON_LABEL = "首尾帧生成视频";
+  const PRO_FAST_MODEL = "Doubao-Seedance-1.0-pro-fast｜251015";
+  const DEFAULT_LAST_FRAME_MODEL = "Doubao-Seedance-1.0-pro｜250528";
   const template = data.node?.template ?? {};
   const showExpanded = Boolean(selected);
   const selectedModel =
@@ -222,6 +226,11 @@ export default function DoubaoVideoGeneratorLayout({
     nodeId: data.id,
     name: LAST_FRAME_FIELD,
   });
+  const { handleOnNewValue: handleModelNameChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "model_name",
+  });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
   const { mutateAsync: uploadFirstFrameFile } = usePostUploadFile();
@@ -253,6 +262,50 @@ export default function DoubaoVideoGeneratorLayout({
     return value === undefined || value === null;
   }, [template]);
   const disableRun = !hasAnyConnection && isPromptEmpty;
+
+  const hasLastFrameEdge = useMemo(() => {
+    return edges.some((edge) => {
+      if (edge.target !== data.id) return false;
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      return targetHandle?.fieldName === LAST_FRAME_FIELD;
+    });
+  }, [edges, data.id]);
+
+  const hasLastFrameValue = useMemo(() => {
+    return (
+      (Array.isArray(lastFrameField?.value) && lastFrameField.value.length > 0) ||
+      (!!lastFrameField?.value && !Array.isArray(lastFrameField?.value)) ||
+      (Array.isArray(lastFrameField?.file_path) && lastFrameField.file_path.length > 0) ||
+      (!!lastFrameField?.file_path && !Array.isArray(lastFrameField?.file_path))
+    );
+  }, [lastFrameField]);
+
+  const shouldDisableProFastModel = Boolean(hasLastFrameEdge || hasLastFrameValue);
+  const shouldShowLastFrameHandle = Boolean(allowLastFrame || hasLastFrameEdge);
+
+  useEffect(() => {
+    if (!shouldDisableProFastModel) return;
+    if (normalizedModelName !== PRO_FAST_MODEL) return;
+
+    const modelOptions: Array<string> =
+      (template.model_name?.options as Array<string> | undefined) ?? [];
+    const fallback =
+      modelOptions.includes(DEFAULT_LAST_FRAME_MODEL)
+        ? DEFAULT_LAST_FRAME_MODEL
+        : modelOptions.find((option) => option !== PRO_FAST_MODEL) ??
+          DEFAULT_LAST_FRAME_MODEL;
+
+    handleModelNameChange({ value: fallback }, { skipSnapshot: true });
+  }, [
+    DEFAULT_LAST_FRAME_MODEL,
+    PRO_FAST_MODEL,
+    handleModelNameChange,
+    normalizedModelName,
+    shouldDisableProFastModel,
+    template.model_name?.options,
+  ]);
 
   const nodeIdForRun = data.node?.flow?.data
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
@@ -319,6 +372,10 @@ export default function DoubaoVideoGeneratorLayout({
         }
       }
 
+      if (field.name === "model_name" && shouldDisableProFastModel) {
+        disabledOptions = [...(disabledOptions ?? []), PRO_FAST_MODEL];
+      }
+
        // 如果当前值被禁用，自动落到首个可用选项
       if (
         disabledOptions?.length &&
@@ -345,7 +402,7 @@ export default function DoubaoVideoGeneratorLayout({
         tooltip: tooltipText,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [modelLimits, template]);
+  }, [PRO_FAST_MODEL, modelLimits, shouldDisableProFastModel, template]);
 
   const upstreamFirstFrameFields = useMemo<InputFieldType[]>(() => {
     const incomingEdges = edges?.filter(
@@ -461,6 +518,35 @@ export default function DoubaoVideoGeneratorLayout({
       proxy: firstFrameField.proxy,
     };
   }, [firstFrameField, types, data.id]);
+
+  const lastFrameHandleMeta = useMemo(() => {
+    const colors = getNodeInputColors(
+      lastFrameField.input_types,
+      lastFrameField.type,
+      types,
+    );
+    const colorName = getNodeInputColorsName(
+      lastFrameField.input_types,
+      lastFrameField.type,
+      types,
+    );
+    return {
+      id: {
+        inputTypes: lastFrameField.input_types,
+        type: lastFrameField.type,
+        id: data.id,
+        fieldName: LAST_FRAME_FIELD,
+      },
+      tooltip:
+        lastFrameField.input_types?.join(", ") ??
+        lastFrameField.type ??
+        "尾帧图输入",
+      title: lastFrameField.display_name ?? "尾帧图输入",
+      colors,
+      colorName,
+      proxy: lastFrameField.proxy,
+    };
+  }, [lastFrameField, types, data.id]);
 
   const promptHandleMeta = useMemo(() => {
     if (!promptField) return null;
@@ -625,12 +711,200 @@ export default function DoubaoVideoGeneratorLayout({
     templates,
   ]);
 
+  const handleCreateFirstLastFrameUpstreamNodes = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const firstFrameTemplateField = template[FIRST_FRAME_FIELD];
+    const lastFrameTemplateField = template[LAST_FRAME_FIELD];
+    if (!firstFrameTemplateField || !lastFrameTemplateField) return;
+
+    if (normalizedModelName === PRO_FAST_MODEL) {
+      handleModelNameChange({ value: DEFAULT_LAST_FRAME_MODEL }, { skipSnapshot: true });
+    }
+
+    const findExistingUpstream = (targetFieldName: string) => {
+      return edges
+        .map((edge) => {
+          if (edge.target !== data.id) return null;
+
+          const sourceNode = nodes.find((node) => node.id === edge.source);
+          if (sourceNode?.data?.type !== "DoubaoImageCreator") return null;
+          if (sourceNode.position.x >= currentNode.position.x) return null;
+
+          const targetHandle =
+            edge.data?.targetHandle ??
+            (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+          if (targetHandle?.fieldName !== targetFieldName) return null;
+
+          const sourceHandle =
+            edge.data?.sourceHandle ??
+            (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+          if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+
+          return sourceNode.id;
+        })
+        .find(Boolean) as string | undefined;
+    };
+
+    const existingFirstFrameNodeId = findExistingUpstream(FIRST_FRAME_FIELD);
+    const existingLastFrameNodeId = findExistingUpstream(LAST_FRAME_FIELD);
+
+    const ensureConnection = (
+      sourceNodeId: string,
+      targetFieldName: string,
+      targetTemplateField: any,
+    ) => {
+      const latestEdges = useFlowStore.getState().edges;
+      const hasEdge = latestEdges.some((edge) => {
+        if (edge.source !== sourceNodeId || edge.target !== data.id) return false;
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        return targetHandle?.fieldName === targetFieldName;
+      });
+      if (hasEdge) return;
+
+      const imageTemplate = templates["DoubaoImageCreator"];
+      const outputDefinition =
+        imageTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+        imageTemplate?.outputs?.find((output: any) => !output.hidden) ??
+        imageTemplate?.outputs?.[0];
+      const sourceOutputTypes =
+        outputDefinition?.types && outputDefinition.types.length === 1
+          ? outputDefinition.types
+          : outputDefinition?.selected
+            ? [outputDefinition.selected]
+            : ["Data"];
+
+      const sourceHandle = {
+        output_types: sourceOutputTypes,
+        id: sourceNodeId,
+        dataType: "DoubaoImageCreator",
+        name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+      };
+
+      const targetHandle = {
+        inputTypes: targetTemplateField.input_types,
+        type: targetTemplateField.type,
+        id: data.id,
+        fieldName: targetFieldName,
+        ...(targetTemplateField.proxy ? { proxy: targetTemplateField.proxy } : {}),
+      };
+
+      onConnect({
+        source: sourceNodeId,
+        target: data.id,
+        sourceHandle: scapedJSONStringfy(sourceHandle),
+        targetHandle: scapedJSONStringfy(targetHandle),
+      });
+    };
+
+    if (existingFirstFrameNodeId && existingLastFrameNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected:
+            node.id === data.id ||
+            node.id === existingFirstFrameNodeId ||
+            node.id === existingLastFrameNodeId,
+        })),
+      );
+      ensureConnection(existingFirstFrameNodeId, FIRST_FRAME_FIELD, firstFrameTemplateField);
+      ensureConnection(existingLastFrameNodeId, LAST_FRAME_FIELD, lastFrameTemplateField);
+      return;
+    }
+
+    const imageTemplate = templates["DoubaoImageCreator"];
+    if (!imageTemplate) return;
+
+    takeSnapshot();
+
+    const nodesToAdd: AllNodeType[] = [];
+
+    const createNamedImageNode = (displayName: string, y: number) => {
+      const newImageNodeId = getNodeId("DoubaoImageCreator");
+      const seeded = cloneDeep(imageTemplate);
+      seeded.display_name = displayName;
+      const newNode: AllNodeType = {
+        id: newImageNodeId,
+        type: getNodeRenderType("genericnode"),
+        position: {
+          x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
+          y,
+        },
+        data: {
+          node: seeded,
+          showNode: !seeded.minimized,
+          type: "DoubaoImageCreator",
+          id: newImageNodeId,
+        },
+        selected: true,
+      };
+      nodesToAdd.push(newNode);
+      return newImageNodeId;
+    };
+
+    const firstFrameNodeId =
+      existingFirstFrameNodeId ??
+      createNamedImageNode("首帧", currentNode.position.y - UPSTREAM_NODE_OFFSET_Y);
+    const lastFrameNodeId =
+      existingLastFrameNodeId ??
+      createNamedImageNode("尾帧", currentNode.position.y + UPSTREAM_NODE_OFFSET_Y);
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({
+          ...node,
+          selected: node.id === data.id,
+        }))
+        .concat(nodesToAdd),
+    );
+
+    ensureConnection(firstFrameNodeId, FIRST_FRAME_FIELD, firstFrameTemplateField);
+    ensureConnection(lastFrameNodeId, LAST_FRAME_FIELD, lastFrameTemplateField);
+
+    track("DoubaoVideoGenerator - Create First+Last Frame Upstream Nodes", {
+      sourceNodeId: data.id,
+      sourceComponent: "DoubaoVideoGenerator",
+    });
+  }, [
+    DEFAULT_LAST_FRAME_MODEL,
+    FIRST_FRAME_FIELD,
+    IMAGE_OUTPUT_NAME,
+    LAST_FRAME_FIELD,
+    PRO_FAST_MODEL,
+    UPSTREAM_NODE_OFFSET_X,
+    UPSTREAM_NODE_OFFSET_Y,
+    data.id,
+    edges,
+    handleModelNameChange,
+    normalizedModelName,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    template,
+    templates,
+  ]);
+
   const handlePreviewSuggestionClick = useCallback(
     (label: string) => {
-      if (label !== FIRST_FRAME_BUTTON_LABEL) return;
-      handleCreateFirstFrameUpstreamNode();
+      if (label === FIRST_FRAME_BUTTON_LABEL) {
+        handleCreateFirstFrameUpstreamNode();
+        return;
+      }
+      if (label === FIRST_LAST_FRAME_BUTTON_LABEL) {
+        handleCreateFirstLastFrameUpstreamNodes();
+      }
     },
-    [FIRST_FRAME_BUTTON_LABEL, handleCreateFirstFrameUpstreamNode],
+    [
+      FIRST_FRAME_BUTTON_LABEL,
+      FIRST_LAST_FRAME_BUTTON_LABEL,
+      handleCreateFirstFrameUpstreamNode,
+      handleCreateFirstLastFrameUpstreamNodes,
+    ],
   );
 
   const triggerFirstFrameUpload = useCallback(() => {
@@ -756,7 +1030,7 @@ export default function DoubaoVideoGeneratorLayout({
 
         <div className="mt-5 flex flex-col gap-5">
           <div className="relative flex flex-col gap-4 lg:flex-row">
-            {(promptHandleMeta || firstFrameHandleMeta) && (
+            {(promptHandleMeta || firstFrameHandleMeta || shouldShowLastFrameHandle) && (
               <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:flex lg:flex-col lg:gap-3">
                 {promptHandleMeta && (
                   <HandleRenderComponent
@@ -789,6 +1063,22 @@ export default function DoubaoVideoGeneratorLayout({
                   testIdComplement={`${data.type?.toLowerCase()}-first-frame-handle`}
                   proxy={firstFrameHandleMeta.proxy}
                 />
+                )}
+                {shouldShowLastFrameHandle && (
+                  <HandleRenderComponent
+                    left
+                    tooltipTitle={lastFrameHandleMeta.tooltip}
+                    id={lastFrameHandleMeta.id}
+                    title={lastFrameHandleMeta.title}
+                    nodeId={data.id}
+                    myData={typeData}
+                    colors={lastFrameHandleMeta.colors}
+                    colorName={lastFrameHandleMeta.colorName}
+                    setFilterEdge={setFilterEdge}
+                    showNode={true}
+                    testIdComplement={`${data.type?.toLowerCase()}-last-frame-handle`}
+                    proxy={lastFrameHandleMeta.proxy}
+                  />
                 )}
               </div>
             )}

@@ -9,6 +9,7 @@ import mimetypes
 import requests
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -25,6 +26,8 @@ from lfx.inputs.inputs import (
     MultilineInput,
     FileInput,
     DataInput,
+    FloatInput,
+    StrInput,
 )
 from lfx.template.field.base import Output
 
@@ -86,6 +89,50 @@ class DoubaoVideoGenerator(Component):
             placeholder="示例：无人机以极快速度穿越复杂障碍或自然奇观，带来沉浸式飞行体验",
             info="描述要生成的视频内容，支持详细的场景和动作描述。",
             input_types=["Message", "Data", "Text"],
+        ),
+        SecretStrInput(
+            name="ak",
+            display_name="AK (Optional)",
+            value=os.getenv("ARK_AK", ""),
+            advanced=True,
+            required=False,
+            info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
+        ),
+        SecretStrInput(
+            name="sk",
+            display_name="SK (Optional)",
+            value=os.getenv("ARK_SK", ""),
+            advanced=True,
+            required=False,
+            info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
+        ),
+        StrInput(
+            name="api_base",
+            display_name="API Base",
+            value="https://ark.cn-beijing.volces.com/api/v3",
+            advanced=True,
+            info="Ark API 基础地址，默认官方地址。网络/代理环境特殊时可调整。",
+        ),
+        StrInput(
+            name="region",
+            display_name="Region",
+            value="cn-beijing",
+            advanced=True,
+            info="Ark 区域，默认 cn-beijing。",
+        ),
+        IntInput(
+            name="max_retries",
+            display_name="Max Retries",
+            value=2,
+            advanced=True,
+            info="Ark SDK 重试次数（连接不稳定时可适当增大）。",
+        ),
+        FloatInput(
+            name="timeout_seconds",
+            display_name="Timeout Seconds",
+            value=600.0,
+            advanced=True,
+            info="请求超时时间（秒）。注意连接超时与读取超时均受此值影响。",
         ),
         DataInput(
             name="draft_output",
@@ -165,7 +212,18 @@ class DoubaoVideoGenerator(Component):
             else:
                 payload = {}
 
-            payload = {**payload, "bridge_mode": True}
+            generated_at = datetime.now(timezone.utc).isoformat()
+            payload = {
+                **payload,
+                "bridge_mode": True,
+                "doubao_preview": {
+                    "token": f"{self.name}-bridge",
+                    "kind": "video",
+                    "available": False,
+                    "generated_at": generated_at,
+                    "payload": payload,
+                },
+            }
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
             return Data(data=payload, type="video")
 
@@ -175,15 +233,34 @@ class DoubaoVideoGenerator(Component):
             component_api_key=self.api_key,
             env_api_key_var="ARK_API_KEY",
         )
-        api_key = (creds.api_key or "").strip()
-        if not api_key:
-            return self._error("未检测到豆包 API 密钥，请在节点或 .env 中配置 ARK_API_KEY。")
+
+        def _normalize_api_key(value: str) -> str:
+            v = (value or "").strip().strip("'").strip('"')
+            if v.lower().startswith("bearer "):
+                v = v.split(" ", 1)[1].strip()
+            return v
+
+        api_key = _normalize_api_key(creds.api_key or "")
+        ak = _normalize_api_key(getattr(self, "ak", "") or "")
+        sk = _normalize_api_key(getattr(self, "sk", "") or "")
+
+        if not api_key and not (ak and sk):
+            return self._error("未检测到豆包 API Key 或 AK/SK，请在节点或环境变量中配置。")
 
         # 初始化Ark客户端
-        client = Ark(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
-            api_key=api_key,
-        )
+        client_kwargs: dict[str, Any] = {
+            "base_url": (self.api_base or "https://ark.cn-beijing.volces.com/api/v3").strip(),
+            "region": (self.region or "cn-beijing").strip(),
+            "timeout": float(self.timeout_seconds or 600.0),
+            "max_retries": int(self.max_retries or 2),
+        }
+        if ak and sk:
+            client_kwargs["ak"] = ak
+            client_kwargs["sk"] = sk
+        else:
+            client_kwargs["api_key"] = api_key
+
+        client = Ark(**client_kwargs)
 
         # 准备API参数
         try:
@@ -254,12 +331,11 @@ class DoubaoVideoGenerator(Component):
             self.status = "ℹ️ 当前模型不支持尾帧，已忽略尾帧输入"
 
         # 构建生成参数
-        generate_params = {
+        # 注意：不同版本的 Ark SDK 对 tasks.create 的参数支持不一致。
+        # 当前 SDK 不支持 resolution/ratio/duration 作为 kwargs（会抛 TypeError），因此将这些信息仅保留在 text prompt 中。
+        generate_params: dict[str, Any] = {
             "model": endpoint_id,  # 使用端点ID进行API调用
             "content": content,
-            "resolution": resolution,
-            "ratio": aspect_ratio,
-            "duration": duration,
         }
         if supports_last_frame and (first_frame_url or last_frame_url):
             generate_params["return_last_frame"] = True
@@ -267,7 +343,15 @@ class DoubaoVideoGenerator(Component):
         try:
             # 创建视频生成任务
             self.status = "📋 创建视频生成任务..."
-            create_result = client.content_generation.tasks.create(**generate_params)
+            try:
+                create_result = client.content_generation.tasks.create(**generate_params)
+            except TypeError as exc:
+                # Backward/forward compat: retry without optional flags if the SDK signature changed.
+                if "unexpected keyword argument" in str(exc) and "return_last_frame" in generate_params:
+                    fallback_params = {k: v for k, v in generate_params.items() if k != "return_last_frame"}
+                    create_result = client.content_generation.tasks.create(**fallback_params)
+                else:
+                    raise
             task_id = create_result.id
 
             self.status = f"⏳ 任务已创建 (ID: {task_id})，开始轮询状态..."
@@ -441,6 +525,20 @@ class DoubaoVideoGenerator(Component):
                 self.status = f"⚠️ 任务完成但未获取到视频URL，请检查API响应格式"
                 result_data["warning"] = "任务完成但未获取到视频URL"
                 result_data["debug_suggestion"] = "API响应结构可能已变化，请查看debug_info字段了解详细响应内容"
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            result_data["doubao_preview"] = {
+                "token": task_id,
+                "kind": "video",
+                "available": bool(video_results and video_results[0].get("video_url")),
+                "generated_at": generated_at,
+                "payload": {
+                    "videos": video_results,
+                    "prompt": merged_prompt,
+                    "task_id": task_id,
+                },
+                "error": result_data.get("warning"),
+            }
 
         except Exception as exc:
             return self._error(f"视频生成失败：{exc}")
@@ -622,7 +720,28 @@ class DoubaoVideoGenerator(Component):
 
     @staticmethod
     def _error(message: str) -> Data:
-        return Data(data={"error": message}, type="error")
+        generated_at = datetime.now(timezone.utc).isoformat()
+        suggestion = ""
+        lowered = message.lower()
+        if "connection error" in lowered or "connect" in lowered:
+            suggestion = (
+                "（网络连接错误：请检查是否能访问 Ark 地址，或是否需要设置代理 HTTP_PROXY/HTTPS_PROXY，"
+                "以及防火墙/证书拦截等）"
+            )
+        return Data(
+            data={
+                "error": f"{message}{suggestion}",
+                "doubao_preview": {
+                    "token": f"error-{int(time.time())}",
+                    "kind": "video",
+                    "available": False,
+                    "generated_at": generated_at,
+                    "payload": None,
+                    "error": f"{message}{suggestion}",
+                },
+            },
+            type="error",
+        )
 
     def _merge_prompt(self, prompt_source: Any | None) -> str:
         parts: list[str] = []

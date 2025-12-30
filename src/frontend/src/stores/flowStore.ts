@@ -229,10 +229,61 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     // hidden in the template. If the template keeps `show=false`, edges get removed on reload by clean-up logic.
     nodes.forEach((node) => {
       if (node.type !== "genericNode") return;
-      if (node.data?.type !== "TextCreation") return;
+      const componentType = node.data?.type;
       const template = node.data.node?.template as any;
-      if (!template?.draft_text) return;
-      template.draft_text.show = true;
+      if (!template) return;
+
+      if (componentType === "TextCreation") {
+        if (template?.draft_text) {
+          template.draft_text.show = true;
+        }
+        if (template?.prompt) {
+          template.prompt.required = false;
+        }
+        return;
+      }
+
+      // Bridge-mode compatibility: older saved flows might have prompt/text marked as required, which causes
+      // validation to fail before bridge-mode logic runs in the backend.
+      if (componentType === "DoubaoVideoGenerator") {
+        if (template?.prompt) {
+          template.prompt.required = false;
+        }
+      }
+
+      if (componentType === "DoubaoImageCreator") {
+        if (template?.prompt) {
+          template.prompt.required = false;
+        }
+      }
+
+      if (componentType === "DoubaoTTS") {
+        if (template?.text) {
+          template.text.required = false;
+        }
+      }
+
+      // Ensure preview cache field exists for bridge-mode passthrough (hidden, no UI impact).
+      if (
+        componentType === "DoubaoVideoGenerator" ||
+        componentType === "DoubaoImageCreator" ||
+        componentType === "DoubaoTTS"
+      ) {
+        if (!template.draft_output) {
+          template.draft_output = {
+            type: "Data",
+            required: false,
+            placeholder: "",
+            list: false,
+            show: false,
+            readonly: false,
+            value: {},
+            input_types: ["Data"],
+            name: "draft_output",
+            display_name: "预览缓存",
+          };
+        }
+      }
     });
     const brokenEdges = detectBrokenEdgesEdges(nodes, edges);
     if (brokenEdges.length > 0) {

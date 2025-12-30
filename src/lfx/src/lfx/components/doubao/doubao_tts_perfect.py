@@ -11,6 +11,7 @@ import os
 import struct
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import IntEnum
 from typing import Any
 
@@ -23,10 +24,13 @@ from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.inputs.inputs import (
     BoolInput,
     DataInput,
+    FloatInput,
     DropdownInput,
+    IntInput,
     MessageTextInput,
     MultilineInput,
     SecretStrInput,
+    StrInput,
 )
 from lfx.template.field.base import Output
 
@@ -475,6 +479,27 @@ class DoubaoTTS(Component):
     }
 
     inputs = [
+        StrInput(
+            name="ws_endpoint",
+            display_name="WebSocket Endpoint",
+            value="wss://openspeech.bytedance.com/api/v3/tts/bidirection",
+            advanced=True,
+            info="TTS WebSocket 地址（网络/代理环境特殊时可调整）。",
+        ),
+        FloatInput(
+            name="open_timeout_seconds",
+            display_name="Open Timeout Seconds",
+            value=30.0,
+            advanced=True,
+            info="WebSocket 建连超时（秒）。",
+        ),
+        IntInput(
+            name="max_retries",
+            display_name="Max Retries",
+            value=2,
+            advanced=True,
+            info="WebSocket 连接失败重试次数。",
+        ),
         DropdownInput(
             name="voice_type",
             display_name="音色类型",
@@ -499,7 +524,7 @@ class DoubaoTTS(Component):
         MultilineInput(
             name="text",
             display_name="合成文本",
-            required=True,
+            required=False,
             value="",
             placeholder="请输入需要转换为语音的文本...",
             info="需要合成的文本内容，支持中英文等多语种。",
@@ -565,7 +590,18 @@ class DoubaoTTS(Component):
             else:
                 payload = {}
 
-            payload = {**payload, "bridge_mode": True}
+            generated_at = datetime.now(timezone.utc).isoformat()
+            payload = {
+                **payload,
+                "bridge_mode": True,
+                "doubao_preview": {
+                    "token": f"{self.name}-bridge",
+                    "kind": "audio",
+                    "available": bool(payload.get("audio_base64")),
+                    "generated_at": generated_at,
+                    "payload": payload,
+                },
+            }
             self.status = "🔁 桥梁模式：合成文本为空，直通预览输出"
             return Data(data=payload, type="audio")
 
@@ -636,17 +672,38 @@ class DoubaoTTS(Component):
             "X-Api-Resource-Id": "volc.service_type.10029",
             "X-Api-Connect-Id": str(uuid.uuid4()),
         }
-        endpoint = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
+        endpoint = (self.ws_endpoint or "wss://openspeech.bytedance.com/api/v3/tts/bidirection").strip()
 
         self.status = "Connecting to Doubao TTS..."
         audio_bytes: bytearray | None = None
 
         try:
-            async with websockets.connect(
-                endpoint,
-                additional_headers=headers,
-                max_size=10 * 1024 * 1024,
-            ) as websocket:
+            max_retries = int(getattr(self, "max_retries", 2) or 2)
+            open_timeout = float(getattr(self, "open_timeout_seconds", 30.0) or 30.0)
+
+            websocket = None
+            last_exc: Exception | None = None
+            for attempt in range(max_retries + 1):
+                try:
+                    websocket = await websockets.connect(
+                        endpoint,
+                        additional_headers=headers,
+                        max_size=10 * 1024 * 1024,
+                        open_timeout=open_timeout,
+                    )
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    if attempt >= max_retries:
+                        raise
+                    backoff = min(5.0, 1.0 + attempt)
+                    self.status = f"WebSocket connect failed, retrying... ({attempt + 1}/{max_retries})"
+                    await asyncio.sleep(backoff)
+
+            if websocket is None and last_exc is not None:
+                raise last_exc
+
+            async with websocket:
                 await protocol_start_connection(websocket)
                 connection_msg = await protocol_wait_for_event(
                     websocket, MsgType.FullServerResponse, EventType.ConnectionStarted
@@ -715,6 +772,7 @@ class DoubaoTTS(Component):
             self.status = f"Audio synthesized ({encoding}, {sample_rate}Hz)"
 
         audio_base64 = base64.b64encode(audio_data).decode("utf-8")
+        generated_at = datetime.now(timezone.utc).isoformat()
         result_data = {
             "audio_base64": audio_base64,
             "audio_type": encoding,
@@ -727,6 +785,17 @@ class DoubaoTTS(Component):
             "file_path": file_path,
             "audio_size": len(audio_data),
             "api_version": "v3_websocket",
+            "doubao_preview": {
+                "token": f"{self.name}-{uuid.uuid4().hex[:8]}",
+                "kind": "audio",
+                "available": True,
+                "generated_at": generated_at,
+                "payload": {
+                    "audio_base64": audio_base64,
+                    "audio_type": encoding,
+                    "sample_rate": sample_rate,
+                },
+            },
         }
         return Data(data=result_data, type="audio")
 
@@ -868,7 +937,28 @@ class DoubaoTTS(Component):
 
     @staticmethod
     def _error(message: str) -> Data:
-        return Data(data={"error": message}, type="error")
+        generated_at = datetime.now(timezone.utc).isoformat()
+        suggestion = ""
+        lowered = message.lower()
+        if "connection error" in lowered or "connect" in lowered or "timeout" in lowered:
+            suggestion = (
+                "（网络连接错误：请检查是否能访问 TTS WebSocket 地址，或是否需要设置代理 HTTP_PROXY/HTTPS_PROXY，"
+                "以及防火墙/证书拦截等）"
+            )
+        return Data(
+            data={
+                "error": f"{message}{suggestion}",
+                "doubao_preview": {
+                    "token": f"error-{uuid.uuid4().hex[:8]}",
+                    "kind": "audio",
+                    "available": False,
+                    "generated_at": generated_at,
+                    "payload": None,
+                    "error": f"{message}{suggestion}",
+                },
+            },
+            type="error",
+        )
 
 
 if __name__ == "__main__":
