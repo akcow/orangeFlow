@@ -1,15 +1,16 @@
+import { cloneDeep } from "lodash";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
-import { cn } from "@/utils/utils";
-import type { NodeDataType } from "@/types/flow";
+import { cn, getNodeRenderType } from "@/utils/utils";
+import type { AllNodeType, NodeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
 import { useTypesStore } from "@/stores/typesStore";
 import { track } from "@/customization/utils/analytics";
-import { findLastNode } from "@/utils/reactflowUtils";
+import { findLastNode, getNodeId, scapedJSONStringfy } from "@/utils/reactflowUtils";
 import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-colors";
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
@@ -139,6 +140,9 @@ export default function DoubaoVideoGeneratorLayout({
   buildStatus,
   selected = false,
 }: Props) {
+  const UPSTREAM_NODE_OFFSET_X = 950;
+  const IMAGE_OUTPUT_NAME = "image";
+  const FIRST_FRAME_BUTTON_LABEL = "首帧生成视频";
   const template = data.node?.template ?? {};
   const showExpanded = Boolean(selected);
   const selectedModel =
@@ -234,7 +238,21 @@ export default function DoubaoVideoGeneratorLayout({
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
+  const setNodes = useFlowStore((state) => state.setNodes);
+  const onConnect = useFlowStore((state) => state.onConnect);
+  const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+  const templates = useTypesStore((state) => state.templates);
   const typeData = useTypesStore((state) => state.data);
+  const hasAnyConnection = useMemo(
+    () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
+    [edges, data.id],
+  );
+  const isPromptEmpty = useMemo(() => {
+    const value = template[PROMPT_NAME]?.value;
+    if (typeof value === "string") return value.trim().length === 0;
+    return value === undefined || value === null;
+  }, [template]);
+  const disableRun = !hasAnyConnection && isPromptEmpty;
 
   const nodeIdForRun = data.node?.flow?.data
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
@@ -248,6 +266,7 @@ export default function DoubaoVideoGeneratorLayout({
       stopBuilding();
       return;
     }
+    if (disableRun) return;
     if (isBusy) return;
     buildFlow({
       stopNodeId: data.id,
@@ -475,6 +494,145 @@ export default function DoubaoVideoGeneratorLayout({
     setFirstFrameDialogOpen(true);
   }, [isFirstFrameUploadPending]);
 
+  const requestUploadDialogForNode = useCallback((nodeId: string) => {
+    const uploadEvent = new CustomEvent("doubao-preview-upload", {
+      detail: { nodeId },
+    });
+    window.dispatchEvent(uploadEvent);
+  }, []);
+
+  const handleCreateFirstFrameUpstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const firstFrameTemplateField = template[FIRST_FRAME_FIELD];
+    if (!firstFrameTemplateField) return;
+
+    const existingUpstreamNodeId = edges
+      .map((edge) => {
+        if (edge.target !== data.id) return null;
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        if (sourceNode?.data?.type !== "DoubaoImageCreator") return null;
+        if (sourceNode.position.x >= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== FIRST_FRAME_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+
+        return sourceNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingUpstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingUpstreamNodeId || node.id === data.id,
+        })),
+      );
+      requestUploadDialogForNode(existingUpstreamNodeId);
+      return;
+    }
+
+    const imageTemplate = templates["DoubaoImageCreator"];
+    if (!imageTemplate) return;
+
+    takeSnapshot();
+
+    const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const newImageNode: AllNodeType = {
+      id: newImageNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(imageTemplate),
+        showNode: !imageTemplate.minimized,
+        type: "DoubaoImageCreator",
+        id: newImageNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({ ...node, selected: node.id === data.id }))
+        .concat(newImageNode),
+    );
+
+    const outputDefinition =
+      imageTemplate.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+      imageTemplate.outputs?.find((output: any) => !output.hidden) ??
+      imageTemplate.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: newImageNodeId,
+      dataType: "DoubaoImageCreator",
+      name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: firstFrameTemplateField.input_types,
+      type: firstFrameTemplateField.type,
+      id: data.id,
+      fieldName: FIRST_FRAME_FIELD,
+      ...(firstFrameTemplateField.proxy ? { proxy: firstFrameTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: newImageNodeId,
+      target: data.id,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    queueMicrotask(() => requestUploadDialogForNode(newImageNodeId));
+
+    track("DoubaoVideoGenerator - Create First Frame Upstream Node", {
+      sourceNodeId: newImageNodeId,
+      targetNodeId: data.id,
+      sourceComponent: "DoubaoImageCreator",
+    });
+  }, [
+    IMAGE_OUTPUT_NAME,
+    UPSTREAM_NODE_OFFSET_X,
+    data.id,
+    edges,
+    nodes,
+    onConnect,
+    requestUploadDialogForNode,
+    setNodes,
+    takeSnapshot,
+    template,
+    templates,
+  ]);
+
+  const handlePreviewSuggestionClick = useCallback(
+    (label: string) => {
+      if (label !== FIRST_FRAME_BUTTON_LABEL) return;
+      handleCreateFirstFrameUpstreamNode();
+    },
+    [FIRST_FRAME_BUTTON_LABEL, handleCreateFirstFrameUpstreamNode],
+  );
+
   const triggerFirstFrameUpload = useCallback(() => {
     if (isFirstFrameUploadPending) {
       return;
@@ -641,6 +799,7 @@ export default function DoubaoVideoGeneratorLayout({
                 appearance="videoGenerator"
                 referenceImages={combinedFirstFramePreviews}
                 onRequestUpload={openFirstFrameDialog}
+                onSuggestionClick={handlePreviewSuggestionClick}
               />
             </div>
             {previewOutputHandles.length > 0 && (
@@ -710,7 +869,14 @@ export default function DoubaoVideoGeneratorLayout({
 
               <button
                 type="button"
-                className="ml-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#2E7BFF] text-white shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition hover:bg-[#0F5CE0]"
+                disabled={disableRun}
+                className={cn(
+                  "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
+                  "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                  disableRun
+                    ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                    : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                )}
                 onClick={handleRun}
                 onMouseEnter={() => setRunHovering(true)}
                 onMouseLeave={() => setRunHovering(false)}

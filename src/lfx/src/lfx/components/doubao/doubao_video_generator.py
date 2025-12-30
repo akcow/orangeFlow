@@ -24,6 +24,7 @@ from lfx.inputs.inputs import (
     SecretStrInput,
     MultilineInput,
     FileInput,
+    DataInput,
 )
 from lfx.template.field.base import Output
 
@@ -85,6 +86,13 @@ class DoubaoVideoGenerator(Component):
             placeholder="示例：无人机以极快速度穿越复杂障碍或自然奇观，带来沉浸式飞行体验",
             info="描述要生成的视频内容，支持详细的场景和动作描述。",
             input_types=["Message", "Data", "Text"],
+        ),
+        DataInput(
+            name="draft_output",
+            display_name="预览缓存",
+            show=False,
+            required=False,
+            value={},
         ),
         DropdownInput(
             name="resolution",
@@ -149,7 +157,17 @@ class DoubaoVideoGenerator(Component):
     def build_video(self) -> Data:
         merged_prompt = self._merge_prompt(self.prompt)
         if not merged_prompt:
-            return self._error("提示词不能为空，请输入或连接提示词。")
+            draft = getattr(self, "draft_output", None)
+            if isinstance(draft, Data):
+                payload = draft.data
+            elif isinstance(draft, dict):
+                payload = draft
+            else:
+                payload = {}
+
+            payload = {**payload, "bridge_mode": True}
+            self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
+            return Data(data=payload, type="video")
 
         creds = resolve_credentials(
             component_app_id=None,

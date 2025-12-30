@@ -22,6 +22,7 @@ from lfx.schema.data import Data
 from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.inputs.inputs import (
     BoolInput,
+    DataInput,
     DropdownInput,
     MessageTextInput,
     MultilineInput,
@@ -504,6 +505,13 @@ class DoubaoTTS(Component):
             info="需要合成的文本内容，支持中英文等多语种。",
             input_types=["Message", "Data", "Text"],
         ),
+        DataInput(
+            name="draft_output",
+            display_name="预览缓存",
+            show=False,
+            required=False,
+            value={},
+        ),
         SecretStrInput(
             name="app_id",
             display_name="App ID",
@@ -547,6 +555,20 @@ class DoubaoTTS(Component):
     ]
 
     def synthesize_speech(self) -> Data:
+        merged_text = self._merge_text(self.text)
+        if not merged_text:
+            draft = getattr(self, "draft_output", None)
+            if isinstance(draft, Data):
+                payload = draft.data
+            elif isinstance(draft, dict):
+                payload = draft
+            else:
+                payload = {}
+
+            payload = {**payload, "bridge_mode": True}
+            self.status = "🔁 桥梁模式：合成文本为空，直通预览输出"
+            return Data(data=payload, type="audio")
+
         try:
             return asyncio.run(self._synthesize_speech_websocket())
         except Exception as exc:
@@ -557,7 +579,17 @@ class DoubaoTTS(Component):
 
         merged_text = self._merge_text(self.text)
         if not merged_text:
-            return self._error("合成文本不能为空，请输入文本或连接上游文本节点。")
+            draft = getattr(self, "draft_output", None)
+            if isinstance(draft, Data):
+                payload = draft.data
+            elif isinstance(draft, dict):
+                payload = draft
+            else:
+                payload = {}
+
+            payload = {**payload, "bridge_mode": True}
+            self.status = "🔁 桥梁模式：合成文本为空，直通预览输出"
+            return Data(data=payload, type="audio")
 
         creds = resolve_credentials(
             component_app_id=self.app_id,

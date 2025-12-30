@@ -179,6 +179,16 @@ export default function TextCreationLayout({
   const typeData = useTypesStore((state) => state.data);
 
   const busy = buildStatus === BuildStatus.BUILDING || isGlobalBuilding;
+  const hasAnyConnection = useMemo(
+    () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
+    [edges, data.id],
+  );
+  const isPromptEmpty = useMemo(() => {
+    const value = promptField?.value;
+    if (typeof value === "string") return value.trim().length === 0;
+    return value === undefined || value === null;
+  }, [promptField?.value]);
+  const disableRun = !hasAnyConnection && isPromptEmpty;
 
   const handleCreateVideoNode = useCallback(() => {
     const currentNode = nodes.find((node) => node.id === data.id);
@@ -561,6 +571,7 @@ export default function TextCreationLayout({
       stopBuilding();
       return;
     }
+    if (disableRun) return;
     if (busy) return;
     buildFlow({
       stopNodeId: data.id,
@@ -851,9 +862,13 @@ export default function TextCreationLayout({
 
                 <button
                   type="button"
+                  disabled={disableRun}
                   className={cn(
-                    "ml-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#2E7BFF] text-white",
-                    "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition hover:bg-[#0F5CE0]",
+                    "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
+                    "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                    disableRun
+                      ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                      : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
                   )}
                   onClick={handleRun}
                   onMouseEnter={() => setRunHovering(true)}

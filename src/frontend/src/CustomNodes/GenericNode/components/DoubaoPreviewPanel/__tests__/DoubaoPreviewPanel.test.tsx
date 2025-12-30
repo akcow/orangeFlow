@@ -48,6 +48,11 @@ jest.mock("@/components/common/ImageViewer", () => ({
 }));
 
 beforeAll(() => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    blob: async () => new Blob(["test"]),
+  } as any);
+
   Object.defineProperty(window.HTMLMediaElement.prototype, "pause", {
     configurable: true,
     value: jest.fn(),
@@ -99,7 +104,7 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    expect(screen.getByText("构建中，稍后自动更新")).toBeInTheDocument();
+    expect(screen.getByText("生成中，将自动刷新")).toBeInTheDocument();
   });
 
   test("renders error state when preview has error", () => {
@@ -156,10 +161,10 @@ describe("DoubaoPreviewPanel", () => {
       name: "放大预览",
     });
     fireEvent.click(expandButton);
-    expect(await screen.findByText("生成结果详情")).toBeInTheDocument();
+    expect(await screen.findByText("生成详情")).toBeInTheDocument();
     const saveButtons = await screen.findAllByText("下载结果");
     expect(saveButtons).toHaveLength(2);
-    expect(await screen.findByText("512×512")).toBeInTheDocument();
+    expect(await screen.findByText("512x512")).toBeInTheDocument();
   });
 
   test("supports multi image carousel navigation", async () => {
@@ -224,6 +229,34 @@ describe("DoubaoPreviewPanel", () => {
     expect(mockUpload).toHaveBeenCalled();
   });
 
+  test("fires suggestion click callback in image creator empty state", async () => {
+    const mockSuggestionClick = jest.fn();
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={mockComponentName}
+        appearance="imageCreator"
+        onSuggestionClick={mockSuggestionClick}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("以图生图"));
+    expect(mockSuggestionClick).toHaveBeenCalledWith("以图生图");
+
+    fireEvent.click(await screen.findByText("图片换背景"));
+    expect(mockSuggestionClick).toHaveBeenCalledWith("图片换背景");
+
+    fireEvent.click(await screen.findByText("首帧图生视频"));
+    expect(mockSuggestionClick).toHaveBeenCalledWith("首帧图生视频");
+  });
+
   test("renders video generator empty state suggestions", async () => {
     (useDoubaoPreview as jest.Mock).mockReturnValue({
       preview: null,
@@ -240,10 +273,8 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    expect(
-      await screen.findByText("首尾帧生成视频"),
-    ).toBeInTheDocument();
-    expect(await screen.findByText("暂无生成结果")).toBeInTheDocument();
+    expect(await screen.findByText("首帧生成视频")).toBeInTheDocument();
+    expect(await screen.findByText("首尾帧生成视频")).toBeInTheDocument();
   });
 
   test("renders audio generator empty state suggestions", async () => {
@@ -293,7 +324,7 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    await screen.findByText("放大预览");
+    await screen.findByRole("button", { name: "放大预览" });
     expect(await screen.findByText("预计时长：00:10")).toBeInTheDocument();
     const saveButtons = await screen.findAllByText("下载结果");
     expect(saveButtons).toHaveLength(1);
@@ -326,7 +357,7 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    await screen.findByText("放大预览");
+    await screen.findByRole("button", { name: "放大预览" });
     expect(await screen.findByText("保存")).toBeInTheDocument();
   });
 });

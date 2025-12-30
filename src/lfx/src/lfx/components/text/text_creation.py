@@ -85,10 +85,31 @@ class TextCreation(Component):
         # This enables downstream nodes (e.g., video generation) to consume the text even when
         # the prompt input is intentionally left empty.
         if not prompt:
-            if not draft_text:
-                return self._error("提示词不能为空，请输入或连接上游节点。")
-
             generated_at = datetime.now(timezone.utc).isoformat()
+
+            if not draft_text:
+                preview_payload = {
+                    "token": f"text-{uuid4().hex[:8]}",
+                    "kind": "text",
+                    "available": False,
+                    "generated_at": generated_at,
+                    "text": "",
+                    "model": "passthrough",
+                    "prompt": "",
+                }
+
+                self.status = "桥梁模式：提示词为空，空直通"
+                return Data(
+                    data={
+                        "text": "",
+                        "prompt": "",
+                        "model": "passthrough",
+                        "text_preview": preview_payload,
+                        "bridge_mode": True,
+                    },
+                    text_key="text",
+                )
+
             preview_payload = {
                 "token": f"text-{uuid4().hex[:8]}",
                 "kind": "text",
@@ -106,6 +127,7 @@ class TextCreation(Component):
                     "prompt": "",
                     "model": "passthrough",
                     "text_preview": preview_payload,
+                    "bridge_mode": True,
                 },
                 text_key="text",
             )

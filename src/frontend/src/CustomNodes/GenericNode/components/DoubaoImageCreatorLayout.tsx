@@ -1,3 +1,4 @@
+import { cloneDeep } from "lodash";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dialog,
@@ -10,17 +11,22 @@ import {
 import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
-import { cn } from "@/utils/utils";
+import { cn, getNodeRenderType } from "@/utils/utils";
 import useHandleOnNewValue, {
   type handleOnNewValueType,
 } from "../../hooks/use-handle-new-value";
 import type { InputFieldType } from "@/types/api";
-import type { NodeDataType } from "@/types/flow";
+import type { AllNodeType, NodeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
 import { track } from "@/customization/utils/analytics";
-import { findLastNode } from "@/utils/reactflowUtils";
+import {
+  findLastNode,
+  getNodeId,
+  scapeJSONParse,
+  scapedJSONStringfy,
+} from "@/utils/reactflowUtils";
 import HandleRenderComponent from "./handleRenderComponent";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
@@ -42,7 +48,6 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_constants";
-import { scapeJSONParse } from "@/utils/reactflowUtils";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px] grow-[2]" },
@@ -93,6 +98,11 @@ export default function DoubaoImageCreatorLayout({
   buildStatus,
   selected = false,
 }: DoubaoImageCreatorLayoutProps) {
+  const NODE_OFFSET_X = 950;
+  const IMAGE_OUTPUT_NAME = "image";
+  const REFERENCE_VIDEO_LABEL = "参考图生视频";
+  const BACKGROUND_LABEL = "图片换背景";
+  const FIRST_FRAME_VIDEO_LABEL = "首帧图生视频";
   const template = data.node?.template ?? {};
   const showExpanded = Boolean(selected);
   const customFields = new Set<string>([
@@ -107,6 +117,20 @@ export default function DoubaoImageCreatorLayout({
 
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
+  const hasAnyConnection = useMemo(
+    () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
+    [edges, data.id],
+  );
+  const isPromptEmpty = useMemo(() => {
+    const value = template[PROMPT_NAME]?.value;
+    if (typeof value === "string") return value.trim().length === 0;
+    return value === undefined || value === null;
+  }, [template]);
+  const disableRun = !hasAnyConnection && isPromptEmpty;
+  const setNodes = useFlowStore((state) => state.setNodes);
+  const onConnect = useFlowStore((state) => state.onConnect);
+  const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+  const templates = useTypesStore((state) => state.templates);
   const referenceFieldRaw = template[REFERENCE_FIELD];
   const referenceField = useMemo<InputFieldType>(() => {
     if (!referenceFieldRaw) return REFERENCE_FIELD_FALLBACK;
@@ -218,6 +242,7 @@ export default function DoubaoImageCreatorLayout({
       stopBuilding();
       return;
     }
+    if (disableRun) return;
     if (isBusy) return;
     buildFlow({
       stopNodeId: data.id,
@@ -291,6 +316,411 @@ export default function DoubaoImageCreatorLayout({
     if (isReferenceUploadPending) return;
     setUploadDialogOpen(true);
   }, [isReferenceUploadPending]);
+
+  const requestUploadDialogForNode = useCallback((nodeId: string) => {
+    const uploadEvent = new CustomEvent("doubao-preview-upload", {
+      detail: { nodeId },
+    });
+    window.dispatchEvent(uploadEvent);
+  }, []);
+
+  const handleCreateImg2ImgDownstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const existingDownstreamNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== "DoubaoImageCreator") return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== REFERENCE_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingDownstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingDownstreamNodeId,
+        })),
+      );
+      openUploadDialog();
+      return;
+    }
+
+    const imageComponentTemplate = templates["DoubaoImageCreator"];
+    if (!imageComponentTemplate) return;
+
+    const referenceTemplateField = imageComponentTemplate.template?.[REFERENCE_FIELD];
+    if (!referenceTemplateField) return;
+
+    takeSnapshot();
+
+    const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const newImageNode: AllNodeType = {
+      id: newImageNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x + NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(imageComponentTemplate),
+        showNode: !imageComponentTemplate.minimized,
+        type: "DoubaoImageCreator",
+        id: newImageNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({ ...node, selected: false }))
+        .concat(newImageNode),
+    );
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: referenceTemplateField.input_types,
+      type: referenceTemplateField.type,
+      id: newImageNodeId,
+      fieldName: REFERENCE_FIELD,
+      ...(referenceTemplateField.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: data.id,
+      target: newImageNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    openUploadDialog();
+
+    track("DoubaoImageCreator - Create Img2Img Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newImageNodeId,
+      targetComponent: "DoubaoImageCreator",
+    });
+  }, [
+    NODE_OFFSET_X,
+    IMAGE_OUTPUT_NAME,
+    data.id,
+    data.node?.outputs,
+    data.type,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    templates,
+    openUploadDialog,
+  ]);
+
+  const handleCreateReferenceVideoDownstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const videoTemplate = templates["DoubaoVideoGenerator"];
+    if (!videoTemplate) return;
+
+    const firstFrameTemplateField = videoTemplate.template?.first_frame_image;
+    if (!firstFrameTemplateField) return;
+
+    const existingDownstreamVideoNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== "DoubaoVideoGenerator") return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== "first_frame_image") return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingDownstreamVideoNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingDownstreamVideoNodeId,
+        })),
+      );
+      openUploadDialog();
+      return;
+    }
+
+    takeSnapshot();
+
+    const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+    const newVideoNode: AllNodeType = {
+      id: newVideoNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x + NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(videoTemplate),
+        showNode: !videoTemplate.minimized,
+        type: "DoubaoVideoGenerator",
+        id: newVideoNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({ ...node, selected: false }))
+        .concat(newVideoNode),
+    );
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: firstFrameTemplateField.input_types,
+      type: firstFrameTemplateField.type,
+      id: newVideoNodeId,
+      fieldName: "first_frame_image",
+      ...(firstFrameTemplateField.proxy ? { proxy: firstFrameTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: data.id,
+      target: newVideoNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    openUploadDialog();
+
+    track("DoubaoImageCreator - Create Reference Video Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newVideoNodeId,
+      targetComponent: "DoubaoVideoGenerator",
+    });
+  }, [
+    NODE_OFFSET_X,
+    IMAGE_OUTPUT_NAME,
+    data.id,
+    data.node?.outputs,
+    data.type,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    templates,
+    openUploadDialog,
+  ]);
+
+  const handleCreateBackgroundUpstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const referenceTemplateField = template[REFERENCE_FIELD];
+    if (!referenceTemplateField) return;
+
+    const existingUpstreamNodeId = edges
+      .map((edge) => {
+        if (edge.target !== data.id) return null;
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        if (sourceNode?.data?.type !== "DoubaoImageCreator") return null;
+        if (sourceNode.position.x >= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== REFERENCE_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+
+        return sourceNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingUpstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingUpstreamNodeId || node.id === data.id,
+        })),
+      );
+      requestUploadDialogForNode(existingUpstreamNodeId);
+      return;
+    }
+
+    const imageTemplate = templates["DoubaoImageCreator"];
+    if (!imageTemplate) return;
+
+    takeSnapshot();
+
+    const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const newImageNode: AllNodeType = {
+      id: newImageNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x - NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(imageTemplate),
+        showNode: !imageTemplate.minimized,
+        type: "DoubaoImageCreator",
+        id: newImageNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes
+        .map((node) => ({ ...node, selected: node.id === data.id }))
+        .concat(newImageNode),
+    );
+
+    const outputDefinition =
+      imageTemplate.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+      imageTemplate.outputs?.find((output: any) => !output.hidden) ??
+      imageTemplate.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: newImageNodeId,
+      dataType: "DoubaoImageCreator",
+      name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: referenceTemplateField.input_types,
+      type: referenceTemplateField.type,
+      id: data.id,
+      fieldName: REFERENCE_FIELD,
+      ...(referenceTemplateField.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: newImageNodeId,
+      target: data.id,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    queueMicrotask(() => requestUploadDialogForNode(newImageNodeId));
+
+    track("DoubaoImageCreator - Create Background Upstream Node", {
+      sourceNodeId: newImageNodeId,
+      targetNodeId: data.id,
+      targetComponent: "DoubaoImageCreator",
+    });
+  }, [
+    IMAGE_OUTPUT_NAME,
+    NODE_OFFSET_X,
+    data.id,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    template,
+    templates,
+    requestUploadDialogForNode,
+  ]);
+
+  const handlePreviewSuggestionClickWithVideo = useCallback(
+    (label: string) => {
+      if (label === "以图生图") {
+        handleCreateImg2ImgDownstreamNode();
+        return;
+      }
+      if (label === REFERENCE_VIDEO_LABEL || label === FIRST_FRAME_VIDEO_LABEL) {
+        handleCreateReferenceVideoDownstreamNode();
+        return;
+      }
+      if (label === BACKGROUND_LABEL) {
+        handleCreateBackgroundUpstreamNode();
+      }
+    },
+    [
+      BACKGROUND_LABEL,
+      FIRST_FRAME_VIDEO_LABEL,
+      REFERENCE_VIDEO_LABEL,
+      handleCreateBackgroundUpstreamNode,
+      handleCreateImg2ImgDownstreamNode,
+      handleCreateReferenceVideoDownstreamNode,
+    ],
+  );
 
   const triggerReferenceUpload = useCallback(() => {
     if (isReferenceUploadPending) {
@@ -435,10 +865,16 @@ export default function DoubaoImageCreatorLayout({
   );
 
   useEffect(() => {
-    const listener = () => openUploadDialog();
+    const listener = (event: Event) => {
+      const customEvent = event as CustomEvent<{ nodeId?: string }>;
+      const requestedNodeId = customEvent?.detail?.nodeId;
+      if (requestedNodeId && requestedNodeId !== data.id) return;
+      if (!requestedNodeId && !selected) return;
+      openUploadDialog();
+    };
     window.addEventListener("doubao-preview-upload", listener);
     return () => window.removeEventListener("doubao-preview-upload", listener);
-  }, []);
+  }, [data.id, openUploadDialog, selected]);
 
   useEffect(() => {
     if (!isUploadDialogOpen) {
@@ -547,6 +983,7 @@ export default function DoubaoImageCreatorLayout({
                 appearance="imageCreator"
                 referenceImages={combinedReferencePreviews}
                 onRequestUpload={openUploadDialog}
+                onSuggestionClick={handlePreviewSuggestionClickWithVideo}
               />
             </div>
             {previewOutputHandles.length > 0 && (
@@ -622,7 +1059,14 @@ export default function DoubaoImageCreatorLayout({
 
               <button
                 type="button"
-                className="ml-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#2E7BFF] text-white shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition hover:bg-[#0F5CE0]"
+                disabled={disableRun}
+                className={cn(
+                  "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
+                  "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                  disableRun
+                    ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                    : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                )}
                 onClick={handleRun}
                 onMouseEnter={() => setRunHovering(true)}
                 onMouseLeave={() => setRunHovering(false)}

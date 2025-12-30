@@ -20,7 +20,14 @@ from volcenginesdkarkruntime.types.images.images import SequentialImageGeneratio
 
 from lfx.custom.custom_component.component import Component
 from lfx.field_typing.range_spec import RangeSpec
-from lfx.inputs.inputs import DropdownInput, FileInput, IntInput, MultilineInput, SecretStrInput
+from lfx.inputs.inputs import (
+    DataInput,
+    DropdownInput,
+    FileInput,
+    IntInput,
+    MultilineInput,
+    SecretStrInput,
+)
 from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.schema.data import Data
 from lfx.template.field.base import Output
@@ -88,6 +95,13 @@ class DoubaoImageCreator(Component):
             info="支持中文/英文，亦可通过上游节点传入 Message/Data/Text。",
             input_types=["Message", "Data", "Text"],
         ),
+        DataInput(
+            name="draft_output",
+            display_name="预览缓存",
+            show=False,
+            required=False,
+            value={},
+        ),
         DropdownInput(
             name="resolution",
             display_name="图像分辨率",
@@ -142,7 +156,17 @@ class DoubaoImageCreator(Component):
     def build_images(self) -> Data:
         prompt = self._merge_prompt(self.prompt)
         if not prompt:
-            return self._error("提示词不能为空，请输入或连接上游节点。")
+            draft = getattr(self, "draft_output", None)
+            if isinstance(draft, Data):
+                payload = draft.data
+            elif isinstance(draft, dict):
+                payload = draft
+            else:
+                payload = {}
+
+            payload = {**payload, "bridge_mode": True}
+            self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
+            return Data(data=payload, type="image")
 
         creds = resolve_credentials(
             component_app_id=None,

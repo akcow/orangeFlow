@@ -6,6 +6,7 @@ import {
   useCallback,
   useState,
   useEffect,
+  useRef,
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { cn } from "@/utils/utils";
 import { ForwardedIconComponent } from "@/components/common/genericIconComponent";
 import { useDoubaoPreview } from "../../../hooks/use-doubao-preview";
 import { sanitizePreviewDataUrl } from "./helpers";
+import useFlowStore from "@/stores/flowStore";
 
 const PANEL_BG = {
   image: "bg-emerald-50/80 dark:bg-emerald-950/30",
@@ -50,6 +52,7 @@ type Props = {
   appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
   referenceImages?: DoubaoReferenceImage[];
   onRequestUpload?: () => void;
+  onSuggestionClick?: (label: string) => void;
 };
 
 type GalleryItem = {
@@ -80,10 +83,49 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       appearance = "default",
       referenceImages = [],
       onRequestUpload,
+      onSuggestionClick,
     },
     forwardedRef,
   ) => {
-    const { preview, isBuilding } = useDoubaoPreview(nodeId, componentName);
+    const { preview, isBuilding, rawMessage } = useDoubaoPreview(
+      nodeId,
+      componentName,
+    );
+    const nodes = useFlowStore((state) => state.nodes);
+    const setNode = useFlowStore((state) => state.setNode);
+    const node = useMemo(
+      () => nodes.find((candidate) => candidate.id === nodeId)?.data?.node,
+      [nodes, nodeId],
+    );
+
+    // Persist latest output payload into a hidden field so the component can act as a bridge
+    // (prompt empty -> passthrough cached preview to downstream) and survive reloads.
+    const lastAppliedRawMessageRef = useRef<any>(null);
+    useEffect(() => {
+      if (!node) return;
+      if (!(node as any)?.template?.draft_output) return;
+
+      const payload = rawMessage?.message;
+      if (!payload || typeof payload !== "object") return;
+      if (rawMessage === lastAppliedRawMessageRef.current) return;
+
+      lastAppliedRawMessageRef.current = rawMessage;
+      setNode(
+        nodeId,
+        (oldNode) => {
+          const newData = { ...oldNode.data };
+          const newNode = { ...(newData.node as any) };
+          const newTemplate = { ...(newNode.template ?? {}) };
+          const draftField = { ...(newTemplate.draft_output ?? {}) };
+          draftField.value = payload;
+          newTemplate.draft_output = draftField;
+          newNode.template = newTemplate;
+          newData.node = newNode;
+          return { ...oldNode, data: newData };
+        },
+        false,
+      );
+    }, [rawMessage, node, nodeId, setNode]);
     const isAudioMinimal = appearance === "audioCreator";
     const isMinimal =
       appearance === "imageCreator" ||
@@ -443,6 +485,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             kind={kind}
             appearance={appearance}
             onUploadClick={onRequestUpload}
+            onSuggestionClick={onSuggestionClick}
           />
         }
       >
@@ -468,6 +511,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             kind={kind}
             appearance={appearance}
             onUploadClick={onRequestUpload}
+            onSuggestionClick={onSuggestionClick}
           />
         )}
       </Suspense>
@@ -477,6 +521,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         kind={kind}
         appearance={appearance}
         onUploadClick={onRequestUpload}
+        onSuggestionClick={onSuggestionClick}
       />
     );
 
@@ -840,11 +885,13 @@ function EmptyPreview({
   kind,
   appearance = "default",
   onUploadClick,
+  onSuggestionClick,
 }: {
   isBuilding: boolean;
   kind: "image" | "video" | "audio";
   appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
   onUploadClick?: () => void;
+  onSuggestionClick?: (label: string) => void;
 }) {
   const renderSuggestionButtons = (
     items: Array<{ label: string; icon: string }>,
@@ -862,6 +909,7 @@ function EmptyPreview({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              onSuggestionClick?.(item.label);
             }}
           >
             <ForwardedIconComponent
@@ -887,10 +935,8 @@ function EmptyPreview({
   if (isMinimal) {
     if (appearance === "videoGenerator") {
       const suggestions = [
-        { label: "以图生图", icon: "Wand2" },
-        { label: "图生视频", icon: "Clapperboard" },
-        { label: "替换背景", icon: "Eraser" },
-        { label: "封面转视频", icon: "Film" },
+        { label: "首帧生成视频", icon: "Clapperboard" },
+        { label: "首尾帧生成视频", icon: "Clapperboard" },
       ];
       return (
         <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
@@ -941,9 +987,9 @@ function EmptyPreview({
 
     const suggestions = [
       { label: "以图生图", icon: "Wand2" },
-      { label: "图生视频", icon: "Clapperboard" },
-      { label: "替换背景", icon: "Eraser" },
-      { label: "封面转视频", icon: "Film" },
+      { label: "参考图生视频", icon: "Clapperboard" },
+      { label: "首帧图生视频", icon: "Clapperboard" },
+      { label: "图片换背景", icon: "Eraser" },
     ];
     return (
       <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">

@@ -55,6 +55,17 @@ export default function DoubaoAudioLayout({
   const eventDelivery = useUtilityStore((state) => state.eventDelivery);
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
   const typeData = useTypesStore((state) => state.data);
+  const edges = useFlowStore((state) => state.edges);
+  const hasAnyConnection = useMemo(
+    () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
+    [edges, data.id],
+  );
+  const isPromptEmpty = useMemo(() => {
+    const value = template[PROMPT_FIELD]?.value;
+    if (typeof value === "string") return value.trim().length === 0;
+    return value === undefined || value === null;
+  }, [template]);
+  const disableRun = !hasAnyConnection && isPromptEmpty;
 
   const nodeIdForRun = data.node?.flow?.data
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
@@ -68,6 +79,7 @@ export default function DoubaoAudioLayout({
       stopBuilding();
       return;
     }
+    if (disableRun) return;
     if (isBusy) return;
     buildFlow({
       stopNodeId: data.id,
@@ -257,7 +269,13 @@ export default function DoubaoAudioLayout({
 
               <button
                 type="button"
-                className="ml-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#2E7BFF] text-white shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition hover:bg-[#0F5CE0]"
+                disabled={disableRun}
+                className={cn(
+                  "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                  disableRun
+                    ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                    : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                )}
                 onClick={handleRun}
                 onMouseEnter={() => setRunHovering(true)}
                 onMouseLeave={() => setRunHovering(false)}
