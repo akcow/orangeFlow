@@ -82,10 +82,10 @@ def resolve_credentials(
     env_access_token_var: str = "TTS_TOKEN",
     env_api_key_var: str = "ARK_API_KEY",
 ) -> SharedCredentials:
-    """Resolve credentials with priority: env/.env > shared config.
+    """Resolve credentials with priority: per-node override > env/.env > shared config.
 
-    Note: Per-node credential overrides are intentionally ignored to keep the UI simple
-    and avoid accidental persistence of masked/partial secrets in flows.
+    Security note:
+    - Never accept masked placeholder values like "****1234" from any source.
     """
     shared = _load_shared() or ProviderCredentials()
 
@@ -95,7 +95,11 @@ def resolve_credentials(
         env_var: str,
         transform: Callable[[str], str] | None = None,
     ) -> str:
-        _ = direct_value
+        if direct_value:
+            trimmed_direct = direct_value.strip()
+            if trimmed_direct and not trimmed_direct.startswith("****"):
+                return transform(trimmed_direct) if transform else trimmed_direct
+
         env_val = os.getenv(env_var, "").strip()
         if env_val:
             return transform(env_val) if transform else env_val

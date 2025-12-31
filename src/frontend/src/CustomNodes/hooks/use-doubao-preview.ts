@@ -67,12 +67,32 @@ function parsePreviewData(componentName: string | undefined, rawPayload: any): D
   // 优先解析新的doubao_preview格式
   if (data.doubao_preview) {
     const fromData = data.doubao_preview;
+    const kind = fromData.kind as DoubaoPreviewDescriptor['kind'];
+
+    // Normalize payload for backward-compatible video previews:
+    // some backends only return `payload.videos[]` without a top-level `payload.video_url`.
+    let normalizedPayload = fromData.payload ?? null;
+    if (kind === 'video' && normalizedPayload && typeof normalizedPayload === 'object') {
+      const payloadObj: any = normalizedPayload;
+      const videos = Array.isArray(payloadObj.videos) ? payloadObj.videos : [];
+      const first =
+        videos.find((video: any) => video?.video_url || video?.url) ?? null;
+      if (!payloadObj.video_url && first) {
+        payloadObj.video_url = first.video_url || first.url;
+        payloadObj.cover_preview_base64 =
+          payloadObj.cover_preview_base64 ?? first.cover_preview_base64;
+        payloadObj.cover_url =
+          payloadObj.cover_url ?? first.cover_url ?? first.last_frame_url;
+        payloadObj.duration = payloadObj.duration ?? first.duration;
+      }
+      normalizedPayload = payloadObj;
+    }
     return {
       token: fromData.token,
-      kind: fromData.kind,
+      kind,
       generated_at: fromData.generated_at,
       available: Boolean(fromData.available),
-      payload: fromData.payload ?? null,
+      payload: normalizedPayload,
       error: fromData.error,
     };
   }

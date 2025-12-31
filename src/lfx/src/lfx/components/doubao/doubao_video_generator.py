@@ -46,7 +46,7 @@ class DoubaoVideoGenerator(Component):
     MODEL_MAPPING = {
         "Doubao-Seedance-1.5-pro｜251215": "doubao-seedance-1-5-pro-251215",
         "Doubao-Seedance-1.0-pro｜250528": "doubao-seedance-1-0-pro-250528",
-        "Doubao-Seedance-1.0-pro-fast｜251015": "ep-20251031203218-q62sm",
+        "Doubao-Seedance-1.0-pro-fast｜251015": "doubao-seedance-1-0-pro-fast-251015",
     }
 
     MODEL_LIMITS = {
@@ -539,12 +539,27 @@ class DoubaoVideoGenerator(Component):
                 result_data["debug_suggestion"] = "API响应结构可能已变化，请查看debug_info字段了解详细响应内容"
 
             generated_at = datetime.now(timezone.utc).isoformat()
+            primary_video: dict[str, Any] | None = video_results[0] if video_results else None
+            primary_video_url = primary_video.get("video_url") if isinstance(primary_video, dict) else None
+            primary_cover_url = None
+            primary_cover_preview_base64 = None
+            primary_duration = None
+            if isinstance(primary_video, dict):
+                primary_cover_url = primary_video.get("cover_url") or primary_video.get("last_frame_url")
+                primary_cover_preview_base64 = primary_video.get("cover_preview_base64")
+                primary_duration = primary_video.get("duration") or duration
+
             result_data["doubao_preview"] = {
                 "token": task_id,
                 "kind": "video",
-                "available": bool(video_results and video_results[0].get("video_url")),
+                "available": bool(primary_video_url),
                 "generated_at": generated_at,
                 "payload": {
+                    # Keep a flat payload shape for the frontend preview panel.
+                    "video_url": primary_video_url,
+                    "cover_url": primary_cover_url,
+                    "cover_preview_base64": primary_cover_preview_base64,
+                    "duration": primary_duration,
                     "videos": video_results,
                     "prompt": merged_prompt,
                     "task_id": task_id,

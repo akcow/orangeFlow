@@ -14,7 +14,7 @@ from pathlib import Path
 import click
 import httpx
 import typer
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from fastapi import HTTPException
 from httpx import HTTPError
 from jose import JWTError
@@ -278,6 +278,22 @@ def run(
             # i.e. ensures the env file is loaded before the settings service is initialized
             raise ValueError(err)
         load_dotenv(env_file, override=True)
+    else:
+        # Best-effort: load a nearby `.env` when running locally without `--env-file`.
+        # This keeps CLI `langflow run` behavior consistent with common dev expectations.
+        # By default we do NOT override already-set environment variables.
+        try:
+            auto_env_file = find_dotenv(".env", usecwd=True)
+        except Exception:  # pragma: no cover
+            auto_env_file = ""
+        if auto_env_file:
+            override = (os.getenv("LANGFLOW_DOTENV_OVERRIDE", "") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            load_dotenv(auto_env_file, override=override)
 
     # Set and normalize log level, with precedence: cli > env > default
     log_level = (log_level or os.environ.get("LANGFLOW_LOG_LEVEL") or "info").lower()

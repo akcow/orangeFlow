@@ -164,8 +164,11 @@ def main() -> None:
     print("\n[4/4] Starting LangFlow (Ctrl+C to stop)...")
     print("   URL: http://localhost:7860")
 
+    env_file = REPO_ROOT / ".env"
+    env_file_args: list[str] = ["--env-file", str(env_file)] if env_file.exists() else []
+
     run(
-        [sys.executable, "-m", "langflow", "run", "--host", "0.0.0.0", "--port", "7860"],
+        [sys.executable, "-m", "langflow", "run", "--host", "0.0.0.0", "--port", "7860", *env_file_args],
         cwd=BACKEND_BASE,
         env=env,
     )
