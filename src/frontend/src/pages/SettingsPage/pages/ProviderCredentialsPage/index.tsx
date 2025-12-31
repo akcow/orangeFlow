@@ -97,6 +97,29 @@ export default function ProviderCredentialsPage() {
     setTouched((prev) => ({ ...prev, [key]: true }));
   };
 
+  const visibleKeys = useMemo(() => {
+    const whitelist = PROVIDER_FIELD_WHITELIST[provider] ?? [];
+    return (Object.keys(fieldMeta) as FieldKey[]).filter((key) =>
+      whitelist.includes(key),
+    );
+  }, [provider]);
+
+  const handleClearFields = (keys: FieldKey[]) => {
+    if (isSaving) return;
+    const ok = window.confirm("确定要清空已保存的密钥吗？此操作会立即生效。");
+    if (!ok) return;
+    const payload = Object.fromEntries(keys.map((key) => [key, ""]));
+    saveCredentials({ provider, payload });
+    setFormState((prev) => ({ ...prev, ...payload }));
+    setTouched((prev) => {
+      const next = { ...prev };
+      keys.forEach((key) => {
+        next[key] = false;
+      });
+      return next;
+    });
+  };
+
   const handleSave = () => {
     const hasTouched = Object.values(touched).some(Boolean);
     if (!hasTouched) {
@@ -124,6 +147,10 @@ export default function ProviderCredentialsPage() {
     }),
     [data],
   ) as Record<FieldKey, ProviderCredentialField | undefined>;
+
+  const hasAnySaved = useMemo(() => {
+    return visibleKeys.some((key) => fieldStatus[key]?.source === "saved");
+  }, [visibleKeys, fieldStatus]);
 
   const renderStatus = (field?: ProviderCredentialField) => {
     if (!field) return null;
@@ -178,6 +205,17 @@ export default function ProviderCredentialsPage() {
           </div>
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
+          {hasAnySaved && (
+            <Button
+              variant="ghost"
+              disabled={isSaving}
+              onClick={() => handleClearFields(visibleKeys)}
+              title="清空当前提供商已保存的全部字段（不影响环境变量）"
+            >
+              <IconComponent name="Trash2" className="w-4" />
+              清空
+            </Button>
+          )}
           <Button variant="primary" loading={isSaving} disabled={isSaving} onClick={handleSave}>
             <IconComponent name="Save" className="w-4" />
             保存
@@ -186,13 +224,24 @@ export default function ProviderCredentialsPage() {
       </div>
 
       <div className="flex flex-col gap-6 rounded-lg border border-border/50 bg-background p-6">
-        {(Object.keys(fieldMeta) as FieldKey[])
-          .filter((key) => (PROVIDER_FIELD_WHITELIST[provider] ?? []).includes(key))
-          .map((key) => (
+        {visibleKeys.map((key) => (
             <div key={key} className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">{fieldMeta[key].label}</Label>
-                <div className="text-xs">{renderStatus(fieldStatus[key])}</div>
+                <div className="flex items-center gap-2 text-xs">
+                  {renderStatus(fieldStatus[key])}
+                  {fieldStatus[key]?.source === "saved" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={isSaving}
+                      onClick={() => handleClearFields([key])}
+                      title="清空该字段已保存的值（不影响环境变量）"
+                    >
+                      清空
+                    </Button>
+                  )}
+                </div>
               </div>
               <Input
                 type="password"
@@ -207,7 +256,7 @@ export default function ProviderCredentialsPage() {
             </div>
           ))}
         <div className="rounded-md border border-dashed border-border/50 p-3 text-xs text-muted-foreground">
-          提示：表单留空时不会覆盖已保存的值；若需清除某个字段，请输入空格后清除再保存。
+          提示：表单留空时不会覆盖已保存的值；若需清除已保存的字段，请点击右侧“清空”。
         </div>
       </div>
     </div>

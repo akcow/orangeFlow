@@ -80,6 +80,9 @@ def save_provider_credentials(
             return existing.get(field)
         # Allow clearing by sending empty string
         trimmed = raw_val.strip()
+        # UI may send masked secrets like "****1234" for unchanged values; never persist those.
+        if trimmed.startswith("****"):
+            return existing.get(field)
         return trimmed or None
 
     merged = {

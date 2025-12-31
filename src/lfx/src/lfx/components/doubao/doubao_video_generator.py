@@ -238,11 +238,20 @@ class DoubaoVideoGenerator(Component):
             v = (value or "").strip().strip("'").strip('"')
             if v.lower().startswith("bearer "):
                 v = v.split(" ", 1)[1].strip()
+            # Keys should not contain whitespace; if a masked secret like "****1234" was saved, keep as-is for diagnosis.
+            if not v.startswith("****"):
+                v = "".join(v.split())
             return v
 
         api_key = _normalize_api_key(creds.api_key or "")
         ak = _normalize_api_key(getattr(self, "ak", "") or "")
         sk = _normalize_api_key(getattr(self, "sk", "") or "")
+
+        if api_key.startswith("****"):
+            return self._error(
+                "检测到 Provider Credentials 中保存了被掩码的 api_key（形如 ****1234），"
+                "这不是有效的 Ark key。请在 Provider Credentials 中重新粘贴完整 ARK_API_KEY 保存。"
+            )
 
         if not api_key and not (ak and sk):
             return self._error("未检测到豆包 API Key 或 AK/SK，请在节点或环境变量中配置。")

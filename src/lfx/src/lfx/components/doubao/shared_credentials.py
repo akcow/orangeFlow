@@ -2,7 +2,48 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
+
+try:
+    from dotenv import load_dotenv  # type: ignore
+
+    def _load_dotenv_best_effort() -> None:
+        # 1) default behavior (cwd + parents)
+        load_dotenv(override=False)
+
+        if os.getenv("ARK_API_KEY") or os.getenv("TTS_APP_ID") or os.getenv("TTS_TOKEN"):
+            return
+
+        def walk_up(start: Path, max_levels: int = 8) -> list[Path]:
+            paths: list[Path] = []
+            current = start.resolve()
+            for _ in range(max_levels):
+                paths.append(current / ".env")
+                if current.parent == current:
+                    break
+                current = current.parent
+            return paths
+
+        candidates: list[Path] = []
+        try:
+            candidates.extend(walk_up(Path.cwd(), max_levels=10))
+        except Exception:
+            pass
+        try:
+            candidates.extend(walk_up(Path(__file__).resolve(), max_levels=12))
+        except Exception:
+            pass
+
+        for candidate in candidates:
+            if candidate.exists():
+                load_dotenv(dotenv_path=candidate, override=False)
+                break
+
+    _load_dotenv_best_effort()
+except Exception:  # pragma: no cover
+    # Env file loading is best-effort; values may still come from the process env.
+    pass
 
 from lfx.utils.provider_credentials import (
     DEFAULT_PROVIDER_KEY,
@@ -41,7 +82,11 @@ def resolve_credentials(
     env_access_token_var: str = "TTS_TOKEN",
     env_api_key_var: str = "ARK_API_KEY",
 ) -> SharedCredentials:
-    """Resolve credentials with priority: component input > shared config > env."""
+    """Resolve credentials with priority: env/.env > shared config.
+
+    Note: Per-node credential overrides are intentionally ignored to keep the UI simple
+    and avoid accidental persistence of masked/partial secrets in flows.
+    """
     shared = _load_shared() or ProviderCredentials()
 
     def pick(
@@ -50,12 +95,18 @@ def resolve_credentials(
         env_var: str,
         transform: Callable[[str], str] | None = None,
     ) -> str:
-        if direct_value:
-            return direct_value.strip()
-        if shared_value:
-            return shared_value.strip()
+        _ = direct_value
         env_val = os.getenv(env_var, "").strip()
-        return transform(env_val) if env_val and transform else env_val
+        if env_val:
+            return transform(env_val) if transform else env_val
+
+        # Fallback to saved shared config only when env is not set.
+        # Never accept masked placeholder values like "****1234".
+        if shared_value:
+            trimmed = shared_value.strip()
+            if trimmed and not trimmed.startswith("****"):
+                return trimmed
+        return ""
 
     return SharedCredentials(
         app_id=pick(component_app_id, shared.app_id, env_app_id_var),
