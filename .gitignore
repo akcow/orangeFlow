@@ -285,3 +285,9 @@ CLAUDE.md
 member_servers.json
 # Component index cache (user-specific)
 **/.cache/lfx/
+
+# Windows stray files
+nul
+
+# Generated component index backups
+**/component_index.json.backup

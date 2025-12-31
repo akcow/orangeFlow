@@ -53,9 +53,10 @@ class TextCreation(Component):
         SecretStrInput(
             name="api_key",
             display_name="DeepSeek API Key",
-            value=os.getenv("DEEPSEEK_API_KEY", ""),
+            value="",
             placeholder="留空时读取 DEEPSEEK_API_KEY 环境变量",
             info="DeepSeek 平台申请的 API Key。",
+            load_from_db=False,
             show=False,
         ),
         MultilineInput(

@@ -1,22 +1,17 @@
-"""LangFlow精简版白名单模块"""
+"""Component whitelist for the slimmed-down LangFlow build.
 
-# 精确的8个核心节点白名单
+Only components listed here will be exposed in the UI/component index.
+"""
+
 COMPONENT_WHITELIST = {
-    # 4个原生I/O节点
-    "TextInput",
-    "ChatInput",
-    "TextOutput",
-    "ChatOutput",
-
-    # 4个豆包AI节点
     "DoubaoTTS",
     "DoubaoVideoGenerator",
     "DoubaoImageCreator",
     "TextCreation",
 }
 
+
 def apply_whitelist_filter(components_dict):
-    """应用白名单过滤"""
     if not components_dict:
         return components_dict
 

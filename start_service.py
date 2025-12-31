@@ -25,7 +25,6 @@ CACHE_TARGETS = [
     BACKEND_BASE / "__pycache__",
     BACKEND_BASE / "langflow" / "__pycache__",
     LFX_SRC / "lfx" / "__pycache__",
-    FRONTEND_BUILD_DIR,
 ]
 
 
@@ -72,6 +71,60 @@ def copy_frontend_build() -> None:
     print(f"[copy] synced build to {BACKEND_FRONTEND_DIR.relative_to(REPO_ROOT)}")
 
 
+def _ensure_uv_environment() -> None:
+    """Ensure we run inside the repo's uv environment when available."""
+    if os.environ.get("LANGFLOW_START_SERVICE_REEXEC") == "1":
+        return
+
+    # If we already run from .venv, keep going.
+    exe = Path(sys.executable).resolve()
+    if ".venv" in exe.parts:
+        return
+
+    # If uv is available, re-exec via uv so dependencies resolve consistently.
+    if shutil.which("uv"):
+        env = os.environ.copy()
+        env["LANGFLOW_START_SERVICE_REEXEC"] = "1"
+        cmd = ["uv", "run", "python", str(Path(__file__).resolve()), *sys.argv[1:]]
+        subprocess.run(_resolve_command(cmd), cwd=REPO_ROOT, env=env, check=True)
+        raise SystemExit(0)
+
+
+def _ensure_frontend_built(env: dict[str, str]) -> None:
+    """Build and sync the frontend only when needed."""
+    package_json = FRONTEND_DIR / "package.json"
+    if not package_json.exists():
+        raise FileNotFoundError(f"Missing frontend package.json at {package_json}")
+
+    node_modules = FRONTEND_DIR / "node_modules"
+    lockfile = FRONTEND_DIR / "package-lock.json"
+
+    if not node_modules.exists():
+        if lockfile.exists():
+            run(["npm", "ci"], cwd=FRONTEND_DIR, env=env)
+        else:
+            run(["npm", "install"], cwd=FRONTEND_DIR, env=env)
+
+    # Build if build output is missing, or backend static folder is missing.
+    if not FRONTEND_BUILD_DIR.exists() or not BACKEND_FRONTEND_DIR.exists():
+        run(["npm", "run", "build"], cwd=FRONTEND_DIR, env=env)
+
+    # Sync build into backend folder if missing or stale.
+    if not BACKEND_FRONTEND_DIR.exists():
+        copy_frontend_build()
+        return
+
+    try:
+        build_mtime = max(p.stat().st_mtime for p in FRONTEND_BUILD_DIR.rglob("*") if p.is_file())
+        backend_mtime = max(p.stat().st_mtime for p in BACKEND_FRONTEND_DIR.rglob("*") if p.is_file())
+    except ValueError:
+        copy_frontend_build()
+        return
+
+    if build_mtime >= backend_mtime:
+        copy_frontend_build()
+
+
 def build_env() -> dict[str, str]:
     env = os.environ.copy()
     separator = os.pathsep
@@ -89,27 +142,26 @@ def build_env() -> dict[str, str]:
 
 
 def main() -> None:
-    print("LangFlow dev launcher")
-    print("1) clean caches  2) build frontend  3) sync frontend  4) set env  5) run service")
+    _ensure_uv_environment()
 
-    print("\n[1/5] Cleaning caches and component index...")
+    print("LangFlow dev launcher")
+    print("1) clean caches  2) ensure frontend  3) set env  4) run service")
+
+    print("\n[1/4] Cleaning caches and component index...")
     clear_component_index_cache(verbose=True)
     for target in CACHE_TARGETS:
         remove_path(target)
 
-    print("\n[2/5] Running npm run build...")
-    run(["npm", "run", "build"], cwd=FRONTEND_DIR)
-
-    print("\n[3/5] Syncing frontend build into backend static folder...")
-    copy_frontend_build()
-
     env = build_env()
-    print("\n[4/5] Environment summary:")
+    print("\n[2/4] Ensuring frontend dependencies + build...")
+    _ensure_frontend_built(env)
+
+    print("\n[3/4] Environment summary:")
     print(f"   LANGFLOW_COMPONENTS_PATH={env['LANGFLOW_COMPONENTS_PATH']}")
     print(f"   PYTHONPATH={env['PYTHONPATH']}")
     print(f"   LFX_DEV={env['LFX_DEV']}")
 
-    print("\n[5/5] Starting LangFlow (Ctrl+C to stop)...")
+    print("\n[4/4] Starting LangFlow (Ctrl+C to stop)...")
     print("   URL: http://localhost:7860")
 
     run(

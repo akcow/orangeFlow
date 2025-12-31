@@ -14,10 +14,23 @@ import orjson
 
 
 def _get_langflow_version():
-    """Get the installed langflow version."""
-    from importlib.metadata import version
+    """Get the LangFlow version for this checkout."""
+    # Prefer the repo version (avoids depending on an installed distribution).
+    try:
+        pyproject = Path(__file__).parent.parent / "pyproject.toml"
+        for line in pyproject.read_text(encoding="utf-8").splitlines():
+            if line.startswith("version ="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:  # noqa: BLE001
+        pass
 
-    return version("langflow")
+    # Fallback to installed metadata.
+    try:
+        from importlib.metadata import version
+
+        return version("langflow")
+    except Exception:  # noqa: BLE001
+        return "unknown"
 
 
 def _normalize_for_determinism(obj):
@@ -54,6 +67,14 @@ def build_component_index():
         # Run the async function
         components_result = asyncio.run(import_langflow_components())
         modules_dict = components_result.get("components", {})
+
+        # Apply project whitelist (if present) so we don't ship an index for hidden components.
+        try:
+            from lfx.core.whitelist import apply_whitelist_filter
+
+            modules_dict = apply_whitelist_filter(modules_dict) or {}
+        except Exception:  # noqa: BLE001
+            pass
         components_count = sum(len(v) for v in modules_dict.values())
         print(f"Discovered {components_count} components across {len(modules_dict)} categories")
 

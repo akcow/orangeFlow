@@ -93,17 +93,19 @@ class DoubaoVideoGenerator(Component):
         SecretStrInput(
             name="ak",
             display_name="AK (Optional)",
-            value=os.getenv("ARK_AK", ""),
+            value="",
             advanced=True,
             required=False,
+            load_from_db=False,
             info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
         ),
         SecretStrInput(
             name="sk",
             display_name="SK (Optional)",
-            value=os.getenv("ARK_SK", ""),
+            value="",
             advanced=True,
             required=False,
+            load_from_db=False,
             info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
         ),
         StrInput(
@@ -186,9 +188,10 @@ class DoubaoVideoGenerator(Component):
             name="api_key",
             display_name="豆包 API 密钥",
             required=False,
-            value=os.getenv("ARK_API_KEY", ""),
+            value="",
             placeholder="如留空将读取 .env 中的 ARK_API_KEY",
             info="用于访问豆包 API 的密钥，可在节点中覆盖默认值。",
+            load_from_db=False,
         ),
     ]
 

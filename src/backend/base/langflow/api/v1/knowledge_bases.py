@@ -5,12 +5,16 @@ from pathlib import Path
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
-from langchain_chroma import Chroma
 from lfx.log import logger
 from pydantic import BaseModel
 
 from langflow.api.utils import CurrentActiveUser
 from langflow.services.deps import get_settings_service
+
+try:
+    from langchain_chroma import Chroma
+except ModuleNotFoundError:  # pragma: no cover
+    Chroma = None  # type: ignore[assignment]
 
 router = APIRouter(tags=["Knowledge Bases"], prefix="/knowledge_bases")
 
@@ -254,10 +258,10 @@ def get_kb_metadata(kb_path: Path) -> dict:
                 logger.exception("Error reading schema file '%s'", schema_file)
 
         # Create vector store
-        chroma = Chroma(
-            persist_directory=str(kb_path),
-            collection_name=kb_path.name,
-        )
+        if Chroma is None:
+            return metadata
+
+        chroma = Chroma(persist_directory=str(kb_path), collection_name=kb_path.name)
 
         # Access the raw collection
         collection = chroma._collection  # noqa: SLF001

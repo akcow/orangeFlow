@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import inspect
 import mimetypes
 import os
 from datetime import datetime, timezone
@@ -15,7 +16,10 @@ import requests
 from dotenv import load_dotenv
 
 from volcenginesdkarkruntime import Ark
-from volcenginesdkarkruntime.types.images.images import SequentialImageGenerationOptions
+try:
+    from volcenginesdkarkruntime.types.images.images import SequentialImageGenerationOptions
+except Exception:  # noqa: BLE001
+    SequentialImageGenerationOptions = None  # type: ignore[assignment]
 
 
 from lfx.custom.custom_component.component import Component
@@ -100,17 +104,19 @@ class DoubaoImageCreator(Component):
         SecretStrInput(
             name="ak",
             display_name="AK (Optional)",
-            value=os.getenv("ARK_AK", ""),
+            value="",
             advanced=True,
             required=False,
+            load_from_db=False,
             info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
         ),
         SecretStrInput(
             name="sk",
             display_name="SK (Optional)",
-            value=os.getenv("ARK_SK", ""),
+            value="",
             advanced=True,
             required=False,
+            load_from_db=False,
             info="可选：使用 AK/SK 鉴权（如你不是使用 API Key）。",
         ),
         StrInput(
@@ -184,9 +190,10 @@ class DoubaoImageCreator(Component):
         SecretStrInput(
             name="api_key",
             display_name="Doubao API Key",
-            value=os.getenv("ARK_API_KEY", ""),
+            value="",
             placeholder="留空时读取 .env 中的 ARK_API_KEY",
             info="即梦/豆包控制台生成的 API Key，将直接透传至 Ark SDK。",
+            load_from_db=False,
         ),
     ]
 
@@ -320,14 +327,39 @@ class DoubaoImageCreator(Component):
             "size": size_info["size_value"],
             "response_format": "url",
             "watermark": False,
-            "sequential_image_generation": "auto",
         }
+
+        extra_body: dict[str, Any] = {}
+        try:
+            supported = set(inspect.signature(client.images.generate).parameters)
+        except (TypeError, ValueError):  # pragma: no cover
+            supported = set()
+
         if image_count > 1:
-            request_kwargs["sequential_image_generation_options"] = SequentialImageGenerationOptions(
-                max_images=image_count
-            )
+            sequential_options: Any
+            if SequentialImageGenerationOptions is not None:
+                sequential_options = SequentialImageGenerationOptions(max_images=image_count)
+            else:
+                sequential_options = {"max_images": image_count}
+
+            if "sequential_image_generation" in supported:
+                request_kwargs["sequential_image_generation"] = "auto"
+            else:
+                extra_body["sequential_image_generation"] = "auto"
+
+            if "sequential_image_generation_options" in supported:
+                request_kwargs["sequential_image_generation_options"] = sequential_options
+            else:
+                extra_body["sequential_image_generation_options"] = sequential_options
+
         if reference_payloads:
-            request_kwargs["image"] = reference_payloads
+            if "image" in supported and isinstance(reference_payloads, str):
+                request_kwargs["image"] = reference_payloads
+            else:
+                extra_body["image"] = reference_payloads
+
+        if extra_body:
+            request_kwargs["extra_body"] = extra_body
 
         self.status = "🎨 即梦模型提交成功，等待生成..."
 
