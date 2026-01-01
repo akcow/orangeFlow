@@ -1,574 +1,161 @@
-"""音频合成 LFX 组件 - 适配版 v3"""
+"""Qwen3 TTS (DashScope) component for LangFlow/LFX."""
 
 from __future__ import annotations
 
-import asyncio
 import base64
-import copy
-import io
-import json
-import os
-import struct
-import uuid
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import IntEnum
 from typing import Any
+from uuid import uuid4
 
+import requests
 from dotenv import load_dotenv
 
-# LFX系统导入
-from lfx.custom.custom_component.component import Component
-from lfx.schema.data import Data
 from lfx.components.doubao.shared_credentials import resolve_credentials
-from lfx.inputs.inputs import (
-    BoolInput,
-    DataInput,
-    FloatInput,
-    DropdownInput,
-    IntInput,
-    MessageTextInput,
-    MultilineInput,
-    SecretStrInput,
-    StrInput,
-)
+from lfx.custom.custom_component.component import Component
+from lfx.inputs.inputs import BoolInput, DropdownInput, MessageTextInput, MultilineInput, SecretStrInput, StrInput
+from lfx.schema.data import Data
 from lfx.template.field.base import Output
 
 load_dotenv()
 
 
-class MsgType(IntEnum):
-    """Message type enumeration."""
-
-    Invalid = 0
-    FullClientRequest = 0b1
-    AudioOnlyClient = 0b10
-    FullServerResponse = 0b1001
-    AudioOnlyServer = 0b1011
-    FrontEndResultServer = 0b1100
-    Error = 0b1111
-
-    ServerACK = AudioOnlyServer
-
-    def __str__(self) -> str:
-        return self.name if self.name else f"MsgType({self.value})"
-
-
-class MsgTypeFlagBits(IntEnum):
-    """Message type flag bits."""
-
-    NoSeq = 0
-    PositiveSeq = 0b1
-    LastNoSeq = 0b10
-    NegativeSeq = 0b11
-    WithEvent = 0b100
-
-
-class VersionBits(IntEnum):
-    """Version bits."""
-
-    Version1 = 1
-    Version2 = 2
-    Version3 = 3
-    Version4 = 4
-
-
-class HeaderSizeBits(IntEnum):
-    """Header size bits."""
-
-    HeaderSize4 = 1
-    HeaderSize8 = 2
-    HeaderSize12 = 3
-    HeaderSize16 = 4
-
-
-class SerializationBits(IntEnum):
-    """Serialization method bits."""
-
-    Raw = 0
-    JSON = 0b1
-    Thrift = 0b11
-    Custom = 0b1111
-
-
-class CompressionBits(IntEnum):
-    """Compression method bits."""
-
-    None_ = 0
-    Gzip = 0b1
-    Custom = 0b1111
-
-
-class EventType(IntEnum):
-    """Message type enumeration."""
-
-    None_ = 0
-    StartConnection = 1
-    StartTask = 1
-    FinishConnection = 2
-    FinishTask = 2
-
-    ConnectionStarted = 50
-    TaskStarted = 50
-    ConnectionFailed = 51
-    TaskFailed = 51
-    ConnectionFinished = 52
-    TaskFinished = 52
-
-    StartSession = 100
-    CancelSession = 101
-    FinishSession = 102
-
-    SessionStarted = 150
-    SessionCanceled = 151
-    SessionFinished = 152
-    SessionFailed = 153
-    UsageResponse = 154
-    ChargeData = 154
-
-    TaskRequest = 200
-    UpdateConfig = 201
-
-    AudioMuted = 250
-
-    SayHello = 300
-
-    TTSSentenceStart = 350
-    TTSSentenceEnd = 351
-    TTSResponse = 352
-    TTSEnded = 359
-    PodcastRoundStart = 360
-    PodcastRoundResponse = 361
-    PodcastRoundEnd = 362
-
-    ASRInfo = 450
-    ASRResponse = 451
-    ASREnded = 459
-
-    ChatTTSText = 500
-
-    ChatResponse = 550
-    ChatEnded = 559
-
-    SourceSubtitleStart = 650
-    SourceSubtitleResponse = 651
-    SourceSubtitleEnd = 652
-    TranslationSubtitleStart = 653
-    TranslationSubtitleResponse = 654
-    TranslationSubtitleEnd = 655
-
-    def __str__(self) -> str:
-        return self.name if self.name else f"EventType({self.value})"
-
-
-@dataclass
-class ProtocolMessage:
-    """Bidirectional TTS protocol message."""
-
-    version: VersionBits = VersionBits.Version1
-    header_size: HeaderSizeBits = HeaderSizeBits.HeaderSize4
-    type: MsgType = MsgType.Invalid
-    flag: MsgTypeFlagBits = MsgTypeFlagBits.NoSeq
-    serialization: SerializationBits = SerializationBits.JSON
-    compression: CompressionBits = CompressionBits.None_
-    event: EventType = EventType.None_
-    session_id: str = ""
-    connect_id: str = ""
-    sequence: int = 0
-    error_code: int = 0
-    payload: bytes = b""
-
-    @classmethod
-    def from_bytes(cls, data: bytes):
-        if len(data) < 3:
-            raise ValueError(f"Data too short: expected at least 3 bytes, got {len(data)}")
-
-        version_and_size = data[0]
-        version = VersionBits(version_and_size >> 4)
-        header_size = HeaderSizeBits(version_and_size & 0b00001111)
-
-        type_and_flag = data[1]
-        msg_type = MsgType(type_and_flag >> 4)
-        flag = MsgTypeFlagBits(type_and_flag & 0b00001111)
-
-        message = cls(type=msg_type, flag=flag)
-        message.unmarshal(data)
-        return message
-
-    def marshal(self) -> bytes:
-        buffer = io.BytesIO()
-
-        header = [
-            (self.version << 4) | self.header_size,
-            (self.type << 4) | self.flag,
-            (self.serialization << 4) | self.compression,
-        ]
-
-        header_size_bytes = 4 * self.header_size
-        if padding := header_size_bytes - len(header):
-            header.extend([0] * padding)
-
-        buffer.write(bytes(header))
-
-        for writer in self._get_writers():
-            writer(buffer)
-
-        return buffer.getvalue()
-
-    def unmarshal(self, data: bytes) -> None:
-        buffer = io.BytesIO(data)
-
-        version_and_header_size = buffer.read(1)[0]
-        self.version = VersionBits(version_and_header_size >> 4)
-        self.header_size = HeaderSizeBits(version_and_header_size & 0b00001111)
-
-        buffer.read(1)
-
-        serialization_compression = buffer.read(1)[0]
-        self.serialization = SerializationBits(serialization_compression >> 4)
-        self.compression = CompressionBits(serialization_compression & 0b00001111)
-
-        header_size_bytes = 4 * self.header_size
-        read_size = 3
-        if padding := header_size_bytes - read_size:
-            buffer.read(padding)
-
-        for reader in self._get_readers():
-            reader(buffer)
-
-        remaining = buffer.read()
-        if remaining:
-            raise ValueError(f"Unexpected trailing data: {remaining!r}")
-
-    def _get_writers(self):
-        writers = []
-
-        if self.flag == MsgTypeFlagBits.WithEvent:
-            writers.extend([self._write_event, self._write_session_id])
-
-        if self.type in (
-            MsgType.FullClientRequest,
-            MsgType.FullServerResponse,
-            MsgType.FrontEndResultServer,
-            MsgType.AudioOnlyClient,
-            MsgType.AudioOnlyServer,
-        ):
-            if self.flag in (MsgTypeFlagBits.PositiveSeq, MsgTypeFlagBits.NegativeSeq):
-                writers.append(self._write_sequence)
-        elif self.type == MsgType.Error:
-            writers.append(self._write_error_code)
-        else:
-            raise ValueError(f"Unsupported message type: {self.type}")
-
-        writers.append(self._write_payload)
-        return writers
-
-    def _get_readers(self):
-        readers = []
-
-        if self.type in (
-            MsgType.FullClientRequest,
-            MsgType.FullServerResponse,
-            MsgType.FrontEndResultServer,
-            MsgType.AudioOnlyClient,
-            MsgType.AudioOnlyServer,
-        ):
-            if self.flag in (MsgTypeFlagBits.PositiveSeq, MsgTypeFlagBits.NegativeSeq):
-                readers.append(self._read_sequence)
-        elif self.type == MsgType.Error:
-            readers.append(self._read_error_code)
-        else:
-            raise ValueError(f"Unsupported message type: {self.type}")
-
-        if self.flag == MsgTypeFlagBits.WithEvent:
-            readers.extend([self._read_event, self._read_session_id, self._read_connect_id])
-
-        readers.append(self._read_payload)
-        return readers
-
-    def _write_event(self, buffer: io.BytesIO) -> None:
-        buffer.write(struct.pack(">i", self.event))
-
-    def _write_session_id(self, buffer: io.BytesIO) -> None:
-        if self.event in (
-            EventType.StartConnection,
-            EventType.FinishConnection,
-            EventType.ConnectionStarted,
-            EventType.ConnectionFailed,
-            EventType.ConnectionFinished,
-        ):
-            return
-
-        session_id_bytes = self.session_id.encode("utf-8")
-        size = len(session_id_bytes)
-        if size > 0xFFFFFFFF:
-            raise ValueError(f"Session ID too long: {size} bytes")
-
-        buffer.write(struct.pack(">I", size))
-        if size > 0:
-            buffer.write(session_id_bytes)
-
-    def _write_sequence(self, buffer: io.BytesIO) -> None:
-        buffer.write(struct.pack(">i", self.sequence))
-
-    def _write_error_code(self, buffer: io.BytesIO) -> None:
-        buffer.write(struct.pack(">I", self.error_code))
-
-    def _write_payload(self, buffer: io.BytesIO) -> None:
-        size = len(self.payload)
-        if size > 0xFFFFFFFF:
-            raise ValueError(f"Payload too large: {size} bytes")
-        buffer.write(struct.pack(">I", size))
-        buffer.write(self.payload)
-
-    def _read_event(self, buffer: io.BytesIO) -> None:
-        event_bytes = buffer.read(4)
-        if event_bytes:
-            self.event = EventType(struct.unpack(">i", event_bytes)[0])
-
-    def _read_session_id(self, buffer: io.BytesIO) -> None:
-        if self.event in (
-            EventType.StartConnection,
-            EventType.FinishConnection,
-            EventType.ConnectionStarted,
-            EventType.ConnectionFailed,
-            EventType.ConnectionFinished,
-        ):
-            return
-
-        size_bytes = buffer.read(4)
-        if size_bytes:
-            size = struct.unpack(">I", size_bytes)[0]
-            if size:
-                session_bytes = buffer.read(size)
-                if len(session_bytes) == size:
-                    self.session_id = session_bytes.decode("utf-8")
-
-    def _read_connect_id(self, buffer: io.BytesIO) -> None:
-        if self.event in (
-            EventType.ConnectionStarted,
-            EventType.ConnectionFailed,
-            EventType.ConnectionFinished,
-        ):
-            size_bytes = buffer.read(4)
-            if size_bytes:
-                size = struct.unpack(">I", size_bytes)[0]
-                if size:
-                    self.connect_id = buffer.read(size).decode("utf-8")
-
-    def _read_sequence(self, buffer: io.BytesIO) -> None:
-        sequence_bytes = buffer.read(4)
-        if sequence_bytes:
-            self.sequence = struct.unpack(">i", sequence_bytes)[0]
-
-    def _read_error_code(self, buffer: io.BytesIO) -> None:
-        error_bytes = buffer.read(4)
-        if error_bytes:
-            self.error_code = struct.unpack(">I", error_bytes)[0]
-
-    def _read_payload(self, buffer: io.BytesIO) -> None:
-        size_bytes = buffer.read(4)
-        if size_bytes:
-            size = struct.unpack(">I", size_bytes)[0]
-            if size:
-                self.payload = buffer.read(size)
-
-    def __str__(self) -> str:
-        if self.type in (MsgType.AudioOnlyServer, MsgType.AudioOnlyClient):
-            if self.flag in (MsgTypeFlagBits.PositiveSeq, MsgTypeFlagBits.NegativeSeq):
-                return (
-                    f"MsgType: {self.type}, EventType: {self.event}, "
-                    f"Sequence: {self.sequence}, PayloadSize: {len(self.payload)}"
-                )
-            return f"MsgType: {self.type}, EventType: {self.event}, PayloadSize: {len(self.payload)}"
-        if self.type == MsgType.Error:
-            return (
-                f"MsgType: {self.type}, EventType: {self.event}, "
-                f"ErrorCode: {self.error_code}, Payload: {self.payload.decode('utf-8', 'ignore')}"
-            )
-        if self.flag in (MsgTypeFlagBits.PositiveSeq, MsgTypeFlagBits.NegativeSeq):
-            return (
-                f"MsgType: {self.type}, EventType: {self.event}, "
-                f"Sequence: {self.sequence}, Payload: {self.payload.decode('utf-8', 'ignore')}"
-            )
-        return f"MsgType: {self.type}, EventType: {self.event}, Payload: {self.payload.decode('utf-8', 'ignore')}"
-
-
-async def protocol_receive_message(websocket) -> ProtocolMessage:
-    data = await websocket.recv()
-    if isinstance(data, str):
-        raise ValueError(f"Unexpected text frame: {data}")
-    if not isinstance(data, (bytes, bytearray)):
-        raise ValueError(f"Unexpected frame type: {type(data)}")
-    message = ProtocolMessage.from_bytes(bytes(data))
-    return message
-
-
-async def protocol_wait_for_event(websocket, msg_type: MsgType, event_type: EventType) -> ProtocolMessage:
-    while True:
-        message = await protocol_receive_message(websocket)
-
-        if message.type == MsgType.Error:
-            payload = message.payload.decode("utf-8", "ignore")
-            raise RuntimeError(f"Server returned error {message.error_code}: {payload}")
-
-        if message.type == msg_type and message.event == event_type:
-            return message
-
-
-async def protocol_start_connection(websocket) -> None:
-    message = ProtocolMessage(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.WithEvent)
-    message.event = EventType.StartConnection
-    message.payload = b"{}"
-    await websocket.send(message.marshal())
-
-
-async def protocol_finish_connection(websocket) -> None:
-    message = ProtocolMessage(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.WithEvent)
-    message.event = EventType.FinishConnection
-    message.payload = b"{}"
-    await websocket.send(message.marshal())
-
-
-async def protocol_start_session(websocket, payload: bytes, session_id: str) -> None:
-    message = ProtocolMessage(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.WithEvent)
-    message.event = EventType.StartSession
-    message.session_id = session_id
-    message.payload = payload
-    await websocket.send(message.marshal())
-
-
-async def protocol_finish_session(websocket, session_id: str) -> None:
-    message = ProtocolMessage(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.WithEvent)
-    message.event = EventType.FinishSession
-    message.session_id = session_id
-    message.payload = b"{}"
-    await websocket.send(message.marshal())
-
-
-async def protocol_task_request(websocket, payload: bytes, session_id: str) -> None:
-    message = ProtocolMessage(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.WithEvent)
-    message.event = EventType.TaskRequest
-    message.session_id = session_id
-    message.payload = payload
-    await websocket.send(message.marshal())
-
-
 class DoubaoTTS(Component):
-    """音频合成 LFX 组件 - 适配版 v3 双向流式"""
-
     display_name = "音频合成"
     description = ""
     icon = "DoubaoTTS"
     name = "DoubaoTTS"
 
-    # 音色配置映射：UI显示名称 -> voice_type
-    VOICE_MAPPING = {
-        "vivi (通用场景，可配英语)": "zh_female_vv_uranus_bigtts",
-        "大壹 (视频配音-男声)": "zh_male_dayi_saturn_bigtts",
-        "黑猫侦探社咪仔 (视频配音-女声)": "zh_female_mizai_saturn_bigtts",
-        "鸡汤女 (视频配音-女声)": "zh_female_jitangnv_saturn_bigtts",
-        "魅力女友 (视频配音-女声)": "zh_female_meilinvyou_saturn_bigtts",
-        "流畅女声 (视频配音-女声)": "zh_female_santongyongns_saturn_bigtts",
-        "儒雅逸辰 (视频配音-男声)": "zh_male_ruyayichen_saturn_bigtts",
-        "可爱女生 (角色扮演-女声)": "saturn_zh_female_keainvsheng_tob",
-        "调皮公主 (角色扮演-女声)": "saturn_zh_female_tiaopigongzhu_tob",
-        "爽朗少年 (角色扮演-男声)": "saturn_zh_male_shuanglangshaonian_tob",
-        "天才同桌 (角色扮演-男声)": "saturn_zh_male_tiancaitongzhuo_tob",
-        "知性灿灿 (角色扮演-女声)": "saturn_zh_female_cancan_tob",
-    }
+    MODEL_NAME = "qwen3-tts-flash-2025-11-27"
+    DEFAULT_BASE_HTTP_API_URL = "https://dashscope.aliyuncs.com/api/v1"
+
+    LANGS_COMMON = "中文、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_SHANGHAI = "中文（上海话）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_BEIJING = "中文（北京话）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_NANJING = "中文（南京话）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_SHAANXI = "中文（陕西话）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_MINNAN = "中文（闽南语）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_TIANJIN = "中文（天津话）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_SICHUAN = "中文（四川话）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+    LANGS_CANTONESE = "中文（粤语）、英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语、韩语"
+
+    VOICE_CATALOG: list[dict[str, str]] = [
+        {"display_name": "芊悦", "voice": "Cherry", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "苏瑶", "voice": "Serena", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "晨煦", "voice": "Ethan", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "千雪", "voice": "Chelsie", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "茉兔", "voice": "Momo", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "十三", "voice": "Vivian", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "月白", "voice": "Moon", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "四月", "voice": "Maia", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "凯", "voice": "Kai", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "不吃鱼", "voice": "Nofish", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "萌宝", "voice": "Bella", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "詹妮弗", "voice": "Jennifer", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "甜茶", "voice": "Ryan", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "卡捷琳娜", "voice": "Katerina", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "艾登", "voice": "Aiden", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "沧明子", "voice": "Eldric Sage", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "乖小妹", "voice": "Mia", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "沙小弥", "voice": "Mochi", "description": "", "languages": LANGS_COMMON},
+        {
+            "display_name": "燕铮莺",
+            "voice": "Bellona",
+            "description": "金戈铁马入梦来，字正腔圆间尽显千面人声的江湖",
+            "languages": LANGS_COMMON,
+        },
+        {"display_name": "田叔", "voice": "Vincent", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "萌小姬", "voice": "Bunny", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "阿闻", "voice": "Neil", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "墨讲师", "voice": "Elias", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "徐大爷", "voice": "Arthur", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "邻家妹妹", "voice": "Nini", "description": "", "languages": LANGS_COMMON},
+        {
+            "display_name": "诡婆婆",
+            "voice": "Ebona",
+            "description": "那里藏着所有你不敢承认的童年阴影与未知恐惧",
+            "languages": LANGS_COMMON,
+        },
+        {"display_name": "小婉", "voice": "Seren", "description": "晚安，好梦", "languages": LANGS_COMMON},
+        {"display_name": "顽屁小孩", "voice": "Pip", "description": "这是你记忆中的小新吗", "languages": LANGS_COMMON},
+        {"display_name": "少女阿月", "voice": "Stella", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "博德加", "voice": "Bodega", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "索尼莎", "voice": "Sonrisa", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "阿列克", "voice": "Alek", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "多尔切", "voice": "Dolce", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "素熙", "voice": "Sohee", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "小野杏", "voice": "Ono Anna", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "莱恩", "voice": "Lenn", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "埃米尔安", "voice": "Emilien", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "安德雷", "voice": "Andre", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "拉迪奥·戈尔", "voice": "Radio Gol", "description": "", "languages": LANGS_COMMON},
+        {"display_name": "上海-阿珍", "voice": "Jada", "description": "", "languages": LANGS_SHANGHAI},
+        {"display_name": "北京-晓东", "voice": "Dylan", "description": "", "languages": LANGS_BEIJING},
+        {"display_name": "南京-老李", "voice": "Li", "description": "", "languages": LANGS_NANJING},
+        {"display_name": "陕西-秦川", "voice": "Marcus", "description": "", "languages": LANGS_SHAANXI},
+        {"display_name": "闽南-阿杰", "voice": "Roy", "description": "", "languages": LANGS_MINNAN},
+        {"display_name": "天津-李彼得", "voice": "Peter", "description": "", "languages": LANGS_TIANJIN},
+        {"display_name": "四川-晴儿", "voice": "Sunny", "description": "", "languages": LANGS_SICHUAN},
+        {"display_name": "四川-程川", "voice": "Eric", "description": "", "languages": LANGS_SICHUAN},
+        {"display_name": "粤语-阿强", "voice": "Rocky", "description": "", "languages": LANGS_CANTONESE},
+        {"display_name": "粤语-阿清", "voice": "Kiki", "description": "", "languages": LANGS_CANTONESE},
+    ]
+
+    VOICE_OPTIONS = [v["display_name"] for v in VOICE_CATALOG]
+    VOICE_MAPPING = {v["display_name"]: v["voice"] for v in VOICE_CATALOG}
+    VOICE_OPTIONS_METADATA: list[dict[str, Any]] = [
+        {
+            "description": (voice.get("description") or "-").strip() or "-",
+            "voice": voice.get("voice", ""),
+            "languages": voice.get("languages", ""),
+        }
+        for voice in VOICE_CATALOG
+    ]
 
     inputs = [
         StrInput(
-            name="ws_endpoint",
-            display_name="WebSocket Endpoint",
-            value="wss://openspeech.bytedance.com/api/v3/tts/bidirection",
+            name="base_http_api_url",
+            display_name="DashScope Base URL",
+            value=DEFAULT_BASE_HTTP_API_URL,
             advanced=True,
-            info="TTS WebSocket 地址（网络/代理环境特殊时可调整）。",
+            info="默认北京地域；新加坡地域可替换为 https://dashscope-intl.aliyuncs.com/api/v1",
         ),
-        FloatInput(
-            name="open_timeout_seconds",
-            display_name="Open Timeout Seconds",
-            value=30.0,
-            advanced=True,
-            info="WebSocket 建连超时（秒）。",
-        ),
-        IntInput(
-            name="max_retries",
-            display_name="Max Retries",
-            value=2,
-            advanced=True,
-            info="WebSocket 连接失败重试次数。",
+        SecretStrInput(
+            name="api_key",
+            display_name="DashScope API Key",
+            required=False,
+            value="",
+            placeholder="留空时读取 .env 或环境变量中的 DASHSCOPE_API_KEY",
         ),
         DropdownInput(
             name="voice_type",
-            display_name="音色类型",
-            options=[
-                "vivi (通用场景，可配英语)",
-                "大壹 (视频配音-男声)",
-                "黑猫侦探社咪仔 (视频配音-女声)",
-                "鸡汤女 (视频配音-女声)",
-                "魅力女友 (视频配音-女声)",
-                "流畅女声 (视频配音-女声)",
-                "儒雅逸辰 (视频配音-男声)",
-                "可爱女生 (角色扮演-女声)",
-                "调皮公主 (角色扮演-女声)",
-                "爽朗少年 (角色扮演-男声)",
-                "天才同桌 (角色扮演-男声)",
-                "知性灿灿 (角色扮演-女声)",
-            ],
-            value="vivi (通用场景，可配英语)",
-            required=True,
-            info="选择音色类型，包含通用场景、视频配音、角色扮演等多种风格，支持中英文合成。",
+            display_name="音色",
+            options=VOICE_OPTIONS,
+            options_metadata=VOICE_OPTIONS_METADATA,
+            value=VOICE_OPTIONS[0] if VOICE_OPTIONS else "",
         ),
         MultilineInput(
             name="text",
             display_name="合成文本",
-            required=False,
+            required=True,
             value="",
-            placeholder="请输入需要转换为语音的文本...",
-            info="需要合成的文本内容，支持中英文等多语种。",
-            input_types=["Message", "Data", "Text"],
-        ),
-        DataInput(
-            name="draft_output",
-            display_name="预览缓存",
-            show=False,
-            required=False,
-            value={},
-        ),
-        SecretStrInput(
-            name="app_id",
-            display_name="App ID",
-            required=False,
-            value="",
-            placeholder="火山引擎语音合成v3页面获取的纯数字App ID",
-            info="用于 X-Api-App-Key 头部，必须是纯数字格式（如：4942118390）",
-            load_from_db=False,
-        ),
-        SecretStrInput(
-            name="access_token",
-            display_name="Access Token",
-            required=False,
-            value="",
-            placeholder="火山引擎语音合成v3页面获取的Access Token",
-            info="用于 X-Api-Access-Key 头部，支持任意格式的Access Token",
-            load_from_db=False,
+            placeholder="请输入要合成的文本（支持换行）",
+            info="支持与上游 Data 联动。",
+            input_types=["Data"],
         ),
         BoolInput(
             name="save_audio",
             display_name="保存音频文件",
             value=False,
             required=False,
-            info="是否将生成的音频落地到本地文件。",
+            info="是否将生成的音频保存到本地文件",
         ),
         MessageTextInput(
             name="filename",
             display_name="文件名前缀",
             required=False,
             value="output",
-            placeholder="不包含扩展名，例如 doubao_tts_result",
-            info="保存音频文件的名称，仅在启用保存时生效。",
+            placeholder="不包含扩展名，例如 qwen_tts_result",
+            info="仅在启用保存时生效",
         ),
     ]
 
@@ -582,376 +169,143 @@ class DoubaoTTS(Component):
     ]
 
     def synthesize_speech(self) -> Data:
-        merged_text = self._merge_text(self.text)
-        if not merged_text:
-            draft = getattr(self, "draft_output", None)
-            if isinstance(draft, Data):
-                payload = draft.data
-            elif isinstance(draft, dict):
-                payload = draft
-            else:
-                payload = {}
-
-            generated_at = datetime.now(timezone.utc).isoformat()
-            payload = {
-                **payload,
-                "bridge_mode": True,
-                "doubao_preview": {
-                    "token": f"{self.name}-bridge",
-                    "kind": "audio",
-                    "available": bool(payload.get("audio_base64")),
-                    "generated_at": generated_at,
-                    "payload": payload,
-                },
-            }
-            self.status = "🔁 桥梁模式：合成文本为空，直通预览输出"
-            return Data(data=payload, type="audio")
-
-        try:
-            return asyncio.run(self._synthesize_speech_websocket())
-        except Exception as exc:
-            return self._error(f"WebSocket 语音合成失败：{exc}")
-
-    async def _synthesize_speech_websocket(self) -> Data:
-        import websockets
-
-        merged_text = self._merge_text(self.text)
-        if not merged_text:
-            draft = getattr(self, "draft_output", None)
-            if isinstance(draft, Data):
-                payload = draft.data
-            elif isinstance(draft, dict):
-                payload = draft
-            else:
-                payload = {}
-
-            payload = {**payload, "bridge_mode": True}
-            self.status = "🔁 桥梁模式：合成文本为空，直通预览输出"
-            return Data(data=payload, type="audio")
+        text = self._merge_text(getattr(self, "text", None))
+        if not text:
+            return self._error("合成文本为空")
 
         creds = resolve_credentials(
-            component_app_id=self.app_id,
-            component_access_token=self.access_token,
-            component_api_key=None,
+            component_app_id=None,
+            component_access_token=None,
+            component_api_key=getattr(self, "api_key", None),
+            provider="dashscope_tts",
+            env_api_key_var="DASHSCOPE_API_KEY",
         )
-        app_id = (creds.app_id or "").strip()
-        access_token = (creds.access_token or "").strip()
+        api_key = (creds.api_key or "").strip()
+        if not api_key:
+            return self._error("DashScope API key not found. Please set DASHSCOPE_API_KEY or fill it in the node.")
 
-        # 基本格式验证
-        if app_id and not app_id.isdigit():
-            return self._error("App ID 格式错误，应为纯数字（如：4942118390），请检查火山引擎控制台获取的App ID")
-
-        # 移除tok-开头的格式验证，支持任何格式的Access Token
-        if access_token and not access_token.strip():
-            return self._error("Access Token 不能为空，请检查火山引擎控制台获取的Access Token")
-
-        missing_credentials = []
-        if not app_id:
-            missing_credentials.append("App ID")
-        if not access_token:
-            missing_credentials.append("Access Token")
-        if missing_credentials:
-            return self._error(f"以下 API 凭证缺失：{', '.join(missing_credentials)}，请在节点或 .env 中配置。")
+        base_http_api_url = (getattr(self, "base_http_api_url", "") or "").strip() or self.DEFAULT_BASE_HTTP_API_URL
+        voice_display_name = (getattr(self, "voice_type", "") or "").strip()
+        voice = self.VOICE_MAPPING.get(voice_display_name, voice_display_name)
 
         try:
-            filename = (self.filename or "output").strip() or "output"
-            save_audio = bool(self.save_audio)
-        except (TypeError, ValueError) as exc:
-            return self._error(f"参数格式错误：{exc}")
+            import dashscope  # type: ignore
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Missing dependency 'dashscope'. Please install dashscope>=1.24.6. ({exc})")
 
-        # 使用默认参数
-        encoding = "mp3"
+        try:
+            dashscope.base_http_api_url = base_http_api_url
+            self.status = f"Calling DashScope Qwen-TTS ({self.MODEL_NAME})..."
+            response = dashscope.MultiModalConversation.call(
+                model=self.MODEL_NAME,
+                api_key=api_key,
+                text=text,
+                voice=voice,
+                language_type="Auto",
+                stream=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"DashScope call failed: {exc}")
+
+        audio_url = self._safe_get(response, ["output", "audio", "url"]) or self._safe_get(
+            response, ["output", "audio_url"]
+        )
+        if not audio_url:
+            return self._error(f"DashScope response did not contain audio url. response={response!r}")
+
+        try:
+            audio_resp = requests.get(str(audio_url), timeout=60)
+            audio_resp.raise_for_status()
+            audio_bytes = audio_resp.content
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Failed to download audio from url: {exc}")
+
+        encoding = "wav"
         sample_rate = 24000
-        audio_params = self._build_audio_params()
-        additions = self._build_additions()
-
-        # 获取API调用所需的实际voice_type
-        actual_voice_type = self.VOICE_MAPPING.get(self.voice_type, self.voice_type)
-
-        headers = {
-            "X-Api-App-Key": app_id,
-            "X-Api-Access-Key": access_token,
-            "X-Api-Resource-Id": "volc.service_type.10029",
-            "X-Api-Connect-Id": str(uuid.uuid4()),
-        }
-        endpoint = (self.ws_endpoint or "wss://openspeech.bytedance.com/api/v3/tts/bidirection").strip()
-
-        self.status = "Connecting to Doubao TTS..."
-        audio_bytes: bytearray | None = None
-
-        try:
-            max_retries = int(getattr(self, "max_retries", 2) or 2)
-            open_timeout = float(getattr(self, "open_timeout_seconds", 30.0) or 30.0)
-
-            websocket = None
-            last_exc: Exception | None = None
-            for attempt in range(max_retries + 1):
-                try:
-                    websocket = await websockets.connect(
-                        endpoint,
-                        additional_headers=headers,
-                        max_size=10 * 1024 * 1024,
-                        open_timeout=open_timeout,
-                    )
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    last_exc = exc
-                    if attempt >= max_retries:
-                        raise
-                    backoff = min(5.0, 1.0 + attempt)
-                    self.status = f"WebSocket connect failed, retrying... ({attempt + 1}/{max_retries})"
-                    await asyncio.sleep(backoff)
-
-            if websocket is None and last_exc is not None:
-                raise last_exc
-
-            async with websocket:
-                await protocol_start_connection(websocket)
-                connection_msg = await protocol_wait_for_event(
-                    websocket, MsgType.FullServerResponse, EventType.ConnectionStarted
-                )
-                connect_id = connection_msg.connect_id or headers["X-Api-Connect-Id"]
-                self.status = f"WebSocket connected (ID: {connect_id})"
-
-                session_id = str(uuid.uuid4())
-
-                session_meta = {
-                    "user": {"uid": str(uuid.uuid4())},
-                    "namespace": "BidirectionalTTS",
-                    "req_params": {
-                        "speaker": actual_voice_type,  # 使用实际的voice_type进行API调用
-                        "audio_params": audio_params,
-                        "additions": json.dumps(additions, ensure_ascii=False),
-                    },
-                }
-
-                await protocol_start_session(
-                    websocket,
-                    json.dumps(session_meta, ensure_ascii=False).encode("utf-8"),
-                    session_id,
-                )
-                await protocol_wait_for_event(
-                    websocket, MsgType.FullServerResponse, EventType.SessionStarted
-                )
-
-                task_payload = copy.deepcopy(session_meta)
-                task_payload["req_params"]["text"] = merged_text
-
-                await protocol_task_request(
-                    websocket,
-                    json.dumps(task_payload, ensure_ascii=False).encode("utf-8"),
-                    session_id,
-                )
-                await protocol_finish_session(websocket, session_id)
-
-                audio_bytes = await self._collect_session_audio(websocket, session_id)
-                if not audio_bytes:
-                    raise RuntimeError("服务器未返回音频数据")
-
-                await protocol_finish_connection(websocket)
-                await protocol_wait_for_event(
-                    websocket, MsgType.FullServerResponse, EventType.ConnectionFinished
-                )
-
-        except websockets.exceptions.WebSocketException as exc:
-            suggestion = self._get_websocket_error_suggestion(str(exc))
-            return self._error(f"WebSocket 调用失败：{exc}{suggestion}")
-        except Exception as exc:
-            return self._error(f"语音合成失败：{exc}")
-
-        assert audio_bytes is not None
-        audio_data = bytes(audio_bytes)
         file_path = None
-        if save_audio:
+        if bool(getattr(self, "save_audio", False)):
             try:
+                filename = (getattr(self, "filename", "") or "output").strip() or "output"
                 file_path = f"{filename}.{encoding}"
                 with open(file_path, "wb") as file_handle:
-                    file_handle.write(audio_data)
-                self.status = f"Audio synthesized and saved to {file_path}"
+                    file_handle.write(audio_bytes)
             except OSError as exc:
-                self.status = f"Audio synthesized but failed to save: {exc}"
-        else:
-            self.status = f"Audio synthesized ({encoding}, {sample_rate}Hz)"
+                return self._error(f"Audio synthesized but failed to save: {exc}")
 
-        audio_base64 = base64.b64encode(audio_data).decode("utf-8")
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
         generated_at = datetime.now(timezone.utc).isoformat()
-        result_data = {
-            "audio_base64": audio_base64,
-            "audio_type": encoding,
-            "sample_rate": sample_rate,
-            "duration": 0.0,
-            "duration_ms": 0,
-            "text": merged_text,
-            "voice_display_name": self.voice_type,  # UI显示的音色名称
-            "voice_type": actual_voice_type,  # API调用的实际voice_type
-            "file_path": file_path,
-            "audio_size": len(audio_data),
-            "api_version": "v3_websocket",
-            "doubao_preview": {
-                "token": f"{self.name}-{uuid.uuid4().hex[:8]}",
-                "kind": "audio",
-                "available": True,
-                "generated_at": generated_at,
-                "payload": {
-                    "audio_base64": audio_base64,
-                    "audio_type": encoding,
-                    "sample_rate": sample_rate,
+        self.status = f"Audio synthesized ({encoding}, {sample_rate}Hz)"
+
+        return Data(
+            data={
+                "audio_base64": audio_base64,
+                "audio_type": encoding,
+                "sample_rate": sample_rate,
+                "duration": 0.0,
+                "duration_ms": 0,
+                "text": text,
+                "model": self.MODEL_NAME,
+                "voice_display_name": voice_display_name,
+                "voice": voice,
+                "language_type": "Auto",
+                "file_path": file_path,
+                "audio_size": len(audio_bytes),
+                "provider": "dashscope",
+                "doubao_preview": {
+                    "token": f"{self.name}-{uuid4().hex[:8]}",
+                    "kind": "audio",
+                    "available": True,
+                    "generated_at": generated_at,
+                    "payload": {
+                        "audio_base64": audio_base64,
+                        "audio_type": encoding,
+                        "sample_rate": sample_rate,
+                    },
                 },
             },
-        }
-        return Data(data=result_data, type="audio")
-
-    async def _collect_session_audio(self, websocket, session_id: str) -> bytearray:
-        audio_buffer = bytearray()
-        while True:
-            message = await protocol_receive_message(websocket)
-
-            if message.session_id and message.session_id != session_id:
-                continue
-
-            if message.type == MsgType.AudioOnlyServer:
-                audio_buffer.extend(message.payload)
-                continue
-
-            if message.type == MsgType.FullServerResponse:
-                if message.event == EventType.SessionFinished:
-                    payload = self._decode_json_payload(message.payload)
-                    if isinstance(payload, dict):
-                        status_code = payload.get("status_code")
-                        if status_code not in (None, 20000000):
-                            msg = payload.get("message") or f"status_code={status_code}"
-                            raise RuntimeError(f"会话结束失败：{msg}")
-                    break
-
-                if message.event in {
-                    EventType.SessionFailed,
-                    EventType.SessionCanceled,
-                }:
-                    payload = self._decode_json_payload(message.payload)
-                    details = payload.get("message") if isinstance(payload, dict) else payload
-                    raise RuntimeError(f"会话失败：{details}")
-
-                if message.event in {
-                    EventType.TTSSentenceStart,
-                    EventType.TTSSentenceEnd,
-                    EventType.TTSResponse,
-                    EventType.TTSEnded,
-                    EventType.UsageResponse,
-                    EventType.SourceSubtitleStart,
-                    EventType.SourceSubtitleResponse,
-                    EventType.SourceSubtitleEnd,
-                    EventType.TranslationSubtitleStart,
-                    EventType.TranslationSubtitleResponse,
-                    EventType.TranslationSubtitleEnd,
-                }:
-                    continue
-
-            if message.type == MsgType.Error:
-                payload_text = message.payload.decode("utf-8", "ignore")
-                raise RuntimeError(f"服务器错误 {message.error_code}: {payload_text}")
-
-        return audio_buffer
-
-    def _build_audio_params(self):
-        # 使用默认参数，不在UI中显示
-        audio_params = {
-            "format": "mp3",
-            "sample_rate": 24000,
-            "enable_timestamp": False,
-            "speech_rate": 0,  # 默认语速
-            "pitch_rate": 0,   # 默认音调
-        }
-
-        return audio_params
+            type="audio",
+        )
 
     @staticmethod
-    def _build_additions():
-        return {
-            "disable_markdown_filter": False,
-            "enable_language_detector": False,
-            "enable_latex_tn": False,
-            "max_length_to_filter_parenthesis": 0,
-        }
+    def _merge_text(text_source: Any | None) -> str:
+        if text_source is None:
+            return ""
+        if isinstance(text_source, str):
+            return text_source.strip()
+        if isinstance(text_source, Data):
+            value = text_source.data.get("text") or text_source.data.get("value") or text_source.data.get("content")
+            return str(value).strip() if value is not None else ""
+        if isinstance(text_source, dict):
+            value = text_source.get("text") or text_source.get("value") or text_source.get("content")
+            return str(value).strip() if value is not None else ""
+        return str(text_source).strip()
 
     @staticmethod
-    def _decode_json_payload(payload: bytes) -> Any:
-        if not payload:
-            return None
-        try:
-            return json.loads(payload.decode("utf-8"))
-        except Exception:
-            return None
-
-    def _get_websocket_error_suggestion(self, error_msg: str) -> str:
-        lower_error = error_msg.lower()
-        if "access denied" in lower_error or "unauthorized" in lower_error:
-            return (
-                "\n🔧 请检查以下配置：\n"
-                "1. 确认 App ID 与 Access Token 填写正确；\n"
-                "2. 确保资源 ID 为 volc.service_type.10029；\n"
-                "3. 在火山引擎控制台开通语音合成 v3 服务。"
-            )
-        if "connection" in lower_error or "connect" in lower_error:
-            return (
-                "\n🔧 请排查网络连接：\n"
-                "1. 检查当前网络是否可访问 openspeech.bytedance.com；\n"
-                "2. 确认防火墙或代理未拦截 WebSocket；\n"
-                "3. 如使用代理，请在系统层配置白名单。"
-            )
-        if "timeout" in lower_error:
-            return (
-                "\n🔧 请求超时建议：\n"
-                "1. 减少单次文本字数或拆分多段发送；\n"
-                "2. 稍后重试，或检查网络稳定性。"
-            )
-        return ""
-
-    def _merge_text(self, text_source: Any | None) -> str:
-        parts: list[str] = []
-
-        def _append_value(value: Any | None) -> None:
-            if value is None:
-                return
-            if isinstance(value, (list, tuple, set)):
-                for item in value:
-                    _append_value(item)
-                return
-            try:
-                if hasattr(value, "get_text"):
-                    text_value = value.get_text()
-                elif hasattr(value, "text"):
-                    text_value = value.text
-                else:
-                    text_value = value
-            except Exception:
-                text_value = value
-
-            if isinstance(text_value, bytes):
-                text_value = text_value.decode("utf-8", errors="ignore")
-
-            text_str = str(text_value or "").strip()
-            if text_str:
-                parts.append(text_str)
-
-        _append_value(text_source)
-
-        return "\n".join(parts).strip()
+    def _safe_get(obj: Any, keys: list[str]) -> Any:
+        cur: Any = obj
+        for key in keys:
+            if cur is None:
+                return None
+            if isinstance(cur, dict):
+                cur = cur.get(key)
+                continue
+            cur = getattr(cur, key, None)
+        return cur
 
     @staticmethod
     def _error(message: str) -> Data:
         generated_at = datetime.now(timezone.utc).isoformat()
         suggestion = ""
         lowered = message.lower()
-        if "connection error" in lowered or "connect" in lowered or "timeout" in lowered:
-            suggestion = (
-                "（网络连接错误：请检查是否能访问 TTS WebSocket 地址，或是否需要设置代理 HTTP_PROXY/HTTPS_PROXY，"
-                "以及防火墙/证书拦截等）"
-            )
+        if "connect" in lowered or "connection" in lowered or "timeout" in lowered:
+            suggestion = "（网络连接错误：请检查能否访问 DashScope 地址，或是否需要配置 HTTP_PROXY/HTTPS_PROXY）"
+        if "api key" in lowered or "api_key" in lowered or "401" in lowered:
+            suggestion = "（请检查 DASHSCOPE_API_KEY 是否正确，以及地域是否匹配）"
         return Data(
             data={
                 "error": f"{message}{suggestion}",
                 "doubao_preview": {
-                    "token": f"error-{uuid.uuid4().hex[:8]}",
+                    "token": f"error-{uuid4().hex[:8]}",
                     "kind": "audio",
                     "available": False,
                     "generated_at": generated_at,
@@ -961,8 +315,3 @@ class DoubaoTTS(Component):
             },
             type="error",
         )
-
-
-if __name__ == "__main__":
-    component = DoubaoTTS()
-    print("DoubaoTTS component loaded successfully for LFX system")

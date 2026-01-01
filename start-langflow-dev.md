@@ -102,27 +102,15 @@ python start_service.py
 
 #### 3. 音频合成 (DoubaoTTS)
 - **功能**: 将文本转换为高质量语音
-- **技术**: WebSocket双向流式协议
-- **音色选择**（10种音色）:
-  - ivi（通用场景，可配英语）
-  - 大壹（视频配音-男声）
-  - 黑猫侦探社咪仔（视频配音-女声）
-  - 鸡汤女（视频配音-女声）
-  - 魅力女友（视频配音-女声）
-  - 流畅女声（视频配音-女声）
-  - 儒雅逸辰（视频配音-男声）
-  - 可爱女生（角色扮演-女声）
-  - 调皮公主（角色扮演-女声）
-  - 爽朗少年（角色扮演-男声）
-  - 天才同桌（角色扮演-男声）
-  - 知性灿灿（角色扮演-女声）
+- **技术**: DashScope Qwen-TTS（Qwen3-TTS-Flash）
+- **音色选择**（49种音色）: 下拉选项悬停可查看音色描述
 - **主要参数**:
   - 合成文本（必需）
-  - App ID（火山引擎获取）
-  - Access Token（火山引擎获取）
+  - DashScope API Key（可在节点中配置，或使用环境变量 DASHSCOPE_API_KEY）
+  - 音色（必需）
   - 保存音频文件（可选）
-- **输出**: MP3格式的音频数据和Base64编码
-- **特色**: 双向流式传输，支持中英文，24kHz采样率
+- **输出**: WAV 格式的音频数据和 Base64 编码
+- **特色**: 支持多语种，24kHz 采样率，`language_type=Auto`
 
 #### 4. 视频创作 (DoubaoVideoGenerator)
 - **功能**: 根据文本生成高质量视频
@@ -146,8 +134,7 @@ python start_service.py
 ARK_API_KEY=your_doubao_api_key_here
 
 # 音频合成
-TS_APP_ID=4942118390  # 火山引擎语音合成v3页面获取的纯数字App ID
-TS_TOKEN=your_access_token_here  # 火山引擎语音合成v3页面获取的Access Token
+DASHSCOPE_API_KEY=your_dashscope_api_key_here
 ```
 
 #### API密钥获取方式

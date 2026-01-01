@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import inspect
 import mimetypes
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -15,16 +17,20 @@ from uuid import uuid4
 import requests
 from dotenv import load_dotenv
 
-from volcenginesdkarkruntime import Ark
 try:
-    from volcenginesdkarkruntime.types.images.images import SequentialImageGenerationOptions
+    from volcenginesdkarkruntime import Ark  # type: ignore
+    from volcenginesdkarkruntime.types.images.images import (  # type: ignore
+        SequentialImageGenerationOptions,
+    )
 except Exception:  # noqa: BLE001
+    Ark = None  # type: ignore[assignment]
     SequentialImageGenerationOptions = None  # type: ignore[assignment]
 
 
 from lfx.custom.custom_component.component import Component
 from lfx.field_typing.range_spec import RangeSpec
 from lfx.inputs.inputs import (
+    BoolInput,
     DataInput,
     DropdownInput,
     FileInput,
@@ -59,7 +65,27 @@ class DoubaoImageCreator(Component):
             "model_id": "doubao-seedream-4-0-250828",
             "min_area": 921_600,
             "max_area": 16_777_216,
-        }
+        },
+        "wan2.6": {
+            "t2i_model": "wan2.6-t2i",
+            "i2i_model": "wan2.6-image",
+            "supports_sync": True,
+            "t2i_min_area": 1280 * 1280,
+            "t2i_max_area": 1440 * 1440,
+            "i2i_min_area": 768 * 768,
+            "i2i_max_area": 1280 * 1280,
+            "max_reference_images": 4,
+        },
+        "wan2.5": {
+            "t2i_model": "wan2.5-t2i-preview",
+            "i2i_model": "wan2.5-i2i-preview",
+            "supports_sync": False,
+            "t2i_min_area": 1280 * 1280,
+            "t2i_max_area": 1440 * 1440,
+            "i2i_min_area": 768 * 768,
+            "i2i_max_area": 1280 * 1280,
+            "max_reference_images": 4,
+        },
     }
 
     RESOLUTION_PRESETS = {
@@ -76,12 +102,16 @@ class DoubaoImageCreator(Component):
         "9:16": (9, 16),
         "3:2": (3, 2),
         "2:3": (2, 3),
+        "adaptive": (1, 1),
     }
 
     MAX_REFERENCE_IMAGES = 14
     MAX_REFERENCE_FILE_SIZE = 10 * 1024 * 1024  # 10MB
     PREVIEW_MAX_BYTES = 6 * 1024 * 1024
     PREVIEW_TIMEOUT = 20
+    DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
+    DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "bmp", "webp"}
+    DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
 
     inputs = [
         DropdownInput(
@@ -100,6 +130,36 @@ class DoubaoImageCreator(Component):
             placeholder="示例：充满电影感的城市夜景，霓虹灯反射，主角穿着未来主义机甲。",
             info="支持中文/英文，亦可通过上游节点传入 Message/Data/Text。",
             input_types=["Message", "Data", "Text"],
+        ),
+        MultilineInput(
+            name="negative_prompt",
+            display_name="反向提示词",
+            required=False,
+            value="",
+            advanced=True,
+            info="wan/dashscope 模型可选：不希望在图像中出现的内容。",
+        ),
+        IntInput(
+            name="seed",
+            display_name="Seed",
+            required=False,
+            value=0,
+            advanced=True,
+            info="wan/dashscope 模型可选：随机种子（0 表示不传）。",
+        ),
+        BoolInput(
+            name="prompt_extend",
+            display_name="Prompt Extend",
+            value=True,
+            advanced=True,
+            info="wan/dashscope 模型可选：提示词智能改写。",
+        ),
+        BoolInput(
+            name="watermark",
+            display_name="Watermark",
+            value=False,
+            advanced=True,
+            info="wan/dashscope 模型可选：添加“AI生成”水印。",
         ),
         SecretStrInput(
             name="ak",
@@ -189,10 +249,14 @@ class DoubaoImageCreator(Component):
         ),
         SecretStrInput(
             name="api_key",
-            display_name="Doubao API Key",
+            display_name="API Key",
             value="",
-            placeholder="留空时读取 .env 中的 ARK_API_KEY",
-            info="即梦/豆包控制台生成的 API Key，将直接透传至 Ark SDK。",
+            placeholder="留空时读取 .env 中的 ARK_API_KEY 或 DASHSCOPE_API_KEY",
+            info=(
+                "可选：覆盖模型所需的 API Key。\n"
+                "- Doubao/Ark 模型：使用 ARK_API_KEY\n"
+                "- wan/DashScope 模型：使用 DASHSCOPE_API_KEY\n"
+            ),
             load_from_db=False,
         ),
     ]
@@ -208,11 +272,20 @@ class DoubaoImageCreator(Component):
 
     def build_images(self) -> Data:
         prompt = self._merge_prompt(self.prompt)
+        model_meta = self.MODEL_CATALOG.get(self.model_name)
+        if not model_meta:
+            return self._error("未匹配到可用模型，请重新选择。")
+
+        is_dashscope = "t2i_model" in model_meta or "i2i_model" in model_meta
         if not prompt:
             uploads = getattr(self, "reference_images", None)
             if uploads:
                 try:
-                    payloads, metadata = self._prepare_reference_images()
+                    max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
+                    payloads, metadata = self._prepare_reference_images(
+                        max_reference_images=max_refs,
+                        allowed_extensions=set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None,
+                    )
                 except Exception:
                     payloads, metadata = [], []
 
@@ -264,6 +337,9 @@ class DoubaoImageCreator(Component):
             }
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
             return Data(data=payload, type="image")
+
+        if is_dashscope:
+            return self._build_images_dashscope(prompt=prompt, model_meta=model_meta)
 
         creds = resolve_credentials(
             component_app_id=None,
@@ -318,6 +394,9 @@ class DoubaoImageCreator(Component):
             client_kwargs["sk"] = sk
         else:
             client_kwargs["api_key"] = api_key
+
+        if Ark is None:
+            return self._error("未安装 Ark 依赖（volcenginesdkarkruntime），无法调用 Seedream 模型。")
 
         client = Ark(**client_kwargs)
 
@@ -448,7 +527,376 @@ class DoubaoImageCreator(Component):
 
         return Data(data=result_data, type="image")
 
-    def _resolve_size(self, model_meta: dict[str, Any], resolution_key: str, ratio_key: str) -> dict[str, Any]:
+    def _build_images_dashscope(self, *, prompt: str, model_meta: dict[str, Any]) -> Data:
+        try:
+            resolution = self.resolution or "2K（推荐）"
+            aspect_ratio = self.aspect_ratio or "1:1"
+            image_count = int(self.image_count or 1)
+            image_count = max(1, min(image_count, 4))
+
+            negative_prompt = (getattr(self, "negative_prompt", "") or "").strip()
+            seed = int(getattr(self, "seed", 0) or 0)
+            prompt_extend = bool(getattr(self, "prompt_extend", True))
+            watermark = bool(getattr(self, "watermark", False))
+
+            max_refs = int(model_meta.get("max_reference_images") or 4)
+            reference_payloads, reference_meta = self._prepare_reference_images(
+                max_reference_images=max_refs,
+                allowed_extensions=set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS),
+            )
+            has_reference_images = bool(reference_payloads)
+            adaptive_ratio = str(aspect_ratio).lower() == "adaptive"
+            if adaptive_ratio and not has_reference_images:
+                raise ValueError("选择 adaptive 时需要至少上传 1 张参考图。")
+
+            size_info: dict[str, Any]
+            size_value: str | None
+            if adaptive_ratio and has_reference_images:
+                size_value = None
+                size_info = {
+                    "label": "adaptive",
+                    "size_value": None,
+                    "width": None,
+                    "height": None,
+                    "ratio": "adaptive",
+                    "base_resolution": resolution,
+                }
+            else:
+                size_info = self._resolve_size(
+                    model_meta,
+                    resolution_key=resolution,
+                    ratio_key=aspect_ratio,
+                    provider="dashscope",
+                    has_reference_images=has_reference_images,
+                )
+                size_value = str(size_info["size_value"])
+        except ValueError as exc:
+            return self._error(str(exc))
+
+        creds = resolve_credentials(
+            component_app_id=None,
+            component_access_token=None,
+            component_api_key=self.api_key,
+            provider="dashscope",
+            env_api_key_var="DASHSCOPE_API_KEY",
+        )
+        api_key = (creds.api_key or "").strip().strip("'").strip('"')
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key.split(" ", 1)[1].strip()
+        if api_key.startswith("****"):
+            return self._error(
+                "检测到 Provider Credentials 中保存了被掩码的 api_key（形如****1234），"
+                "这不是有效的 DashScope key。请在 Provider Credentials 中重新粘贴完整 DASHSCOPE_API_KEY 保存。"
+            )
+        if not api_key:
+            return self._error("未检测到 DASHSCOPE_API_KEY，请在 .env 或 Provider Credentials 中配置。")
+
+        is_i2i = has_reference_images
+        dashscope_model = model_meta.get("i2i_model") if is_i2i else model_meta.get("t2i_model")
+        if not dashscope_model:
+            return self._error("未匹配到 wan 模型 ID，请检查配置。")
+
+        if bool(model_meta.get("supports_sync")):
+            return self._dashscope_sync_generate(
+                api_key=api_key,
+                model=str(dashscope_model),
+                prompt=prompt,
+                images=reference_payloads,
+                negative_prompt=negative_prompt,
+                seed=seed,
+                prompt_extend=prompt_extend,
+                watermark=watermark,
+                image_count=image_count,
+                size=size_value,
+                enable_interleave=False if is_i2i else None,
+                reference_meta=reference_meta,
+                size_info=size_info,
+            )
+
+        endpoint = (
+            f"{self.DASHSCOPE_API_BASE}/api/v1/services/aigc/image2image/image-synthesis"
+            if is_i2i
+            else f"{self.DASHSCOPE_API_BASE}/api/v1/services/aigc/text2image/image-synthesis"
+        )
+        return self._dashscope_async_generate_old_protocol(
+            api_key=api_key,
+            endpoint=endpoint,
+            model=str(dashscope_model),
+            prompt=prompt,
+            images=reference_payloads,
+            negative_prompt=negative_prompt,
+            seed=seed,
+            prompt_extend=prompt_extend,
+            watermark=watermark,
+            image_count=image_count,
+            size=size_value,
+            reference_meta=reference_meta,
+            size_info=size_info,
+        )
+
+    def _dashscope_sync_generate(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        prompt: str,
+        images: list[str],
+        negative_prompt: str,
+        seed: int,
+        prompt_extend: bool,
+        watermark: bool,
+        image_count: int,
+        size: str | None,
+        enable_interleave: bool | None,
+        reference_meta: list[dict[str, Any]],
+        size_info: dict[str, Any],
+    ) -> Data:
+        url = f"{self.DASHSCOPE_API_BASE}/api/v1/services/aigc/multimodal-generation/generation"
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+
+        content: list[dict[str, Any]] = [{"text": prompt}]
+        for image in images:
+            content.append({"image": image})
+
+        parameters: dict[str, Any] = {
+            "prompt_extend": prompt_extend,
+            "watermark": watermark,
+            "n": image_count,
+        }
+        if size:
+            parameters["size"] = size
+        if enable_interleave is not None:
+            parameters["enable_interleave"] = enable_interleave
+        if negative_prompt:
+            parameters["negative_prompt"] = negative_prompt
+        if seed > 0:
+            parameters["seed"] = seed
+
+        payload = {
+            "model": model,
+            "input": {"messages": [{"role": "user", "content": content}]},
+            "parameters": parameters,
+        }
+
+        self.status = "🎨 wan 模型提交成功，等待生成..."
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=float(self.timeout_seconds or 600.0))
+        except Exception as exc:
+            return self._error(f"wan 调用失败：{exc}")
+
+        if not response.ok:
+            return self._error(f"wan 调用失败：HTTP {response.status_code}：{response.text}")
+
+        try:
+            data = response.json()
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"wan 响应解析失败：{exc}")
+
+        output = data.get("output") or {}
+        images_out: list[dict[str, Any]] = []
+        for choice in (output.get("choices") or []):
+            message = (choice or {}).get("message") or {}
+            for block in (message.get("content") or []):
+                if isinstance(block, dict) and block.get("image"):
+                    images_out.append({"url": block.get("image")})
+
+        if not images_out:
+            return self._error("wan 响应中未获取到图片结果，请检查提示词/参考图输入。")
+
+        token = str(uuid4())
+        generated_at = datetime.now(timezone.utc).isoformat()
+        preview_payload = {
+            "images": [{"url": entry["url"], "label": f"Image {idx + 1}"} for idx, entry in enumerate(images_out)]
+        }
+        doubao_preview = {
+            "token": token,
+            "kind": "image",
+            "available": True,
+            "generated_at": generated_at,
+            "payload": preview_payload,
+        }
+
+        result_data: dict[str, Any] = {
+            "provider": "dashscope",
+            "prompt": prompt,
+            "model": self.model_name,
+            "model_id": model,
+            "size": size_info.get("label") or size,
+            "aspect_ratio": self.aspect_ratio,
+            "generated_images": images_out,
+            "reference_images": reference_meta,
+            "doubao_preview": doubao_preview,
+            "dashscope_request_id": data.get("request_id"),
+        }
+        usage = data.get("usage")
+        if isinstance(usage, dict):
+            result_data["usage"] = usage
+
+        return Data(data=result_data, type="image")
+
+    def _dashscope_async_generate_old_protocol(
+        self,
+        *,
+        api_key: str,
+        endpoint: str,
+        model: str,
+        prompt: str,
+        images: list[str],
+        negative_prompt: str,
+        seed: int,
+        prompt_extend: bool,
+        watermark: bool,
+        image_count: int,
+        size: str | None,
+        reference_meta: list[dict[str, Any]],
+        size_info: dict[str, Any],
+    ) -> Data:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "X-DashScope-Async": "enable",
+        }
+
+        input_body: dict[str, Any] = {"prompt": prompt}
+        if images:
+            input_body["images"] = images
+        if negative_prompt:
+            input_body["negative_prompt"] = negative_prompt
+
+        parameters: dict[str, Any] = {
+            "n": image_count,
+            "prompt_extend": prompt_extend,
+            "watermark": watermark,
+        }
+        if size:
+            parameters["size"] = size
+        if seed > 0:
+            parameters["seed"] = seed
+
+        payload = {"model": model, "input": input_body, "parameters": parameters}
+
+        self.status = "🎨 wan 模型提交成功，等待生成..."
+        try:
+            response = requests.post(endpoint, headers=headers, json=payload, timeout=float(self.timeout_seconds or 600.0))
+        except Exception as exc:
+            return self._error(f"wan 调用失败：{exc}")
+
+        if not response.ok:
+            return self._error(f"wan 调用失败：HTTP {response.status_code}：{response.text}")
+
+        try:
+            data = response.json()
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"wan 响应解析失败：{exc}")
+
+        output = data.get("output") or {}
+        task_id = output.get("task_id") or output.get("taskId")
+        if not task_id:
+            return self._error(f"wan 未返回 task_id：{data}")
+
+        return self._dashscope_poll_task(
+            api_key=api_key,
+            task_id=str(task_id),
+            model=model,
+            reference_meta=reference_meta,
+            size_info=size_info,
+        )
+
+    def _dashscope_poll_task(
+        self,
+        *,
+        api_key: str,
+        task_id: str,
+        model: str,
+        reference_meta: list[dict[str, Any]],
+        size_info: dict[str, Any],
+    ) -> Data:
+        url = f"{self.DASHSCOPE_API_BASE}/api/v1/tasks/{task_id}"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        deadline = time.time() + float(self.timeout_seconds or 600.0)
+
+        last_status: str | None = None
+        while time.time() < deadline:
+            try:
+                response = requests.get(url, headers=headers, timeout=min(float(self.timeout_seconds or 600.0), 30.0))
+            except Exception as exc:
+                return self._error(f"wan 轮询失败：{exc}")
+
+            if not response.ok:
+                return self._error(f"wan 轮询失败：HTTP {response.status_code}：{response.text}")
+
+            try:
+                data = response.json()
+            except Exception as exc:  # noqa: BLE001
+                return self._error(f"wan 轮询响应解析失败：{exc}")
+
+            output = data.get("output") or {}
+            status = str(output.get("task_status") or output.get("taskStatus") or "").upper()
+            if status and status != last_status:
+                last_status = status
+                self.status = f"⏳ wan 轮询中：{status}"
+
+            if status in {"PENDING", "RUNNING", ""}:
+                time.sleep(self.DASHSCOPE_POLL_INTERVAL_SECONDS)
+                continue
+
+            results = output.get("results") or []
+            images_out: list[dict[str, Any]] = []
+            if isinstance(results, list):
+                for item in results:
+                    if isinstance(item, dict) and item.get("url"):
+                        images_out.append({"url": item.get("url"), "actual_prompt": item.get("actual_prompt")})
+
+            if status in {"SUCCEEDED", "PARTIAL_SUCCEEDED"} and images_out:
+                token = str(uuid4())
+                generated_at = datetime.now(timezone.utc).isoformat()
+                preview_payload = {
+                    "images": [
+                        {"url": entry["url"], "label": f"Image {idx + 1}", "actual_prompt": entry.get("actual_prompt")}
+                        for idx, entry in enumerate(images_out)
+                    ]
+                }
+                doubao_preview = {
+                    "token": token,
+                    "kind": "image",
+                    "available": True,
+                    "generated_at": generated_at,
+                    "payload": preview_payload,
+                }
+
+                result_data: dict[str, Any] = {
+                    "provider": "dashscope",
+                    "model": self.model_name,
+                    "model_id": model,
+                    "task_id": task_id,
+                    "task_status": status,
+                    "size": size_info.get("label") or size_info.get("size_value"),
+                    "aspect_ratio": self.aspect_ratio,
+                    "generated_images": images_out,
+                    "reference_images": reference_meta,
+                    "doubao_preview": doubao_preview,
+                    "dashscope_request_id": data.get("request_id"),
+                }
+                usage = data.get("usage")
+                if isinstance(usage, dict):
+                    result_data["usage"] = usage
+                return Data(data=result_data, type="image")
+
+            message = data.get("message") or output.get("message") or ""
+            code = data.get("code") or output.get("code") or ""
+            return self._error(f"wan 任务失败：{status} {code} {message}".strip())
+
+        return self._error("wan 任务超时，请增大 Timeout Seconds 或稍后重试。")
+
+    def _resolve_size(
+        self,
+        model_meta: dict[str, Any],
+        resolution_key: str,
+        ratio_key: str,
+        *,
+        provider: str = "ark",
+        has_reference_images: bool = False,  # noqa: FBT001,FBT002
+    ) -> dict[str, Any]:
         base = self.RESOLUTION_PRESETS.get(resolution_key)
         if not base:
             raise ValueError("请选择有效的分辨率。")
@@ -457,11 +905,17 @@ class DoubaoImageCreator(Component):
             raise ValueError("请选择有效的图像比例。")
 
         width, height = self._calculate_dimensions(base, ratio)
-        width, height = self._enforce_area_constraints(model_meta, width, height)
-        label = f"{width}×{height}"
+        if provider == "dashscope":
+            width, height = self._enforce_area_constraints_dashscope(model_meta, width, height, has_reference_images)
+            label = f"{width}×{height}"
+            size_value = f"{width}*{height}"
+        else:
+            width, height = self._enforce_area_constraints(model_meta, width, height)
+            label = f"{width}×{height}"
+            size_value = f"{width}x{height}"
         return {
             "label": label,
-            "size_value": f"{width}x{height}",
+            "size_value": size_value,
             "width": width,
             "height": height,
             "ratio": ratio_key,
@@ -499,25 +953,64 @@ class DoubaoImageCreator(Component):
         height = min(4096, self._round_dimension(height))
         return width, height
 
+    def _enforce_area_constraints_dashscope(
+        self,
+        model_meta: dict[str, Any],
+        width: int,
+        height: int,
+        has_reference_images: bool,  # noqa: FBT001
+    ) -> tuple[int, int]:
+        if has_reference_images:
+            min_area = int(model_meta.get("i2i_min_area") or 768 * 768)
+            max_area = int(model_meta.get("i2i_max_area") or 1280 * 1280)
+        else:
+            min_area = int(model_meta.get("t2i_min_area") or 1280 * 1280)
+            max_area = int(model_meta.get("t2i_max_area") or 1440 * 1440)
+
+        area = width * height
+        if area <= 0:
+            return (1280, 1280)
+
+        if min_area and area < min_area:
+            scale = (min_area / area) ** 0.5
+            width = int(round(width * scale))
+            height = int(round(height * scale))
+            area = width * height
+
+        if max_area and area > max_area:
+            scale = (max_area / area) ** 0.5
+            width = int(round(width * scale))
+            height = int(round(height * scale))
+
+        width = max(1, width)
+        height = max(1, height)
+        return (width, height)
+
     @staticmethod
     def _round_dimension(value: int) -> int:
         multiple = 64
         return max(multiple, int(round(value / multiple) * multiple))
 
-    def _prepare_reference_images(self) -> tuple[list[str], list[dict[str, Any]]]:
+    def _prepare_reference_images(
+        self,
+        *,
+        max_reference_images: int | None = None,
+        allowed_extensions: set[str] | None = None,
+    ) -> tuple[list[str], list[dict[str, Any]]]:
         uploads = getattr(self, "reference_images", None)
         if not uploads:
             return [], []
 
         raw_items = uploads if isinstance(uploads, list) else [uploads]
-        if len(raw_items) > self.MAX_REFERENCE_IMAGES:
-            raise ValueError(f"最多支持上传 {self.MAX_REFERENCE_IMAGES} 张参考图。")
+        limit = int(max_reference_images or self.MAX_REFERENCE_IMAGES)
+        if len(raw_items) > limit:
+            raise ValueError(f"最多支持上传 {limit} 张参考图。")
 
         payloads: list[str] = []
         metadata: list[dict[str, Any]] = []
 
         for item in raw_items:
-            if len(payloads) >= self.MAX_REFERENCE_IMAGES:
+            if len(payloads) >= limit:
                 break
             if self._try_append_data_payloads(item, payloads, metadata):
                 continue
@@ -539,6 +1032,12 @@ class DoubaoImageCreator(Component):
             file_size = file_path.stat().st_size
             if file_size > self.MAX_REFERENCE_FILE_SIZE:
                 raise ValueError(f"图片 {file_path.name} 超过 10MB 上限。")
+
+            if allowed_extensions:
+                suffix = file_path.suffix.lower().lstrip(".")
+                if suffix and suffix not in allowed_extensions:
+                    allowed_str = ", ".join(sorted(allowed_extensions))
+                    raise ValueError(f"图片 {file_path.name} 不支持，允许类型：{allowed_str}")
 
             mime_type, _ = mimetypes.guess_type(file_path.name)
             mime_type = mime_type or "image/png"

@@ -96,6 +96,20 @@ def _ensure_frontend_built(env: dict[str, str]) -> None:
     if not package_json.exists():
         raise FileNotFoundError(f"Missing frontend package.json at {package_json}")
 
+    # Vite/Rollup native builds have been observed to crash on some Windows setups with very new Node.js versions.
+    # Provide a helpful hint early so failures are actionable.
+    try:
+        node_version = subprocess.check_output(_resolve_command(["node", "-v"]), text=True).strip()
+        if node_version.startswith("v"):
+            major = int(node_version[1:].split(".", 1)[0])
+            if major >= 23:
+                print(
+                    f"[warn] Detected Node.js {node_version}. If `npm run build` crashes on Windows "
+                    "with exit code -1073740791/3221226505, use Node.js 20 LTS or 22 LTS."
+                )
+    except Exception:
+        pass
+
     node_modules = FRONTEND_DIR / "node_modules"
     lockfile = FRONTEND_DIR / "package-lock.json"
 
@@ -105,23 +119,45 @@ def _ensure_frontend_built(env: dict[str, str]) -> None:
         else:
             run(["npm", "install"], cwd=FRONTEND_DIR, env=env)
 
-    # Build if build output is missing, or backend static folder is missing.
-    if not FRONTEND_BUILD_DIR.exists() or not BACKEND_FRONTEND_DIR.exists():
-        run(["npm", "run", "build"], cwd=FRONTEND_DIR, env=env)
+    def newest_mtime(paths: list[Path]) -> float:
+        mtimes: list[float] = []
+        for p in paths:
+            if not p.exists():
+                continue
+            if p.is_file():
+                mtimes.append(p.stat().st_mtime)
+                continue
+            for child in p.rglob("*"):
+                if child.is_file():
+                    mtimes.append(child.stat().st_mtime)
+        return max(mtimes) if mtimes else 0.0
 
-    # Sync build into backend folder if missing or stale.
+    frontend_sources = [
+        FRONTEND_DIR / "src",
+        FRONTEND_DIR / "public",
+        FRONTEND_DIR / "index.html",
+        FRONTEND_DIR / "vite.config.ts",
+        FRONTEND_DIR / "vite.config.js",
+        FRONTEND_DIR / "package.json",
+        FRONTEND_DIR / "package-lock.json",
+    ]
+    source_mtime = newest_mtime(frontend_sources)
+
+    # Build if build output is missing, or source is newer than the build output.
+    if not FRONTEND_BUILD_DIR.exists():
+        run(["npm", "run", "build"], cwd=FRONTEND_DIR, env=env)
+    else:
+        build_mtime = newest_mtime([FRONTEND_BUILD_DIR])
+        if source_mtime > build_mtime:
+            run(["npm", "run", "build"], cwd=FRONTEND_DIR, env=env)
+
+    # Always sync build into backend folder when it is missing or older than the build output.
     if not BACKEND_FRONTEND_DIR.exists():
         copy_frontend_build()
         return
-
-    try:
-        build_mtime = max(p.stat().st_mtime for p in FRONTEND_BUILD_DIR.rglob("*") if p.is_file())
-        backend_mtime = max(p.stat().st_mtime for p in BACKEND_FRONTEND_DIR.rglob("*") if p.is_file())
-    except ValueError:
-        copy_frontend_build()
-        return
-
-    if build_mtime >= backend_mtime:
+    backend_mtime = newest_mtime([BACKEND_FRONTEND_DIR])
+    build_mtime = newest_mtime([FRONTEND_BUILD_DIR])
+    if build_mtime > backend_mtime:
         copy_frontend_build()
 
 
@@ -137,7 +173,8 @@ def build_env() -> dict[str, str]:
     env["LANGFLOW_SKIP_AUTH_AUTO_LOGIN"] = "true"
     # Always auto-login during local development so the UI skips the sign-in screen.
     env["LANGFLOW_AUTO_LOGIN"] = "true"
-    env.setdefault("LFX_DEV", "1")
+    # Force dev mode so component templates are rebuilt from current source (avoids stale prebuilt indexes).
+    env["LFX_DEV"] = "1"
     return env
 
 

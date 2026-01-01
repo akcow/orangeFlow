@@ -181,7 +181,7 @@ export default function ProviderCredentialsPage() {
             />
           </h2>
           <p className="text-sm text-muted-foreground">
-            为模型/多媒体提供商集中配置 App ID、Access Token 与 API Key，可在各节点保持默认使用，必要时仍可在节点内独立覆盖。
+            为模型/多媒体提供商集中配置密钥字段，可在各节点保持默认使用，必要时仍可在节点内独立覆盖。
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">当前提供商：</span>

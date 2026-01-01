@@ -52,7 +52,9 @@
       "Bash(powershell \"Stop-Process -Id 133888 -Force\")",
       "Bash(wmic:*)",
       "Bash(powershell \"Stop-Process -Id 46900 -Force\")",
-      "Bash(git clean:*)"
+      "Bash(git clean:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh pr create --title \"大规模清理和重构项目组件\" --body \"$\\(cat <<''EOF''\n## 概述\n这是一个大规模的项目清理和重构,移除了大量未使用的代码,显著简化了项目结构。\n\n## 主要变更\n\n### 🗑️ 代码清理\n- **移除 76,207 行未使用代码**\n- 删除所有未使用的模态框组件 \\(IOModal, apiModal, authModal 等 20+ 个模态框\\)\n- 清理大量未使用的 LFX 组件:\n  - AI/LLM 提供商组件 \\(anthropic, cohere, groq, mistral 等\\)\n  - 数据库组件 \\(cassandra, clickhouse, mongodb, pinecone 等\\)\n  - 第三方集成组件 \\(google, amazon, azure, notion 等\\)\n  - 工具组件 \\(jigsawstack, composio, firecrawl 等\\)\n\n### 🔧 功能优化\n- 优化豆包视频生成组件的预览功能\n- 改进凭证共享机制\n- 增强启动脚本的错误处理\n- 更新项目依赖配置 \\(pyproject.toml\\)\n\n### 📚 文档\n- 添加使用指南文档\n\n## 影响范围\n- 585 个文件变更\n- 2,220 行新增代码\n- 76,207 行删除代码\n\n## 测试建议\n1. 验证豆包组件功能正常\n2. 检查项目启动流程\n3. 测试凭证管理功能\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\nEOF\n\\)\" --base main)"
     ]
   }
 }

@@ -1228,6 +1228,21 @@ wheels = [
 ]
 
 [[package]]
+name = "dashscope"
+version = "1.25.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "certifi" },
+    { name = "cryptography" },
+    { name = "requests" },
+    { name = "websocket-client" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/91/60f5353c8752d8ce489f4baeb252999d4cfb1a784c0beda34b5287135d65/dashscope-1.25.5-py3-none-any.whl", hash = "sha256:1be9eebaf1e7327317a22db9233770f4252463b926c84071ffd8805ae06cf998", size = 1323186, upload-time = "2025-12-18T02:15:26.462Z" },
+]
+
+[[package]]
 name = "dataclasses-json"
 version = "0.6.7"
 source = { registry = "https://pypi.org/simple" }
@@ -3504,6 +3519,7 @@ dependencies = [
     { name = "asyncer" },
     { name = "cachetools" },
     { name = "chardet" },
+    { name = "dashscope" },
     { name = "defusedxml" },
     { name = "docstring-parser" },
     { name = "emoji" },
@@ -3554,6 +3570,7 @@ requires-dist = [
     { name = "asyncer", specifier = ">=0.0.8,<1.0.0" },
     { name = "cachetools", specifier = ">=5.5.2,<6.0.0" },
     { name = "chardet", specifier = ">=5.2.0,<6.0.0" },
+    { name = "dashscope", specifier = ">=1.24.6,<2.0.0" },
     { name = "defusedxml", specifier = ">=0.7.1,<1.0.0" },
     { name = "docstring-parser", specifier = ">=0.16,<1.0.0" },
     { name = "emoji", specifier = ">=2.14.1,<3.0.0" },

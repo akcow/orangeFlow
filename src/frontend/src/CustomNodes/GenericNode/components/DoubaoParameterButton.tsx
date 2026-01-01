@@ -56,6 +56,21 @@ export function DoubaoParameterButton({
     handleOnNewValue({ value: parsed });
   };
 
+  const buildOptionTooltip = (meta: any, optionLabel: string) => {
+    if (!meta || typeof meta !== "object") return null;
+    const description = String(meta.description ?? "").trim();
+    const voice = String(meta.voice ?? "").trim();
+    const languages = String(meta.languages ?? "").trim();
+    const lines = [
+      `${template?.display_name || formatControlValue(name, name)}: ${optionLabel}`,
+      description ? `描述: ${description}` : null,
+      voice ? `voice: ${voice}` : null,
+      languages ? `语言: ${languages}` : null,
+    ].filter(Boolean) as string[];
+    // Only show tooltip when we have extra info besides the title line
+    return lines.length > 1 ? lines.join("\n") : null;
+  };
+
   if (!options?.length) return null;
 
   return (
@@ -97,16 +112,29 @@ export function DoubaoParameterButton({
           value={String(value ?? "")}
           onValueChange={handleSelect}
         >
-          {options.map((option) => (
-            <DropdownMenuRadioItem
-              key={option}
-              value={String(option)}
-              className="text-sm"
-              disabled={disabledOptions?.map(String).includes(String(option))}
-            >
-              {formatControlValue(name, option)}
-            </DropdownMenuRadioItem>
-          ))}
+          {options.map((option, index) => {
+            const optionLabel = formatControlValue(name, option);
+            const meta = Array.isArray(template?.options_metadata)
+              ? template.options_metadata[index]
+              : null;
+            const tooltipContent = buildOptionTooltip(meta, optionLabel);
+            return (
+              <ShadTooltip
+                key={String(option)}
+                content={tooltipContent}
+                delayDuration={300}
+                styleClasses="whitespace-pre-wrap"
+              >
+                <DropdownMenuRadioItem
+                  value={String(option)}
+                  className="text-sm"
+                  disabled={disabledOptions?.map(String).includes(String(option))}
+                >
+                  {optionLabel}
+                </DropdownMenuRadioItem>
+              </ShadTooltip>
+            );
+          })}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -117,7 +145,12 @@ export function formatControlValue(name: string, value: any): string {
   if (value === undefined || value === null) return "";
   if (name === "model_name") {
     const main = String(value).split("(")[0];
-    return main.trim();
+    const cleaned = main
+      .replaceAll("旗舰", "")
+      .replaceAll("灵动", "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return cleaned.endsWith(".") ? cleaned.slice(0, -1).trim() : cleaned;
   }
   if (name === "image_count") {
     return `${value}X`;

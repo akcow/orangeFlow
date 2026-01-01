@@ -68,6 +68,7 @@ const DEFAULT_REFERENCE_EXTENSIONS = [
   "gif",
   "tiff",
 ];
+const WAN_REFERENCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp"];
 const SENSITIVE_FIELDS = ["api_key"];
 const REFERENCE_FIELD_FALLBACK: InputFieldType = {
   type: "file",
@@ -126,6 +127,8 @@ export default function DoubaoImageCreatorLayout({
     if (typeof value === "string") return value.trim().length === 0;
     return value === undefined || value === null;
   }, [template]);
+  const selectedModelName = String(template.model_name?.value ?? "");
+  const isWanModel = selectedModelName.startsWith("wan2.");
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
   const onConnect = useFlowStore((state) => state.onConnect);
@@ -198,6 +201,7 @@ export default function DoubaoImageCreatorLayout({
   );
   const localReferenceCount = referencePreviews.length;
   const selectedReferenceCount = combinedReferencePreviews.length;
+  const hasAnyReferenceSelected = selectedReferenceCount > 0;
 
   const referenceFileTypes =
     referenceField.fileTypes ??
@@ -213,6 +217,11 @@ export default function DoubaoImageCreatorLayout({
     node: data.node!,
     nodeId: data.id,
     name: REFERENCE_FIELD,
+  });
+  const { handleOnNewValue: handleAspectRatioChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "aspect_ratio",
   });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -235,6 +244,19 @@ export default function DoubaoImageCreatorLayout({
     : data.id;
 
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+
+  useEffect(() => {
+    if (!isWanModel) return;
+    const current = String(template.aspect_ratio?.value ?? "");
+    if (current.toLowerCase() !== "adaptive") return;
+    if (hasAnyReferenceSelected) return;
+    handleAspectRatioChange({ value: "1:1" }, { skipSnapshot: true });
+  }, [
+    isWanModel,
+    template.aspect_ratio?.value,
+    hasAnyReferenceSelected,
+    handleAspectRatioChange,
+  ]);
 
   const handleRun = () => {
     clearFlowPoolForNodes([nodeIdForRun]);
@@ -268,20 +290,56 @@ export default function DoubaoImageCreatorLayout({
       if (field.name === "image_count") {
         options = buildRangeOptions(templateField);
       }
+      if (field.name === "aspect_ratio") {
+        options = options.filter((opt) =>
+          isWanModel ? true : String(opt).toLowerCase() !== "adaptive",
+        );
+      }
 
       const tooltipText =
         DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
+
+      const disabledOptions = (() => {
+        if (!isWanModel) return undefined;
+
+        if (field.name === "image_count") {
+          return options.filter((opt) => Number(opt) > 4);
+        }
+
+        if (field.name === "resolution") {
+          const disables: Array<string | number> = [];
+          for (const opt of options) {
+            const label = String(opt);
+            if (label.includes("4K")) {
+              disables.push(opt);
+              continue;
+            }
+            if (hasAnyReferenceSelected && label.includes("2K")) {
+              disables.push(opt);
+            }
+          }
+          return disables.length ? disables : undefined;
+        }
+
+        if (field.name === "aspect_ratio") {
+          return hasAnyReferenceSelected ? undefined : ["adaptive"];
+        }
+
+        return undefined;
+      })();
       return {
         ...field,
         template: templateField,
         options,
         value: templateField.value,
         tooltip: tooltipText,
+        disabledOptions,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [template]);
+  }, [template, isWanModel, hasAnyReferenceSelected]);
 
   const maxReferenceEntries = useMemo(() => {
+    const defaultLimit = isWanModel ? 4 : MAX_REFERENCE_IMAGES;
     const explicitLimit =
       (typeof referenceField?.max_length === "number" && referenceField?.max_length) ||
       (typeof referenceField?.max_files === "number" && referenceField?.max_files) ||
@@ -289,8 +347,8 @@ export default function DoubaoImageCreatorLayout({
     if (typeof explicitLimit === "number" && explicitLimit > 0) {
       return explicitLimit;
     }
-    return MAX_REFERENCE_IMAGES;
-  }, [referenceField]);
+    return defaultLimit;
+  }, [referenceField, isWanModel]);
   const maxLocalEntries = Math.max(
     maxReferenceEntries - upstreamReferencePreviews.length,
     0,
@@ -301,11 +359,14 @@ export default function DoubaoImageCreatorLayout({
     selectedReferenceCount < maxReferenceEntries;
 
   const allowedExtensions = useMemo(() => {
+    if (isWanModel) {
+      return WAN_REFERENCE_EXTENSIONS;
+    }
     const source = referenceFileTypes && referenceFileTypes.length > 0
       ? referenceFileTypes
       : DEFAULT_REFERENCE_EXTENSIONS;
     return source.map((ext) => ext.replace(/^\./, "").toLowerCase());
-  }, [referenceFileTypes]);
+  }, [referenceFileTypes, isWanModel]);
 
   const filePickerAccept = useMemo(
     () => allowedExtensions.map((ext) => `.${ext}`).join(","),

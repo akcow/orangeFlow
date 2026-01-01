@@ -12,7 +12,7 @@ try:
         # 1) default behavior (cwd + parents)
         load_dotenv(override=False)
 
-        if os.getenv("ARK_API_KEY") or os.getenv("TTS_APP_ID") or os.getenv("TTS_TOKEN"):
+        if os.getenv("ARK_API_KEY") or os.getenv("TTS_APP_ID") or os.getenv("TTS_TOKEN") or os.getenv("DASHSCOPE_API_KEY"):
             return
 
         def walk_up(start: Path, max_levels: int = 8) -> list[Path]:
@@ -45,11 +45,7 @@ except Exception:  # pragma: no cover
     # Env file loading is best-effort; values may still come from the process env.
     pass
 
-from lfx.utils.provider_credentials import (
-    DEFAULT_PROVIDER_KEY,
-    ProviderCredentials,
-    get_provider_credentials,
-)
+from lfx.utils.provider_credentials import DEFAULT_PROVIDER_KEY, ProviderCredentials, get_provider_credentials
 
 try:
     from langflow.services.deps import get_settings_service
@@ -64,12 +60,13 @@ class SharedCredentials:
     api_key: str | None = None
 
 
-def _load_shared() -> ProviderCredentials | None:
+def _load_shared(provider: str) -> ProviderCredentials | None:
     if get_settings_service is None:
         return None
     try:
         settings_service = get_settings_service()
-        return get_provider_credentials(DEFAULT_PROVIDER_KEY, settings_service.settings.config_dir)
+        provider_key = (provider or DEFAULT_PROVIDER_KEY).strip() or DEFAULT_PROVIDER_KEY
+        return get_provider_credentials(provider_key, settings_service.settings.config_dir)
     except Exception:
         return None
 
@@ -78,6 +75,7 @@ def resolve_credentials(
     component_app_id: str | None,
     component_access_token: str | None,
     component_api_key: str | None,
+    provider: str = DEFAULT_PROVIDER_KEY,
     env_app_id_var: str = "TTS_APP_ID",
     env_access_token_var: str = "TTS_TOKEN",
     env_api_key_var: str = "ARK_API_KEY",
@@ -87,7 +85,7 @@ def resolve_credentials(
     Security note:
     - Never accept masked placeholder values like "****1234" from any source.
     """
-    shared = _load_shared() or ProviderCredentials()
+    shared = _load_shared(provider) or ProviderCredentials()
 
     def pick(
         direct_value: str | None,
