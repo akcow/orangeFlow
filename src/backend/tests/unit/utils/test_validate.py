@@ -508,11 +508,49 @@ def test():
         assert "os" in scope
         assert "sys" in scope
 
+    def test_handles_optional_try_imports(self):
+        """Test that optional imports inside try/except don't leave names undefined."""
+        code = """
+try:
+    from nonexistent_module import Ark
+except Exception:
+    Ark = None
+
+class TestClass:
+    def method(self):
+        return Ark
+"""
+        module = ast.parse(code)
+        scope = prepare_global_scope(module)
+        assert "Ark" in scope
+        assert scope["Ark"] is None
+
+    def test_optional_try_imports_do_not_overwrite_partial_success(self):
+        """If a later import in a try block fails, earlier successful imports must remain."""
+        code = """
+try:
+    import os
+    from os import __definitely_missing__
+except Exception:
+    os = None
+    __definitely_missing__ = None
+
+class TestClass:
+    def method(self):
+        return os, __definitely_missing__
+"""
+        module = ast.parse(code)
+        scope = prepare_global_scope(module)
+        assert "os" in scope
+        assert scope["os"] is not None
+        assert "__definitely_missing__" in scope
+        assert scope["__definitely_missing__"] is None
+
     def test_handles_from_imports(self):
         """Test that from imports are properly handled."""
         code = """
-from os import path
-from sys import version
+ from os import path
+ from sys import version
 
 def test():
     pass

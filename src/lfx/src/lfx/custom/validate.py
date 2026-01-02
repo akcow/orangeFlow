@@ -320,6 +320,58 @@ def _handle_module_attributes(imported_module, node, module_name, exec_globals):
             exec_globals[alias.name] = importlib.import_module(full_module_path)
 
 
+def _extract_safe_optional_import_try(node: ast.Try) -> tuple[list[ast.stmt], dict[str, None]] | None:
+    """Extract safe optional-import blocks like `try: import ... except: X = None`.
+
+    The custom-component loader historically only executes top-level `import` / `from ... import ...` statements.
+    Imports nested under a top-level `try/except` were skipped, which can leave referenced symbols undefined at runtime.
+
+    To keep execution safe, we only treat a `try` block as an optional-import block when:
+    - `try` body contains only import statements
+    - handlers contain only `Name = None` (or `Name: T = None`) assignments (and/or `pass`)
+    - no `else` / `finally` blocks are present
+    """
+
+    if not isinstance(node, ast.Try):
+        return None
+
+    if node.orelse or node.finalbody:
+        return None
+
+    if not node.body or not all(isinstance(stmt, ast.Import | ast.ImportFrom) for stmt in node.body):
+        return None
+
+    if not node.handlers:
+        return None
+
+    fallback: dict[str, None] = {}
+    for handler in node.handlers:
+        for stmt in handler.body:
+            if isinstance(stmt, ast.Pass):
+                continue
+
+            if isinstance(stmt, ast.Assign):
+                if not (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
+                    return None
+                for target in stmt.targets:
+                    if not isinstance(target, ast.Name):
+                        return None
+                    fallback[target.id] = None
+                continue
+
+            if isinstance(stmt, ast.AnnAssign):
+                if not (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
+                    return None
+                if not isinstance(stmt.target, ast.Name):
+                    return None
+                fallback[stmt.target.id] = None
+                continue
+
+            return None
+
+    return node.body, fallback
+
+
 def prepare_global_scope(module):
     """Prepares the global scope with necessary imports from the provided code module.
 
@@ -336,12 +388,17 @@ def prepare_global_scope(module):
     imports = []
     import_froms = []
     definitions = []
+    optional_import_tries: list[tuple[list[ast.stmt], dict[str, None]]] = []
 
     for node in module.body:
         if isinstance(node, ast.Import):
             imports.append(node)
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             import_froms.append(node)
+        elif isinstance(node, ast.Try):
+            extracted = _extract_safe_optional_import_try(node)
+            if extracted is not None:
+                optional_import_tries.append(extracted)
         elif isinstance(node, ast.ClassDef | ast.FunctionDef | ast.Assign):
             definitions.append(node)
 
@@ -390,6 +447,45 @@ def prepare_global_scope(module):
                 raise last_error
             msg = f"Module {node.module} not found. Please install it and try again"
             raise ModuleNotFoundError(msg)
+
+    for try_body, fallback_assignments in optional_import_tries:
+        had_error = False
+        for stmt in try_body:
+            try:
+                if isinstance(stmt, ast.Import):
+                    for alias in stmt.names:
+                        module_name = alias.name
+                        module_obj = importlib.import_module(module_name)
+                        if alias.asname:
+                            exec_globals[alias.asname] = module_obj
+                        else:
+                            variable_name = module_name.split(".")[0]
+                            exec_globals[variable_name] = importlib.import_module(variable_name)
+                elif isinstance(stmt, ast.ImportFrom) and stmt.module is not None:
+                    module_names_to_try = [stmt.module]
+                    if stmt.module.startswith("langflow."):
+                        module_names_to_try.append(stmt.module.replace("langflow.", "lfx.", 1))
+
+                    success = False
+                    last_error = None
+                    for module_name in module_names_to_try:
+                        try:
+                            imported_module = _import_module_with_warnings(module_name)
+                            _handle_module_attributes(imported_module, stmt, module_name, exec_globals)
+                            success = True
+                            break
+                        except ModuleNotFoundError as e:
+                            last_error = e
+                            continue
+
+                    if not success and last_error is not None:
+                        raise last_error
+            except Exception:  # noqa: BLE001
+                had_error = True
+
+        if had_error:
+            for name, value in fallback_assignments.items():
+                exec_globals.setdefault(name, value)
 
     if definitions:
         combined_module = ast.Module(body=definitions, type_ignores=[])

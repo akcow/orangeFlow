@@ -102,6 +102,39 @@ For a complete list of available environment variables, see [Langflow environmen
 
 For more customization options, see [Customize the Langflow Docker image with your own code](#customize-the-langflow-docker-image).
 
+## Troubleshooting common Docker deployments {#docker-troubleshooting}
+
+### Custom components missing from the left sidebar
+
+If you're expecting custom components (for example, a fork that adds an Image Creator component) and they don't appear in the UI, the most common cause is running the stock `langflowai/langflow` image instead of your custom image.
+
+- Ensure your `docker-compose.yml` points to the image you built from your fork (or includes a `build:` section).
+- Exec into the running container and verify the custom package is importable (replace the module path with your component):
+
+  ```bash
+  docker exec -it <langflow-container> python -c "import lfx; import lfx.components.doubao.doubao_image_creator; print('ok')"
+  ```
+
+### PostgreSQL authentication errors (`peer`) and blank UI
+
+If Langflow can't connect to PostgreSQL at startup, the UI may fail to load or stay on a blank screen.
+
+- Prefer a standard PostgreSQL/pgvector image that supports password auth out of the box (for example, `pgvector/pgvector:pg16`).
+- If you're connecting to an external Postgres (including Supabase), ensure your `LANGFLOW_DATABASE_URL` is a TCP connection string that includes a host and port, for example:
+
+  ```text
+  postgresql://USER:PASSWORD@HOST:5432/DBNAME
+  ```
+
+  A URL without a host (for example `postgresql://USER:PASSWORD@/DBNAME`) can fall back to a local Unix socket and trigger `peer` authentication.
+
+### Host PostgreSQL port conflicts
+
+If your server already runs PostgreSQL on `5432`, publishing the container port `5432:5432` will fail.
+
+- If you don't need to connect to the database from the host, remove the `ports:` mapping for the `postgres` service entirely.
+- If you do need host access, publish to a different host port (for example `5433:5432`) while keeping the internal container port at `5432`.
+
 ## Package your flow as a Docker image {#package-your-flow-as-a-docker-image}
 
 This section shows you how to create a Dockerfile that builds a Docker image containing your Langflow flow. This approach is useful when you want to distribute a specific flow as a standalone container or deploy it to environments like Kubernetes.

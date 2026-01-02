@@ -19,11 +19,14 @@ from dotenv import load_dotenv
 
 try:
     from volcenginesdkarkruntime import Ark  # type: ignore
+except Exception:  # noqa: BLE001
+    Ark = None  # type: ignore[assignment]
+
+try:
     from volcenginesdkarkruntime.types.images.images import (  # type: ignore
         SequentialImageGenerationOptions,
     )
 except Exception:  # noqa: BLE001
-    Ark = None  # type: ignore[assignment]
     SequentialImageGenerationOptions = None  # type: ignore[assignment]
 
 

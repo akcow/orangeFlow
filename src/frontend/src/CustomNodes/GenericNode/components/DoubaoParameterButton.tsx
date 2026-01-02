@@ -58,12 +58,21 @@ export function DoubaoParameterButton({
 
   const buildOptionTooltip = (meta: any, optionLabel: string) => {
     if (!meta || typeof meta !== "object") return null;
-    const description = String(meta.description ?? "").trim();
+    const descriptionRaw = String(meta.description ?? "").trim();
+    const voiceEffectRaw = String(meta.voice_effect ?? meta.effect ?? "").trim();
+    const description = descriptionRaw && descriptionRaw !== "-" ? descriptionRaw : "";
+    const voiceEffect = voiceEffectRaw && voiceEffectRaw !== "-" ? voiceEffectRaw : "";
     const voice = String(meta.voice ?? "").trim();
     const languages = String(meta.languages ?? "").trim();
+    const detailLine =
+      name === "voice_type"
+        ? (voiceEffect || description) && `音色效果: ${voiceEffect || description}`
+        : description
+          ? `描述: ${description}`
+          : null;
     const lines = [
       `${template?.display_name || formatControlValue(name, name)}: ${optionLabel}`,
-      description ? `描述: ${description}` : null,
+      detailLine,
       voice ? `voice: ${voice}` : null,
       languages ? `语言: ${languages}` : null,
     ].filter(Boolean) as string[];
@@ -150,7 +159,11 @@ export function formatControlValue(name: string, value: any): string {
       .replaceAll("灵动", "")
       .replace(/\s+/g, " ")
       .trim();
-    return cleaned.endsWith(".") ? cleaned.slice(0, -1).trim() : cleaned;
+    let display = cleaned.endsWith(".") ? cleaned.slice(0, -1).trim() : cleaned;
+    if (display.startsWith("Seedream") && display.length > 0) {
+      display = display.slice(0, -1).trimEnd();
+    }
+    return display;
   }
   if (name === "image_count") {
     return `${value}X`;
