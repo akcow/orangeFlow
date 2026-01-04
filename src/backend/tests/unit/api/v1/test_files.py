@@ -185,6 +185,51 @@ async def test_download_file(files_client, files_created_api_key, files_flow):
     assert response.content == b"test content"
 
 
+async def test_download_public_file(files_client, files_created_api_key, files_flow):
+    from langflow.services.deps import get_settings_service
+    from lfx.utils.public_files import generate_public_file_token
+
+    headers = {"x-api-key": files_created_api_key.api_key}
+
+    # Upload
+    response = await files_client.post(
+        f"api/v1/files/upload/{files_flow.id}",
+        files={"file": ("test.txt", b"test content")},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    file_name = response.json()["file_path"].split("/")[-1]
+
+    secret = get_settings_service().auth_settings.SECRET_KEY.get_secret_value()
+    token = generate_public_file_token(
+        secret_key=secret,
+        flow_id=str(files_flow.id),
+        file_name=file_name,
+        ttl_seconds=3600,
+    ).value
+
+    response = await files_client.get(f"api/v1/files/public/{files_flow.id}/{file_name}?token={token}")
+    assert response.status_code == 200
+    assert response.content == b"test content"
+
+
+async def test_download_public_file_rejects_invalid_token(files_client, files_created_api_key, files_flow):
+    headers = {"x-api-key": files_created_api_key.api_key}
+
+    response = await files_client.post(
+        f"api/v1/files/upload/{files_flow.id}",
+        files={"file": ("test.txt", b"test content")},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    file_name = response.json()["file_path"].split("/")[-1]
+
+    response = await files_client.get(
+        f"api/v1/files/public/{files_flow.id}/{file_name}?token=invalid.token"
+    )
+    assert response.status_code == 403
+
+
 async def test_list_files(files_client, files_created_api_key, files_flow):
     headers = {"x-api-key": files_created_api_key.api_key}
 

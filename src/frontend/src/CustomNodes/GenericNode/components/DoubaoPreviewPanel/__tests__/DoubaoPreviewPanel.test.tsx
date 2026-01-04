@@ -297,6 +297,61 @@ describe("DoubaoPreviewPanel", () => {
     expect(await screen.findByText("暂无生成结果")).toBeInTheDocument();
   });
 
+  test("opens file picker when clicking upload local audio suggestion", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const clickSpy = jest
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={"DoubaoTTS"}
+        appearance="audioCreator"
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("上传本地音频"));
+    expect(clickSpy).toHaveBeenCalled();
+
+    clickSpy.mockRestore();
+  });
+
+  test("opens file picker and calls suggestion handler when clicking audio to video", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const clickSpy = jest
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+    const mockSuggestionClick = jest.fn();
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={"DoubaoTTS"}
+        appearance="audioCreator"
+        onSuggestionClick={mockSuggestionClick}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("音频转视频"));
+    expect(mockSuggestionClick).toHaveBeenCalledWith("音频转视频");
+    expect(clickSpy).toHaveBeenCalled();
+
+    clickSpy.mockRestore();
+  });
+
   test("renders video preview when video data is available", async () => {
     const mockVideoPreview = {
       kind: "video" as const,
@@ -358,6 +413,44 @@ describe("DoubaoPreviewPanel", () => {
     );
 
     await screen.findByRole("button", { name: "放大预览" });
+    expect(await screen.findByText("上传")).toBeInTheDocument();
     expect(await screen.findByText("保存")).toBeInTheDocument();
+  });
+
+  test("opens file picker when clicking upload button in audio preview", async () => {
+    const mockAudioPreview = {
+      kind: "audio" as const,
+      available: true,
+      payload: {
+        audio_base64:
+          "UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=",
+        audio_type: "mp3",
+      },
+      token: "test-token",
+    };
+
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: mockAudioPreview,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const clickSpy = jest
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={"DoubaoTTS"}
+        appearance="audioCreator"
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("上传"));
+    expect(clickSpy).toHaveBeenCalled();
+
+    clickSpy.mockRestore();
   });
 });

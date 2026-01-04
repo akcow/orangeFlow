@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import DoubaoPreviewPanel from "./DoubaoPreviewPanel";
 import RenderInputParameters from "./RenderInputParameters";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
@@ -6,9 +6,10 @@ import { BuildStatus } from "@/constants/enums";
 import type { NodeDataType } from "@/types/flow";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
-import { findLastNode } from "@/utils/reactflowUtils";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { findLastNode, getNodeId, scapeJSONParse, scapedJSONStringfy } from "@/utils/reactflowUtils";
 import { track } from "@/customization/utils/analytics";
-import { cn } from "@/utils/utils";
+import { cn, getNodeRenderType } from "@/utils/utils";
 import { useTypesStore } from "@/stores/typesStore";
 import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-colors";
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
@@ -21,6 +22,12 @@ import {
   DOUBAO_CONFIG_TOOLTIP,
 } from "./DoubaoParameterButton";
 import HandleRenderComponent from "./handleRenderComponent";
+import cloneDeep from "lodash/cloneDeep";
+import type { AllNodeType } from "@/types/flow";
+
+const DOWNSTREAM_NODE_OFFSET_X = 950;
+const AUDIO_OUTPUT_NAME = "audio";
+const AUDIO_INPUT_FIELD = "audio_input";
 
 const CONTROL_FIELDS = [
   { name: "voice_type", icon: "Mic", widthClass: "basis-[240px] grow" },
@@ -56,6 +63,11 @@ export default function DoubaoAudioLayout({
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
   const typeData = useTypesStore((state) => state.data);
   const edges = useFlowStore((state) => state.edges);
+  const nodes = useFlowStore((state) => state.nodes);
+  const setNodes = useFlowStore((state) => state.setNodes);
+  const onConnect = useFlowStore((state) => state.onConnect);
+  const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+  const templates = useTypesStore((state) => state.templates);
   const hasAnyConnection = useMemo(
     () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
     [edges, data.id],
@@ -72,6 +84,134 @@ export default function DoubaoAudioLayout({
     : data.id;
 
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+
+  const handleCreateDownstreamVideoNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const existingVideoNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== "DoubaoVideoGenerator") return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== AUDIO_INPUT_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== AUDIO_OUTPUT_NAME) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingVideoNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingVideoNodeId || node.id === data.id,
+        })),
+      );
+      return;
+    }
+
+    const videoComponentTemplate = templates["DoubaoVideoGenerator"];
+    if (!videoComponentTemplate) return;
+
+    const audioInputField = videoComponentTemplate.template?.[AUDIO_INPUT_FIELD];
+    if (!audioInputField) return;
+
+    takeSnapshot();
+
+    const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+    const seededVideoComponent = cloneDeep(videoComponentTemplate);
+    if (seededVideoComponent.template?.model_name) {
+      seededVideoComponent.template.model_name.value = "wan2.6";
+    }
+    if (seededVideoComponent.template?.prompt) {
+      seededVideoComponent.template.prompt.value =
+        "根据上传的音频生成一段具有电影感的视频，通过动态画面、光影与氛围呈现节奏、音色与情绪。";
+    }
+    if (seededVideoComponent.template?.[AUDIO_INPUT_FIELD]) {
+      seededVideoComponent.template[AUDIO_INPUT_FIELD].show = true;
+    }
+
+    const newVideoNode: AllNodeType = {
+      id: newVideoNodeId,
+      type: getNodeRenderType("genericnode"),
+      position: {
+        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: seededVideoComponent,
+        showNode: !seededVideoComponent.minimized,
+        type: "DoubaoVideoGenerator",
+        id: newVideoNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => ({ ...node, selected: false })).concat(newVideoNode),
+    );
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === AUDIO_OUTPUT_NAME) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? AUDIO_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: audioInputField.input_types,
+      type: audioInputField.type,
+      id: newVideoNodeId,
+      fieldName: AUDIO_INPUT_FIELD,
+      ...(audioInputField.proxy ? { proxy: audioInputField.proxy } : {}),
+    };
+
+    onConnect({
+      source: data.id,
+      target: newVideoNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    track("DoubaoTTS - Create Video Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newVideoNodeId,
+      targetComponent: "DoubaoVideoGenerator",
+    });
+  }, [data.id, data.node?.outputs, data.type, edges, nodes, onConnect, setNodes, takeSnapshot, templates]);
+
+  const handlePreviewSuggestion = useCallback(
+    (label: string) => {
+      if (label === "音频转视频") {
+        handleCreateDownstreamVideoNode();
+      }
+    },
+    [handleCreateDownstreamVideoNode],
+  );
 
   const handleRun = () => {
     clearFlowPoolForNodes([nodeIdForRun]);
@@ -200,6 +340,7 @@ export default function DoubaoAudioLayout({
                 nodeId={data.id}
                 componentName={data.type}
                 appearance="audioCreator"
+                onSuggestionClick={handlePreviewSuggestion}
               />
             </div>
             {previewOutputHandles.length > 0 && (

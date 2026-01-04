@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from lfx.services.settings.service import SettingsService
 from lfx.utils.helpers import build_content_type_from_extension
+from lfx.utils.public_files import verify_public_file_token
 
 from langflow.api.utils import CurrentActiveUser, DbSession
 from langflow.api.v1.schemas import UploadFileResponse
@@ -90,6 +91,49 @@ async def download_file(
 
     try:
         file_content = await storage_service.get_file(flow_id=flow_id_str, file_name=file_name)
+        headers = {
+            "Content-Disposition": f"attachment; filename={file_name} filename*=UTF-8''{file_name}",
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(file_content)),
+        }
+        return StreamingResponse(BytesIO(file_content), media_type=content_type, headers=headers)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/public/{flow_id}/{file_name}")
+async def download_public_file(
+    file_name: str,
+    flow_id: UUID,
+    token: str,
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+    settings_service: Annotated[SettingsService, Depends(get_settings_service)],
+):
+    secret_key = settings_service.auth_settings.SECRET_KEY.get_secret_value()
+    if not secret_key:
+        raise HTTPException(status_code=500, detail="Public file access is not configured.")
+
+    if not verify_public_file_token(
+        secret_key=secret_key,
+        token=token,
+        flow_id=str(flow_id),
+        file_name=file_name,
+    ):
+        raise HTTPException(status_code=403, detail="Invalid or expired token.")
+
+    extension = file_name.split(".")[-1]
+    if not extension:
+        raise HTTPException(status_code=500, detail=f"Extension not found for file {file_name}")
+    try:
+        content_type = build_content_type_from_extension(extension)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if not content_type:
+        raise HTTPException(status_code=500, detail=f"Content type not found for extension {extension}")
+
+    try:
+        file_content = await storage_service.get_file(flow_id=str(flow_id), file_name=file_name)
         headers = {
             "Content-Disposition": f"attachment; filename={file_name} filename*=UTF-8''{file_name}",
             "Content-Type": "application/octet-stream",

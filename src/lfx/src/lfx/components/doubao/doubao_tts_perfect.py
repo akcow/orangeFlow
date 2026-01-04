@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.custom.custom_component.component import Component
-from lfx.inputs.inputs import BoolInput, DropdownInput, MessageTextInput, MultilineInput, SecretStrInput, StrInput
+from lfx.inputs.inputs import BoolInput, DataInput, DropdownInput, MessageTextInput, MultilineInput, SecretStrInput, StrInput
 from lfx.schema.data import Data
 from lfx.template.field.base import Output
 
@@ -194,7 +194,7 @@ class DoubaoTTS(Component):
         MultilineInput(
             name="text",
             display_name="合成文本",
-            required=True,
+            required=False,
             value="",
             placeholder="请输入要合成的文本（支持换行）",
             info="支持与上游 Data 联动。",
@@ -215,6 +215,15 @@ class DoubaoTTS(Component):
             placeholder="不包含扩展名，例如 qwen_tts_result",
             info="仅在启用保存时生效",
         ),
+        DataInput(
+            name="draft_output",
+            display_name="预览缓存",
+            show=True,
+            required=False,
+            value={},
+            input_types=["Data"],
+            info="用于桥梁模式：当合成文本为空时，直通常驻预览框上传/缓存的音频数据。",
+        ),
     ]
 
     outputs = [
@@ -229,7 +238,31 @@ class DoubaoTTS(Component):
     def synthesize_speech(self) -> Data:
         text = self._merge_text(getattr(self, "text", None))
         if not text:
-            return self._error("合成文本为空")
+            draft = getattr(self, "draft_output", None)
+            passthrough = self._extract_audio_payload_from_draft(draft)
+            if not passthrough:
+                return self._error("合成文本为空")
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            payload = {
+                **passthrough,
+                "bridge_mode": True,
+                "doubao_preview": {
+                    "token": f"{self.name}-bridge",
+                    "kind": "audio",
+                    "available": True,
+                    "generated_at": generated_at,
+                    "payload": {
+                        "audio_base64": passthrough.get("audio_base64"),
+                        "audio_type": passthrough.get("audio_type"),
+                        "sample_rate": passthrough.get("sample_rate"),
+                        "audio_url": passthrough.get("audio_url"),
+                        "file_path": passthrough.get("file_path"),
+                    },
+                },
+            }
+            self.status = "桥梁模式：合成文本为空，直通预览音频"
+            return Data(data=payload, type="audio")
 
         creds = resolve_credentials(
             component_app_id=None,
@@ -323,6 +356,57 @@ class DoubaoTTS(Component):
             },
             type="audio",
         )
+
+    @staticmethod
+    def _extract_audio_payload_from_draft(draft: Any | None) -> dict[str, Any] | None:
+        if draft is None:
+            return None
+        if isinstance(draft, Data):
+            return DoubaoTTS._extract_audio_payload_from_draft(draft.data)
+        if not isinstance(draft, dict):
+            return None
+
+        # LangFlow may wrap field values as {"value": <payload>}.
+        # Unwrap recursively so bridge mode can read uploaded local audio stored in draft_output.value.
+        if "value" in draft and draft.get("value") is not None:
+            return DoubaoTTS._extract_audio_payload_from_draft(draft.get("value"))
+
+        if isinstance(draft.get("doubao_preview"), dict):
+            preview = draft["doubao_preview"]
+            if isinstance(preview.get("payload"), dict):
+                draft = preview["payload"]
+
+        audio_base64 = draft.get("audio_base64")
+        audio_type = draft.get("audio_type") or "mp3"
+        audio_url = draft.get("audio_url") or draft.get("url")
+        file_path = draft.get("file_path") or draft.get("path")
+
+        if isinstance(audio_base64, str) and audio_base64.strip():
+            return {
+                "audio_base64": audio_base64.strip(),
+                "audio_type": str(audio_type).strip().lower() or "mp3",
+                "sample_rate": draft.get("sample_rate"),
+                "file_path": str(file_path).strip() if isinstance(file_path, str) and file_path.strip() else None,
+                "audio_url": str(audio_url).strip() if isinstance(audio_url, str) and audio_url.strip() else None,
+            }
+
+        if isinstance(file_path, str) and file_path.strip():
+            return {
+                "file_path": file_path.strip(),
+                "audio_type": str(audio_type).strip().lower() or "mp3",
+                "sample_rate": draft.get("sample_rate"),
+                "audio_url": str(audio_url).strip() if isinstance(audio_url, str) and audio_url.strip() else None,
+            }
+
+        if isinstance(audio_url, str) and audio_url.strip():
+            return {
+                "audio_url": audio_url.strip(),
+                "audio_type": str(audio_type).strip().lower() or "mp3",
+                "sample_rate": draft.get("sample_rate"),
+                "file_path": str(file_path).strip() if isinstance(file_path, str) and file_path.strip() else None,
+            }
+
+        return None
 
     @staticmethod
     def _merge_text(text_source: Any | None) -> str:

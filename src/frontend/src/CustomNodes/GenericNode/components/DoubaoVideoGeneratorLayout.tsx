@@ -51,10 +51,11 @@ const CONTROL_FIELDS = [
 ] as const;
 
 const PROMPT_NAME = "prompt";
-const DEFAULT_DURATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const DEFAULT_DURATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15];
 const FIRST_FRAME_FIELD = "first_frame_image";
 const LAST_FRAME_FIELD = "last_frame_image";
 const ASPECT_RATIO_FIELD = "aspect_ratio";
+const AUDIO_INPUT_FIELD = "audio_input";
 const DEFAULT_ASPECT_RATIO_OPTIONS = [
   "16:9",
   "4:3",
@@ -86,7 +87,29 @@ const MODEL_LIMITS: Record<
     maxDuration: 12,
     enableLastFrame: false,
   },
+  "wan2.6": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 5,
+    maxDuration: 15,
+    enableLastFrame: false,
+  },
+  "wan2.5": {
+    resolutions: ["480p", "720p", "1080p"],
+    minDuration: 5,
+    maxDuration: 10,
+    enableLastFrame: false,
+  },
 };
+
+function getWanAllowedDurations(modelName: string, mode: string | null) {
+  if (!modelName.startsWith("wan2.")) return null;
+  if (modelName === "wan2.5") return [5, 10];
+  if (modelName === "wan2.6") {
+    if (mode === "r2v") return [5, 10];
+    return [5, 10, 15];
+  }
+  return null;
+}
 const DEFAULT_FIRST_FRAME_EXTENSIONS = [
   "png",
   "jpg",
@@ -155,12 +178,14 @@ export default function DoubaoVideoGeneratorLayout({
     (template.model_name?.options?.[0] as string | undefined) ??
     "";
   const normalizedModelName = selectedModel.toString().trim();
+  const isWanModel = normalizedModelName.startsWith("wan2.");
   const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
   const allowLastFrame = modelLimits?.enableLastFrame ?? true;
   const customFields = new Set<string>([
     PROMPT_NAME,
     FIRST_FRAME_FIELD,
     LAST_FRAME_FIELD,
+    AUDIO_INPUT_FIELD,
     ...CONTROL_FIELDS.map((item) => item.name),
     ...SENSITIVE_FIELDS,
   ]);
@@ -216,6 +241,7 @@ export default function DoubaoVideoGeneratorLayout({
   }, [lastFrameFieldRaw]);
   const [isFirstFrameDialogOpen, setFirstFrameDialogOpen] = useState(false);
   const [isFirstFrameUploadPending, setFirstFrameUploadPending] = useState(false);
+  const [forceFirstLastFrameMode, setForceFirstLastFrameMode] = useState(false);
   const { handleOnNewValue: handleFirstFrameChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
@@ -282,8 +308,64 @@ export default function DoubaoVideoGeneratorLayout({
     );
   }, [lastFrameField]);
 
+  const hasFirstFrameEdge = useMemo(() => {
+    return edges.some((edge) => {
+      if (edge.target !== data.id) return false;
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      return targetHandle?.fieldName === FIRST_FRAME_FIELD;
+    });
+  }, [edges, data.id]);
+
+  const hasFirstFrameValue = useMemo(() => {
+    return (
+      (Array.isArray(firstFrameField?.value) && firstFrameField.value.length > 0) ||
+      (!!firstFrameField?.value && !Array.isArray(firstFrameField?.value)) ||
+      (Array.isArray(firstFrameField?.file_path) && firstFrameField.file_path.length > 0) ||
+      (!!firstFrameField?.file_path && !Array.isArray(firstFrameField?.file_path))
+    );
+  }, [firstFrameField]);
+
+  const hasReferenceVideosValue = useMemo(() => {
+    if (!(isWanModel && normalizedModelName === "wan2.6")) return false;
+    const entries = collectFirstFrameEntries(firstFrameField);
+    return entries.some((entry) => {
+      const path = (entry.path || "").toString();
+      const suffix = path.split("?")[0]?.split("#")[0]?.split(".").pop()?.toLowerCase();
+      return suffix === "mp4" || suffix === "mov";
+    });
+  }, [firstFrameField, isWanModel, normalizedModelName]);
+
+  const wanMode = useMemo(() => {
+    if (!isWanModel) return null;
+    if (hasReferenceVideosValue) return "r2v";
+    if (hasFirstFrameEdge || hasFirstFrameValue) return "i2v";
+    return "t2v";
+  }, [hasFirstFrameEdge, hasFirstFrameValue, hasReferenceVideosValue, isWanModel]);
+
   const shouldDisableProFastModel = Boolean(hasLastFrameEdge || hasLastFrameValue);
+  const isFirstLastFrameMode = Boolean(
+    forceFirstLastFrameMode || hasLastFrameEdge || hasLastFrameValue,
+  );
   const shouldShowLastFrameHandle = Boolean(allowLastFrame || hasLastFrameEdge);
+
+  const resolveSeedanceModelForFirstLastFrame = useCallback(() => {
+    const modelOptions: Array<string> =
+      (template.model_name?.options as Array<string> | undefined) ?? [];
+    if (modelOptions.includes(DEFAULT_LAST_FRAME_MODEL)) {
+      return DEFAULT_LAST_FRAME_MODEL;
+    }
+    const firstEnabled = modelOptions.find((option) => {
+      const normalized = String(option ?? "").trim();
+      if (!normalized) return false;
+      if (normalized.startsWith("wan2.")) return false;
+      const limits = MODEL_LIMITS[normalized];
+      if (limits && limits.enableLastFrame === false) return false;
+      return true;
+    });
+    return firstEnabled ?? DEFAULT_LAST_FRAME_MODEL;
+  }, [DEFAULT_LAST_FRAME_MODEL, template.model_name?.options]);
 
   useEffect(() => {
     if (!shouldDisableProFastModel) return;
@@ -306,6 +388,13 @@ export default function DoubaoVideoGeneratorLayout({
     shouldDisableProFastModel,
     template.model_name?.options,
   ]);
+
+  useEffect(() => {
+    if (!isFirstLastFrameMode) return;
+    if (!isWanModel) return;
+    const fallback = resolveSeedanceModelForFirstLastFrame();
+    handleModelNameChange({ value: fallback }, { skipSnapshot: true });
+  }, [handleModelNameChange, isFirstLastFrameMode, isWanModel, resolveSeedanceModelForFirstLastFrame]);
 
   const nodeIdForRun = data.node?.flow?.data
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
@@ -336,6 +425,12 @@ export default function DoubaoVideoGeneratorLayout({
       : "Play";
 
   const controlConfigs = useMemo(() => {
+    const selectedResolutionValue = String(
+      template.resolution?.value ??
+        template.resolution?.default ??
+        template.resolution?.options?.[0] ??
+        "1080p",
+    ).trim();
     return CONTROL_FIELDS.map((field) => {
       const templateField = template[field.name];
       if (!templateField) return null;
@@ -356,8 +451,32 @@ export default function DoubaoVideoGeneratorLayout({
           return numeric < minDuration || numeric > maxDuration;
         });
         disabledOptions = disabled;
-        if (typeof value === "number" && (value < minDuration || value > maxDuration)) {
-          value = Math.min(Math.max(value, minDuration), maxDuration);
+        const numericValue =
+          typeof value === "number"
+            ? value
+            : typeof value === "string"
+              ? Number(value)
+              : null;
+        if (typeof numericValue === "number" && !Number.isNaN(numericValue)) {
+          if (numericValue < minDuration || numericValue > maxDuration) {
+            value = Math.min(Math.max(numericValue, minDuration), maxDuration);
+          }
+        }
+
+        if (isWanModel) {
+          const allowedDurations = getWanAllowedDurations(normalizedModelName, wanMode);
+          if (allowedDurations?.length) {
+            const allowedSet = new Set(allowedDurations);
+            const extraDisabled = options.filter((option) => !allowedSet.has(Number(option)));
+            disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
+            if (
+              typeof numericValue === "number" &&
+              !Number.isNaN(numericValue) &&
+              !allowedSet.has(numericValue)
+            ) {
+              value = allowedDurations[0];
+            }
+          }
         }
       }
 
@@ -370,10 +489,27 @@ export default function DoubaoVideoGeneratorLayout({
         if (!options.length) {
           options = DEFAULT_ASPECT_RATIO_OPTIONS;
         }
+        if (isWanModel) {
+          if (wanMode === "i2v") {
+            disabledOptions = options.filter((opt) => String(opt) !== "adaptive");
+            value = "adaptive";
+          } else {
+            const disabled = new Set<string>(["adaptive", "21:9"]);
+            if (selectedResolutionValue === "480p") {
+              disabled.add("4:3");
+              disabled.add("3:4");
+            }
+            disabledOptions = options.filter((opt) => disabled.has(String(opt)));
+          }
+        }
       }
 
       if (field.name === "model_name" && shouldDisableProFastModel) {
         disabledOptions = [...(disabledOptions ?? []), PRO_FAST_MODEL];
+      }
+      if (field.name === "model_name" && isFirstLastFrameMode) {
+        const wanModels = options.filter((option) => String(option).trim().startsWith("wan2."));
+        disabledOptions = [...(disabledOptions ?? []), ...wanModels];
       }
 
        // 如果当前值被禁用，自动落到首个可用选项
@@ -402,7 +538,16 @@ export default function DoubaoVideoGeneratorLayout({
         tooltip: tooltipText,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [PRO_FAST_MODEL, modelLimits, shouldDisableProFastModel, template]);
+  }, [
+    PRO_FAST_MODEL,
+    isFirstLastFrameMode,
+    isWanModel,
+    modelLimits,
+    normalizedModelName,
+    shouldDisableProFastModel,
+    template,
+    wanMode,
+  ]);
 
   const upstreamFirstFrameFields = useMemo<InputFieldType[]>(() => {
     const incomingEdges = edges?.filter(
@@ -415,6 +560,42 @@ export default function DoubaoVideoGeneratorLayout({
         const targetHandle = scapeJSONParse(edge.targetHandle!);
         const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
         if (fieldName !== FIRST_FRAME_FIELD) return;
+      } catch {
+        return;
+      }
+
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const sourceType = sourceNode?.data?.type;
+      if (
+        sourceType !== "DoubaoVideoGenerator" &&
+        sourceType !== "DoubaoImageCreator"
+      ) {
+        return;
+      }
+
+      const sourceTemplateField =
+        sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
+        sourceNode.data?.node?.template?.["reference_images"];
+
+      if (sourceTemplateField) {
+        collected.push(sourceTemplateField);
+      }
+    });
+
+    return collected;
+  }, [edges, nodes, data.id]);
+
+  const upstreamLastFrameFields = useMemo<InputFieldType[]>(() => {
+    const incomingEdges = edges?.filter(
+      (edge) => edge.target === data.id && edge.targetHandle,
+    );
+    const collected: InputFieldType[] = [];
+
+    incomingEdges?.forEach((edge) => {
+      try {
+        const targetHandle = scapeJSONParse(edge.targetHandle!);
+        const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+        if (fieldName !== LAST_FRAME_FIELD) return;
       } catch {
         return;
       }
@@ -457,7 +638,15 @@ export default function DoubaoVideoGeneratorLayout({
     () => buildFirstFramePreviewItems(lastFrameField),
     [lastFrameField],
   );
-  const selectedLastFrame = lastFramePreviews[0] ?? null;
+  const upstreamLastFramePreviews = useMemo<DoubaoReferenceImage[]>(
+    () => buildFirstFramePreviewItemsFromFields(upstreamLastFrameFields),
+    [upstreamLastFrameFields],
+  );
+  const combinedLastFramePreviews = useMemo<DoubaoReferenceImage[]>(
+    () => mergeReferencePreviewLists(lastFramePreviews, upstreamLastFramePreviews),
+    [lastFramePreviews, upstreamLastFramePreviews],
+  );
+  const selectedLastFrame = combinedLastFramePreviews[0] ?? null;
   const selectedLastFrameSource = useMemo(
     () =>
       (selectedLastFrame?.downloadSource || selectedLastFrame?.imageSource || "")
@@ -465,6 +654,25 @@ export default function DoubaoVideoGeneratorLayout({
         .trim(),
     [selectedLastFrame],
   );
+  const upstreamLastFrameNodeId = useMemo(() => {
+    const edge = edges.find((candidate) => {
+      if (candidate.target !== data.id || !candidate.targetHandle) return false;
+      try {
+        const targetHandle = scapeJSONParse(candidate.targetHandle);
+        return targetHandle?.fieldName === LAST_FRAME_FIELD;
+      } catch {
+        return false;
+      }
+    });
+    return edge?.source ?? null;
+  }, [edges, data.id]);
+  const isSelectedLastFrameFromUpstream = useMemo(() => {
+    if (!selectedLastFrameSource) return false;
+    return upstreamLastFramePreviews.some((preview) => {
+      const source = (preview.downloadSource || preview.imageSource || "").toString().trim();
+      return source === selectedLastFrameSource;
+    });
+  }, [selectedLastFrameSource, upstreamLastFramePreviews]);
   const selectedFirstFrame = combinedFirstFramePreviews[0] ?? null;
   const firstFrameCount = combinedFirstFramePreviews.length;
   const localFirstFrameCount = firstFramePreviews.length;
@@ -485,9 +693,14 @@ export default function DoubaoVideoGeneratorLayout({
         : DEFAULT_FIRST_FRAME_EXTENSIONS;
     return source.map((ext) => ext.replace(/^\./, "").toLowerCase());
   }, [firstFrameFileTypes]);
+  const canUploadReferenceVideos = isWanModel && normalizedModelName === "wan2.6";
+  const firstFrameUploadAllowedExtensions = useMemo(() => {
+    if (canUploadReferenceVideos) return firstFrameAllowedExtensions;
+    return firstFrameAllowedExtensions.filter((ext) => ext !== "mp4" && ext !== "mov");
+  }, [canUploadReferenceVideos, firstFrameAllowedExtensions]);
   const firstFrameFilePickerAccept = useMemo(
-    () => firstFrameAllowedExtensions.map((ext) => `.${ext}`).join(","),
-    [firstFrameAllowedExtensions],
+    () => firstFrameUploadAllowedExtensions.map((ext) => `.${ext}`).join(","),
+    [firstFrameUploadAllowedExtensions],
   );
 
   const firstFrameHandleMeta = useMemo(() => {
@@ -547,6 +760,32 @@ export default function DoubaoVideoGeneratorLayout({
       proxy: lastFrameField.proxy,
     };
   }, [lastFrameField, types, data.id]);
+
+  const audioInputField = template[AUDIO_INPUT_FIELD];
+  const audioHandleMeta = useMemo(() => {
+    if (!isWanModel) return null;
+    if (!audioInputField) return null;
+    const inputTypes =
+      audioInputField.input_types && audioInputField.input_types.length > 0
+        ? audioInputField.input_types
+        : ["Data"];
+    const resolvedType = audioInputField.type ?? "data";
+    const colors = getNodeInputColors(inputTypes, resolvedType, types);
+    const colorName = getNodeInputColorsName(inputTypes, resolvedType, types);
+    return {
+      id: {
+        inputTypes,
+        type: resolvedType,
+        id: data.id,
+        fieldName: AUDIO_INPUT_FIELD,
+      },
+      tooltip: inputTypes?.join(", ") ?? resolvedType ?? "音频输入",
+      title: audioInputField.display_name ?? "音频输入",
+      colors,
+      colorName,
+      proxy: audioInputField.proxy,
+    };
+  }, [audioInputField, isWanModel, types, data.id]);
 
   const promptHandleMeta = useMemo(() => {
     if (!promptField) return null;
@@ -719,8 +958,10 @@ export default function DoubaoVideoGeneratorLayout({
     const lastFrameTemplateField = template[LAST_FRAME_FIELD];
     if (!firstFrameTemplateField || !lastFrameTemplateField) return;
 
-    if (normalizedModelName === PRO_FAST_MODEL) {
-      handleModelNameChange({ value: DEFAULT_LAST_FRAME_MODEL }, { skipSnapshot: true });
+    setForceFirstLastFrameMode(true);
+    if (isWanModel || normalizedModelName === PRO_FAST_MODEL) {
+      const fallback = resolveSeedanceModelForFirstLastFrame();
+      handleModelNameChange({ value: fallback }, { skipSnapshot: true });
     }
 
     const findExistingUpstream = (targetFieldName: string) => {
@@ -870,7 +1111,6 @@ export default function DoubaoVideoGeneratorLayout({
       sourceComponent: "DoubaoVideoGenerator",
     });
   }, [
-    DEFAULT_LAST_FRAME_MODEL,
     FIRST_FRAME_FIELD,
     IMAGE_OUTPUT_NAME,
     LAST_FRAME_FIELD,
@@ -880,13 +1120,16 @@ export default function DoubaoVideoGeneratorLayout({
     data.id,
     edges,
     handleModelNameChange,
+    isWanModel,
     normalizedModelName,
     nodes,
     onConnect,
     setNodes,
+    setForceFirstLastFrameMode,
     takeSnapshot,
     template,
     templates,
+    resolveSeedanceModelForFirstLastFrame,
   ]);
 
   const handlePreviewSuggestionClick = useCallback(
@@ -914,7 +1157,7 @@ export default function DoubaoVideoGeneratorLayout({
     void handleFirstFrameUpload({
       referenceField: firstFrameField,
       accept: firstFrameFilePickerAccept,
-      allowedExtensions: firstFrameAllowedExtensions,
+      allowedExtensions: firstFrameUploadAllowedExtensions,
       currentFlowId,
       uploadReferenceFile: uploadFirstFrameFile,
       validateFileSize,
@@ -927,7 +1170,7 @@ export default function DoubaoVideoGeneratorLayout({
     firstFrameField,
     isFirstFrameUploadPending,
     firstFrameFilePickerAccept,
-    firstFrameAllowedExtensions,
+    firstFrameUploadAllowedExtensions,
     currentFlowId,
     uploadFirstFrameFile,
     validateFileSize,
@@ -981,7 +1224,10 @@ export default function DoubaoVideoGeneratorLayout({
 
   const handleClearLastFrame = useCallback(() => {
     handleLastFrameChange({ value: null, file_path: null });
-  }, [handleLastFrameChange]);
+    if (!hasLastFrameEdge) {
+      setForceFirstLastFrameMode(false);
+    }
+  }, [handleLastFrameChange, hasLastFrameEdge, setForceFirstLastFrameMode]);
 
   useEffect(() => {
     if (!allowLastFrame) {
@@ -1030,7 +1276,10 @@ export default function DoubaoVideoGeneratorLayout({
 
         <div className="mt-5 flex flex-col gap-5">
           <div className="relative flex flex-col gap-4 lg:flex-row">
-            {(promptHandleMeta || firstFrameHandleMeta || shouldShowLastFrameHandle) && (
+            {(promptHandleMeta ||
+              audioHandleMeta ||
+              firstFrameHandleMeta ||
+              shouldShowLastFrameHandle) && (
               <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:flex lg:flex-col lg:gap-3">
                 {promptHandleMeta && (
                   <HandleRenderComponent
@@ -1046,6 +1295,22 @@ export default function DoubaoVideoGeneratorLayout({
                     showNode={true}
                     testIdComplement={`${data.type?.toLowerCase()}-prompt-handle`}
                     proxy={promptHandleMeta.proxy}
+                  />
+                )}
+                {audioHandleMeta && (
+                  <HandleRenderComponent
+                    left
+                    tooltipTitle={audioHandleMeta.tooltip}
+                    id={audioHandleMeta.id}
+                    title={audioHandleMeta.title}
+                    nodeId={data.id}
+                    myData={typeData}
+                    colors={audioHandleMeta.colors}
+                    colorName={audioHandleMeta.colorName}
+                    setFilterEdge={setFilterEdge}
+                    showNode={true}
+                    testIdComplement={`${data.type?.toLowerCase()}-audio-input-handle`}
+                    proxy={audioHandleMeta.proxy}
                   />
                 )}
                 {firstFrameHandleMeta && (
@@ -1204,18 +1469,18 @@ export default function DoubaoVideoGeneratorLayout({
         open={isFirstFrameDialogOpen}
         onOpenChange={setFirstFrameDialogOpen}
       >
-        <DialogContent className="w-[500px]">
-          <DialogHeader>
-            <DialogTitle>上传首帧图片</DialogTitle>
-            <DialogDescription>
-              支持 JPG/PNG/WebP 等格式，每张不超过 10MB。
-            </DialogDescription>
-          </DialogHeader>
+          <DialogContent className="w-[500px]">
+            <DialogHeader>
+              <DialogTitle>上传图片或视频</DialogTitle>
+              <DialogDescription>
+              支持 JPG/PNG/WebP 等图片格式；wan2.6 还支持 MP4/MOV 参考视频。
+              </DialogDescription>
+            </DialogHeader>
           {firstFrameField ? (
             <div className="space-y-4">
               <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 dark:border dark:border-white/10 dark:bg-[#111a2b]/80">
                 <p className="text-sm font-medium text-foreground">
-                  选择要上传的图片（支持多选）
+                  选择要上传的图片或视频（支持多选）
                 </p>
                 <button
                   type="button"
@@ -1229,12 +1494,12 @@ export default function DoubaoVideoGeneratorLayout({
                 >
                   <ForwardedIconComponent
                     name={isFirstFrameUploadPending ? "Loader2" : "Upload"}
-                    className={cn(
-                      "h-4 w-4",
-                      isFirstFrameUploadPending && "animate-spin",
-                    )}
-                  />
-                  <span>{isFirstFrameUploadPending ? "上传中..." : "从设备上传"}</span>
+                   className={cn(
+                     "h-4 w-4",
+                     isFirstFrameUploadPending && "animate-spin",
+                   )}
+                 />
+                  <span>{isFirstFrameUploadPending ? "上传中..." : "上传图片或视频"}</span>
                 </button>
                 <p className="text-xs text-muted-foreground">
                   已保留 {firstFrameCount} / {FIRST_FRAME_MAX_UPLOADS} 张候选图
@@ -1254,13 +1519,26 @@ export default function DoubaoVideoGeneratorLayout({
                     <div className="flex items-center justify-between text-xs text-[#4B5168] dark:text-slate-200">
                       <span>
                         当前尾帧：{selectedLastFrame.fileName ?? selectedLastFrame.label}
+                        {isSelectedLastFrameFromUpstream ? "（上游）" : ""}
                       </span>
                       <button
                         type="button"
                         className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
-                        onClick={handleClearLastFrame}
+                        onClick={() => {
+                          if (isSelectedLastFrameFromUpstream && upstreamLastFrameNodeId) {
+                            setNodes((currentNodes) =>
+                              currentNodes.map((node) => ({
+                                ...node,
+                                selected: node.id === data.id || node.id === upstreamLastFrameNodeId,
+                              })),
+                            );
+                            requestUploadDialogForNode(upstreamLastFrameNodeId);
+                            return;
+                          }
+                          handleClearLastFrame();
+                        }}
                       >
-                        清除尾帧
+                        {isSelectedLastFrameFromUpstream ? "前往上游" : "清除尾帧"}
                       </button>
                     </div>
                   ) : (
@@ -1299,11 +1577,21 @@ export default function DoubaoVideoGeneratorLayout({
                           className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
                         >
                           <div className="relative h-28 w-full overflow-hidden">
-                            <img
-                              src={preview.imageSource}
-                              alt={preview.label ?? preview.fileName ?? `候选图 ${index + 1}`}
-                              className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                            />
+                            {isVideoCandidate(previewSource, preview.fileName) ? (
+                              <video
+                                src={previewSource}
+                                className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img
+                                src={preview.imageSource}
+                                alt={preview.label ?? preview.fileName ?? `候选素材 ${index + 1}`}
+                                className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                              />
+                            )}
                             {index === 0 && (
                               <span className="absolute left-3 top-3 rounded-full bg-[#1B66FF]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
                                 当前首帧
@@ -1361,7 +1649,7 @@ export default function DoubaoVideoGeneratorLayout({
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    目前还没有候选图，点击上方按钮上传图片。
+                    目前还没有候选素材，点击上方按钮上传图片或视频。
                   </p>
                 )}
               </div>
@@ -1507,7 +1795,7 @@ function collectFirstFrameEntries(field: InputFieldType): FirstFrameEntry[] {
         ? extractReferenceLabel(rawValue)
         : undefined) ||
       extractFileName(resolvedPath) ||
-      `候选图 ${index + 1}`;
+      `候选素材 ${index + 1}`;
     entries.push({
       name: resolvedName,
       path: resolvedPath,
@@ -1569,7 +1857,7 @@ function buildFirstFramePreviewItems(
     const label =
       extractReferenceLabel(valueEntries[index]) ??
       resolved.fileName ??
-      `候选图 ${index + 1}`;
+      `候选素材 ${index + 1}`;
     previews.push({
       id: `${resolved.sourceId}-${index}`,
       imageSource: resolved.url,
@@ -1650,7 +1938,7 @@ function resolveReferenceSource(raw: string) {
   if (
     segments.length >= 4 &&
     segments[0] === "files" &&
-    segments[1] === "images"
+    (segments[1] === "images" || segments[1] === "download")
   ) {
     segments = segments.slice(2);
   }
@@ -1660,13 +1948,20 @@ function resolveReferenceSource(raw: string) {
   const encodedFlow = encodeURIComponent(flowId);
   const encodedFile = rest.map((part) => encodeURIComponent(part)).join("/");
   const fileName = rest[rest.length - 1];
-  const url = `${BASE_URL_API}files/images/${encodedFlow}/${encodedFile}`;
+  const url = isVideoCandidate(trimmed, fileName)
+    ? `${BASE_URL_API}files/download/${encodedFlow}/${encodedFile}`
+    : `${BASE_URL_API}files/images/${encodedFlow}/${encodedFile}`;
   return {
     url,
     downloadUrl: url,
     fileName,
     sourceId: `${flowId}-${fileName}`,
   };
+}
+
+function isVideoCandidate(source: string | undefined, fileName?: string) {
+  const combined = `${fileName ?? ""} ${source ?? ""}`.toLowerCase();
+  return combined.includes(".mp4") || combined.includes(".mov");
 }
 
 function extractFileName(value: string): string | undefined {

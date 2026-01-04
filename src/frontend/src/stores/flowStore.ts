@@ -249,6 +249,10 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         if (template?.prompt) {
           template.prompt.required = false;
         }
+        // Ensure the wan audio input can be connected/persisted; hidden fields drop edges on reload.
+        if (template?.audio_input) {
+          template.audio_input.show = true;
+        }
       }
 
       if (componentType === "DoubaoImageCreator") {
@@ -260,6 +264,9 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       if (componentType === "DoubaoTTS") {
         if (template?.text) {
           template.text.required = false;
+        }
+        if (template?.draft_output) {
+          template.draft_output.show = true;
         }
       }
 
@@ -275,7 +282,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
             required: false,
             placeholder: "",
             list: false,
-            show: false,
+            show: componentType === "DoubaoTTS",
             readonly: false,
             value: {},
             input_types: ["Data"],

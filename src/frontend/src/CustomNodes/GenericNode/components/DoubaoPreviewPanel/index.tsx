@@ -2,6 +2,7 @@ import {
   forwardRef,
   lazy,
   Suspense,
+  type ChangeEvent,
   useMemo,
   useCallback,
   useState,
@@ -19,7 +20,10 @@ import {
 import ImageViewer from "@/components/common/ImageViewer";
 import { cn } from "@/utils/utils";
 import { ForwardedIconComponent } from "@/components/common/genericIconComponent";
-import { useDoubaoPreview } from "../../../hooks/use-doubao-preview";
+import {
+  parseDoubaoPreviewData,
+  useDoubaoPreview,
+} from "../../../hooks/use-doubao-preview";
 import { sanitizePreviewDataUrl } from "./helpers";
 import useFlowStore from "@/stores/flowStore";
 import OutputModal from "../outputModal";
@@ -105,6 +109,19 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [nodes, nodeId],
     );
 
+    const draftPreview = useMemo(() => {
+      const draftValue = (node as any)?.template?.draft_output?.value;
+      if (!draftValue || typeof draftValue !== "object") return null;
+      return parseDoubaoPreviewData(componentName, draftValue);
+    }, [componentName, node]);
+
+    const resolvedPreview =
+      appearance === "audioCreator"
+        ? preview && preview.kind === "audio" && preview.available
+          ? preview
+          : draftPreview ?? preview
+        : preview ?? draftPreview;
+
     // Persist latest output payload into a hidden field so the component can act as a bridge
     // (prompt empty -> passthrough cached preview to downstream) and survive reloads.
     const lastAppliedRawMessageRef = useRef<any>(null);
@@ -115,6 +132,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       const payload = rawMessage?.message;
       if (!payload || typeof payload !== "object") return;
       if (rawMessage === lastAppliedRawMessageRef.current) return;
+
+      const candidatePreview = parseDoubaoPreviewData(componentName, payload);
+      if (!candidatePreview) return;
+      if (appearance === "audioCreator" && candidatePreview.kind !== "audio") {
+        return;
+      }
+      if (appearance === "audioCreator" && !candidatePreview.available) {
+        return;
+      }
 
       lastAppliedRawMessageRef.current = rawMessage;
       setNode(
@@ -140,12 +166,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       isAudioMinimal;
 
     const kind = useMemo(() => {
-      if (preview?.kind) return preview.kind;
+      if (resolvedPreview?.kind) return resolvedPreview.kind;
       if (componentName && DOUBAO_KIND[componentName]) {
         return DOUBAO_KIND[componentName];
       }
       return "image";
-    }, [preview?.kind, componentName]);
+    }, [resolvedPreview?.kind, componentName]);
 
     const panelClass = useMemo(
       () => (isMinimal ? "" : PANEL_BG[kind]),
@@ -200,6 +226,84 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       return () => window.clearTimeout(timer);
     }, []);
 
+    const audioFileInputRef = useRef<HTMLInputElement>(null);
+    const handlePickLocalAudio = useCallback(() => {
+      audioFileInputRef.current?.click();
+    }, []);
+
+    const handleLocalAudioSelected = useCallback(
+      async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          const base64 = extractBase64FromDataUrl(dataUrl);
+          const audioType =
+            inferAudioTypeFromMime(file.type) ||
+            inferExtensionFromFileName(file.name) ||
+            "mp3";
+
+          const payload = {
+            doubao_preview: {
+              token: `local_audio_${Date.now()}`,
+              kind: "audio",
+              available: true,
+              generated_at: new Date().toISOString(),
+              payload: {
+                audio_base64: base64,
+                audio_type: audioType,
+              },
+            },
+          };
+
+          setNode(
+            nodeId,
+            (oldNode) => {
+              const newData = { ...oldNode.data };
+              const newNode = { ...(newData.node as any) };
+              const newTemplate = { ...(newNode.template ?? {}) };
+              if (newTemplate.text) {
+                newTemplate.text = { ...newTemplate.text, required: false };
+              }
+              const draftField = { ...(newTemplate.draft_output ?? {}) };
+              draftField.value = payload;
+              newTemplate.draft_output = draftField;
+              newNode.template = newTemplate;
+              newData.node = newNode;
+              return { ...oldNode, data: newData };
+            },
+            false,
+          );
+
+          showTransientBadge("已上传");
+        } catch (error) {
+          console.error("Failed to load local audio:", error);
+          showTransientBadge("上传失败");
+        }
+      },
+      [nodeId, setNode, showTransientBadge],
+    );
+
+    const handleSuggestionClick = useCallback(
+      (label: string) => {
+        if (appearance === "audioCreator") {
+          if (label === "上传本地音频") {
+            handlePickLocalAudio();
+            return;
+          }
+          if (label === "音频转视频") {
+            onSuggestionClick?.(label);
+            handlePickLocalAudio();
+            return;
+          }
+        }
+        onSuggestionClick?.(label);
+      },
+      [appearance, handlePickLocalAudio, onSuggestionClick],
+    );
+
     const handleModalError = useCallback(
       (error: Error) => {
         console.error("Modal error:", error);
@@ -212,8 +316,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
-      if (kind !== "image" || !preview?.payload) return null;
-      const payload: any = preview.payload;
+      if (kind !== "image" || !resolvedPreview?.payload) return null;
+      const payload: any = resolvedPreview.payload;
       const galleryItems: GalleryItem[] = [];
 
       if (Array.isArray(payload.images)) {
@@ -283,7 +387,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           fileName: payload.filename ?? payload.file_name,
         },
       ];
-    }, [kind, preview]);
+    }, [kind, resolvedPreview]);
 
     const referenceGallery = useMemo<GalleryItem[]>(() => {
       if (kind !== "image" || !referenceImages.length) return [];
@@ -310,24 +414,26 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const referenceSelectionCount = referenceGallery.length;
 
     const videoPreview = useMemo(() => {
-      if (kind !== "video" || !preview?.payload) return null;
-      const videoUrl: string | undefined = preview.payload?.video_url;
+      if (kind !== "video" || !resolvedPreview?.payload) return null;
+      const videoUrl: string | undefined = resolvedPreview.payload?.video_url;
       if (!videoUrl) return null;
       return {
         videoUrl,
         poster:
-          preview.payload?.cover_preview_base64 || preview.payload?.cover_url,
-        duration: preview.payload?.duration,
+          resolvedPreview.payload?.cover_preview_base64 ||
+          resolvedPreview.payload?.cover_url,
+        duration: resolvedPreview.payload?.duration,
         extension: inferExtensionFromSource(videoUrl, "mp4"),
       };
-    }, [kind, preview]);
+    }, [kind, resolvedPreview]);
 
     const audioPreview = useMemo(() => {
-      if (kind !== "audio" || !preview?.payload) return null;
-      const audioType: string = preview.payload?.audio_type || "mp3";
-      const base64Content = preview.payload?.audio_base64;
+      if (kind !== "audio" || !resolvedPreview?.payload) return null;
+      const audioType: string = resolvedPreview.payload?.audio_type || "mp3";
+      const base64Content = resolvedPreview.payload?.audio_base64;
       const fallbackUrl =
-        preview.payload?.audio_data_url || preview.payload?.audio_url;
+        resolvedPreview.payload?.audio_data_url ||
+        resolvedPreview.payload?.audio_url;
       const audioUrl = base64Content
         ? `data:audio/${audioType};base64,${base64Content}`
         : fallbackUrl;
@@ -336,16 +442,17 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         audioUrl,
         audioType,
       };
-    }, [kind, preview]);
+    }, [kind, resolvedPreview]);
 
     const hasGeneratedImagePreview =
-      kind === "image" && Boolean(preview?.available && imageGallery?.length);
+      kind === "image" &&
+      Boolean(resolvedPreview?.available && imageGallery?.length);
     const hasReferencePreview =
       kind === "image" && !hasGeneratedImagePreview && referenceGallery.length;
     const hasVideoPreview =
-      kind === "video" && Boolean(preview?.available && videoPreview);
+      kind === "video" && Boolean(resolvedPreview?.available && videoPreview);
     const hasAudioPreview =
-      kind === "audio" && Boolean(preview?.available && audioPreview);
+      kind === "audio" && Boolean(resolvedPreview?.available && audioPreview);
 
     const galleryForRenderer = hasGeneratedImagePreview
       ? imageGallery
@@ -405,7 +512,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     useEffect(() => {
       setPreviewModalOpen(false);
       setActiveImageIndex(0);
-    }, [preview?.token]);
+    }, [resolvedPreview?.token]);
 
     useEffect(() => {
       if (!galleryForRenderer?.length) {
@@ -428,26 +535,26 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           currentImage.fileName ||
           (galleryKind === "reference"
             ? `reference_image_${activeImageIndex + 1}`
-            : preview?.token);
+            : resolvedPreview?.token);
         return {
           source,
           fileName: buildFileName(baseToken, extension),
         };
       }
-      if (!preview?.available) return null;
+      if (!resolvedPreview?.available) return null;
       switch (kind) {
         case "video":
           if (!videoPreview) return null;
           return {
             source: videoPreview.videoUrl,
-            fileName: buildFileName(preview.token, videoPreview.extension),
+            fileName: buildFileName(resolvedPreview.token, videoPreview.extension),
           };
         case "audio":
           if (!audioPreview) return null;
           return {
             source: audioPreview.audioUrl,
             fileName: buildFileName(
-              preview.token,
+              resolvedPreview.token,
               audioPreview.audioType || "mp3",
             ),
           };
@@ -458,8 +565,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       kind,
       currentImage,
       galleryKind,
-      preview?.token,
-      preview?.available,
+      resolvedPreview?.token,
+      resolvedPreview?.available,
       videoPreview,
       audioPreview,
       activeImageIndex,
@@ -476,7 +583,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [downloadInfo, showTransientBadge]);
 
-    const hasError = preview?.error;
+    const hasError = resolvedPreview?.error;
     const shouldShowImageUploadOverlay =
       appearance === "imageCreator" &&
       kind === "image" &&
@@ -500,7 +607,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             kind={kind}
             appearance={appearance}
             onUploadClick={onRequestUpload}
-            onSuggestionClick={onSuggestionClick}
+            onSuggestionClick={handleSuggestionClick}
           />
         }
       >
@@ -526,7 +633,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             kind={kind}
             appearance={appearance}
             onUploadClick={onRequestUpload}
-            onSuggestionClick={onSuggestionClick}
+            onSuggestionClick={handleSuggestionClick}
           />
         )}
       </Suspense>
@@ -536,7 +643,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         kind={kind}
         appearance={appearance}
         onUploadClick={onRequestUpload}
-        onSuggestionClick={onSuggestionClick}
+        onSuggestionClick={handleSuggestionClick}
       />
     );
 
@@ -544,8 +651,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       if (galleryKind === "reference" && referenceGallery.length) {
         return `已上传 ${referenceGallery.length} 张参考图`;
       }
-      if (hasRenderablePreview && preview?.generated_at) {
-        return `最近更新：${formatTimestamp(preview.generated_at)}`;
+      if (hasRenderablePreview && resolvedPreview?.generated_at) {
+        return `最近更新：${formatTimestamp(resolvedPreview.generated_at)}`;
       }
       if (isBuilding) {
         return "生成中……完成后将自动刷新";
@@ -639,6 +746,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     return (
       <>
         <div ref={forwardedRef} className={containerClassName}>
+          {appearance === "audioCreator" && (
+            <input
+              ref={audioFileInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={handleLocalAudioSelected}
+            />
+          )}
           {!isMinimal && (
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
@@ -719,6 +835,19 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                       }}
                     >
                       {uploadButtonLabel}
+                    </button>
+                  )}
+                  {isAudioMinimal && hasAudioPreview && (
+                    <button
+                      type="button"
+                      className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handlePickLocalAudio();
+                      }}
+                    >
+                      上传
                     </button>
                   )}
                   {isAudioMinimal && downloadInfo && (
@@ -901,6 +1030,40 @@ function buildFileName(token?: string, extension?: string) {
   const safeExt = extension?.replace(/[^a-z0-9]/gi, "") || "dat";
   const safeToken = token || "doubao_preview";
   return `${safeToken}.${safeExt}`;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.readAsDataURL(file);
+  });
+}
+
+function extractBase64FromDataUrl(dataUrl: string): string {
+  const commaIndex = dataUrl.indexOf(",");
+  return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+}
+
+function inferAudioTypeFromMime(mime: string): string | null {
+  const normalized = String(mime || "").toLowerCase();
+  if (!normalized) return null;
+
+  if (normalized === "audio/mpeg" || normalized === "audio/mp3") return "mp3";
+  if (normalized === "audio/wav" || normalized === "audio/x-wav") return "wav";
+  if (normalized === "audio/ogg") return "ogg";
+  if (normalized === "audio/flac") return "flac";
+  if (normalized === "audio/webm") return "webm";
+  if (normalized === "audio/mp4" || normalized === "audio/x-m4a") return "m4a";
+
+  const subtype = normalized.split("/")[1];
+  return subtype ? subtype.split("+")[0] : null;
+}
+
+function inferExtensionFromFileName(name: string): string | null {
+  const match = /\.([a-z0-9]+)$/i.exec(name || "");
+  return match?.[1]?.toLowerCase() ?? null;
 }
 
 function formatTimestamp(timestamp?: string) {

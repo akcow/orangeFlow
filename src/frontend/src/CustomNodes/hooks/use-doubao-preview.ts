@@ -171,6 +171,13 @@ function parsePreviewData(componentName: string | undefined, rawPayload: any): D
   return null;
 }
 
+export function parseDoubaoPreviewData(
+  componentName: string | undefined,
+  rawPayload: any
+): DoubaoPreviewDescriptor | null {
+  return parsePreviewData(componentName, rawPayload);
+}
+
 export function useDoubaoPreview(nodeId: string, componentName?: string): UseDoubaoPreviewReturn {
   const { flowPool, flowBuildStatus } = useFlowStore();
 

@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import socket
 from pathlib import Path
 
 from scripts.clear_component_cache import clear_component_index_cache
@@ -178,6 +179,39 @@ def build_env() -> dict[str, str]:
     return env
 
 
+def _is_port_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+        return True
+
+
+def _resolve_port(host: str) -> int:
+    configured = os.environ.get("LANGFLOW_PORT") or os.environ.get("LANGFLOW_DEV_PORT")
+    if configured:
+        try:
+            port = int(configured)
+        except ValueError as exc:
+            raise ValueError(f"Invalid LANGFLOW_PORT/LANGFLOW_DEV_PORT: {configured}") from exc
+        if not _is_port_available(host, port):
+            raise RuntimeError(f"Port {port} is already in use. Stop the existing process or pick another port.")
+        return port
+
+    preferred = 7860
+    if _is_port_available(host, preferred):
+        return preferred
+
+    for port in range(preferred + 1, preferred + 51):
+        if _is_port_available(host, port):
+            print(f"[port] {preferred} is busy; using {port} instead (set LANGFLOW_PORT to override).")
+            return port
+
+    raise RuntimeError(f"No free port found in range {preferred}-{preferred+50}.")
+
+
 def main() -> None:
     _ensure_uv_environment()
 
@@ -199,13 +233,15 @@ def main() -> None:
     print(f"   LFX_DEV={env['LFX_DEV']}")
 
     print("\n[4/4] Starting LangFlow (Ctrl+C to stop)...")
-    print("   URL: http://localhost:7860")
+    host = "0.0.0.0"
+    port = _resolve_port(host)
+    print(f"   URL: http://localhost:{port}")
 
     env_file = REPO_ROOT / ".env"
     env_file_args: list[str] = ["--env-file", str(env_file)] if env_file.exists() else []
 
     run(
-        [sys.executable, "-m", "langflow", "run", "--host", "0.0.0.0", "--port", "7860", *env_file_args],
+        [sys.executable, "-m", "langflow", "run", "--host", host, "--port", str(port), *env_file_args],
         cwd=BACKEND_BASE,
         env=env,
     )
