@@ -33,7 +33,6 @@ import SettingsPage from "./pages/SettingsPage";
 import ApiKeysPage from "./pages/SettingsPage/pages/ApiKeysPage";
 import GeneralPage from "./pages/SettingsPage/pages/GeneralPage";
 import GlobalVariablesPage from "./pages/SettingsPage/pages/GlobalVariablesPage";
-import MCPServersPage from "./pages/SettingsPage/pages/MCPServersPage";
 import MessagesPage from "./pages/SettingsPage/pages/messagesPage";
 import ShortcutsPage from "./pages/SettingsPage/pages/ShortcutsPage";
 import ProviderCredentialsPage from "./pages/SettingsPage/pages/ProviderCredentialsPage";
@@ -121,15 +120,6 @@ const router = createBrowserRouter(
                       element={<HomePage key="flows" type="flows" />}
                     />
                   </Route>
-                  <Route
-                    path="mcp/"
-                    element={<HomePage key="mcp" type="mcp" />}
-                  >
-                    <Route
-                      path="folder/:folderId"
-                      element={<HomePage key="mcp" type="mcp" />}
-                    />
-                  </Route>
                 </Route>
                 <Route path="settings" element={<SettingsPage />}>
                   <Route
@@ -144,7 +134,6 @@ const router = createBrowserRouter(
                     path="provider-credentials"
                     element={<ProviderCredentialsPage />}
                   />
-                  <Route path="mcp-servers" element={<MCPServersPage />} />
                   <Route path="api-keys" element={<ApiKeysPage />} />
                   <Route
                     path="general/:scrollId?"

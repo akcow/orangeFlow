@@ -22,6 +22,7 @@ export default function ImageViewer({ image }: { image: string }) {
 
   useEffect(() => {
     let revoke: (() => void) | undefined;
+    let cleanupViewer: (() => void) | undefined;
     let destroyed = false;
     const setup = async () => {
       const { url, revoke: revokeFn } = await toRenderableImageSource(
@@ -49,33 +50,22 @@ export default function ImageViewer({ image }: { image: string }) {
           const homeButton = document.getElementById("home-button");
           const fullPageButton = document.getElementById("full-page-button");
 
-          zoomInButton!.addEventListener("click", () =>
-            viewer.viewport.zoomBy(1.2),
-          );
-          zoomOutButton!.addEventListener("click", () =>
-            viewer.viewport.zoomBy(0.8),
-          );
-          homeButton!.addEventListener("click", () =>
-            viewer.viewport.goHome(),
-          );
-          fullPageButton!.addEventListener("click", () =>
-            viewer.setFullScreen(true),
-          );
+          const onZoomIn = () => viewer.viewport.zoomBy(1.2);
+          const onZoomOut = () => viewer.viewport.zoomBy(0.8);
+          const onHome = () => viewer.viewport.goHome();
+          const onFullPage = () => viewer.setFullScreen(true);
 
-          return () => {
+          zoomInButton?.addEventListener("click", onZoomIn);
+          zoomOutButton?.addEventListener("click", onZoomOut);
+          homeButton?.addEventListener("click", onHome);
+          fullPageButton?.addEventListener("click", onFullPage);
+
+          cleanupViewer = () => {
             viewer.destroy();
-            zoomInButton!.removeEventListener("click", () =>
-              viewer.viewport.zoomBy(1.2),
-            );
-            zoomOutButton!.removeEventListener("click", () =>
-              viewer.viewport.zoomBy(0.8),
-            );
-            homeButton!.removeEventListener("click", () =>
-              viewer.viewport.goHome(),
-            );
-            fullPageButton!.removeEventListener("click", () =>
-              viewer.setFullScreen(true),
-            );
+            zoomInButton?.removeEventListener("click", onZoomIn);
+            zoomOutButton?.removeEventListener("click", onZoomOut);
+            homeButton?.removeEventListener("click", onHome);
+            fullPageButton?.removeEventListener("click", onFullPage);
           };
         }
       } catch (error) {
@@ -83,14 +73,12 @@ export default function ImageViewer({ image }: { image: string }) {
       }
     };
 
-    const cleanupOrchestrator = setup();
+    void setup();
 
     return () => {
       destroyed = true;
+      cleanupViewer?.();
       revoke?.();
-      if (typeof cleanupOrchestrator === "function") {
-        cleanupOrchestrator();
-      }
     };
   }, [normalizedImage]);
 

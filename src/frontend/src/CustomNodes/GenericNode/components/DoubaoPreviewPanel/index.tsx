@@ -129,7 +129,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       if (!node) return;
       if (!(node as any)?.template?.draft_output) return;
 
-      const payload = rawMessage?.message;
+      const payload =
+        rawMessage && "message" in rawMessage ? (rawMessage as any).message : null;
       if (!payload || typeof payload !== "object") return;
       if (rawMessage === lastAppliedRawMessageRef.current) return;
 
@@ -955,8 +956,8 @@ export default DoubaoPreviewPanel;
 function inferExtensionFromSource(source: string, fallback: string): string {
   if (!source) return fallback;
   if (source.startsWith("data:")) {
-    const match = /^data:(?<mime>[^;]+)/.exec(source);
-    const mimeType = match?.groups?.mime;
+    const match = /^data:([^;]+)/.exec(source);
+    const mimeType = match?.[1];
     if (mimeType) {
       const ext = mimeType.split("/").pop();
       if (ext) return ext.split("+")[0];

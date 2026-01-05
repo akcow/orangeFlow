@@ -10,14 +10,14 @@ import { useGetDownloadFlows } from "@/controllers/API/queries/flows/use-get-dow
 import { ENABLE_MCP } from "@/customization/feature-flags";
 import DeleteConfirmationModal from "@/modals/deleteConfirmationModal";
 import useAlertStore from "@/stores/alertStore";
+import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { cn } from "@/utils/utils";
 
 interface HeaderComponentProps {
-  flowType: "flows" | "components" | "mcp";
-  setFlowType: (flowType: "flows" | "components" | "mcp") => void;
+  flowType: "flows" | "components";
+  setFlowType: (flowType: "flows" | "components") => void;
   view: "list" | "grid";
   setView: (view: "list" | "grid") => void;
-  setNewProjectModal: (newProjectModal: boolean) => void;
   folderName?: string;
   setSearch: (search: string) => void;
   isEmptyFolder: boolean;
@@ -30,14 +30,15 @@ const HeaderComponent = ({
   setFlowType,
   view,
   setView,
-  setNewProjectModal,
   setSearch,
   isEmptyFolder,
   selectedFlows,
 }: HeaderComponentProps) => {
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
   const isMCPEnabled = ENABLE_MCP;
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
+  const createBlankFlow = useCreateBlankFlow();
   // Debounce the setSearch function from the parent
   const debouncedSetSearch = useCallback(
     debounce((value: string) => {
@@ -61,7 +62,6 @@ const HeaderComponent = ({
   // If current flowType is not available based on feature flag, switch to flows
   useEffect(() => {
     if (
-      (flowType === "mcp" && !isMCPEnabled) ||
       (flowType === "components" && isMCPEnabled)
     ) {
       setFlowType("flows");
@@ -73,7 +73,7 @@ const HeaderComponent = ({
   };
 
   // Determine which tabs to show based on feature flag
-  const tabTypes = isMCPEnabled ? ["mcp", "flows"] : ["components", "flows"];
+  const tabTypes = isMCPEnabled ? ["flows"] : ["components", "flows"];
 
   const handleDownload = () => {
     downloadFlows({ ids: selectedFlows });
@@ -89,6 +89,17 @@ const HeaderComponent = ({
         },
       },
     );
+  };
+
+  const handleCreateNewFlow = async () => {
+    if (isCreatingFlow) return;
+    setIsCreatingFlow(true);
+    try {
+      await createBlankFlow();
+    } catch {
+    } finally {
+      setIsCreatingFlow(false);
+    }
   };
 
   return (
@@ -114,32 +125,29 @@ const HeaderComponent = ({
         <>
           <div className={cn("flex flex-row-reverse pb-4")}>
             <div className="w-full border-b dark:border-border" />
-            {tabTypes.map((type) => (
-              <Button
-                key={type}
-                unstyled
-                id={`${type}-btn`}
-                data-testid={`${type}-btn`}
-                onClick={() => {
-                  setFlowType(type as "flows" | "components" | "mcp");
-                }}
-                className={`border-b ${
-                  flowType === type
-                    ? "border-b-2 border-foreground text-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground"
+                {tabTypes.map((type) => (
+                  <Button
+                    key={type}
+                    unstyled
+                    id={`${type}-btn`}
+                    data-testid={`${type}-btn`}
+                    onClick={() => {
+                      setFlowType(type as "flows" | "components");
+                    }}
+                    className={`border-b ${
+                      flowType === type
+                        ? "border-b-2 border-foreground text-foreground"
+                        : "border-border text-muted-foreground hover:text-foreground"
                 } text-nowrap px-2 pb-2 pt-1 text-mmd`}
               >
                 <div className={flowType === type ? "-mb-px" : ""}>
-                  {type === "mcp"
-                    ? "MCP Server"
-                    : type.charAt(0).toUpperCase() + type.slice(1)}
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
                 </div>
               </Button>
             ))}
           </div>
           {/* Search and filters */}
-          {flowType !== "mcp" && (
-            <div className="flex justify-between">
+          <div className="flex justify-between">
               <div className="flex w-full xl:w-5/12">
                 <Input
                   icon="Search"
@@ -227,9 +235,10 @@ const HeaderComponent = ({
                     variant="default"
                     size="iconMd"
                     className="z-50 px-2.5 !text-mmd"
-                    onClick={() => setNewProjectModal(true)}
+                    onClick={handleCreateNewFlow}
                     id="new-project-btn"
                     data-testid="new-project-btn"
+                    loading={isCreatingFlow}
                   >
                     <ForwardedIconComponent
                       name="Plus"
@@ -242,8 +251,7 @@ const HeaderComponent = ({
                   </Button>
                 </ShadTooltip>
               </div>
-            </div>
-          )}
+          </div>
         </>
       )}
     </>

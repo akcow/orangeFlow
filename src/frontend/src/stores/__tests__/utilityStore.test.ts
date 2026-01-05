@@ -509,23 +509,23 @@ describe("useUtilityStore", () => {
   });
 
   describe("setEventDelivery", () => {
-    it("should set event delivery to webhook", () => {
+    it("should set event delivery", () => {
       const { result } = renderHook(() => useUtilityStore());
 
       act(() => {
-        result.current.setEventDelivery(EventDeliveryType.WEBHOOK);
+        result.current.setEventDelivery(EventDeliveryType.DIRECT);
       });
 
-      expect(result.current.eventDelivery).toBe(EventDeliveryType.WEBHOOK);
+      expect(result.current.eventDelivery).toBe(EventDeliveryType.DIRECT);
     });
 
     it("should switch between event delivery types", () => {
       const { result } = renderHook(() => useUtilityStore());
 
       act(() => {
-        result.current.setEventDelivery(EventDeliveryType.WEBHOOK);
+        result.current.setEventDelivery(EventDeliveryType.DIRECT);
       });
-      expect(result.current.eventDelivery).toBe(EventDeliveryType.WEBHOOK);
+      expect(result.current.eventDelivery).toBe(EventDeliveryType.DIRECT);
 
       act(() => {
         result.current.setEventDelivery(EventDeliveryType.POLLING);

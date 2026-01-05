@@ -32,7 +32,7 @@ export default function ViewPage() {
 
   return (
     <div className="flow-page-positioning">
-      <Page view />
+      <Page view setIsLoading={() => {}} />
     </div>
   );
 }

@@ -518,7 +518,7 @@ const NodeToolbarComponent = memo(
                     value={"删除"}
                     icon={"Trash2"}
                     dataTestId="delete-button-modal"
-                    className="text-status-red"
+                    style="text-status-red"
                     shortcut={
                       shortcuts.find((obj) => obj.name === "Delete")
                         ?.shortcut!

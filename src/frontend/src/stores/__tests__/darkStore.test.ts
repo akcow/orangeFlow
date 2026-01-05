@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 
 // Mock localStorage before importing the store
 const localStorageMock = {
-  getItem: jest.fn(() => null),
+  getItem: jest.fn((_key: string) => null as string | null),
   setItem: jest.fn(),
   clear: jest.fn(),
 };
@@ -13,23 +13,12 @@ Object.defineProperty(window, "localStorage", {
   writable: true,
 });
 
-// Mock the API controllers
-const mockGetRepoStars = jest.fn();
-const mockGetDiscordCount = jest.fn();
-
-jest.mock("@/controllers/API", () => ({
-  getRepoStars: mockGetRepoStars,
-  getDiscordCount: mockGetDiscordCount,
-}));
-
 describe("useDarkStore", () => {
   // Clear mocks before each test
   beforeEach(() => {
     jest.clearAllMocks();
     localStorageMock.getItem.mockReturnValue(null);
     localStorageMock.setItem.mockClear();
-    mockGetRepoStars.mockClear();
-    mockGetDiscordCount.mockClear();
   });
 
   // Import the store after mocks are set up
@@ -98,46 +87,6 @@ describe("useDarkStore", () => {
       expect(localStorageMock.getItem).toBeDefined();
       expect(localStorageMock.setItem).toBeDefined();
     });
-
-    it("should handle API calls for stars", async () => {
-      mockGetRepoStars.mockResolvedValue(1000);
-
-      const { result } = renderHook(() => useDarkStore());
-
-      if (result.current.refreshStars) {
-        act(() => {
-          result.current.refreshStars();
-        });
-
-        // Wait for promise to resolve
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-      }
-
-      // Verify API was set up correctly even if store isn't working
-      expect(mockGetRepoStars).toBeDefined();
-    });
-
-    it("should handle API calls for discord count", async () => {
-      mockGetDiscordCount.mockResolvedValue(500);
-
-      const { result } = renderHook(() => useDarkStore());
-
-      if (result.current.refreshDiscordCount) {
-        act(() => {
-          result.current.refreshDiscordCount();
-        });
-
-        // Wait for promise to resolve
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-      }
-
-      // Verify API was set up correctly
-      expect(mockGetDiscordCount).toBeDefined();
-    });
   });
 
   describe("mocking verification", () => {
@@ -151,23 +100,12 @@ describe("useDarkStore", () => {
       expect(localStorageMock.setItem).toHaveBeenCalledWith("test", "value");
     });
 
-    it("should have API controllers properly mocked", () => {
-      expect(mockGetRepoStars).toBeDefined();
-      expect(mockGetDiscordCount).toBeDefined();
-
-      // Test that mocks are functions
-      expect(typeof mockGetRepoStars).toBe("function");
-      expect(typeof mockGetDiscordCount).toBe("function");
-    });
-
     it("should handle store initialization edge cases", () => {
       // Test with different localStorage values
       localStorageMock.getItem.mockImplementation((key) => {
         switch (key) {
           case "isDark":
             return "true";
-          case "githubStars":
-            return "1500";
           default:
             return null;
         }
@@ -177,7 +115,6 @@ describe("useDarkStore", () => {
 
       // Even if the store doesn't initialize properly, the test setup should work
       expect(localStorageMock.getItem("isDark")).toBe("true");
-      expect(localStorageMock.getItem("githubStars")).toBe("1500");
     });
   });
 
@@ -194,19 +131,11 @@ describe("useDarkStore", () => {
     });
 
     it("should handle API errors gracefully", async () => {
-      mockGetRepoStars.mockRejectedValue(new Error("API Error"));
-      mockGetDiscordCount.mockRejectedValue(new Error("Discord Error"));
-
       const { result } = renderHook(() => useDarkStore());
 
       // Even if store methods don't exist, the test should verify error handling setup
       expect(() => {
-        if (result.current.refreshStars) {
-          result.current.refreshStars();
-        }
-        if (result.current.refreshDiscordCount) {
-          result.current.refreshDiscordCount();
-        }
+        void result.current;
       }).not.toThrow();
     });
   });
@@ -217,8 +146,6 @@ describe("useDarkStore", () => {
       // even if the actual store has issues
 
       expect(localStorageMock).toBeDefined();
-      expect(mockGetRepoStars).toBeDefined();
-      expect(mockGetDiscordCount).toBeDefined();
 
       // Test localStorage mock
       localStorageMock.setItem("test-key", "test-value");
@@ -226,10 +153,6 @@ describe("useDarkStore", () => {
         "test-key",
         "test-value",
       );
-
-      // Test API mocks
-      mockGetRepoStars.mockReturnValue(Promise.resolve(100));
-      expect(mockGetRepoStars()).resolves.toBe(100);
     });
 
     it("should handle store state changes if store is functional", () => {

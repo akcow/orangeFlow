@@ -71,7 +71,7 @@ function extractCustomComponents(data: Record<string, any>) {
   };
   Object.values(data ?? {}).forEach((category: any) => {
     Object.entries(category ?? {}).forEach(([key, value]) => {
-      const typeName = value?.type ?? key;
+      const typeName = (value as any)?.type ?? key;
       if (CUSTOM_COMPONENT_KEYS.includes(typeName)) {
         result[CUSTOM_CATEGORY_NAME][key] = value;
       }

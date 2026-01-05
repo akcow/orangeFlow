@@ -11,11 +11,13 @@ import { getURL } from "../../helpers/constants";
 import { UseRequestProcessor } from "../../services/request-processor";
 
 export const usePutProviderCredentials: useMutationFunctionType<
-  ProviderCredentialsResponse,
+  undefined,
   {
     provider?: string;
     payload: ProviderCredentialsUpdateRequest;
   }
+  ,
+  ProviderCredentialsResponse
 > = (options?) => {
   const { mutate, queryClient } = UseRequestProcessor();
   const setSuccessData = useAlertStore((state) => state.setSuccessData);

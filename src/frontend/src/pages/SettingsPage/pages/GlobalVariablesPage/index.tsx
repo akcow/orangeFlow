@@ -5,7 +5,6 @@ import type {
 } from "ag-grid-community";
 import { useRef, useState } from "react";
 
-import Dropdown from "@/components/core/dropdownComponent";
 import GlobalVariableModal from "@/components/core/GlobalVariableModal/GlobalVariableModal";
 import TableComponent from "@/components/core/parameterRenderComponent/components/tableComponent";
 import {
@@ -38,9 +37,17 @@ export default function GlobalVariablesPage() {
 
   const DropdownEditor = ({ options, value, onValueChange }) => {
     return (
-      <Dropdown options={options} value={value} onSelect={onValueChange}>
-        <div className="-mt-1.5 w-full"></div>
-      </Dropdown>
+      <select
+        className="w-full bg-transparent text-sm outline-none"
+        value={value}
+        onChange={(e) => onValueChange(e.target.value)}
+      >
+        {options?.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
     );
   };
   // Column Definitions: Defines the columns to be displayed.

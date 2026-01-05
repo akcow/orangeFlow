@@ -14,7 +14,6 @@ import ModalsComponent from "../components/modalsComponent";
 import EmptyPageCommunity from "./empty-page";
 
 export default function CollectionPage(): JSX.Element {
-  const [openModal, setOpenModal] = useState(false);
   const [openDeleteFolderModal, setOpenDeleteFolderModal] = useState(false);
   const setFolderToEdit = useFolderStore((state) => state.setFolderToEdit);
   const navigate = useCustomNavigate();
@@ -81,7 +80,7 @@ export default function CollectionPage(): JSX.Element {
             {flows?.length !== examples?.length || folders?.length > 1 ? (
               <Outlet />
             ) : (
-              <CustomEmptyPageCommunity setOpenModal={setOpenModal} />
+              <CustomEmptyPageCommunity />
             )}
           </div>
         ) : (
@@ -91,8 +90,6 @@ export default function CollectionPage(): JSX.Element {
         )}
       </main>
       <ModalsComponent
-        openModal={openModal}
-        setOpenModal={setOpenModal}
         openDeleteFolderModal={openDeleteFolderModal}
         setOpenDeleteFolderModal={setOpenDeleteFolderModal}
         handleDeleteFolder={handleDeleteFolder}

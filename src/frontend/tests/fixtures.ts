@@ -83,14 +83,14 @@ export const test = base.extend({
           }
 
           const READ_BODY_TIMEOUT_MS = 2000;
-          const bodyTimeoutToken = Symbol("response-body-timeout");
+          const bodyTimeoutToken = { kind: "response-body-timeout" } as const;
           let responseBody: string | undefined;
           let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
           try {
             const bodyResult = await Promise.race([
               response.text(),
-              new Promise<symbol>((resolve) => {
+              new Promise<typeof bodyTimeoutToken>((resolve) => {
                 timeoutId = setTimeout(
                   () => resolve(bodyTimeoutToken),
                   READ_BODY_TIMEOUT_MS,
@@ -110,7 +110,7 @@ export const test = base.extend({
               return;
             }
 
-            responseBody = bodyResult;
+            responseBody = bodyResult as string;
           } catch (bodyReadErr) {
             if (timeoutId) {
               clearTimeout(timeoutId);
@@ -207,8 +207,6 @@ export const test = base.extend({
                 `Error: ${errorPreview}\n\n` +
                 `If this error is expected, call page.allowFlowErrors() at the start of your test.`;
 
-              // Use page.close() to fail the test immediately
-              page.emit("pageerror", new Error(errorMessage));
               throw new Error(errorMessage);
             }
           }

@@ -19,9 +19,9 @@ export function UseRequestProcessor(): {
   const queryClient = useQueryClient();
 
   function query(
-    queryKey: UseQueryOptions["queryKey"],
-    queryFn: UseQueryOptions["queryFn"],
-    options: Omit<UseQueryOptions, "queryFn" | "queryKey"> = {},
+    queryKey: UseQueryOptions<any, any, any, any>["queryKey"],
+    queryFn: UseQueryOptions<any, any, any, any>["queryFn"],
+    options: Omit<UseQueryOptions<any, any, any, any>, "queryFn" | "queryKey"> = {},
   ) {
     return useQuery({
       queryKey,
@@ -33,9 +33,12 @@ export function UseRequestProcessor(): {
   }
 
   function mutate(
-    mutationKey: UseMutationOptions["mutationKey"],
-    mutationFn: UseMutationOptions["mutationFn"],
-    options: Omit<UseMutationOptions, "mutationFn" | "mutationKey"> = {},
+    mutationKey: UseMutationOptions<any, any, any, any>["mutationKey"],
+    mutationFn: UseMutationOptions<any, any, any, any>["mutationFn"],
+    options: Omit<
+      UseMutationOptions<any, any, any, any>,
+      "mutationFn" | "mutationKey"
+    > = {},
   ) {
     return useMutation({
       mutationKey,

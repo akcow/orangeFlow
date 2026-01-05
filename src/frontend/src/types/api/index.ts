@@ -268,23 +268,26 @@ export type useQueryFunctionType<
   O = {},
 > = T extends undefined
   ? (
-      options?: Omit<UseQueryOptions, "queryFn" | "queryKey"> & O,
-    ) => UseQueryResult<R>
+      options?: Omit<UseQueryOptions<R, any, R>, "queryFn" | "queryKey"> & O,
+    ) => UseQueryResult<R, any>
   : (
       params: T,
-      options?: Omit<UseQueryOptions, "queryFn" | "queryKey"> & O,
-    ) => UseQueryResult<R>;
+      options?: Omit<UseQueryOptions<R, any, R>, "queryFn" | "queryKey"> & O,
+    ) => UseQueryResult<R, any>;
 
 export type QueryFunctionType = (
-  queryKey: UseQueryOptions["queryKey"],
-  queryFn: UseQueryOptions["queryFn"],
-  options?: Omit<UseQueryOptions, "queryKey" | "queryFn">,
-) => UseQueryResult<any>;
+  queryKey: UseQueryOptions<any, any, any, any>["queryKey"],
+  queryFn: UseQueryOptions<any, any, any, any>["queryFn"],
+  options?: Omit<UseQueryOptions<any, any, any, any>, "queryKey" | "queryFn">,
+) => UseQueryResult<any, any>;
 
 export type MutationFunctionType = (
-  mutationKey: UseMutationOptions["mutationKey"],
-  mutationFn: UseMutationOptions<any, any, any>["mutationFn"],
-  options?: Omit<UseMutationOptions<any, any>, "mutationFn" | "mutationKey">,
+  mutationKey: UseMutationOptions<any, any, any, any>["mutationKey"],
+  mutationFn: UseMutationOptions<any, any, any, any>["mutationFn"],
+  options?: Omit<
+    UseMutationOptions<any, any, any, any>,
+    "mutationFn" | "mutationKey"
+  >,
 ) => UseMutationResult<any, any, any, any>;
 
 export type useMutationFunctionType<
@@ -295,14 +298,14 @@ export type useMutationFunctionType<
 > = Params extends undefined
   ? (
       options?: Omit<
-        UseMutationOptions<Data, Error>,
+        UseMutationOptions<Data, Error, Variables>,
         "mutationFn" | "mutationKey"
       >,
     ) => UseMutationResult<Data, Error, Variables>
   : (
       params: Params,
       options?: Omit<
-        UseMutationOptions<Data, Error>,
+        UseMutationOptions<Data, Error, Variables>,
         "mutationFn" | "mutationKey"
       >,
     ) => UseMutationResult<Data, Error, Variables>;

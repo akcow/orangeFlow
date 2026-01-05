@@ -56,6 +56,9 @@ export function StrRenderComponent({
         {...baseInputProps}
         password={templateData.password}
         load_from_db={templateData.load_from_db}
+        allowCustomValue={
+          templateData.allowCustomValue ?? templateData.allow_custom_value
+        }
         placeholder={placeholder}
         display_name={display_name}
         id={`input-${name}`}

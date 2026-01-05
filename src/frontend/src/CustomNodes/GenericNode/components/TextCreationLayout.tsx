@@ -19,9 +19,9 @@ import {
 import HandleRenderComponent from "./handleRenderComponent";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { scapeJSONParse, scapedJSONStringfy, getNodeId } from "@/utils/reactflowUtils";
-import { cn, getNodeRenderType } from "@/utils/utils";
+import { cn } from "@/utils/utils";
 import { BuildStatus } from "@/constants/enums";
-import type { AllNodeType, NodeDataType } from "@/types/flow";
+import type { GenericNodeType, NodeDataType } from "@/types/flow";
 import type { TypesStoreType } from "@/types/zustand/types";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
@@ -241,9 +241,9 @@ export default function TextCreationLayout({
     if (seededVideoComponent.template?.prompt) {
       seededVideoComponent.template.prompt.value = "根据文字描述生成视频";
     }
-    const newVideoNode: AllNodeType = {
+    const newVideoNode: GenericNodeType = {
       id: newVideoNodeId,
-      type: getNodeRenderType("genericnode"),
+      type: "genericNode",
       position: {
         x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
         y: currentNode.position.y,
@@ -257,11 +257,10 @@ export default function TextCreationLayout({
       selected: true,
     };
 
-    setNodes((currentNodes) =>
-      currentNodes
-        .map((node) => ({ ...node, selected: false }))
-        .concat(newVideoNode),
-    );
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: false })),
+      newVideoNode,
+    ]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
@@ -349,9 +348,9 @@ export default function TextCreationLayout({
     takeSnapshot();
 
     const newAudioNodeId = getNodeId("DoubaoTTS");
-    const newAudioNode: AllNodeType = {
+    const newAudioNode: GenericNodeType = {
       id: newAudioNodeId,
-      type: getNodeRenderType("genericnode"),
+      type: "genericNode",
       position: {
         x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
         y: currentNode.position.y,
@@ -365,11 +364,10 @@ export default function TextCreationLayout({
       selected: true,
     };
 
-    setNodes((currentNodes) =>
-      currentNodes
-        .map((node) => ({ ...node, selected: false }))
-        .concat(newAudioNode),
-    );
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: false })),
+      newAudioNode,
+    ]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
@@ -503,9 +501,9 @@ export default function TextCreationLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
-    const newImageNode: AllNodeType = {
+    const newImageNode: GenericNodeType = {
       id: newImageNodeId,
-      type: getNodeRenderType("genericnode"),
+      type: "genericNode",
       position: {
         x: currentNode.position.x - IMAGE_UPSTREAM_NODE_OFFSET_X,
         y: currentNode.position.y,
@@ -519,11 +517,10 @@ export default function TextCreationLayout({
       selected: true,
     };
 
-    setNodes((currentNodes) =>
-      currentNodes
-        .map((node) => ({ ...node, selected: node.id === data.id }))
-        .concat(newImageNode),
-    );
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: node.id === data.id })),
+      newImageNode,
+    ]);
 
     const sourceHandle = {
       output_types: ["Data"],
@@ -593,8 +590,9 @@ export default function TextCreationLayout({
     return CONTROL_FIELDS.map((field) => {
       const templateField = template[field.name];
       if (!templateField) return null;
-      const options: Array<string | number> =
-        templateField.options ?? templateField.list ?? [];
+      const options: Array<string | number> = Array.isArray(templateField.options)
+        ? templateField.options
+        : [];
       const tooltipText =
         DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
       return {
@@ -940,7 +938,7 @@ export default function TextCreationLayout({
             showNode
             shownOutputs={[]}
             showHiddenOutputs={false}
-            filterFields={[...customFields]}
+            filterFields={Array.from(customFields)}
             filterMode="exclude"
           />
         </div>

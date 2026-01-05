@@ -20,7 +20,7 @@ jest.mock("@/constants/constants", () => ({
 // Mock the darkStore to avoid import.meta issues
 jest.mock("../darkStore", () => ({
   useDarkStore: {
-    getState: () => ({ refreshStars: jest.fn() }),
+    getState: () => ({}),
     setState: jest.fn(),
     subscribe: jest.fn(),
     destroy: jest.fn(),

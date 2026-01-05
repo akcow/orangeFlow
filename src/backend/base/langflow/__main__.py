@@ -614,20 +614,12 @@ def print_banner(host: str, port: int, protocol: str) -> None:
     import platform
 
     if platform.system() == "Windows":
-        github_icon = "*"
-        discord_icon = "#"
         arrow = "->"
         status_icon = "[OK]"
     else:
-        github_icon = ":star2:"
-        discord_icon = ":speech_balloon:"
         arrow = "→"
         status_icon = "🟢"
 
-    info_text = (
-        f"{github_icon} GitHub: Star for updates {arrow} https://github.com/langflow-ai/langflow\n"
-        f"{discord_icon} Discord: Join for support {arrow} https://discord.com/invite/EqksyE2EX9"
-    )
     telemetry_text = (
         (
             "We collect anonymous usage data to improve Langflow.\n"
@@ -642,7 +634,7 @@ def print_banner(host: str, port: int, protocol: str) -> None:
     access_host = get_best_access_host(host, port)
     access_link = f"[bold]{status_icon} Open Langflow {arrow}[/bold] [link={protocol}://{access_host}:{port}]{protocol}://{access_host}:{port}[/link]"
 
-    message = f"{title}\n{info_text}\n\n{telemetry_text}\n\n{access_link}"
+    message = f"{title}\n{telemetry_text}\n\n{access_link}"
 
     # Handle Unicode encoding errors on Windows
     try:
@@ -652,8 +644,6 @@ def print_banner(host: str, port: int, protocol: str) -> None:
         # Fallback to a simpler banner without emojis for Windows systems with encoding issues
         fallback_message = (
             f"Welcome to {package_name}\n\n"
-            "* GitHub: https://github.com/langflow-ai/langflow\n"
-            "# Discord: https://discord.com/invite/EqksyE2EX9\n\n"
             f"{telemetry_text}\n\n"
             f"[OK] Open Langflow -> {protocol}://{access_host}:{port}"
         )
@@ -663,8 +653,6 @@ def print_banner(host: str, port: int, protocol: str) -> None:
         except UnicodeEncodeError:
             # Last resort: use logger instead of print
             logger.info(f"Welcome to {package_name}")
-            logger.info("GitHub: https://github.com/langflow-ai/langflow")
-            logger.info("Discord: https://discord.com/invite/EqksyE2EX9")
             logger.info(f"Open Langflow: {protocol}://{access_host}:{port}")
 
 

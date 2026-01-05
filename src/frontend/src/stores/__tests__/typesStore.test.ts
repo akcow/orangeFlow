@@ -51,7 +51,7 @@ const mockAPIData: APIDataType = {
     },
     description: "Number input component",
   },
-};
+} as unknown as APIDataType;
 
 const mockAPIData2: APIDataType = {
   BooleanInput: {
@@ -63,7 +63,7 @@ const mockAPIData2: APIDataType = {
     },
     description: "Boolean input component",
   },
-};
+} as unknown as APIDataType;
 
 const mockTemplates = {
   TextInput: { template: mockAPIData.TextInput },
@@ -81,7 +81,7 @@ describe("useTypesStore", () => {
 
     // Reset mock implementations
     mockExtractSecretFieldsFromComponents.mockImplementation((data) => {
-      if (!data || typeof data !== "object") return new Set();
+      if (!data || typeof data !== "object") return new Set<string>();
       return new Set(Object.keys(data));
     });
     mockTemplatesGenerator.mockReturnValue({});
@@ -89,7 +89,7 @@ describe("useTypesStore", () => {
 
     act(() => {
       useTypesStore.setState({
-        ComponentFields: new Set(),
+        ComponentFields: new Set<string>(),
         types: {},
         templates: {},
         data: {},
@@ -101,7 +101,7 @@ describe("useTypesStore", () => {
     it("should have correct initial state", () => {
       const { result } = renderHook(() => useTypesStore());
 
-      expect(result.current.ComponentFields).toEqual(new Set());
+      expect(result.current.ComponentFields).toEqual(new Set<string>());
       expect(result.current.types).toEqual({});
       expect(result.current.templates).toEqual({});
       expect(result.current.data).toEqual({});
@@ -138,7 +138,7 @@ describe("useTypesStore", () => {
 
     it("should handle empty Set", () => {
       const { result } = renderHook(() => useTypesStore());
-      const emptySet = new Set();
+      const emptySet = new Set<string>();
 
       act(() => {
         result.current.setComponentFields(emptySet);
@@ -523,7 +523,7 @@ describe("useTypesStore", () => {
 
     it("should handle large ComponentFields sets", () => {
       const { result } = renderHook(() => useTypesStore());
-      const largeSet = new Set();
+      const largeSet = new Set<string>();
 
       for (let i = 0; i < 1000; i++) {
         largeSet.add(`field-${i}`);

@@ -48,7 +48,7 @@ jest.mock("../alertStore", () => ({
 jest.mock("../darkStore", () => ({
   useDarkStore: {
     getState: () => ({
-      refreshStars: jest.fn(),
+      refreshVersion: jest.fn(),
     }),
   },
 }));
@@ -291,7 +291,7 @@ describe("useFlowStore", () => {
   describe("inputs and outputs management", () => {
     it("should set inputs", () => {
       const { result } = renderHook(() => useFlowStore());
-      const mockInputs = [{ name: "input1", type: "text" }];
+      const mockInputs = [{ id: "input1", type: "text", displayName: "input1" }];
 
       act(() => {
         result.current.setInputs(mockInputs);
@@ -302,7 +302,7 @@ describe("useFlowStore", () => {
 
     it("should set outputs", () => {
       const { result } = renderHook(() => useFlowStore());
-      const mockOutputs = [{ name: "output1", type: "text" }];
+      const mockOutputs = [{ id: "output1", type: "text", displayName: "output1" }];
 
       act(() => {
         result.current.setOutputs(mockOutputs);
@@ -331,7 +331,7 @@ describe("useFlowStore", () => {
   describe("flow pool management", () => {
     it("should set flow pool", () => {
       const { result } = renderHook(() => useFlowStore());
-      const mockFlowPool = { flow1: { id: "flow1", data: {} } };
+      const mockFlowPool = { flow1: [{ id: "flow1", data: {} }] } as any;
 
       act(() => {
         result.current.setFlowPool(mockFlowPool);
@@ -356,7 +356,7 @@ describe("useFlowStore", () => {
       const mockAbort = jest.fn();
       act(() => {
         useFlowStore.setState({
-          buildController: { abort: mockAbort },
+          buildController: { abort: mockAbort } as unknown as AbortController,
           updateEdgesRunningByNodes: jest.fn(),
           revertBuiltStatusFromBuilding: jest.fn(),
           nodes: [mockNode],
@@ -403,7 +403,7 @@ describe("useFlowStore", () => {
 
       act(() => {
         useFlowStore.setState({
-          reactFlowInstance: { fitView: mockFitView },
+          reactFlowInstance: { fitView: mockFitView } as any,
           nodes: [mockNode],
         });
       });
@@ -456,8 +456,12 @@ describe("useFlowStore", () => {
 
       // Set up inputs/outputs
       act(() => {
-        result.current.setInputs([{ name: "input1", type: "text" }]);
-        result.current.setOutputs([{ name: "output1", type: "text" }]);
+        result.current.setInputs([
+          { id: "input1", type: "text", displayName: "input1" },
+        ]);
+        result.current.setOutputs([
+          { id: "output1", type: "text", displayName: "output1" },
+        ]);
         result.current.setHasIO(true);
       });
 
@@ -541,9 +545,19 @@ describe("useFlowStore", () => {
         result.current.setPlaygroundPage(true);
         result.current.setPositionDictionary({ 10: 20, 30: 40 });
         result.current.setComponentsToUpdate([]);
-        result.current.setInputs([{ name: "concurrent-input", type: "text" }]);
+        result.current.setInputs([
+          {
+            id: "concurrent-input",
+            type: "text",
+            displayName: "concurrent-input",
+          },
+        ]);
         result.current.setOutputs([
-          { name: "concurrent-output", type: "text" },
+          {
+            id: "concurrent-output",
+            type: "text",
+            displayName: "concurrent-output",
+          },
         ]);
         result.current.setHasIO(true);
       });

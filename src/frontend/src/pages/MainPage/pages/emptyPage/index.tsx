@@ -2,16 +2,16 @@ import LangflowLogo from "@/assets/LangflowLogo.svg?react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import CardsWrapComponent from "@/components/core/cardsWrapComponent";
 import { Button } from "@/components/ui/button";
+import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { useFolderStore } from "@/stores/foldersStore";
+import { useState } from "react";
 import useFileDrop from "../../hooks/use-on-file-drop";
 
-type EmptyPageProps = {
-  setOpenModal: (open: boolean) => void;
-};
-
-export const EmptyPage = ({ setOpenModal }: EmptyPageProps) => {
+export const EmptyPage = () => {
   const folders = useFolderStore((state) => state.folders);
   const handleFileDrop = useFileDrop(undefined);
+  const createBlankFlow = useCreateBlankFlow();
+  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
 
   return (
     <CardsWrapComponent
@@ -32,13 +32,23 @@ export const EmptyPage = ({ setOpenModal }: EmptyPageProps) => {
               data-testid="empty-project-description"
               className="pb-5 text-sm text-secondary-foreground"
             >
-              Begin with a template, or start from scratch.
+              Start from scratch with a blank flow.
             </p>
             <Button
               variant="default"
-              onClick={() => setOpenModal(true)}
+              onClick={async () => {
+                if (isCreatingFlow) return;
+                setIsCreatingFlow(true);
+                try {
+                  await createBlankFlow();
+                } catch {
+                } finally {
+                  setIsCreatingFlow(false);
+                }
+              }}
               id="new-project-btn"
               data-testid="new_project_btn_empty_page"
+              loading={isCreatingFlow}
             >
               <ForwardedIconComponent
                 name="Plus"

@@ -74,7 +74,7 @@ jest.mock("@/stores/storeStore", () => ({
 
 jest.mock("@/stores/darkStore", () => ({
   useDarkStore: {
-    getState: () => ({ refreshStars: jest.fn() }),
+    getState: () => ({}),
     setState: jest.fn(),
     subscribe: jest.fn(),
     destroy: jest.fn(),

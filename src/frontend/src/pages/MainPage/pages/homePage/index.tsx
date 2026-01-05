@@ -5,37 +5,34 @@ import CardsWrapComponent from "@/components/core/cardsWrapComponent";
 import { IS_MAC } from "@/constants/constants";
 import { useGetFolderQuery } from "@/controllers/API/queries/folders/use-get-folder";
 import { CustomBanner } from "@/customization/components/custom-banner";
-import { CustomMcpServerTab } from "@/customization/components/custom-McpServerTab";
 import {
   ENABLE_DATASTAX_LANGFLOW,
   ENABLE_MCP,
 } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
+import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import { FlowType } from "@/types/flow";
 import HeaderComponent from "../../components/header";
 import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
-import ModalsComponent from "../../components/modalsComponent";
 import useFileDrop from "../../hooks/use-on-file-drop";
 import EmptyFolder from "../emptyFolder";
 
-const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
+const HomePage = ({ type }: { type: "flows" | "components" }) => {
   const [view, setView] = useState<"grid" | "list">(() => {
     const savedView = localStorage.getItem("view");
     return savedView === "grid" || savedView === "list" ? savedView : "list";
   });
-  const [newProjectModal, setNewProjectModal] = useState(false);
   const { folderId } = useParams();
   const [pageIndex, setPageIndex] = useState(1);
   const [pageSize, setPageSize] = useState(12);
   const [search, setSearch] = useState("");
   const navigate = useCustomNavigate();
+  const createBlankFlow = useCreateBlankFlow();
 
-  const [flowType, setFlowType] = useState<"flows" | "components" | "mcp">(
-    type,
-  );
+  const [flowType, setFlowType] = useState<"flows" | "components">(type);
   const myCollectionId = useFolderStore((state) => state.myCollectionId);
   const folders = useFolderStore((state) => state.folders);
   const folderName =
@@ -101,6 +98,13 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
     ) === undefined;
 
   const handleFileDrop = useFileDrop(isEmptyFolder ? undefined : flowType);
+
+  const handleCreateNewFlow = async () => {
+    try {
+      await createBlankFlow();
+    } catch {
+    }
+  };
 
   useEffect(() => {
     if (
@@ -243,7 +247,7 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
 
   return (
     <CardsWrapComponent
-      onFileDrop={flowType === "mcp" ? undefined : handleFileDrop}
+      onFileDrop={handleFileDrop}
       dragMessage={`Drop your ${isEmptyFolder ? "flows or components" : flowType} here`}
     >
       <div
@@ -260,13 +264,12 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                 setFlowType={setFlowType}
                 view={view}
                 setView={setView}
-                setNewProjectModal={setNewProjectModal}
                 setSearch={onSearch}
                 isEmptyFolder={isEmptyFolder}
                 selectedFlows={selectedFlows}
               />
               {isEmptyFolder ? (
-                <EmptyFolder setOpenModal={setNewProjectModal} />
+                <EmptyFolder onCreateFlow={handleCreateNewFlow} />
               ) : (
                 <div className="flex h-full flex-col">
                   {isLoading ? (
@@ -281,8 +284,6 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                         <ListSkeleton />
                       </div>
                     )
-                  ) : flowType === "mcp" ? (
-                    <CustomMcpServerTab folderName={folderName} />
                   ) : (flowType === "flows" || flowType === "components") &&
                     data &&
                     data.pagination.total > 0 ? (
@@ -319,7 +320,9 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                     <div className="pt-24 text-center text-sm text-secondary-foreground">
                       No flows in this project.{" "}
                       <a
-                        onClick={() => setNewProjectModal(true)}
+                        onClick={() => {
+                          void handleCreateNewFlow();
+                        }}
                         className="cursor-pointer underline"
                       >
                         Create a new flow
@@ -361,15 +364,7 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
               </div>
             )}
         </div>
-      </div>
-
-      <ModalsComponent
-        openModal={newProjectModal}
-        setOpenModal={setNewProjectModal}
-        openDeleteFolderModal={false}
-        setOpenDeleteFolderModal={() => {}}
-        handleDeleteFolder={() => {}}
-      />
+       </div>
     </CardsWrapComponent>
   );
 };

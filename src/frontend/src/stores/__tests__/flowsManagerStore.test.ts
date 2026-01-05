@@ -18,8 +18,8 @@ const mockSetEdges = jest.fn();
 
 const mockFlowStore = {
   getState: jest.fn(() => ({
-    nodes: [],
-    edges: [],
+    nodes: [] as any[],
+    edges: [] as any[],
     resetFlow: mockResetFlow,
     setNodes: mockSetNodes,
     setEdges: mockSetEdges,
@@ -42,7 +42,7 @@ describe("useFlowsManagerStore", () => {
     description: "Test Description 1",
     data: { nodes: [], edges: [] },
     is_component: false,
-  } as FlowType;
+  } as unknown as FlowType;
 
   const mockFlow2: FlowType = {
     id: "flow-2",
@@ -50,7 +50,7 @@ describe("useFlowsManagerStore", () => {
     description: "Test Description 2",
     data: { nodes: [], edges: [] },
     is_component: false,
-  } as FlowType;
+  } as unknown as FlowType;
 
   const mockFlows = [mockFlow1, mockFlow2];
 

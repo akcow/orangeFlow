@@ -13,30 +13,6 @@ import type {
 import type { FlowStyleType, FlowType } from "../../types/flow";
 import type { StoreComponentResponse } from "../../types/store";
 
-const GITHUB_API_URL = "https://api.github.com";
-const DISCORD_API_URL =
-  "https://discord.com/api/v9/invites/EqksyE2EX9?with_counts=true";
-
-export async function getRepoStars(owner: string, repo: string) {
-  try {
-    const response = await api.get(`${GITHUB_API_URL}/repos/${owner}/${repo}`);
-    return response?.data.stargazers_count;
-  } catch (error) {
-    console.error("Error fetching repository data:", error);
-    return null;
-  }
-}
-
-export async function getDiscordCount() {
-  try {
-    const response = await api.get(DISCORD_API_URL);
-    return response?.data.approximate_member_count;
-  } catch (error) {
-    console.error("Error fetching repository data:", error);
-    return null;
-  }
-}
-
 export const getAppVersions = customGetAppVersions;
 export const getLatestVersion = customGetLatestVersion;
 

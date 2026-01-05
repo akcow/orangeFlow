@@ -1,13 +1,32 @@
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
+import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { useFolderStore } from "@/stores/foldersStore";
+import { useState } from "react";
 
 type EmptyFolderProps = {
-  setOpenModal: (open: boolean) => void;
+  onCreateFlow?: () => void;
 };
 
-export const EmptyFolder = ({ setOpenModal }: EmptyFolderProps) => {
+export const EmptyFolder = ({ onCreateFlow }: EmptyFolderProps) => {
   const folders = useFolderStore((state) => state.folders);
+  const createBlankFlow = useCreateBlankFlow();
+  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
+
+  const handleCreateFlow = async () => {
+    if (isCreatingFlow) return;
+    setIsCreatingFlow(true);
+    try {
+      if (onCreateFlow) {
+        await onCreateFlow();
+        return;
+      }
+      await createBlankFlow();
+    } catch {
+    } finally {
+      setIsCreatingFlow(false);
+    }
+  };
 
   return (
     <div className="m-0 flex w-full justify-center">
@@ -19,13 +38,14 @@ export const EmptyFolder = ({ setOpenModal }: EmptyFolderProps) => {
           {folders?.length > 1 ? "Empty project" : "Start building"}
         </h3>
         <p className="pb-5 text-sm text-secondary-foreground">
-          Begin with a template, or start from scratch.
+          Start from scratch with a blank flow.
         </p>
         <Button
           variant="default"
-          onClick={() => setOpenModal(true)}
+          onClick={handleCreateFlow}
           id="new-project-btn"
           data-testid="new_project_btn_empty_page"
+          loading={isCreatingFlow}
         >
           <ForwardedIconComponent
             name="plus"

@@ -3,8 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
-import { cn, getNodeRenderType } from "@/utils/utils";
-import type { AllNodeType, NodeDataType } from "@/types/flow";
+import { cn } from "@/utils/utils";
+import type { GenericNodeType, NodeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
@@ -435,8 +435,9 @@ export default function DoubaoVideoGeneratorLayout({
       const templateField = template[field.name];
       if (!templateField) return null;
 
-      let options: Array<string | number> =
-        templateField.options ?? templateField.list ?? [];
+      let options: Array<string | number> = Array.isArray(templateField.options)
+        ? templateField.options
+        : [];
       let value = templateField.value;
       let disabledOptions: Array<string | number> | undefined;
 
@@ -565,6 +566,7 @@ export default function DoubaoVideoGeneratorLayout({
       }
 
       const sourceNode = nodes.find((node) => node.id === edge.source);
+      if (!sourceNode) return;
       const sourceType = sourceNode?.data?.type;
       if (
         sourceType !== "DoubaoVideoGenerator" &&
@@ -601,6 +603,7 @@ export default function DoubaoVideoGeneratorLayout({
       }
 
       const sourceNode = nodes.find((node) => node.id === edge.source);
+      if (!sourceNode) return;
       const sourceType = sourceNode?.data?.type;
       if (
         sourceType !== "DoubaoVideoGenerator" &&
@@ -872,9 +875,9 @@ export default function DoubaoVideoGeneratorLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
-    const newImageNode: AllNodeType = {
+    const newImageNode: GenericNodeType = {
       id: newImageNodeId,
-      type: getNodeRenderType("genericnode"),
+      type: "genericNode",
       position: {
         x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
         y: currentNode.position.y,
@@ -888,11 +891,10 @@ export default function DoubaoVideoGeneratorLayout({
       selected: true,
     };
 
-    setNodes((currentNodes) =>
-      currentNodes
-        .map((node) => ({ ...node, selected: node.id === data.id }))
-        .concat(newImageNode),
-    );
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: node.id === data.id })),
+      newImageNode,
+    ]);
 
     const outputDefinition =
       imageTemplate.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
@@ -1062,15 +1064,15 @@ export default function DoubaoVideoGeneratorLayout({
 
     takeSnapshot();
 
-    const nodesToAdd: AllNodeType[] = [];
+    const nodesToAdd: GenericNodeType[] = [];
 
     const createNamedImageNode = (displayName: string, y: number) => {
       const newImageNodeId = getNodeId("DoubaoImageCreator");
       const seeded = cloneDeep(imageTemplate);
       seeded.display_name = displayName;
-      const newNode: AllNodeType = {
+      const newNode: GenericNodeType = {
         id: newImageNodeId,
-        type: getNodeRenderType("genericnode"),
+        type: "genericNode",
         position: {
           x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
           y,
@@ -1094,14 +1096,13 @@ export default function DoubaoVideoGeneratorLayout({
       existingLastFrameNodeId ??
       createNamedImageNode("尾帧", currentNode.position.y + UPSTREAM_NODE_OFFSET_Y);
 
-    setNodes((currentNodes) =>
-      currentNodes
-        .map((node) => ({
-          ...node,
-          selected: node.id === data.id,
-        }))
-        .concat(nodesToAdd),
-    );
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({
+        ...node,
+        selected: node.id === data.id,
+      })),
+      ...nodesToAdd,
+    ]);
 
     ensureConnection(firstFrameNodeId, FIRST_FRAME_FIELD, firstFrameTemplateField);
     ensureConnection(lastFrameNodeId, LAST_FRAME_FIELD, lastFrameTemplateField);
@@ -1693,7 +1694,7 @@ async function handleFirstFrameUpload({
   }>;
   validateFileSize: (file: File) => void;
   handleReferenceChange: handleOnNewValueType;
-  setErrorData: ReturnType<typeof useAlertStore>["setErrorData"];
+  setErrorData: (payload: any) => void;
   setReferenceUploadPending: (loading: boolean) => void;
   maxEntries: number;
 }) {
@@ -1752,7 +1753,7 @@ async function handleFirstFrameUpload({
         setErrorData({
           title: "上传失败",
           list: [
-            error?.response?.data?.detail ??
+            (error as any)?.response?.data?.detail ??
               "网络异常，稍后再试或检查后端日志。",
           ],
         });
@@ -1884,13 +1885,14 @@ function extractReferenceSource(entry: unknown): string | null {
     return entry.trim() || null;
   }
   if (typeof entry === "object") {
+    const record = entry as any;
     const candidates = [
-      entry?.file_path,
-      entry?.path,
-      entry?.value,
-      entry?.url,
-      entry?.image_url,
-      entry?.image_data_url,
+      record.file_path,
+      record.path,
+      record.value,
+      record.url,
+      record.image_url,
+      record.image_data_url,
     ];
     for (const candidate of candidates) {
       if (typeof candidate === "string" && candidate.trim()) {
@@ -1907,7 +1909,8 @@ function extractReferenceLabel(entry: unknown): string | undefined {
     return entry;
   }
   if (typeof entry === "object") {
-    const candidates = [entry?.display_name, entry?.filename, entry?.name];
+    const record = entry as any;
+    const candidates = [record.display_name, record.filename, record.name];
     for (const candidate of candidates) {
       if (typeof candidate === "string" && candidate.trim()) {
         return candidate.trim();

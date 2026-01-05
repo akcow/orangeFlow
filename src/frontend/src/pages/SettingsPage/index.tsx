@@ -39,16 +39,6 @@ export default function SettingsPage(): JSX.Element {
 
   sidebarNavItems.push(
     {
-      title: "MCP Servers",
-      href: "/settings/mcp-servers",
-      icon: (
-        <ForwardedIconComponent
-          name="Mcp"
-          className="w-4 flex-shrink-0 justify-start stroke-[1.5]"
-        />
-      ),
-    },
-    {
       title: "Secret Keys",
       href: "/settings/provider-credentials",
       icon: (

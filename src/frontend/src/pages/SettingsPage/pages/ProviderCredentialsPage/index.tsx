@@ -65,7 +65,7 @@ export default function ProviderCredentialsPage() {
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const { mutate: saveCredentials, isLoading: isSaving } =
+  const { mutate: saveCredentials, isPending: isSaving } =
     usePutProviderCredentials();
 
   useEffect(() => {

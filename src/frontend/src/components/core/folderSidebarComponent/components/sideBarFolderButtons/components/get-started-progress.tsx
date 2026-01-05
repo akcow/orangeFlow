@@ -4,7 +4,7 @@ import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import { DISCORD_URL, GITHUB_URL } from "@/constants/constants";
 import { useGetUserData, useUpdateUser } from "@/controllers/API/queries/auth";
-import ModalsComponent from "@/pages/MainPage/components/modalsComponent";
+import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import type { Users } from "@/types/api";
 import { cn } from "@/utils/utils";
@@ -19,7 +19,8 @@ export const GetStartedProgress: FC<{
     useState(isGithubStarred);
   const [isDiscordJoinedChild, setIsDiscordJoinedChild] =
     useState(isDiscordJoined);
-  const [newProjectModal, setNewProjectModal] = useState(false);
+  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
+  const createBlankFlow = useCreateBlankFlow();
 
   const flows = useFlowsManagerStore((state) => state.flows);
 
@@ -210,7 +211,16 @@ export const GetStartedProgress: FC<{
         <Button
           unstyled
           className={cn("w-full", hasFlows && "pointer-events-none")}
-          onClick={() => setNewProjectModal(true)}
+          onClick={async () => {
+            if (hasFlows || isCreatingFlow) return;
+            setIsCreatingFlow(true);
+            try {
+              await createBlankFlow();
+            } catch {
+            } finally {
+              setIsCreatingFlow(false);
+            }
+          }}
         >
           <div
             className={cn(
@@ -234,14 +244,6 @@ export const GetStartedProgress: FC<{
           </div>
         </Button>
       </div>
-
-      <ModalsComponent
-        openModal={newProjectModal}
-        setOpenModal={setNewProjectModal}
-        openDeleteFolderModal={false}
-        setOpenDeleteFolderModal={() => {}}
-        handleDeleteFolder={() => {}}
-      />
     </div>
   );
 };

@@ -3,13 +3,13 @@ import DoubaoPreviewPanel from "./DoubaoPreviewPanel";
 import RenderInputParameters from "./RenderInputParameters";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { BuildStatus } from "@/constants/enums";
-import type { NodeDataType } from "@/types/flow";
+import type { GenericNodeType, NodeDataType } from "@/types/flow";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { findLastNode, getNodeId, scapeJSONParse, scapedJSONStringfy } from "@/utils/reactflowUtils";
 import { track } from "@/customization/utils/analytics";
-import { cn, getNodeRenderType } from "@/utils/utils";
+import { cn } from "@/utils/utils";
 import { useTypesStore } from "@/stores/typesStore";
 import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-colors";
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
@@ -142,9 +142,9 @@ export default function DoubaoAudioLayout({
       seededVideoComponent.template[AUDIO_INPUT_FIELD].show = true;
     }
 
-    const newVideoNode: AllNodeType = {
+    const newVideoNode: GenericNodeType = {
       id: newVideoNodeId,
-      type: getNodeRenderType("genericnode"),
+      type: "genericNode",
       position: {
         x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
         y: currentNode.position.y,
@@ -158,9 +158,10 @@ export default function DoubaoAudioLayout({
       selected: true,
     };
 
-    setNodes((currentNodes) =>
-      currentNodes.map((node) => ({ ...node, selected: false })).concat(newVideoNode),
-    );
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: false })),
+      newVideoNode,
+    ]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === AUDIO_OUTPUT_NAME) ??
@@ -240,8 +241,9 @@ export default function DoubaoAudioLayout({
       const templateField = template[field.name];
       if (!templateField) return null;
 
-      const options: Array<string | number> =
-        templateField.options ?? templateField.list ?? [];
+      const options: Array<string | number> = Array.isArray(templateField.options)
+        ? templateField.options
+        : [];
 
       const tooltipText =
         DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;

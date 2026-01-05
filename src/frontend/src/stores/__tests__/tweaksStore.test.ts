@@ -41,6 +41,7 @@ const mockNode: AllNodeType = {
   type: "genericNode",
   position: { x: 0, y: 0 },
   data: {
+    id: "node-1",
     node: {
       template: {
         param1: {
@@ -53,9 +54,9 @@ const mockNode: AllNodeType = {
         },
       },
       frozen: false,
-    },
+    } as any,
     type: "TestNode",
-  } as NodeDataType,
+  } as unknown as NodeDataType,
 };
 
 const mockNode2: AllNodeType = {
@@ -63,6 +64,7 @@ const mockNode2: AllNodeType = {
   type: "genericNode",
   position: { x: 100, y: 100 },
   data: {
+    id: "node-2",
     node: {
       template: {
         param3: {
@@ -71,9 +73,9 @@ const mockNode2: AllNodeType = {
         },
       },
       frozen: false,
-    },
+    } as any,
     type: "AnotherNode",
-  } as NodeDataType,
+  } as unknown as NodeDataType,
 };
 
 const mockFrozenNode: AllNodeType = {
@@ -81,6 +83,7 @@ const mockFrozenNode: AllNodeType = {
   type: "genericNode",
   position: { x: 200, y: 200 },
   data: {
+    id: "node-frozen",
     node: {
       template: {
         param4: {
@@ -89,9 +92,9 @@ const mockFrozenNode: AllNodeType = {
         },
       },
       frozen: true,
-    },
+    } as any,
     type: "FrozenNode",
-  } as NodeDataType,
+  } as unknown as NodeDataType,
 };
 
 describe("useTweaksStore", () => {
@@ -377,7 +380,7 @@ describe("useTweaksStore", () => {
     });
 
     it("should skip nodes that are not genericNode type", () => {
-      const nonGenericNode = { ...mockNode, type: "customNode" };
+      const nonGenericNode = { ...mockNode, type: "customNode" } as unknown as AllNodeType;
       const { result } = renderHook(() => useTweaksStore());
 
       act(() => {
@@ -398,7 +401,7 @@ describe("useTweaksStore", () => {
           ...mockNode.data,
           node: { ...mockNode.data.node, template: undefined },
         },
-      };
+      } as unknown as AllNodeType;
       const { result } = renderHook(() => useTweaksStore());
 
       act(() => {
@@ -468,7 +471,7 @@ describe("useTweaksStore", () => {
                 },
               },
             },
-          } as NodeDataType,
+          } as unknown as NodeDataType,
         }));
       });
 
@@ -539,7 +542,7 @@ describe("useTweaksStore", () => {
       mockGetLocalStorage.mockReturnValue("invalid-json");
       // Mock JSON.parse to handle the error gracefully
       const originalParse = JSON.parse;
-      jest.spyOn(JSON, "parse").mockImplementation((str) => {
+      const parseSpy = jest.spyOn(JSON, "parse").mockImplementation((str) => {
         if (str === "invalid-json") {
           throw new SyntaxError("Unexpected token");
         }
@@ -554,7 +557,7 @@ describe("useTweaksStore", () => {
         });
       }).toThrow();
 
-      JSON.parse.mockRestore();
+      parseSpy.mockRestore();
     });
 
     it("should handle multiple node updates with same ID", () => {

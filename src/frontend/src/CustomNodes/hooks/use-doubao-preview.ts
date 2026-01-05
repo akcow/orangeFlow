@@ -1,7 +1,7 @@
-import { useCallback } from 'react';
-import useFlowStore from '@/stores/flowStore';
-import { BuildStatus } from '@/constants/enums';
-import type { OutputLogType } from '@/types/api';
+import { useCallback } from "react";
+import useFlowStore from "@/stores/flowStore";
+import { BuildStatus } from "@/constants/enums";
+import type { OutputLogType, VertexBuildTypeAPI } from "@/types/api";
 
 // Doubao组件类型映射 - 也在节点渲染时复用
 export const DOUBAO_COMPONENTS = new Set<string>([
@@ -32,7 +32,7 @@ export type DoubaoPreviewDescriptor = {
 type UseDoubaoPreviewReturn = {
   preview: DoubaoPreviewDescriptor | null;
   isBuilding: boolean;
-  rawMessage: OutputLogType | null;
+  rawMessage: VertexBuildTypeAPI | OutputLogType | null;
   lastUpdated?: string;
 };
 
@@ -182,7 +182,7 @@ export function useDoubaoPreview(nodeId: string, componentName?: string): UseDou
   const { flowPool, flowBuildStatus } = useFlowStore();
 
   const result = useCallback((): UseDoubaoPreviewReturn => {
-    const nodeOutputs = flowPool[nodeId];
+    const nodeOutputs = flowPool[nodeId] as VertexBuildTypeAPI[] | undefined;
     if (!nodeOutputs?.length) {
       return {
         preview: null,
@@ -204,7 +204,7 @@ export function useDoubaoPreview(nodeId: string, componentName?: string): UseDou
     // 查找包含doubao数据的输出字段
     const allOutputs = messageData.data.outputs as Record<string, OutputLogValue>;
     let preview: DoubaoPreviewDescriptor | null = null;
-    let rawMessage = messageData;
+    let rawMessage: VertexBuildTypeAPI | OutputLogType = messageData;
 
     // 1. ??????doubao_preview??
     const prioritized = searchPreviewInOutputs(allOutputs, (log) => {

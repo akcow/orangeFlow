@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { COLOR_OPTIONS } from "@/constants/constants";
-import type { noteDataType } from "@/types/flow";
+import type { NoteDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
 
 export const ColorPickerButtons = memo(
@@ -11,7 +11,7 @@ export const ColorPickerButtons = memo(
     setNode,
   }: {
     bgColor: string;
-    data: noteDataType;
+    data: NoteDataType;
     setNode: (id: string, updater: any) => void;
   }) => (
     <div className="flew-row flex gap-3">
