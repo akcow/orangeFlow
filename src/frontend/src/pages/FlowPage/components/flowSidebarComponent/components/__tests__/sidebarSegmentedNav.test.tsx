@@ -164,15 +164,15 @@ describe("SidebarSegmentedNav", () => {
   });
 
   it("sets active state for current active section", () => {
-    mockUseSidebar.activeSection = "mcp";
+    mockUseSidebar.activeSection = "components";
     render(<SidebarSegmentedNav />);
 
-    const mcpButton = screen.getByTestId("sidebar-nav-mcp");
-    expect(mcpButton).toHaveAttribute("data-active", "true");
+    const componentsButton = screen.getByTestId("sidebar-nav-components");
+    expect(componentsButton).toHaveAttribute("data-active", "true");
 
     // Other buttons should not be active
-    const componentsButton = screen.getByTestId("sidebar-nav-components");
-    expect(componentsButton).toHaveAttribute("data-active", "false");
+    const searchButton = screen.getByTestId("sidebar-nav-search");
+    expect(searchButton).toHaveAttribute("data-active", "false");
   });
 
   it("sets active state for search when activeSection is search", () => {
@@ -186,18 +186,18 @@ describe("SidebarSegmentedNav", () => {
   it("calls setActiveSection when clicking on different section", () => {
     render(<SidebarSegmentedNav />);
 
-    const mcpButton = screen.getByTestId("sidebar-nav-mcp");
-    fireEvent.click(mcpButton);
+    const searchButton = screen.getByTestId("sidebar-nav-search");
+    fireEvent.click(searchButton);
 
-    expect(mockUseSidebar.setActiveSection).toHaveBeenCalledWith("mcp");
+    expect(mockUseSidebar.setActiveSection).toHaveBeenCalledWith("search");
     expect(mockUseSidebar.setActiveSection).toHaveBeenCalledTimes(1);
   });
 
   it("resets search when changing active sections", () => {
     render(<SidebarSegmentedNav />);
 
-    const mcpButton = screen.getByTestId("sidebar-nav-mcp");
-    fireEvent.click(mcpButton);
+    const searchButton = screen.getByTestId("sidebar-nav-search");
+    fireEvent.click(searchButton);
 
     expect(mockUseSearchContext.setSearch).toHaveBeenCalledWith("");
     expect(mockUseSearchContext.setSearch).toHaveBeenCalledTimes(1);
@@ -229,10 +229,10 @@ describe("SidebarSegmentedNav", () => {
     mockUseSidebar.open = false;
     render(<SidebarSegmentedNav />);
 
-    const bundlesButton = screen.getByTestId("sidebar-nav-bundles");
-    fireEvent.click(bundlesButton);
+    const searchButton = screen.getByTestId("sidebar-nav-search");
+    fireEvent.click(searchButton);
 
-    expect(mockUseSidebar.setActiveSection).toHaveBeenCalledWith("bundles");
+    expect(mockUseSidebar.setActiveSection).toHaveBeenCalledWith("search");
     expect(mockUseSidebar.toggleSidebar).toHaveBeenCalledTimes(1);
   });
 
@@ -240,8 +240,8 @@ describe("SidebarSegmentedNav", () => {
     mockUseSidebar.open = false;
     render(<SidebarSegmentedNav />);
 
-    const bundlesButton = screen.getByTestId("sidebar-nav-bundles");
-    fireEvent.click(bundlesButton);
+    const searchButton = screen.getByTestId("sidebar-nav-search");
+    fireEvent.click(searchButton);
 
     expect(mockUseSearchContext.setSearch).toHaveBeenCalledWith("");
     expect(mockUseSearchContext.setSearch).toHaveBeenCalledTimes(1);
@@ -293,11 +293,11 @@ describe("SidebarSegmentedNav", () => {
   });
 
   it("applies correct CSS classes", () => {
-    mockUseSidebar.activeSection = "mcp";
+    mockUseSidebar.activeSection = "components";
     render(<SidebarSegmentedNav />);
 
-    const mcpButton = screen.getByTestId("sidebar-nav-mcp");
-    expect(mcpButton).toHaveClass(
+    const componentsButton = screen.getByTestId("sidebar-nav-components");
+    expect(componentsButton).toHaveClass(
       "flex",
       "h-8",
       "w-8",
@@ -311,8 +311,8 @@ describe("SidebarSegmentedNav", () => {
       "text-accent-foreground",
     );
 
-    const componentsButton = screen.getByTestId("sidebar-nav-components");
-    expect(componentsButton).toHaveClass(
+    const searchButton = screen.getByTestId("sidebar-nav-search");
+    expect(searchButton).toHaveClass(
       "flex",
       "h-8",
       "w-8",
@@ -361,33 +361,27 @@ describe("SidebarSegmentedNav", () => {
   it("handles multiple rapid clicks correctly", () => {
     render(<SidebarSegmentedNav />);
 
-    const mcpButton = screen.getByTestId("sidebar-nav-mcp");
+    const searchButton = screen.getByTestId("sidebar-nav-search");
 
     // Click multiple times rapidly
-    fireEvent.click(mcpButton);
-    fireEvent.click(mcpButton);
-    fireEvent.click(mcpButton);
+    fireEvent.click(searchButton);
+    fireEvent.click(searchButton);
+    fireEvent.click(searchButton);
 
-    // Should have called setActiveSection for each click since activeSection !== mcp
+    // Should have called setActiveSection for each click since activeSection !== search
     expect(mockUseSidebar.setActiveSection).toHaveBeenCalledTimes(3);
-    expect(mockUseSidebar.setActiveSection).toHaveBeenCalledWith("mcp");
+    expect(mockUseSidebar.setActiveSection).toHaveBeenCalledWith("search");
   });
 
   it("exports NAV_ITEMS correctly", () => {
-    expect(NAV_ITEMS).toHaveLength(5);
+    expect(NAV_ITEMS).toHaveLength(3);
     expect(NAV_ITEMS[0]).toEqual({
       id: "search",
       icon: "search",
       label: "Search",
       tooltip: "Search",
     });
-    expect(NAV_ITEMS[3]).toEqual({
-      id: "bundles",
-      icon: "blocks",
-      label: "Bundles",
-      tooltip: "Bundles",
-    });
-    expect(NAV_ITEMS[4]).toEqual({
+    expect(NAV_ITEMS[2]).toEqual({
       id: "add_note",
       icon: "sticky-note",
       label: "Sticky Notes",
