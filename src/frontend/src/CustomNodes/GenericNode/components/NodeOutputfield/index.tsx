@@ -12,6 +12,7 @@ import {
 import { useHotkeys } from "react-hotkeys-hook";
 import { Badge } from "@/components/ui/badge";
 import { ICON_STROKE_WIDTH } from "@/constants/constants";
+import { t } from "@/i18n/t";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import type { targetHandleType } from "@/types/flow";
 import ForwardedIconComponent, {
@@ -387,9 +388,9 @@ function NodeOutputField({
             content={
               displayOutputPreview
                 ? unknownOutput || emptyOutput
-                  ? "Output can't be displayed"
-                  : "Inspect output"
-                : "Please build the component first"
+                  ? t("Output can't be displayed")
+                  : t("Inspect output")
+                : t("Please build the component first")
             }
             styleClasses="z-40"
           >
@@ -414,7 +415,7 @@ function NodeOutputField({
               </OutputModal>
               {looping && (
                 <Badge variant="pinkStatic" size="xq" className="px-1">
-                  Looping
+                  {t("Looping")}
                 </Badge>
               )}
             </div>

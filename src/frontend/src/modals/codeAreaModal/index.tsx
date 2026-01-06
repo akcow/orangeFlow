@@ -30,6 +30,7 @@ import type { CodeErrorDataTypeAPI } from "../../types/api";
 import type { codeAreaModalPropsType } from "../../types/components";
 import BaseModal from "../baseModal";
 import ConfirmationModal from "../confirmationModal";
+import { t } from "@/i18n/t";
 
 export default function CodeAreaModal({
   value,
@@ -258,7 +259,7 @@ export default function CodeAreaModal({
               disabled={readonly}
               data-testid="checkAndSaveBtn"
             >
-              Check & Save
+              {t("Check & Save")}
             </Button>
           </div>
         </div>
@@ -272,18 +273,18 @@ export default function CodeAreaModal({
           }}
           size="x-small"
           icon="AlertTriangle"
-          confirmationText="Check & Save"
-          cancelText="Discard Changes"
+          confirmationText={t("Check & Save")}
+          cancelText={t("Discard Changes")}
           open={openConfirmation}
           onCancel={() => setOpen(false)}
           onConfirm={() => {
             processCode();
             setOpenConfirmation(false);
           }}
-          title="Caution"
+          title={t("Caution")}
         >
           <ConfirmationModal.Content>
-            <p>Are you sure you want to exit without saving your changes?</p>
+            <p>{t("Are you sure you want to exit without saving your changes?")}</p>
           </ConfirmationModal.Content>
         </ConfirmationModal>
       </BaseModal.Content>

@@ -3,6 +3,7 @@
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
 import * as React from "react";
+import { t } from "@/i18n/t";
 import { cn } from "../../utils/utils";
 import ShadTooltip from "../common/shadTooltipComponent";
 
@@ -40,7 +41,7 @@ const AccordionTrigger = React.forwardRef<
         {children}
         <ShadTooltip
           styleClasses="z-50"
-          content={disabled ? "Empty" : "Open"}
+          content={disabled ? t("Empty") : t("Open")}
           side="top"
         >
           <ChevronDownIcon

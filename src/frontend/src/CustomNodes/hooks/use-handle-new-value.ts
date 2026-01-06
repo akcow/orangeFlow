@@ -5,6 +5,7 @@ import { DEBOUNCE_FIELD_LIST } from "@/constants/constants";
 import { usePostTemplateValue } from "@/controllers/API/queries/nodes/use-post-template-value";
 import { track } from "@/customization/utils/analytics";
 import useAlertStore from "@/stores/alertStore";
+import { t } from "@/i18n/t";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import type { APIClassType, InputFieldType } from "@/types/api";
@@ -90,7 +91,7 @@ const useHandleOnNewValue = ({
       }
 
       if (!template) {
-        setErrorData({ title: "Template not found in the component" });
+        setErrorData({ title: t("Template not found in the component") });
         return;
       }
 

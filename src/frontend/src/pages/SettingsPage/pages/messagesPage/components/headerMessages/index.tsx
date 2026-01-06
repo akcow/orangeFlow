@@ -1,4 +1,5 @@
 import ForwardedIconComponent from "../../../../../../components/common/genericIconComponent";
+import { t } from "@/i18n/t";
 
 const HeaderMessagesComponent = () => {
   return (
@@ -9,15 +10,16 @@ const HeaderMessagesComponent = () => {
             className="flex items-center text-lg font-semibold tracking-tight"
             data-testid="settings_menu_header"
           >
-            Messages
+            {t("Messages")}
             <ForwardedIconComponent
               name="MessagesSquare"
               className="ml-2 h-5 w-5 text-primary"
             />
           </h2>
           <p className="text-sm text-muted-foreground">
-            Inspect, edit and remove messages to explore and refine model
-            behaviors.
+            {t(
+              "Inspect, edit and remove messages to explore and refine model behaviors.",
+            )}
           </p>
         </div>
       </div>

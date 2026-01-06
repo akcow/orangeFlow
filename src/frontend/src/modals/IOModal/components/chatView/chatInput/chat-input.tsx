@@ -5,6 +5,7 @@ import { useStickToBottomContext } from "use-stick-to-bottom";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import { ENABLE_IMAGE_ON_PLAYGROUND } from "@/customization/feature-flags";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
@@ -108,7 +109,7 @@ export default function ChatInput({
         !ALLOWED_IMAGE_INPUT_EXTENSIONS.includes(fileExtension)
       ) {
         setErrorData({
-          title: "Error uploading file",
+          title: t("Error uploading file"),
           list: [FS_ERROR_TEXT, SN_ERROR_TEXT],
         });
         return;
@@ -145,7 +146,7 @@ export default function ChatInput({
               return newFiles;
             });
             setErrorData({
-              title: "Error uploading file",
+              title: t("Error uploading file"),
               list: [error.response?.data?.detail],
             });
           },

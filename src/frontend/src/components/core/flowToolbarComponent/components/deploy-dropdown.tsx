@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { usePatchUpdateFlow } from "@/controllers/API/queries/flows/use-patch-update-flow";
 import { CustomLink } from "@/customization/components/custom-link";
 import { ENABLE_PUBLISH, ENABLE_WIDGET } from "@/customization/feature-flags";
-import { customMcpOpen } from "@/customization/utils/custom-mcp-open";
+import { t } from "@/i18n/t";
 import ApiModal from "@/modals/apiModal";
 import EmbedModal from "@/modals/EmbedModal/embed-modal";
 import ExportModal from "@/modals/exportModal";
@@ -38,7 +38,6 @@ export default function PublishDropdown({
   const currentFlow = useFlowsManagerStore((state) => state.currentFlow);
   const flowId = currentFlow?.id;
   const flowName = currentFlow?.name;
-  const folderId = currentFlow?.folder_id;
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const { mutateAsync } = usePatchUpdateFlow();
   const flows = useFlowsManagerStore((state) => state.flows);
@@ -69,14 +68,14 @@ export default function PublishDropdown({
             setCurrentFlow(updatedFlow);
           } else {
             setErrorData({
-              title: "Failed to save flow",
-              list: ["Flows variable undefined"],
+              title: t("Failed to save flow"),
+              list: [t("Flows data is unavailable")],
             });
           }
         },
         onError: (e) => {
           setErrorData({
-            title: "Failed to save flow",
+            title: t("Failed to save flow"),
             list: [e.message],
           });
         },
@@ -94,7 +93,7 @@ export default function PublishDropdown({
             className="!px-2.5 font-normal"
             data-testid="publish-button"
           >
-            Share
+            {t("Share")}
             <IconComponent name="ChevronDown" className="!h-5 !w-5" />
           </Button>
         </DropdownMenuTrigger>
@@ -111,40 +110,22 @@ export default function PublishDropdown({
             data-testid="api-access-item"
           >
             <IconComponent name="Code2" className={`icon-size mr-2`} />
-            <span>API access</span>
+            <span>{t("API access")}</span>
           </DropdownMenuItem>
           <DropdownMenuItem
             className="deploy-dropdown-item group"
             onClick={() => setOpenExportModal(true)}
           >
             <IconComponent name="Download" className={`icon-size mr-2`} />
-            <span>Export</span>
+            <span>{t("Export")}</span>
           </DropdownMenuItem>
-          <CustomLink
-            className={cn("flex-1")}
-            to={`/mcp/folder/${folderId}`}
-            target={customMcpOpen()}
-          >
-            <DropdownMenuItem
-              className="deploy-dropdown-item group"
-              onClick={() => {}}
-              data-testid="mcp-server-item"
-            >
-              <IconComponent name="Mcp" className={`icon-size mr-2`} />
-              <span>MCP Server</span>
-              <IconComponent
-                name="ExternalLink"
-                className={`icon-size ml-auto hidden group-hover:block`}
-              />
-            </DropdownMenuItem>
-          </CustomLink>
           {ENABLE_WIDGET && (
             <DropdownMenuItem
               onClick={() => setOpenEmbedModal(true)}
               className="deploy-dropdown-item group"
             >
               <IconComponent name="Columns2" className={`icon-size mr-2`} />
-              <span>Embed into site</span>
+              <span>{t("Embed into site")}</span>
             </DropdownMenuItem>
           )}
 
@@ -164,8 +145,12 @@ export default function PublishDropdown({
                       hasIO
                         ? isPublished
                           ? encodeURI(`${domain}/playground/${flowId}`)
-                          : "Activate to share a public version of this Playground"
-                        : "Add a Chat Input or Chat Output to access your flow"
+                          : t(
+                              "Enable to share a public version of this playground",
+                            )
+                        : t(
+                            "Add a Chat Input or Chat Output to access your flow",
+                          )
                     }
                   >
                     <div className="flex items-center">
@@ -183,11 +168,11 @@ export default function PublishDropdown({
                           to={`/playground/${flowId}`}
                           target="_blank"
                         >
-                          <span>Shareable Playground</span>
+                          <span>{t("Shareable Playground")}</span>
                         </CustomLink>
                       ) : (
                         <span className={cn(!isPublished && "opacity-50")}>
-                          Shareable Playground
+                          {t("Shareable Playground")}
                         </span>
                       )}
                     </div>

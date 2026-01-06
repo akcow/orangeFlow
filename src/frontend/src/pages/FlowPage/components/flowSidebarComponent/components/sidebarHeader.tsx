@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/disclosure";
 import { SidebarHeader, SidebarTrigger } from "@/components/ui/sidebar";
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import type { SidebarHeaderComponentProps } from "../types";
 import FeatureToggles from "./featureTogglesComponent";
 import { SearchInput } from "./searchInput";
@@ -41,11 +42,14 @@ export const SidebarHeaderComponent = memo(function SidebarHeaderComponent({
               <ForwardedIconComponent name="PanelLeftClose" />
             </SidebarTrigger>
             <h3 className="flex-1 cursor-default text-sm font-semibold">
-              Components
+              {t("Components")}
             </h3>
             <DisclosureTrigger>
               <div>
-                <ShadTooltip content="Component settings" styleClasses="z-50">
+                <ShadTooltip
+                  content={t("Component settings")}
+                  styleClasses="z-50"
+                >
                   <Button
                     variant={showConfig ? "ghostActive" : "ghost"}
                     size="iconMd"

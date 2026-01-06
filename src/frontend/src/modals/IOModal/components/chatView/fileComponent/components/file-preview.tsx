@@ -2,6 +2,7 @@ import IconComponent, {
   ForwardedIconComponent,
 } from "../../../../../../components/common/genericIconComponent";
 import { Skeleton } from "../../../../../../components/ui/skeleton";
+import { t } from "@/i18n/t";
 import formatFileName from "../utils/format-file-name";
 
 const supImgFiles = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "image"];
@@ -58,7 +59,7 @@ export default function FilePreview({
           </div>
         )
       ) : error ? (
-        <div>Error...</div>
+        <div>{t("Error...")}</div>
       ) : (
         <div
           className={`relative mt-2 ${
@@ -76,7 +77,7 @@ export default function FilePreview({
               <ForwardedIconComponent name="File" className="h-8 w-8" />
               <div className="flex flex-col">
                 <span className="font-bold">{formatFileName(file.name)}</span>
-                <span>File</span>
+                <span>{t("File")}</span>
               </div>
             </div>
           )}

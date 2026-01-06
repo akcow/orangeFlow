@@ -1,8 +1,9 @@
-import * as Form from "@radix-ui/react-form";
+﻿import * as Form from "@radix-ui/react-form";
 import type React from "react";
 import { useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { Switch } from "@/components/ui/switch";
+import { t } from "@/i18n/t";
 import type { InputProps } from "../../../types/components";
 import { cn } from "../../../utils/utils";
 import { Input } from "../../ui/input";
@@ -95,15 +96,19 @@ export const EditFlowSettings: React.FC<
             Name{setName ? "" : ":"}
           </Form.Label>
           {isMaxLength && (
-            <span className="edit-flow-span">Character limit reached</span>
+            <span className="edit-flow-span">{t("Character limit reached")}</span>
           )}
           {isMinLength && (
             <span className="edit-flow-span">
-              Minimum {minLength} character(s) required
+              {t("Minimum {{count}} character(s) required", {
+                count: minLength,
+              })}
             </span>
           )}
           {isInvalidName && (
-            <span className="edit-flow-span">Flow name already exists</span>
+            <span className="edit-flow-span">
+              {t("Flow name already exists")}
+            </span>
           )}
         </div>
         {setName ? (
@@ -114,7 +119,7 @@ export const EditFlowSettings: React.FC<
               type="text"
               name="name"
               value={name ?? ""}
-              placeholder="Flow name"
+              placeholder={t("Flow name")}
               id="name"
               maxLength={maxLength}
               minLength={minLength}
@@ -131,22 +136,25 @@ export const EditFlowSettings: React.FC<
           </span>
         )}
         <Form.Message match="valueMissing" className="field-invalid">
-          Please enter a name
+          {t("Please enter a name")}
         </Form.Message>
         <Form.Message
           match={(value) => !!(value && invalidNameList.includes(value))}
           className="field-invalid"
         >
-          Flow name already exists
+          {t("Flow name already exists")}
         </Form.Message>
       </Form.Field>
       <Form.Field name="description">
         <div className="edit-flow-arrangement mt-2">
           <Form.Label className="text-mmd font-medium">
-            Description{setDescription ? "" : ":"}
+            {t("Description")}
+            {setDescription ? "" : "："}
           </Form.Label>
           {isMaxDescriptionLength && (
-            <span className="edit-flow-span">Character limit reached</span>
+            <span className="edit-flow-span">
+              {t("Character limit reached")}
+            </span>
           )}
         </div>
         {setDescription ? (
@@ -156,7 +164,7 @@ export const EditFlowSettings: React.FC<
               id="description"
               onChange={handleDescriptionChange}
               value={description!}
-              placeholder="Flow description"
+              placeholder={t("Flow description")}
               data-testid="input-flow-description"
               className="mt-2 max-h-[250px] resize-none font-normal"
               rows={5}
@@ -173,18 +181,18 @@ export const EditFlowSettings: React.FC<
               description === "" ? "font-light italic" : "",
             )}
           >
-            {description === "" ? "No description" : description}
+            {description === "" ? t("No description") : description}
           </div>
         )}
         <Form.Message match="valueMissing" className="field-invalid">
-          Please enter a description
+          {t("Please enter a description")}
         </Form.Message>
         <div className="mt-3">
           <div className="flex items-center gap-2">
             <div>
               <div className="flex items-center gap-2">
                 <Form.Label className="text-mmd font-medium">
-                  Lock Flow
+                  {t("Lock Flow")}
                 </Form.Label>
 
                 <ForwardedIconComponent
@@ -194,7 +202,7 @@ export const EditFlowSettings: React.FC<
               </div>
 
               <p className="text-xs text-muted-foreground/70 mt-1 font-normal">
-                Lock your flow to prevent edits or accidental changes.
+                {t("Lock your flow to prevent edits or accidental changes.")}
               </p>
             </div>
 
@@ -212,3 +220,4 @@ export const EditFlowSettings: React.FC<
 };
 
 export default EditFlowSettings;
+

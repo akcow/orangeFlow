@@ -2,7 +2,6 @@ import { cloneDeep } from "lodash";
 import { useRef } from "react";
 import buildQueryStringUrl from "@/controllers/utils/create-query-param-string";
 import type { PaginatedFolderType } from "@/pages/MainPage/entities";
-import { useFolderStore } from "@/stores/foldersStore";
 import type { useQueryFunctionType } from "@/types/api";
 import { processFlows } from "@/utils/reactflowUtils";
 import { api } from "../../api";
@@ -28,23 +27,17 @@ export const useGetFolderQuery: useQueryFunctionType<
 > = (params, options) => {
   const { query } = UseRequestProcessor();
 
-  const folders = useFolderStore((state) => state.folders);
   const latestIdRef = useRef("");
 
   const getFolderFn = async (
     params: IGetFolder,
   ): Promise<PaginatedFolderType | undefined> => {
-    if (params.id) {
-      if (latestIdRef.current !== params.id) {
-        params.page = 1;
-      }
-      latestIdRef.current = params.id;
+    if (!params.id) return;
 
-      const existingFolder = folders.find((f) => f.id === params.id);
-      if (!existingFolder) {
-        return;
-      }
+    if (latestIdRef.current !== params.id) {
+      params.page = 1;
     }
+    latestIdRef.current = params.id;
 
     const url = addQueryParams(`${getURL("PROJECTS")}/${params.id}`, params);
     const { data } = await api.get<PaginatedFolderType>(url);
@@ -72,6 +65,7 @@ export const useGetFolderQuery: useQueryFunctionType<
     () => getFolderFn(params),
     {
       refetchOnWindowFocus: false,
+      enabled: Boolean(params.id) && (options?.enabled ?? true),
       ...options,
     },
   );

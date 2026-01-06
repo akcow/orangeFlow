@@ -9,6 +9,7 @@ import {
   usePatchGlobalVariables,
   usePostGlobalVariables,
 } from "@/controllers/API/queries/variables";
+import { t } from "@/i18n/t";
 import BaseModal from "@/modals/baseModal";
 import useAlertStore from "@/stores/alertStore";
 import getUnavailableFields from "@/stores/globalVariablesStore/utils/get-unavailable-fields";
@@ -97,20 +98,24 @@ export default function GlobalVariableModal({
         setOpen(false);
 
         setSuccessData({
-          title: `Variable ${name} ${
-            initialData ? "updated" : "created"
-          } successfully`,
+          title: t("Variable {{name}} {{action}} successfully", {
+            name,
+            action: initialData ? t("updated") : t("created"),
+          }),
         });
       },
       onError: (error) => {
         const responseError = error as ResponseErrorDetailAPI;
         setErrorData({
-          title: `Error ${initialData ? "updating" : "creating"} variable`,
+          title: t("Error {{action}} variable", {
+            action: initialData ? t("updating") : t("creating"),
+          }),
           list: [
             responseError?.response?.data?.detail ??
-              `An unexpected error occurred while ${
-                initialData ? "updating a new" : "creating"
-              } variable. Please try again.`,
+              t(
+                "An unexpected error occurred while {{action}} variable. Please try again.",
+                { action: initialData ? t("updating") : t("creating") },
+              ),
           ],
         });
       },
@@ -139,13 +144,15 @@ export default function GlobalVariableModal({
       onSubmit={submitForm}
       disable={disabled}
     >
-      <BaseModal.Header description="This variable will be available for use across your flows.">
+      <BaseModal.Header
+        description={t("This variable will be available for use across your flows.")}
+      >
         <ForwardedIconComponent
           name="Globe"
           className="h-6 w-6 pr-1 text-primary"
           aria-hidden="true"
         />
-        {initialData ? "Update Variable" : "Create Variable"}
+        {initialData ? t("Update Variable") : t("Create Variable")}
       </BaseModal.Header>
       <BaseModal.Trigger disable={disabled} asChild={asChild}>
         {children}
@@ -153,7 +160,7 @@ export default function GlobalVariableModal({
       <BaseModal.Content>
         <div className="flex h-full w-full flex-col gap-4">
           <div className="space-y-2">
-            <Label>Type*</Label>
+            <Label>{t("Type")}*</Label>
             <Tabs
               defaultValue={type}
               onValueChange={setType}
@@ -165,68 +172,70 @@ export default function GlobalVariableModal({
                   data-testid="credential-tab"
                   value="Credential"
                 >
-                  Credential
+                  {t("Credential")}
                 </TabsTrigger>
                 <TabsTrigger
                   disabled={!!initialData?.type}
                   data-testid="generic-tab"
                   value="Generic"
                 >
-                  Generic
+                  {t("Generic")}
                 </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
 
           <div className="space-y-2" id="global-variable-modal-inputs">
-            <Label>Name*</Label>
+            <Label>{t("Name")}*</Label>
             <Input
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              placeholder="Enter a name for the variable..."
+              placeholder={t("Enter a name for the variable...")}
             />
           </div>
 
           <div className="space-y-2">
-            <Label>Value*</Label>
+            <Label>{t("Value")}*</Label>
             {type === "Credential" ? (
               <InputComponent
                 password
                 value={value}
                 onChange={(e) => setValue(e)}
-                placeholder="Enter a value for the variable..."
+                placeholder={t("Enter a value for the variable...")}
                 nodeStyle
               />
             ) : (
               <Input
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                placeholder="Enter a value for the variable..."
+                placeholder={t("Enter a value for the variable...")}
               />
             )}
           </div>
 
           <div className="space-y-2">
-            <Label>Apply to fields</Label>
+            <Label>{t("Apply to fields")}</Label>
             <InputComponent
               setSelectedOptions={(value) => setFields(value)}
               selectedOptions={fields}
               options={availableFields}
               password={false}
-              placeholder="Choose a field for the variable..."
+              placeholder={t("Choose a field for the variable...")}
               id="apply-to-fields"
               popoverWidth="29rem"
-              optionsPlaceholder="Fields"
+              optionsPlaceholder={t("Fields")}
             />
             <div className="text-xs text-muted-foreground">
-              Selected fields will auto-apply the variable as a default value.
+              {t(
+                "Selected fields will auto-apply the variable as a default value.",
+              )}
             </div>
           </div>
         </div>
       </BaseModal.Content>
       <BaseModal.Footer
         submit={{
-          label: `${initialData ? "Update" : "Save"} Variable`,
+          label: initialData ? t("Update Variable") : t("Save Variable"),
           dataTestId: "save-variable-btn",
           disabled: !key || !value,
         }}

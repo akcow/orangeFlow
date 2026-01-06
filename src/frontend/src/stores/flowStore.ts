@@ -17,6 +17,7 @@ import {
   trackDataLoaded,
   trackFlowBuild,
 } from "@/customization/utils/analytics";
+import { t } from "@/i18n/t";
 import { brokenEdgeMessage } from "@/utils/utils";
 import { BuildStatus, EventDeliveryType } from "../constants/enums";
 import type { LogsLogType, VertexBuildTypeAPI } from "../types/api";
@@ -817,7 +818,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       get().updateBuildStatus(ids, BuildStatus.ERROR); // Set only the build status as error without adding info to the flow pool
 
       get().setIsBuilding(false);
-      throw new Error("Invalid components");
+      throw new Error(t("Invalid components"));
     }
 
     function validateSubgraph() {}

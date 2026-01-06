@@ -11,6 +11,7 @@ import {
 } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
+import { t } from "@/i18n/t";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import { FlowType } from "@/types/flow";
@@ -47,7 +48,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
       const folderExists = folders.find((folder) => folder.id === folderId);
       if (!folderExists) {
         // Folder doesn't exist for this user, redirect to /all
-        console.error("Invalid folderId, redirecting to /all");
+        console.error("无效的 folderId，正在重定向到 /all");
         navigate("/all");
       }
     }
@@ -248,7 +249,13 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   return (
     <CardsWrapComponent
       onFileDrop={handleFileDrop}
-      dragMessage={`Drop your ${isEmptyFolder ? "flows or components" : flowType} here`}
+      dragMessage={t("Drop your {{items}} here", {
+        items: isEmptyFolder
+          ? t("flows or components")
+          : flowType === "flows"
+            ? t("flows")
+            : t("components"),
+      })}
     >
       <div
         className="flex h-full w-full flex-col overflow-y-auto"
@@ -318,29 +325,30 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                     )
                   ) : flowType === "flows" ? (
                     <div className="pt-24 text-center text-sm text-secondary-foreground">
-                      No flows in this project.{" "}
+                      {t("No flows in this project.")}{" "}
                       <a
                         onClick={() => {
                           void handleCreateNewFlow();
                         }}
                         className="cursor-pointer underline"
                       >
-                        Create a new flow
+                        {t("Create a new flow")}
                       </a>
-                      , or browse the store.
+                      {t(", or browse the store.")}
                     </div>
                   ) : (
                     <div className="pt-24 text-center text-sm text-secondary-foreground">
-                      No saved or custom components. Learn more about{" "}
+                      {t("No saved or custom components.")}{" "}
+                      {t("Learn more about")}{" "}
                       <a
                         href="https://docs.langflow.org/components-custom-components"
                         target="_blank"
                         rel="noreferrer"
                         className="underline"
                       >
-                        creating custom components
+                        {t("creating custom components")}
                       </a>
-                      , or browse the store.
+                      {t(", or browse the store.")}
                     </div>
                   )}
                 </div>

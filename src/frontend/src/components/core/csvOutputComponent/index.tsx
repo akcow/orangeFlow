@@ -2,6 +2,7 @@ import type { AllNodeType } from "@/types/flow";
 import "ag-grid-community/styles/ag-grid.css"; // Mandatory CSS required by the grid
 import "ag-grid-community/styles/ag-theme-balham.css"; // Optional Theme applied to the grid
 import { useEffect, useMemo, useState } from "react";
+import { t } from "@/i18n/t";
 import {
   CSVError,
   CSVNoDataError,
@@ -120,7 +121,7 @@ function CsvOutputComponent({
             columnDefs={colDefs}
             defaultColDef={defaultColDef}
             scrollbarWidth={8}
-            overlayNoRowsTemplate="No data available"
+            overlayNoRowsTemplate={t("No data available")}
           />
         </div>
       )}

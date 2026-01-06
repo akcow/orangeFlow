@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { usePatchGlobalVariables } from "@/controllers/API/queries/variables";
 import { useGetVoiceList } from "@/controllers/API/queries/voice/use-get-voice-list";
 import { useDebounce } from "@/hooks/use-debounce";
+import { t } from "@/i18n/t";
 import GeneralDeleteConfirmationModal from "@/shared/components/delete-confirmation-modal";
 import GeneralGlobalVariableModal from "@/shared/components/global-variable-modal";
 import { useGlobalVariablesStore } from "@/stores/globalVariablesStore/globalVariables";
@@ -274,9 +275,13 @@ const SettingsVoiceModal = ({
               <div className="w-full space-y-4 p-4">
                 <div className="grid w-full items-center gap-2">
                   <span className="flex items-center text-sm">
-                    OpenAI API Key
+                    {t("OpenAI API Key")}
                     <span className="ml-1 text-destructive">*</span>
-                    <ShadTooltip content="OpenAI API key is required to use the voice assistant.">
+                    <ShadTooltip
+                      content={t(
+                        "OpenAI API key is required to use the voice assistant.",
+                      )}
+                    >
                       <div>
                         <IconComponent
                           name="Info"
@@ -296,13 +301,13 @@ const SettingsVoiceModal = ({
                         popoverWidth="16rem"
                         placeholder={getPlaceholder(
                           false,
-                          "Enter your OpenAI API key",
+                          t("Enter your OpenAI API key"),
                         )}
                         id="openai-api-key"
                         options={
                           globalVariables?.map((variable) => variable) ?? []
                         }
-                        optionsPlaceholder={"Global Variables"}
+                        optionsPlaceholder={t("Global Variables")}
                         optionsIcon="Globe"
                         optionsButton={<GeneralGlobalVariableModal />}
                         optionButton={(option) => (
@@ -331,7 +336,7 @@ const SettingsVoiceModal = ({
                         onClick={() => setIsEditingOpenAIKey(true)}
                         size="md"
                       >
-                        Edit
+                        {t("Edit")}
                       </Button>
                     </>
                   )}
@@ -346,7 +351,7 @@ const SettingsVoiceModal = ({
                       className="w-full"
                       data-testid="voice-assistant-settings-modal-cancel-button"
                     >
-                      Cancel
+                      {t("Cancel")}
                     </Button>
                     <Button
                       onClick={() => handleClickSaveApiKey(openaiApiKey)}
@@ -355,7 +360,7 @@ const SettingsVoiceModal = ({
                       size="md"
                       data-testid="voice-assistant-settings-modal-save-button"
                     >
-                      {isEditingOpenAIKey ? "Update" : "Save"}
+                      {isEditingOpenAIKey ? t("Update") : t("Save")}
                     </Button>
                   </div>
                 )}
@@ -364,8 +369,12 @@ const SettingsVoiceModal = ({
                   <>
                     <div className="grid w-full items-center gap-2">
                       <span className="flex items-center text-sm">
-                        ElevenLabs API Key
-                        <ShadTooltip content="If you have an ElevenLabs API key, you can select ElevenLabs voices.">
+                        {t("ElevenLabs API Key")}
+                        <ShadTooltip
+                          content={t(
+                            "If you have an ElevenLabs API key, you can select ElevenLabs voices.",
+                          )}
+                        >
                           <div>
                             <IconComponent
                               name="Info"
@@ -383,13 +392,13 @@ const SettingsVoiceModal = ({
                         popoverWidth="16rem"
                         placeholder={getPlaceholder(
                           false,
-                          "Enter your ElevenLabs API key",
+                          t("Enter your ElevenLabs API key"),
                         )}
                         id="eleven-labs-api-key"
                         options={
                           globalVariables?.map((variable) => variable) ?? []
                         }
-                        optionsPlaceholder={"Global Variables"}
+                        optionsPlaceholder={t("Global Variables")}
                         optionsIcon="Globe"
                         optionsButton={<GeneralGlobalVariableModal />}
                         optionButton={(option) => (

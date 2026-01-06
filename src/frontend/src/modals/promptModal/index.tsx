@@ -1,6 +1,7 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { usePostValidatePrompt } from "@/controllers/API/queries/nodes/use-post-validate-prompt";
+import { t } from "@/i18n/t";
 import IconComponent from "../../components/common/genericIconComponent";
 import SanitizedHTMLWrapper from "../../components/common/sanitizedHTMLWrapper";
 import ShadTooltip from "../../components/common/shadTooltipComponent";
@@ -239,7 +240,7 @@ export default function PromptModal({
               aria-hidden="true"
             />
             <span className="pl-2" data-testid="modal-title">
-              Edit Prompt
+              {t("Edit Prompt")}
             </span>
           </div>
         </div>
@@ -292,7 +293,7 @@ export default function PromptModal({
                     className="flex h-4 w-4 text-primary"
                   />
                   <span className="text-md font-semibold text-primary">
-                    Prompt Variables:
+                    {t("Prompt Variables:")}
                   </span>
 
                   {Array.from(wordsHighlight).map((word, index) => (
@@ -320,8 +321,10 @@ export default function PromptModal({
                 </div>
               </div>
               <span className="mt-2 text-xs text-muted-foreground">
-                Prompt variables can be created with any chosen name inside
-                curly brackets, e.g. {"{variable_name}"}
+                {t(
+                  "Prompt variables can be created with any chosen name inside curly brackets, e.g. {{example}}",
+                  { example: "{variable_name}" },
+                )}
               </span>
             </div>
           </div>
@@ -334,7 +337,7 @@ export default function PromptModal({
             }}
             type="submit"
           >
-            Check & Save
+            {t("Check & Save")}
           </Button>
         </div>
       </BaseModal.Footer>

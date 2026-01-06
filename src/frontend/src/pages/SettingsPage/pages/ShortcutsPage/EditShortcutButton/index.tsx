@@ -3,6 +3,7 @@ import RenderKey from "@/components/common/renderIconComponent/components/render
 import ForwardedIconComponent from "../../../../../components/common/genericIconComponent";
 import { Button } from "../../../../../components/ui/button";
 import BaseModal from "../../../../../modals/baseModal";
+import { t } from "@/i18n/t";
 import useAlertStore from "../../../../../stores/alertStore";
 import { useShortcutsStore } from "../../../../../stores/shortcuts";
 import { toCamelCase, toTitleCase } from "../../../../../utils/utils";
@@ -87,14 +88,14 @@ export default function EditShortcutButton({
         setKey(null);
         setOpen(false);
         setSuccessData({
-          title: `${shortcut[0]} shortcut successfully changed`,
+          title: t("Shortcut updated: {{name}}", { name: shortcut[0] }),
         });
         return;
       }
     }
     setErrorData({
-      title: "Error saving key combination",
-      list: ["This combination already exists!"],
+      title: t("Error saving key combination"),
+      list: [t("This combination already exists!")],
     });
   }
 

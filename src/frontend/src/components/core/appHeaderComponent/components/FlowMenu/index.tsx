@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import IconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
@@ -25,6 +26,7 @@ import { swatchColors } from "@/utils/styleUtils";
 import { cn, getNumberFromString } from "@/utils/utils";
 
 export const MenuBar = memo((): JSX.Element => {
+  const { t } = useTranslation();
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const saveLoading = useFlowsManagerStore((state) => state.saveLoading);
   const [openSettings, setOpenSettings] = useState(false);
@@ -75,7 +77,7 @@ export const MenuBar = memo((): JSX.Element => {
 
   const handleSave = () => {
     saveFlow().then(() => {
-      setSuccessData({ title: "Saved successfully" });
+      setSuccessData({ title: t("Saved successfully") });
     });
   };
 
@@ -140,7 +142,7 @@ export const MenuBar = memo((): JSX.Element => {
                 aria-hidden="true"
                 data-testid="flow_name"
               >
-                {currentFlowName || "Untitled Flow"}
+                {currentFlowName || t("Untitled Flow")}
               </span>
               <IconComponent
                 name="pencil"
@@ -158,15 +160,15 @@ export const MenuBar = memo((): JSX.Element => {
                 content={
                   changesNotSaved
                     ? saveLoading
-                      ? "Saving..."
-                      : "Save Changes"
+                      ? t("Saving...")
+                      : t("Save Changes")
                     : SAVED_HOVER +
                       (updatedAt
-                        ? new Date(updatedAt).toLocaleString("en-US", {
+                        ? new Date(updatedAt).toLocaleString("zh-CN", {
                             hour: "numeric",
                             minute: "numeric",
                           })
-                        : "Never")
+                        : t("Never"))
                 }
                 side="bottom"
                 styleClasses="cursor-default z-10"

@@ -2,6 +2,7 @@ import { cloneDeep } from "lodash";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import useSaveFlow from "@/hooks/flows/use-save-flow";
 import { useUtilityStore } from "@/stores/utilityStore";
+import { t } from "@/i18n/t";
 import IconComponent from "../../components/common/genericIconComponent";
 import { TagsSelector } from "../../components/common/tagsSelectorComponent";
 import EditFlowSettings from "../../components/core/editFlowSettingsComponent";
@@ -52,7 +53,7 @@ export default function ShareModal({
       ? [open, setOpen]
       : useState(children ? false : true);
   const [openConfirmationModal, setOpenConfirmationModal] = useState(false);
-  const nameComponent = is_component ? "component" : "workflow";
+  const nameComponent = is_component ? t("component") : t("workflow");
   const [sharePublic, setSharePublic] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [unavaliableNames, setUnavaliableNames] = useState<
@@ -107,7 +108,11 @@ export default function ShareModal({
         saveFlow(flow);
       }
       setSuccessData({
-        title: `${is_component ? "Component" : "Flow"} shared successfully!`,
+        title: t(
+          is_component
+            ? "Component shared successfully!"
+            : "Flow shared successfully!",
+        ),
       });
     }
 
@@ -118,7 +123,9 @@ export default function ShareModal({
         sharePublic,
       ).then(successShare, (err) => {
         setErrorData({
-          title: "Error sharing " + (is_component ? "component" : "flow"),
+          title: t(
+            is_component ? "Error sharing component" : "Error sharing flow",
+          ),
           list: [err["response"]["data"]["detail"]],
         });
       });
@@ -130,7 +137,9 @@ export default function ShareModal({
         unavaliableNames.find((e) => e.name === name)!.id,
       ).then(successShare, (err) => {
         setErrorData({
-          title: "Error sharing " + is_component ? "component" : "flow",
+          title: t(
+            is_component ? "Error sharing component" : "Error sharing flow",
+          ),
           list: [err["response"]["data"]["detail"]],
         });
       });
@@ -148,17 +157,17 @@ export default function ShareModal({
 
   const modalConfirmation = useMemo(() => {
     return (
-      <>
-        <ConfirmationModal
-          open={openConfirmationModal}
-          title={`Replace`}
-          cancelText="Cancel"
-          confirmationText="Replace"
-          size={"x-small"}
-          icon={"SaveAll"}
-          index={6}
-          onConfirm={() => {
-            handleUpdateComponent();
+        <>
+          <ConfirmationModal
+            open={openConfirmationModal}
+            title={t("Replace")}
+            cancelText={t("Cancel")}
+            confirmationText={t("Replace")}
+            size={"x-small"}
+            icon={"SaveAll"}
+            index={6}
+            onConfirm={() => {
+              handleUpdateComponent();
             setOpenConfirmationModal(false);
           }}
           onCancel={() => {
@@ -167,12 +176,14 @@ export default function ShareModal({
         >
           <ConfirmationModal.Content>
             <span>
-              It seems {name} already exists. Do you want to replace it with the
-              current?
+              {t(
+                "It seems {{name}} already exists. Do you want to replace it with the current?",
+                { name },
+              )}
             </span>
             <br></br>
             <span className="text-xs text-destructive">
-              Note: This action is irreversible.
+              {t("Note: This action is irreversible.")}
             </span>
           </ConfirmationModal.Content>
         </ConfirmationModal>
@@ -209,11 +220,11 @@ export default function ShareModal({
           {children ? children : <></>}
         </BaseModal.Trigger>
         <BaseModal.Header
-          description={`Publish ${
-            is_component ? "your component" : "workflow"
-          } to the Langflow Store.`}
+          description={t("Publish {{target}} to the Langflow Store.", {
+            target: is_component ? t("your component") : t("workflow"),
+          })}
         >
-          <span className="pr-2">Share</span>
+          <span className="pr-2">{t("Share")}</span>
           <IconComponent
             name="Share3"
             className="-m-0.5 h-6 w-6 text-foreground"
@@ -248,12 +259,12 @@ export default function ShareModal({
                   htmlFor="public"
                   className="export-modal-save-api text-sm"
                 >
-                  Set {nameComponent} status to public
+                  {t("Set {{name}} status to public", { name: nameComponent })}
                 </label>
               </div>
               <span className="text-xs text-destructive">
-                <b>Attention:</b> API keys in specified fields are automatically
-                removed upon sharing.
+                <b>{t("Attention:")}</b>{" "}
+                {t("API keys in specified fields are automatically removed upon sharing.")}
               </span>
             </>
           )}
@@ -261,7 +272,7 @@ export default function ShareModal({
 
         <BaseModal.Footer
           submit={{
-            label: `Share ${is_component ? "Component" : "Flow"}`,
+            label: t(is_component ? "Share Component" : "Share Flow"),
             loading: loadingNames,
             dataTestId: "share-modal-button-flow",
           }}
@@ -278,7 +289,7 @@ export default function ShareModal({
                   }}
                 >
                   <IconComponent name="Download" className="h-4 w-4" />
-                  Export
+                  {t("Export")}
                 </Button>
               </ExportModal>
             )}
@@ -293,7 +304,7 @@ export default function ShareModal({
                 }}
               >
                 <IconComponent name="Download" className="h-4 w-4" />
-                Export
+                {t("Export")}
               </Button>
             )}
           </>

@@ -3,6 +3,7 @@ import CodeAreaModal from "@/modals/codeAreaModal";
 import ConfirmationModal from "@/modals/confirmationModal";
 import EditNodeModal from "@/modals/editNodeModal";
 import ShareModal from "@/modals/shareModal";
+import { t } from "@/i18n/t";
 import type { APIClassType } from "@/types/api";
 import type { FlowType } from "@/types/flow";
 
@@ -57,7 +58,9 @@ const ToolbarModals = memo(
         flow: flowComponent,
         override: true,
       });
-      setSuccessData({ title: `${data.id} successfully overridden!` });
+      setSuccessData({
+        title: t("{{id}} successfully overridden!", { id: data.id }),
+      });
       setShowOverrideModal(false);
     };
 
@@ -70,7 +73,7 @@ const ToolbarModals = memo(
         flow: flowComponent,
         override: true,
       });
-      setSuccessData({ title: "New component successfully saved!" });
+      setSuccessData({ title: t("New component successfully saved!") });
       setShowOverrideModal(false);
     };
 
@@ -96,20 +99,22 @@ const ToolbarModals = memo(
         {showOverrideModal && (
           <ConfirmationModal
             open={showOverrideModal}
-            title="Replace"
+            title={t("Replace")}
             onConfirm={handleConfirm}
             onClose={handleClose}
             onCancel={handleCancel}
-            cancelText="Create New"
-            confirmationText="Replace"
+            cancelText={t("Create New")}
+            confirmationText={t("Replace")}
             size="x-small"
             icon="SaveAll"
             index={6}
           >
             <ConfirmationModal.Content>
               <span>
-                It seems {data.node?.display_name} already exists. Do you want
-                to replace it with the current or create a new one?
+                {t(
+                  "It seems {{name}} already exists. Do you want to replace it with the current or create a new one?",
+                  { name: data.node?.display_name ?? "" },
+                )}
               </span>
             </ConfirmationModal.Content>
           </ConfirmationModal>

@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import useUploadFlow from "@/hooks/flows/use-upload-flow";
+import { t } from "@/i18n/t";
 import { CONSOLE_ERROR_MSG } from "../../../constants/alerts_constants";
 import useAlertStore from "../../../stores/alertStore";
 
@@ -34,7 +35,7 @@ const useFileDrop = (type?: string) => {
           })
             .then(() => {
               setSuccessData({
-                title: `All files uploaded successfully`,
+                title: t("All files uploaded successfully"),
               });
             })
             .catch((error) => {

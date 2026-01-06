@@ -2,6 +2,7 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CustomLink } from "@/customization/components/custom-link";
+import { t } from "@/i18n/t";
 import IconComponent from "../../../../components/common/genericIconComponent";
 import type { SingleAlertComponentType } from "../../../../types/alerts";
 
@@ -75,7 +76,7 @@ export default function SingleAlert({
             }}
             className="inline-flex rounded-md p-1.5 text-status-red"
           >
-            <span className="sr-only">Dismiss</span>
+            <span className="sr-only">{t("Dismiss")}</span>
             <IconComponent name="X" className="h-4 w-4 text-error-foreground" />
           </button>
         </div>
@@ -99,7 +100,7 @@ export default function SingleAlert({
               to={dropItem.link}
               className="whitespace-nowrap font-medium text-info-foreground hover:text-accent-foreground"
             >
-              Details
+              {t("Details")}
             </CustomLink>
           ) : (
             <></>
@@ -118,7 +119,7 @@ export default function SingleAlert({
             }}
             className="inline-flex rounded-md p-1.5 text-info-foreground"
           >
-            <span className="sr-only">Dismiss</span>
+            <span className="sr-only">{t("Dismiss")}</span>
             <IconComponent name="X" className="h-4 w-4 text-info-foreground" />
           </button>
         </div>
@@ -152,7 +153,7 @@ export default function SingleAlert({
             }}
             className="inline-flex rounded-md p-1.5 text-status-green"
           >
-            <span className="sr-only">Dismiss</span>
+            <span className="sr-only">{t("Dismiss")}</span>
             <IconComponent
               name="X"
               className="h-4 w-4 text-success-foreground"

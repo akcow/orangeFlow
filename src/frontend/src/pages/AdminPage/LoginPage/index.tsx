@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useContext, useState } from "react";
 import LangflowLogo from "@/assets/LangflowLogo.svg?react";
 import { useLoginUser } from "@/controllers/API/queries/auth";
+import { t } from "@/i18n/t";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { SIGNIN_ERROR_ALERT } from "../../../constants/alerts_constants";
@@ -53,13 +54,15 @@ export default function LoginAdminPage() {
     <div className="flex h-full w-full flex-col items-center justify-center bg-muted">
       <div className="flex w-72 flex-col items-center justify-center gap-2">
         <LangflowLogo title="Langflow logo" className="h-10 w-10 scale-[1.5]" />
-        <span className="mb-6 text-2xl font-semibold text-primary">Admin</span>
+        <span className="mb-6 text-2xl font-semibold text-primary">
+          {t("Admin")}
+        </span>
         <Input
           onChange={({ target: { value } }) => {
             handleInput({ target: { name: "username", value } });
           }}
           className="bg-background"
-          placeholder="Username"
+          placeholder={t("Username")}
         />
         <Input
           type="password"
@@ -67,7 +70,7 @@ export default function LoginAdminPage() {
             handleInput({ target: { name: "password", value } });
           }}
           className="bg-background"
-          placeholder="Password"
+          placeholder={t("Password")}
         />
         <Button
           onClick={() => {
@@ -76,7 +79,7 @@ export default function LoginAdminPage() {
           variant="default"
           className="w-full"
         >
-          Login
+          {t("Login")}
         </Button>
       </div>
     </div>

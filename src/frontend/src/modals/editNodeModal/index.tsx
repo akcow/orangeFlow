@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { APIClassType } from "@/types/api";
 import { customStringify } from "@/utils/reactflowUtils";
+import { t } from "@/i18n/t";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { useDarkStore } from "../../stores/darkStore";
@@ -50,7 +51,7 @@ const EditNodeModal = ({
       </BaseModal.Content>
       <BaseModal.Footer>
         <div className="flex w-full justify-end gap-2 pt-2">
-          <Button onClick={() => setOpen(false)}>Close</Button>
+          <Button onClick={() => setOpen(false)}>{t("Close")}</Button>
         </div>
       </BaseModal.Footer>
     </BaseModal>

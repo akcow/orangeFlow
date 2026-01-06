@@ -1,4 +1,5 @@
 
+import { useTranslation } from "react-i18next";
 import { useLogout } from "@/controllers/API/queries/auth";
 import { CustomProfileIcon } from "@/customization/components/custom-profile-icon";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
@@ -14,6 +15,7 @@ import {
 import ThemeButtons from "../ThemeButtons";
 
 export const AccountMenu = () => {
+  const { t } = useTranslation();
   const version = useDarkStore((state) => state.version);
   const latestVersion = useDarkStore((state) => state.latestVersion);
   const navigate = useCustomNavigate();
@@ -57,7 +59,7 @@ export const AccountMenu = () => {
                   id="menu_version_button"
                   className="text-sm"
                 >
-                  Version
+                  {t("Version")}
                 </span>
                 <div
                   className={cn(
@@ -67,7 +69,7 @@ export const AccountMenu = () => {
                   )}
                 >
                   {version}{" "}
-                  {isLatestVersion ? "(latest)" : "(update available)"}
+                  {isLatestVersion ? t("(latest)") : t("(update available)")}
                 </div>
               </div>
             </div>
@@ -83,7 +85,7 @@ export const AccountMenu = () => {
                 data-testid="menu_settings_button"
                 id="menu_settings_button"
               >
-                Settings
+                {t("Settings")}
               </span>
             </HeaderMenuItemButton>
 
@@ -98,7 +100,7 @@ export const AccountMenu = () => {
                     data-testid="menu_admin_page_button"
                     id="menu_admin_page_button"
                   >
-                    Admin Page
+                    {t("Admin Page")}
                   </span>
                 </HeaderMenuItemButton>
               </div>
@@ -106,7 +108,7 @@ export const AccountMenu = () => {
           </div>
 
           <div className="flex items-center justify-between px-4 py-[6.5px] text-sm">
-            <span className="">Theme</span>
+            <span className="">{t("Theme")}</span>
             <div className="relative top-[1px] float-right">
               <ThemeButtons />
             </div>
@@ -115,7 +117,7 @@ export const AccountMenu = () => {
           {!autoLogin && (
             <div>
               <HeaderMenuItemButton onClick={handleLogout} icon="log-out">
-                Logout
+                {t("Logout")}
               </HeaderMenuItemButton>
             </div>
           )}

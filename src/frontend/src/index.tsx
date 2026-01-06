@@ -8,6 +8,8 @@ import "./style/index.css";
 import "./App.css";
 import "./style/applies.css";
 
+import "./i18n";
+
 // @ts-ignore
 import App from "./customization/custom-App";
 

@@ -1,14 +1,15 @@
 import IconComponent from "@/components/common/genericIconComponent";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 
-export const FolderSelectItem = ({ name, iconName }) => (
+export const FolderSelectItem = ({ nameKey, iconName }) => (
   <div
     className={cn(
-      name === "Delete" ? "text-destructive" : "",
+      nameKey === "Delete" ? "text-destructive" : "",
       "flex items-center font-medium",
     )}
   >
     <IconComponent name={iconName} className="mr-2 w-4" />
-    <span>{name}</span>
+    <span>{t(nameKey)}</span>
   </div>
 );

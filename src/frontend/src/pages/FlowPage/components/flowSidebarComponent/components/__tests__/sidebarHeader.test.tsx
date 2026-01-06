@@ -158,7 +158,7 @@ describe("SidebarHeaderComponent", () => {
 
         expect(screen.getByTestId("sidebar-header")).toBeInTheDocument();
         expect(screen.getByTestId("sidebar-trigger")).toBeInTheDocument();
-        expect(screen.getByText("Components")).toBeInTheDocument();
+        expect(screen.getByText("组件")).toBeInTheDocument();
         expect(
           screen.getByTestId("sidebar-options-trigger"),
         ).toBeInTheDocument();
@@ -200,7 +200,7 @@ describe("SidebarHeaderComponent", () => {
 
         expect(screen.getByTestId("tooltip")).toHaveAttribute(
           "data-content",
-          "Component settings",
+          "组件设置",
         );
         expect(screen.getByTestId("tooltip")).toHaveClass("z-50");
       });

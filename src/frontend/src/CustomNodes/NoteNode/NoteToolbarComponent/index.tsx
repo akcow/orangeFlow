@@ -14,6 +14,7 @@ import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useShortcutsStore } from "@/stores/shortcuts";
 import type { NoteDataType } from "@/types/flow";
+import { t } from "@/i18n/t";
 import { classNames, cn } from "@/utils/utils";
 import IconComponent from "../../../components/common/genericIconComponent";
 import { ColorPickerButtons } from "../components/color-picker-buttons";
@@ -51,7 +52,7 @@ const NoteToolbarComponent = memo(function NoteToolbarComponent({
       return customOpenNewTab(data.node?.documentation);
     }
     setNoticeData({
-      title: `${data.id} docs is not available at the moment.`,
+      title: t("{{id}} docs is not available at the moment.", { id: data.id }),
     });
   }, [data.node?.documentation, data.id, setNoticeData]);
 
@@ -109,7 +110,7 @@ const NoteToolbarComponent = memo(function NoteToolbarComponent({
     <div className="w-26 noflow nowheel nopan nodelete nodrag h-10">
       <span className="isolate inline-flex rounded-md shadow-sm">
         <Popover>
-          <ShadTooltip content="Pick Color">
+          <ShadTooltip content={t("Pick Color")}>
             <PopoverTrigger>
               <div>
                 <div
@@ -138,7 +139,7 @@ const NoteToolbarComponent = memo(function NoteToolbarComponent({
 
         <Select onValueChange={handleSelectChange} value="">
           <SelectTrigger>
-            <ShadTooltip content="Show More" side="top">
+            <ShadTooltip content={t("Show More")} side="top">
               <div>
                 <div
                   data-testid="more-options-modal"

@@ -2,6 +2,7 @@ import { cloneDeep } from "lodash";
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ICON_STROKE_WIDTH } from "@/constants/constants";
+import { t } from "@/i18n/t";
 import {
   convertObjToArray,
   convertValuesToNumbers,
@@ -129,7 +130,7 @@ const KeypairListComponent = ({
           type="text"
           value={key.trim()}
           className={getInputClassName(editNode, duplicateKey)}
-          placeholder="Type key..."
+          placeholder={t("Type key...")}
           onChange={(event) => handleChangeKey(event, index)}
         />
         <Input
@@ -139,7 +140,7 @@ const KeypairListComponent = ({
           disabled={disabled}
           value={obj[key]}
           className={editNode ? "input-edit-node" : ""}
-          placeholder="Type a value..."
+          placeholder={t("Type a value...")}
           onChange={(event) => handleChangeValue(event, index)}
         />
         <div className="hit-area-icon">

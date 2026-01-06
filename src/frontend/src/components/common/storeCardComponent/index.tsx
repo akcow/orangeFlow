@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { usePostLikeComponent } from "@/controllers/API/queries/store";
 import { getComponent } from "../../../controllers/API";
+import { t } from "@/i18n/t";
 import useAlertStore from "../../../stores/alertStore";
 import { useStoreStore } from "../../../stores/storeStore";
 import type { FlowType } from "../../../types/flow";
@@ -42,7 +43,7 @@ export default function StoreCardComponent({
     data?.downloads_count ?? 0,
   );
 
-  const name = data.is_component ? "Component" : "Flow";
+  const name = data.is_component ? t("Component") : t("Flow");
 
   async function _getFlowData() {
     const res = await getComponent(data.id);
@@ -93,7 +94,7 @@ export default function StoreCardComponent({
             }
             console.error(error);
             setErrorData({
-              title: `Error liking ${name}.`,
+              title: t("Error liking {{name}}.", { name }),
               list: [error.response.data.detail],
             });
           },
@@ -133,14 +134,14 @@ export default function StoreCardComponent({
                 </ShadTooltip>
                 <div className="flex items-center gap-3">
                   {data.private && (
-                    <ShadTooltip content="Private">
+                    <ShadTooltip content={t("Private")}>
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <IconComponent name="Lock" className="h-4 w-4" />
                       </span>
                     </ShadTooltip>
                   )}
                   {!data.is_component && (
-                    <ShadTooltip content="Components">
+                    <ShadTooltip content={t("Components")}>
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <IconComponent name="ToyBrick" className="h-4 w-4" />
                         <span data-testid={`total-${data.name}`}>
@@ -149,7 +150,7 @@ export default function StoreCardComponent({
                       </span>
                     </ShadTooltip>
                   )}
-                  <ShadTooltip content="Likes">
+                  <ShadTooltip content={t("Likes")}>
                     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <IconComponent name="Heart" className={cn("h-4 w-4")} />
                       <span data-testid={`likes-${data.name}`}>
@@ -157,7 +158,7 @@ export default function StoreCardComponent({
                       </span>
                     </span>
                   </ShadTooltip>
-                  <ShadTooltip content="Downloads">
+                  <ShadTooltip content={t("Downloads")}>
                     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <IconComponent name="DownloadCloud" className="h-4 w-4" />
                       <span data-testid={`downloads-${data.name}`}>
@@ -171,7 +172,7 @@ export default function StoreCardComponent({
             <div className="flex gap-2">
               {data.user_created && data.user_created.username && (
                 <span className="text-sm text-primary">
-                  by <b>{data.user_created.username}</b>
+                  {t("by")} <b>{data.user_created.username}</b>
                   {data.last_tested_version && (
                     <>
                       {" "}
@@ -198,7 +199,9 @@ export default function StoreCardComponent({
             <div className="flex w-full flex-wrap items-end justify-end gap-2">
               <div className="flex gap-0.5">
                 <ShadTooltip
-                  content={authorized ? "Like" : "Please review your API key."}
+                  content={
+                    authorized ? t("Like") : t("Please review your API key.")
+                  }
                 >
                   <Button
                     disabled={isPending}
@@ -231,8 +234,8 @@ export default function StoreCardComponent({
                 <ShadTooltip
                   content={
                     authorized
-                      ? "Install Locally"
-                      : "Please review your API key."
+                      ? t("Install Locally")
+                      : t("Please review your API key.")
                   }
                 >
                   <Button

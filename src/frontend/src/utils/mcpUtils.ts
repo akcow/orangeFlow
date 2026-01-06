@@ -1,4 +1,5 @@
 import { MCPServerType } from "@/types/mcp";
+import { t } from "@/i18n/t";
 
 export enum AuthMethodId {
   NONE = "none",
@@ -7,9 +8,9 @@ export enum AuthMethodId {
 }
 
 export const AUTH_METHODS = {
-  [AuthMethodId.NONE]: { id: AuthMethodId.NONE, label: "None" },
+  [AuthMethodId.NONE]: { id: AuthMethodId.NONE, label: t("None") },
   [AuthMethodId.API_KEY]: { id: AuthMethodId.API_KEY, label: "API Key" },
-  [AuthMethodId.OAUTH]: { id: AuthMethodId.OAUTH, label: "OAuth" },
+  [AuthMethodId.OAUTH]: { id: AuthMethodId.OAUTH, label: t("OAuth") },
 } as const;
 
 export const AUTH_METHODS_ARRAY = Object.values(AUTH_METHODS);
@@ -33,7 +34,7 @@ export function extractMcpServersFromJson(
       try {
         parsed = JSON.parse(`{${json}}`);
       } catch (_e) {
-        throw new Error("Invalid JSON format.");
+        throw new Error(t("Invalid JSON format."));
       }
     }
   }
@@ -71,14 +72,14 @@ export function extractMcpServersFromJson(
   }
 
   if (serverEntries.length === 0) {
-    throw new Error("No valid MCP server found in the input.");
+    throw new Error(t("No valid MCP server found in the input."));
   }
   // Validate and map all servers
   const validServers = serverEntries.filter(
     ([, server]) => server.command || server.url,
   );
   if (validServers.length === 0) {
-    throw new Error("No valid MCP server found in the input.");
+    throw new Error(t("No valid MCP server found in the input."));
   }
   return validServers.map(([name, server]) => ({
     name: name.slice(0, 30),

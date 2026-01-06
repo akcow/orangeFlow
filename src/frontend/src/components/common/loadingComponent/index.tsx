@@ -1,4 +1,5 @@
 import type { LoadingComponentProps } from "../../../types/components";
+import { t } from "@/i18n/t";
 
 export default function LoadingComponent({
   remSize,
@@ -22,7 +23,9 @@ export default function LoadingComponent({
         />
       </svg>
       <br></br>
-      <span className="animate-pulse text-lg text-primary">Loading...</span>
+      <span className="animate-pulse text-lg text-primary">
+        {t("Loading...")}
+      </span>
     </div>
   );
 }

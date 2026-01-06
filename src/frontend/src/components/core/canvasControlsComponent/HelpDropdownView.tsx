@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import { t } from "@/i18n/t";
 import DropdownControlButton from "./DropdownControlButton";
 
 export type HelpDropdownViewProps = {
@@ -18,7 +19,6 @@ export type HelpDropdownViewProps = {
   urls: {
     docs: string;
     bugReport: string;
-    desktop: string;
   };
 };
 
@@ -38,7 +38,7 @@ export const HelpDropdownView = ({
           variant="ghost"
           size="icon"
           className="group flex items-center justify-center px-2 rounded-none"
-          title="Help"
+          title={t("Help")}
         >
           <IconComponent
             name="Circle-Help"
@@ -55,37 +55,30 @@ export const HelpDropdownView = ({
         <DropdownControlButton
           iconName="book-open"
           testId="canvas_controls_dropdown_docs"
-          label="Docs"
+          label={t("Docs")}
           externalLink
           onClick={() => openLink(urls.docs)}
         />
         <DropdownControlButton
           iconName="keyboard"
           testId="canvas_controls_dropdown_shortcuts"
-          label="Shortcuts"
+          label={t("Shortcuts")}
           onClick={() => navigateTo("/settings/shortcuts")}
         />
         <DropdownControlButton
           iconName="bug"
           testId="canvas_controls_dropdown_report_a_bug"
           externalLink
-          label="Report a bug"
+          label={t("Report a bug")}
           onClick={() => openLink(urls.bugReport)}
         />
         <Separator />
-        <DropdownControlButton
-          iconName="download"
-          testId="canvas_controls_dropdown_get_langflow_desktop"
-          label="Get Langflow Desktop"
-          externalLink
-          onClick={() => openLink(urls.desktop)}
-        />
         <DropdownControlButton
           iconName={!helperLineEnabled ? "UnfoldHorizontal" : "FoldHorizontal"}
           testId="canvas_controls_dropdown_enable_smart_guides"
           onClick={onToggleHelperLines}
           toggleValue={helperLineEnabled}
-          label="Enable smart guides"
+          label={t("Enable smart guides")}
           hasToogle={true}
         />
       </DropdownMenuContent>

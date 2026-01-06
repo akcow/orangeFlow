@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DISCORD_URL, GITHUB_URL } from "@/constants/constants";
 import { useGetUserData, useUpdateUser } from "@/controllers/API/queries/auth";
 import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
+import { t } from "@/i18n/t";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import type { Users } from "@/types/api";
 import { cn } from "@/utils/utils";
@@ -93,10 +94,10 @@ export const GetStartedProgress: FC<{
         >
           {percentageGetStarted >= 100 ? (
             <>
-              <span>All Set</span> <span className="pl-1"> 🎉 </span>
+              <span>{t("All Set")}</span> <span className="pl-1"> 🎉 </span>
             </>
           ) : (
-            "Get started"
+            t("Get started")
           )}
         </span>
         <button
@@ -161,7 +162,7 @@ export const GetStartedProgress: FC<{
                 isGithubStarredChild && "text-muted-foreground line-through",
               )}
             >
-              Star repo for updates
+              {t("Star repo for updates")}
             </span>
           </div>
         </Button>
@@ -203,7 +204,7 @@ export const GetStartedProgress: FC<{
                 isDiscordJoinedChild && "text-muted-foreground line-through",
               )}
             >
-              Join the community
+              {t("Join the community")}
             </span>
           </div>
         </Button>
@@ -239,7 +240,7 @@ export const GetStartedProgress: FC<{
               />
             </span>
             <span className={cn("text-sm", hasFlows && "line-through")}>
-              Create a flow
+              {t("Create a flow")}
             </span>
           </div>
         </Button>

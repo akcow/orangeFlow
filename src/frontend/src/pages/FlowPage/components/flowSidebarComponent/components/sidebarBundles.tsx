@@ -6,6 +6,7 @@ import {
   SidebarMenu,
 } from "@/components/ui/sidebar";
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import type { SidebarGroupProps } from "../types";
 import { BundleItem } from "./bundleItems";
 import { SearchConfigTrigger } from "./searchConfigTrigger";
@@ -43,7 +44,7 @@ export const MemoizedSidebarGroup = memo(
     return (
       <SidebarGroup className="p-3 pr-2">
         <SidebarGroupLabel className="cursor-default w-full flex items-center justify-between">
-          <span>Bundles</span>
+          <span>{t("Bundles")}</span>
           {showSearchConfigTrigger && ENABLE_NEW_SIDEBAR && (
             <SearchConfigTrigger
               showConfig={showConfig}

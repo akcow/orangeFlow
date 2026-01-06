@@ -7,6 +7,7 @@ import {
   useDeleteMessages,
   useUpdateMessage,
 } from "@/controllers/API/queries/messages";
+import { t } from "@/i18n/t";
 import useFlowStore from "@/stores/flowStore";
 import TableComponent from "../../../components/core/parameterRenderComponent/components/tableComponent";
 import useAlertStore from "../../../stores/alertStore";
@@ -38,12 +39,12 @@ export default function SessionView({
       deleteMessagesStore(selectedRows);
       setSelectedRows([]);
       setSuccessData({
-        title: "Messages deleted successfully.",
+        title: t("Messages deleted successfully."),
       });
     },
     onError: () => {
       setErrorData({
-        title: "Error deleting messages.",
+        title: t("Error deleting messages."),
       });
     },
   });
@@ -65,12 +66,12 @@ export default function SessionView({
           updateMessage(data);
           // Set success message
           setSuccessData({
-            title: "Messages updated successfully.",
+            title: t("Messages updated successfully."),
           });
         },
         onError: () => {
           setErrorData({
-            title: "Error updating messages.",
+            title: t("Error updating messages."),
           });
           event.data[field] = event.oldValue;
           event.api.refreshCells();
@@ -109,7 +110,7 @@ export default function SessionView({
       onDelete={playgroundPage ? undefined : handleRemoveMessages}
       readOnlyEdit
       editable={editable}
-      overlayNoRowsTemplate="No data available"
+      overlayNoRowsTemplate={t("No data available")}
       onSelectionChanged={(event: SelectionChangedEvent) => {
         setSelectedRows(event.api.getSelectedRows().map((row) => row.id));
       }}

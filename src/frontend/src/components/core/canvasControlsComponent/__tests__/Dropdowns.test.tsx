@@ -42,7 +42,6 @@ jest.mock("@/constants/constants", () => ({
   __esModule: true,
   DATASTAX_DOCS_URL: "https://docs.datastax.com",
   DOCS_URL: "https://docs.langflow.org",
-  DESKTOP_URL: "https://desktop.langflow.org",
 }));
 
 jest.mock("@/customization/feature-flags", () => ({
@@ -106,13 +105,5 @@ describe("HelpDropdown", () => {
 
     fireEvent.click(screen.getByTestId("canvas_controls_dropdown_shortcuts"));
     expect(mockNavigate).toHaveBeenCalledWith("/settings/shortcuts");
-
-    fireEvent.click(
-      screen.getByTestId("canvas_controls_dropdown_get_langflow_desktop"),
-    );
-    expect(window.open).toHaveBeenCalledWith(
-      "https://desktop.langflow.org",
-      "_blank",
-    );
   });
 });

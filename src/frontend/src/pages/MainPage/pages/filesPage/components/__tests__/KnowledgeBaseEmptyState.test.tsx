@@ -34,9 +34,9 @@ jest.mock("@/utils/reactflowUtils", () => ({
 jest.mock("../KnowledgeBaseEmptyState", () => {
   const MockKnowledgeBaseEmptyState = () => (
     <div data-testid="knowledge-base-empty-state">
-      <h3>No knowledge bases</h3>
-      <p>Create your first knowledge base to get started.</p>
-      <button data-testid="create-knowledge-btn">Create Knowledge</button>
+      <h3>暂无知识库</h3>
+      <p>从知识库流程开始。</p>
+      <button data-testid="create-knowledge-btn">创建知识库</button>
     </div>
   );
   MockKnowledgeBaseEmptyState.displayName = "KnowledgeBaseEmptyState";
@@ -71,10 +71,8 @@ describe("KnowledgeBaseEmptyState", () => {
   it("renders empty state message correctly", () => {
     render(<KnowledgeBaseEmptyState />, { wrapper: createTestWrapper() });
 
-    expect(screen.getByText("No knowledge bases")).toBeInTheDocument();
-    expect(
-      screen.getByText("Create your first knowledge base to get started."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("暂无知识库")).toBeInTheDocument();
+    expect(screen.getByText("从知识库流程开始。")).toBeInTheDocument();
   });
 
   it("renders create knowledge button", () => {
@@ -82,7 +80,7 @@ describe("KnowledgeBaseEmptyState", () => {
 
     const createButton = screen.getByTestId("create-knowledge-btn");
     expect(createButton).toBeInTheDocument();
-    expect(createButton).toHaveTextContent("Create Knowledge");
+    expect(createButton).toHaveTextContent("创建知识库");
   });
 
   it("handles create knowledge button click", () => {

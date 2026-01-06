@@ -28,6 +28,7 @@ import {
 } from "@/CustomNodes/utils/get-handle-id";
 import { INCOMPLETE_LOOP_ERROR_ALERT } from "@/constants/alerts_constants";
 import { customDownloadFlow } from "@/customization/utils/custom-reactFlowUtils";
+import { t } from "@/i18n/t";
 import useFlowStore from "@/stores/flowStore";
 import getFieldTitle from "../CustomNodes/utils/get-field-title";
 import {
@@ -740,7 +741,9 @@ export function updateIds(
 export function validateNode(node: AllNodeType, edges: Edge[]): Array<string> {
   if (!node.data?.node?.template || !Object.keys(node.data.node.template)) {
     return [
-      "We've noticed a potential issue with a Component in the flow. Please review it and, if necessary, submit a bug report with your exported flow file. Thank you for your help!",
+      t(
+        "We've noticed a potential issue with a component in the flow. Please review it and, if necessary, submit a bug report with your exported flow file. Thank you for your help!",
+      ),
     ];
   }
 
@@ -769,7 +772,7 @@ export function validateNode(node: AllNodeType, edges: Edge[]): Array<string> {
       )
     ) {
       errors.push(
-        `${displayName || type} is missing ${getFieldTitle(template, t)}.`,
+        `${displayName || type} 缺少 ${getFieldTitle(template, t)}。`,
       );
     } else if (
       template[t].type === "dict" &&
@@ -781,17 +784,14 @@ export function validateNode(node: AllNodeType, edges: Edge[]): Array<string> {
     ) {
       if (hasDuplicateKeys(template[t].value))
         errors.push(
-          `${displayName || type} (${getFieldTitle(
+          `${displayName || type}（${getFieldTitle(
             template,
             t,
-          )}) contains duplicate keys with the same values.`,
+          )}）包含重复的键。`,
         );
       if (hasEmptyKey(template[t].value))
         errors.push(
-          `${displayName || type} (${getFieldTitle(
-            template,
-            t,
-          )}) field must not be empty.`,
+          `${displayName || type}（${getFieldTitle(template, t)}）字段不能为空。`,
         );
     }
     return errors;
@@ -808,7 +808,9 @@ Array<{ id: string; errors: Array<string> }> {
       {
         id: "",
         errors: [
-          "No components found in the flow. Please add at least one component to the flow.",
+          t(
+            "No components found in the flow. Please add at least one component to the flow.",
+          ),
         ],
       },
     ];
@@ -1427,11 +1429,11 @@ export function validateSelection(
       (node) => node?.data && nonGroupableTypes.has((node.data as any).type),
     )
   ) {
-    errorsArray.push("This selection contains components that cannot be grouped");
+    errorsArray.push(t("This selection contains components that cannot be grouped"));
   }
   // check if there is more than one node
   if (clonedSelection.nodes.length < 2) {
-    errorsArray.push("Please select more than one component");
+    errorsArray.push(t("Please select more than one component"));
   }
   if (
     clonedSelection.nodes.some(
@@ -1440,7 +1442,7 @@ export function validateSelection(
         isOutputNode(node.data as NodeDataType),
     )
   ) {
-    errorsArray.push("Select non-input/output components only");
+    errorsArray.push(t("Select non-input/output components only"));
   }
   //check if there are two or more nodes with free outputs
   if (
@@ -2147,7 +2149,7 @@ export const createNewFlow = (
 ) => {
   return {
     description: flow?.description ?? getRandomDescription(),
-    name: flow?.name ? flow.name : "New Flow",
+    name: flow?.name ? flow.name : "新建流程",
     data: flowData,
     id: "",
     icon: flow?.icon ?? undefined,

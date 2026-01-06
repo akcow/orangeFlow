@@ -13,6 +13,7 @@ import {
   customEventsUrl,
 } from "@/customization/utils/custom-buildUtils";
 import { customPollBuildEvents } from "@/customization/utils/custom-poll-build-events";
+import { t } from "@/i18n/t";
 import { useMessagesStore } from "@/stores/messagesStore";
 import { BuildStatus, EventDeliveryType } from "../constants/enums";
 import { getVerticesOrder, postBuildVertex } from "../controllers/API";
@@ -108,10 +109,10 @@ export async function updateVerticesOrder(
       logFlowLoad("Error getting vertices order:", error);
       setErrorData({
         title: MISSED_ERROR_ALERT,
-        list: [error.response?.data?.detail ?? "Unknown Error"],
+        list: [error.response?.data?.detail ?? t("Unknown Error")],
       });
       useFlowStore.getState().setIsBuilding(false);
-      throw new Error("Invalid components");
+      throw new Error(t("Invalid components"));
     }
     // orderResponse.data.ids,
     // for each id we need to build the VertexLayerElementType object as
@@ -163,7 +164,7 @@ export async function buildFlowVerticesWithFallback(
 
 const MIN_VISUAL_BUILD_TIME_MS = 300;
 const NO_BUILD_RESULTS_ERROR_MESSAGE =
-  "No components were executed. Please check required inputs and try again.";
+  t("No components were executed. Please check required inputs and try again.");
 
 async function pollBuildEvents(
   url: string,
@@ -290,17 +291,17 @@ export async function buildFlowVertices({
         },
         onError: (statusCode) => {
           if (statusCode === 404) {
-            throw new Error("Flow not found");
+            throw new Error(t("Flow not found"));
           }
-          throw new Error("Error processing build events");
+          throw new Error(t("Error processing build events"));
         },
         onNetworkError: (error: Error) => {
           if (error.name === "AbortError") {
             onBuildStopped && onBuildStopped();
             return;
           }
-          onBuildError!("Error Building Component", [
-            "Network error. Please check the connection to the server.",
+          onBuildError!(t("Error Building Component"), [
+            t("Network error. Please check the connection to the server."),
           ]);
         },
         buildController,
@@ -323,9 +324,9 @@ export async function buildFlowVertices({
 
     if (!buildResponse.ok) {
       if (buildResponse.status === 404) {
-        throw new Error("Flow not found");
+        throw new Error(t("Flow not found"));
       }
-      throw new Error("Error starting build process");
+      throw new Error(t("Error starting build process"));
     }
 
     const { job_id } = await buildResponse.json();
@@ -370,17 +371,17 @@ export async function buildFlowVertices({
         },
         onError: (statusCode) => {
           if (statusCode === 404) {
-            throw new Error("Build job not found");
+            throw new Error(t("Build job not found"));
           }
-          throw new Error("Error processing build events");
+          throw new Error(t("Error processing build events"));
         },
         onNetworkError: (error: Error) => {
           if (error.name === "AbortError") {
             onBuildStopped && onBuildStopped();
             return;
           }
-          onBuildError!("Error Building Component", [
-            "Network error. Please check the connection to the server.",
+          onBuildError!(t("Error Building Component"), [
+            t("Network error. Please check the connection to the server."),
           ]);
         },
         buildController,
@@ -408,9 +409,11 @@ export async function buildFlowVertices({
       onBuildStopped && onBuildStopped();
       return;
     }
-    onBuildError!("Error Building Flow", [
+    onBuildError!(t("Error Building Flow"), [
       (error as Error).message ||
-        "Langflow was not able to connect to the server. Please make sure your connection is working properly.",
+        t(
+          "Langflow was not able to connect to the server. Please make sure your connection is working properly.",
+        ),
     ]);
     throw error;
   }
@@ -527,7 +530,7 @@ async function onEvent(
             },
           );
           onBuildError &&
-            onBuildError("Error Building Component", errorMessages, [
+            onBuildError(t("Error Building Component"), errorMessages, [
               { id: buildData.id },
             ]);
           onBuildUpdate(buildData, BuildStatus.ERROR, "");
@@ -585,7 +588,7 @@ async function onEvent(
             ? expectedVertices.map((id) => ({ id }))
             : undefined;
         onBuildError(
-          "Error Building Flow",
+          t("Error Building Flow"),
           [NO_BUILD_RESULTS_ERROR_MESSAGE],
           targetIds,
         );
@@ -599,7 +602,7 @@ async function onEvent(
         useMessagesStore.getState().addMessage(data);
         // Use a falsy check to correctly determine if the source ID is missing.
         if (!data?.properties?.source?.id) {
-          onBuildError && onBuildError("Error Building Flow", [data.text]);
+          onBuildError && onBuildError(t("Error Building Flow"), [data.text]);
         }
       }
       buildResults.push(false);
@@ -673,7 +676,7 @@ export async function buildVertices({
       hasBuildResults && buildResults.every((result) => result);
     if (!hasBuildResults && onBuildError) {
       onBuildError(
-        "Error Building Flow",
+        t("Error Building Flow"),
         [NO_BUILD_RESULTS_ERROR_MESSAGE],
         verticesIds.map((id) => ({ id })),
       );
@@ -804,7 +807,7 @@ async function buildVertex({
           return [outputs.message.errorMessage];
         });
         onBuildError!(
-          "Error Building Component",
+          t("Error Building Component"),
           errorMessages,
           verticesIds.map((id) => ({ id })),
         );
@@ -820,13 +823,13 @@ async function buildVertex({
     let errorMessage: string | string[] =
       (error as AxiosError<any>).response?.data?.detail ||
       (error as AxiosError<any>).response?.data?.message ||
-      "An unexpected error occurred while building the Component. Please try again.";
+      t("An unexpected error occurred while building the component. Please try again.");
     errorMessage = tryParseJson(errorMessage as string) ?? errorMessage;
     if (!Array.isArray(errorMessage)) {
       errorMessage = [errorMessage];
     }
     onBuildError!(
-      "Error Building Component",
+      t("Error Building Component"),
       errorMessage,
       verticesIds.map((id) => ({ id })),
     );

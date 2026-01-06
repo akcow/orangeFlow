@@ -1,4 +1,5 @@
 import { XCircle } from "lucide-react";
+import { t } from "@/i18n/t";
 import type { crashComponentPropsType } from "../../../types/components";
 import { Button } from "../../ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "../../ui/card";
@@ -18,7 +19,7 @@ export default function CrashErrorComponent({
               </div>
               <div>
                 <p className="mb-4 text-xl text-foreground">
-                  Sorry, we found an unexpected error!
+                  {t("Sorry, we found an unexpected error!")}
                 </p>
               </div>
             </CardHeader>
@@ -26,25 +27,27 @@ export default function CrashErrorComponent({
             <CardContent className="grid">
               <div>
                 <p>
-                  Please report errors with detailed tracebacks on the{" "}
+                  {t("Please report errors with detailed tracebacks on the")}{" "}
                   <a
                     href="https://github.com/langflow-ai/langflow/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-medium hover:underline"
                   >
-                    GitHub Issues
+                    {t("GitHub Issues")}
                   </a>{" "}
-                  page.
+                  {t("page.")}
                   <br></br>
-                  Thank you!
+                  {t("Thank you!")}
                 </p>
               </div>
             </CardContent>
 
             <CardFooter>
               <div className="m-auto mt-4 flex justify-center">
-                <Button onClick={resetErrorBoundary}>Restart Langflow</Button>
+                <Button onClick={resetErrorBoundary}>
+                  {t("Restart Langflow")}
+                </Button>
 
                 <a
                   href="https://github.com/langflow-ai/langflow/issues/new"
@@ -52,7 +55,7 @@ export default function CrashErrorComponent({
                   rel="noopener noreferrer"
                 >
                   <Button className="ml-3" ignoreTitleCase variant={"outline"}>
-                    Report on GitHub
+                    {t("Report on GitHub")}
                   </Button>
                 </a>
               </div>

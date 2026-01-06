@@ -2,6 +2,7 @@ import ForwardedIconComponent from "../../../../../../components/common/genericI
 import { Button } from "../../../../../../components/ui/button";
 import { API_PAGE_PARAGRAPH } from "../../../../../../constants/constants";
 import SecretKeyModal from "../../../../../../modals/secretKeyModal";
+import { t } from "@/i18n/t";
 import { getModalPropsApiKey } from "../../helpers/get-modal-props";
 
 type ApiKeyHeaderComponentProps = {
@@ -23,7 +24,7 @@ const ApiKeyHeaderComponent = ({
             className="flex items-center text-lg font-semibold tracking-tight"
             data-testid="settings_menu_header"
           >
-            Langflow API Keys
+            {t("Langflow API Keys")}
             <ForwardedIconComponent
               name="Key"
               className="ml-2 h-5 w-5 text-primary"
@@ -39,7 +40,7 @@ const ApiKeyHeaderComponent = ({
           >
             <Button data-testid="api-key-button-store" variant="primary">
               <ForwardedIconComponent name="Plus" className="w-4" />
-              Add New
+              {t("Add New")}
             </Button>
           </SecretKeyModal>
         </div>

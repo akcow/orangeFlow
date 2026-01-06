@@ -1,6 +1,7 @@
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 
 interface SettingsVoiceButtonProps {
   isRecording: boolean;
@@ -13,7 +14,7 @@ const SettingsVoiceButton = ({
 }: SettingsVoiceButtonProps) => {
   return (
     <>
-      <ShadTooltip content="Audio Settings" side="top">
+      <ShadTooltip content={t("Audio Settings")} side="top">
         <div>
           <Button
             className={`btn-playground-actions cursor-pointer text-muted-foreground hover:text-primary`}

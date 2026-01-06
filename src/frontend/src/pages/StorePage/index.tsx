@@ -5,6 +5,7 @@ import PaginatorComponent from "@/components/common/paginatorComponent";
 import StoreCardComponent from "@/components/common/storeCardComponent";
 import { CustomLink } from "@/customization/components/custom-link";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
+import { t } from "@/i18n/t";
 import { useUtilityStore } from "@/stores/utilityStore";
 import IconComponent from "../../components/common/genericIconComponent";
 import PageLayout from "../../components/common/pageLayout";
@@ -149,7 +150,7 @@ export default function StorePage(): JSX.Element {
             title: COMPONENTS_ERROR_ALERT,
             list: [
               err?.response?.data?.detail ??
-                "There was an error fetching the components",
+                t("There was an error fetching the components"),
             ],
           });
         }
@@ -180,7 +181,7 @@ export default function StorePage(): JSX.Element {
           }}
         >
           <IconComponent name="Key" className="mr-2 w-4" />
-          API Key
+          {t("API Key")}
         </Button>
       }
     >
@@ -215,7 +216,7 @@ export default function StorePage(): JSX.Element {
                   (loading ? " cursor-not-allowed" : "")
                 }
               >
-                All
+                {t("All")}
               </button>
               <button
                 data-testid="flows-button-store"
@@ -231,7 +232,7 @@ export default function StorePage(): JSX.Element {
                   (loading ? " cursor-not-allowed" : "")
                 }
               >
-                Flows
+                {t("Flows")}
               </button>
               <button
                 data-testid="components-button-store"
@@ -247,11 +248,11 @@ export default function StorePage(): JSX.Element {
                   (loading ? " cursor-not-allowed" : "")
                 }
               >
-                Components
+                {t("Components")}
               </button>
-              <ShadTooltip content="Coming Soon">
+              <ShadTooltip content={t("Coming Soon")}>
                 <button className="cursor-not-allowed p-3 text-muted-foreground">
-                  Bundles
+                  {t("Bundles")}
                 </button>
               </ShadTooltip>
             </div>
@@ -264,22 +265,22 @@ export default function StorePage(): JSX.Element {
               value={selectFilter}
             >
               <SelectTrigger className="mr-4 w-[160px] flex-shrink-0">
-                <SelectValue placeholder="Filter Values" />
+                <SelectValue placeholder={t("Filter")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="all">{t("All")}</SelectItem>
                   <SelectItem
                     disabled={!hasApiKey || !validApiKey}
                     value="createdbyme"
                   >
-                    Created By Me
+                    {t("Created By Me")}
                   </SelectItem>
                   <SelectItem
                     disabled={!hasApiKey || !validApiKey}
                     value="likedbyme"
                   >
-                    Liked By Me
+                    {t("Liked By Me")}
                   </SelectItem>
                 </SelectGroup>
               </SelectContent>
@@ -310,7 +311,7 @@ export default function StorePage(): JSX.Element {
             <span className="px-0.5 text-sm text-muted-foreground">
               {(!loading || searchData.length !== 0) && (
                 <>
-                  {totalRowsCount} {totalRowsCount !== 1 ? "results" : "result"}
+                  {totalRowsCount} {t("results")}
                 </>
               )}
             </span>
@@ -322,12 +323,12 @@ export default function StorePage(): JSX.Element {
               }}
             >
               <SelectTrigger data-testid="select-order-store">
-                <SelectValue placeholder="Popular" />
+                <SelectValue placeholder={t("Popular")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Popular">Popular</SelectItem>
+                <SelectItem value="Popular">{t("Popular")}</SelectItem>
                 {/* <SelectItem value="Recent">Most Recent</SelectItem> */}
-                <SelectItem value="Alphabetical">Alphabetical</SelectItem>
+                <SelectItem value="Alphabetical">{t("Alphabetical")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -362,15 +363,19 @@ export default function StorePage(): JSX.Element {
                   <div className="grid w-full gap-4">
                     {selectFilter != "all" ? (
                       <>
-                        You haven't{" "}
-                        {selectFilter === "createdbyme" ? "created" : "liked"}{" "}
-                        anything with the selected filters yet.
+                        {t("You haven't {{action}} anything with the selected filters yet.", {
+                          action:
+                            selectFilter === "createdbyme"
+                              ? t("created")
+                              : t("liked"),
+                        })}
                       </>
                     ) : (
                       <>
-                        There are no{" "}
-                        {tabActive == "Flows" ? "Flows" : "Components"} with the
-                        selected filters.
+                        {t("There are no {{type}} with the selected filters.", {
+                          type:
+                            tabActive == "Flows" ? t("Flows") : t("Components"),
+                        })}
                       </>
                     )}
                   </div>

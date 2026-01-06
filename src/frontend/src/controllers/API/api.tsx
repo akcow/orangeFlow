@@ -9,6 +9,7 @@ import { IS_AUTO_LOGIN } from "@/constants/constants";
 import { baseURL } from "@/customization/constants";
 import { useCustomApiHeaders } from "@/customization/hooks/use-custom-api-headers";
 import { customGetAccessToken } from "@/customization/utils/custom-get-access-token";
+import { t } from "@/i18n/t";
 import useAuthStore from "@/stores/authStore";
 import { useUtilityStore } from "@/stores/utilityStore";
 import { BuildStatus, type EventDeliveryType } from "../../constants/enums";
@@ -315,7 +316,7 @@ async function performStreamingRequest({
       if (onError) {
         onError(response.status);
       } else {
-        throw new Error("Error in streaming request.");
+        throw new Error(t("Error in streaming request."));
       }
     }
     if (response.body === null) {

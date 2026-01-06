@@ -1,4 +1,5 @@
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import { SearchConfigTrigger } from "./searchConfigTrigger";
 
 interface NoResultsMessageProps {
@@ -12,9 +13,9 @@ interface NoResultsMessageProps {
 
 const NoResultsMessage = ({
   onClearSearch,
-  message = "No components found.",
-  clearSearchText = "Clear your search",
-  additionalText = "or filter and try a different query.",
+  message = t("No components found."),
+  clearSearchText = t("Clear your search"),
+  additionalText = t("or filter and try a different query."),
   showConfig = false,
   setShowConfig,
 }: NoResultsMessageProps) => {

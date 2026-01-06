@@ -4,6 +4,7 @@ import {
   SelectContentWithoutPortal,
   SelectItem,
 } from "@/components/ui/select-custom";
+import { t } from "@/i18n/t";
 import ToolbarSelectItem from "@/pages/FlowPage/components/nodeToolbarComponent/toolbarSelectItem";
 import type { NoteDataType } from "@/types/flow";
 
@@ -15,7 +16,7 @@ export const SelectItems = memo(
           shortcut={
             shortcuts.find((obj) => obj.name === "Duplicate")?.shortcut!
           }
-          value="Duplicate"
+          value={t("Duplicate")}
           icon="Copy"
           dataTestId="copy-button-modal"
         />
@@ -23,7 +24,7 @@ export const SelectItems = memo(
       <SelectItem value="copy">
         <ToolbarSelectItem
           shortcut={shortcuts.find((obj) => obj.name === "Copy")?.shortcut!}
-          value="Copy"
+          value={t("Copy")}
           icon="Clipboard"
           dataTestId="copy-button-modal"
         />
@@ -34,7 +35,7 @@ export const SelectItems = memo(
       >
         <ToolbarSelectItem
           shortcut={shortcuts.find((obj) => obj.name === "Docs")?.shortcut!}
-          value="Docs"
+          value={t("Docs")}
           icon="FileText"
           dataTestId="docs-button-modal"
         />
@@ -45,7 +46,7 @@ export const SelectItems = memo(
             name="Trash2"
             className="relative top-0.5 mr-2 h-4 w-4"
           />
-          <span>Delete</span>
+          <span>{t("Delete")}</span>
           <span className="absolute right-2 top-2 flex items-center justify-center rounded-sm px-1 py-[0.2]">
             <ForwardedIconComponent
               name="Delete"

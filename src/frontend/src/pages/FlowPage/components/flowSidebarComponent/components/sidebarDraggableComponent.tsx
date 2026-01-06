@@ -6,6 +6,7 @@ import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { convertTestName } from "@/components/common/storeCardComponent/utils/convert-test-name";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 import {
   Select,
   SelectContent,
@@ -183,7 +184,7 @@ export const SidebarDraggableComponent = forwardRef(
                     size="xq"
                     className="ml-1.5 shrink-0"
                   >
-                    Beta
+                    {t("Beta")}
                   </Badge>
                 )}
                 {legacy && (
@@ -192,7 +193,7 @@ export const SidebarDraggableComponent = forwardRef(
                     size="xq"
                     className="ml-1.5 shrink-0"
                   >
-                    Legacy
+                    {t("Legacy")}
                   </Badge>
                 )}
               </div>
@@ -236,7 +237,7 @@ export const SidebarDraggableComponent = forwardRef(
                           name="Download"
                           className="relative top-0.5 mr-2 h-4 w-4"
                         />{" "}
-                        Download{" "}
+                        {t("Download")}{" "}
                       </div>{" "}
                     </SelectItem>
                     {(!official || onDelete) && (
@@ -249,7 +250,7 @@ export const SidebarDraggableComponent = forwardRef(
                             name="Trash2"
                             className="relative top-0.5 mr-2 h-4 w-4"
                           />{" "}
-                          Delete{" "}
+                          {t("Delete")}{" "}
                         </div>{" "}
                       </SelectItem>
                     )}

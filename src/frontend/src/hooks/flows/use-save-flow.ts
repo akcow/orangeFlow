@@ -6,6 +6,7 @@ import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import type { AllNodeType, EdgeType, FlowType } from "@/types/flow";
 import { customStringify } from "@/utils/reactflowUtils";
+import { t } from "@/i18n/t";
 
 const useSaveFlow = () => {
   const setFlows = useFlowsManagerStore((state) => state.setFlows);
@@ -99,15 +100,15 @@ const useSaveFlow = () => {
                     resolve();
                   } else {
                     setErrorData({
-                      title: "Failed to save flow",
-                      list: ["Flows variable undefined"],
+                      title: t("Failed to save flow"),
+                      list: [t("Flows data is unavailable")],
                     });
-                    reject(new Error("Flows variable undefined"));
+                    reject(new Error(t("Flows data is unavailable")));
                   }
                 },
                 onError: (e) => {
                   setErrorData({
-                    title: "Failed to save flow",
+                    title: t("Failed to save flow"),
                     list: [e.message],
                   });
                   setSaveLoading(false);
@@ -120,10 +121,10 @@ const useSaveFlow = () => {
           }
         } else {
           setErrorData({
-            title: "Failed to save flow",
-            list: ["Flow not found"],
+            title: t("Failed to save flow"),
+            list: [t("Flow not found")],
           });
-          reject(new Error("Flow not found"));
+          reject(new Error(t("Flow not found")));
         }
       });
     }

@@ -80,7 +80,7 @@ export const useGetConfig: useQueryFunctionType<undefined, ConfigResponse> = (
       );
       setEventDelivery(data.event_delivery ?? EventDeliveryType.POLLING);
       setWebhookAuthEnable(data.webhook_auth_enable ?? true);
-      setDefaultFolderName(data.default_folder_name ?? "Starter Project");
+      setDefaultFolderName(data.default_folder_name ?? "入门项目");
       setHideGettingStartedProgress(
         data.hide_getting_started_progress ?? false,
       );

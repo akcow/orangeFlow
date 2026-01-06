@@ -1,6 +1,7 @@
 import { BUILD_POLLING_INTERVAL } from "@/constants/constants";
 import { BuildStatus, EventDeliveryType } from "@/constants/enums";
 import { VertexLayerElementType } from "@/types/zustand/flow";
+import { t } from "@/i18n/t";
 
 export async function customPollBuildEvents(
   url: string,
@@ -39,7 +40,9 @@ export async function customPollBuildEvents(
       const errorData = await response.json().catch(() => ({}));
       throw new Error(
         errorData.detail ||
-          "Langflow was not able to connect to the server. Please make sure your connection is working properly.",
+          t(
+            "Langflow was not able to connect to the server. Please make sure your connection is working properly.",
+          ),
       );
     }
 

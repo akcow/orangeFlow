@@ -1,6 +1,7 @@
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 
 export function SidebarFilterComponent({
   name,
@@ -12,7 +13,6 @@ export function SidebarFilterComponent({
   resetFilters: () => void;
 }) {
   const tooltips = description.split("\n");
-  const plural = tooltips.length > 1 ? "s" : "";
   return (
     <div
       className={`mb-0.5 flex w-full items-center overflow-hidden justify-between rounded border p-2 text-sm text-foreground`}
@@ -24,16 +24,16 @@ export function SidebarFilterComponent({
         />
         <div className="flex flex-1 overflow-hidden">
           {name}
-          {plural}:{" "}
+          ：{" "}
           <div className="flex-1 overflow-hidden truncate pl-1">
-            {tooltips.join(", ")}
+            {tooltips.join("、")}
           </div>
         </div>
       </div>
       <ShadTooltip
         side="right"
         styleClasses="max-w-full"
-        content="Remove filter"
+        content={t("Remove filter")}
       >
         <Button
           unstyled

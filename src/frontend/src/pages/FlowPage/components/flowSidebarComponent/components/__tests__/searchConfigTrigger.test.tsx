@@ -60,7 +60,7 @@ describe("SearchConfigTrigger", () => {
     render(<SearchConfigTrigger {...defaultProps} />);
 
     const tooltip = screen.getByTestId("tooltip");
-    expect(tooltip).toHaveAttribute("title", "Component settings");
+    expect(tooltip).toHaveAttribute("title", "组件设置");
   });
 
   it("shows ghost variant when showConfig is false", () => {

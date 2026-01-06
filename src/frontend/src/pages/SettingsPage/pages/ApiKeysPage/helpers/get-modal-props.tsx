@@ -1,23 +1,27 @@
+import { t } from "@/i18n/t";
+
 export const getModalPropsApiKey = () => {
   const modalProps = {
-    title: "Create API Key",
-    description: "Create a secret API Key to use Langflow API.",
-    inputPlaceholder: "My API Key",
-    buttonText: "Generate API Key",
+    title: t("Create API Key"),
+    description: t("Create a secret API Key to use Langflow API."),
+    inputPlaceholder: t("My API Key"),
+    buttonText: t("Generate API Key"),
     generatedKeyMessage: (
       <>
-        {" "}
-        Please save this secret key somewhere safe and accessible. For security
-        reasons, <strong>you won't be able to view it again</strong> through
-        your account. If you lose this secret key, you'll need to generate a new
-        one.
+        {t("Please save this secret key somewhere safe and accessible.")}{" "}
+        {t("For security reasons,")}{" "}
+        <strong>{t("you won't be able to view it again")}</strong>{" "}
+        {t("through your account.")}{" "}
+        {t(
+          "If you lose this secret key, you'll need to generate a new one.",
+        )}
       </>
     ),
     showIcon: true,
     inputLabel: (
       <>
-        <span className="text-sm">Description</span>{" "}
-        <span className="text-xs text-muted-foreground">(optional)</span>
+        <span className="text-sm">{t("Description")}</span>{" "}
+        <span className="text-xs text-muted-foreground">{t("(optional)")}</span>
       </>
     ),
   };

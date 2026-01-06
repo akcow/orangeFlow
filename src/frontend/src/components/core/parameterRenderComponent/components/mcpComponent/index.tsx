@@ -3,6 +3,7 @@ import { useAddMCPServer } from "@/controllers/API/queries/mcp/use-add-mcp-serve
 import { useGetMCPServers } from "@/controllers/API/queries/mcp/use-get-mcp-servers";
 import AddMcpServerModal from "@/modals/addMcpServerModal";
 import useAlertStore from "@/stores/alertStore";
+import { t } from "@/i18n/t";
 import ListSelectionComponent from "../../../../../CustomNodes/GenericNode/components/ListSelectionComponent";
 import { cn } from "../../../../../utils/utils";
 import { default as ForwardedIconComponent } from "../../../../common/genericIconComponent";
@@ -28,12 +29,12 @@ export default function McpComponent({
           server.toolsCount === null
             ? server.error
               ? server.error.startsWith("Timeout")
-                ? "Timeout"
-                : "Error"
-              : "Loading..."
+                ? t("Timeout")
+                : t("Error")
+              : t("Loading...")
             : !server.toolsCount
-              ? "No tools found"
-              : `${server.toolsCount} tool${server.toolsCount === 1 ? "" : "s"}`,
+              ? t("No tools found")
+              : t("{{count}} tool(s)", { count: server.toolsCount }),
       })),
     [mcpServers],
   );
@@ -101,7 +102,7 @@ export default function McpComponent({
         },
         onError: (error) => {
           setErrorData({
-            title: "Error adding MCP server",
+            title: t("Error adding MCP server"),
             list: [error.message],
           });
         },
@@ -160,10 +161,10 @@ export default function McpComponent({
             >
               <span className="truncate">
                 {!options
-                  ? "Loading servers..."
+                  ? t("Loading servers...")
                   : selectedItem[0]?.name
                     ? selectedItem[0]?.name
-                    : "Select a server..."}
+                    : t("Select a server...")}
               </span>
               <ForwardedIconComponent
                 name={!showSaveButton ? "ChevronsUpDown" : "X"}
@@ -188,7 +189,7 @@ export default function McpComponent({
         </div>
       ) : (
         <Button size="sm" onClick={handleAddButtonClick}>
-          <span>Add MCP Server</span>
+          <span>{t("Add MCP Server")}</span>
         </Button>
       )}
       {options && (
@@ -204,10 +205,10 @@ export default function McpComponent({
             id={id}
             value={name}
             editNode={editNode}
-            headerSearchPlaceholder="Search MCP Servers..."
+            headerSearchPlaceholder={t("Search MCP Servers...")}
             handleOnNewValue={handleOnNewValue}
             disabled={disabled}
-            addButtonText="Add MCP Server"
+            addButtonText={t("Add MCP Server")}
             onAddButtonClick={handleAddButtonClick}
           />
           <AddMcpServerModal

@@ -6,6 +6,7 @@ import {
   STATUS_MISSING_FIELDS_ERROR,
 } from "@/constants/constants";
 import { BuildStatus } from "@/constants/enums";
+import { t } from "@/i18n/t";
 
 const StatusMessage = ({ children, className = "text-foreground" }) => (
   <span className={`flex ${className}`}>{children}</span>
@@ -20,7 +21,7 @@ const TimeStamp = ({ prefix, time }) => (
 
 const Duration = ({ duration }) => (
   <div className="flex items-center text-secondary-foreground">
-    <div>Duration:</div>
+    <div>{t("Duration:")}</div>
     <div className="ml-1">{duration}</div>
   </div>
 );

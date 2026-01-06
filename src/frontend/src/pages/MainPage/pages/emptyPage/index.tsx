@@ -3,6 +3,7 @@ import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import CardsWrapComponent from "@/components/core/cardsWrapComponent";
 import { Button } from "@/components/ui/button";
 import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
+import { t } from "@/i18n/t";
 import { useFolderStore } from "@/stores/foldersStore";
 import { useState } from "react";
 import useFileDrop from "../../hooks/use-on-file-drop";
@@ -15,7 +16,7 @@ export const EmptyPage = () => {
 
   return (
     <CardsWrapComponent
-      dragMessage={`Drop your flows or components here`}
+      dragMessage={t("Drop your flows or components here")}
       onFileDrop={handleFileDrop}
     >
       <div className="m-0 h-full w-full bg-secondary p-0">
@@ -26,13 +27,13 @@ export const EmptyPage = () => {
               className="pt-5 font-chivo text-2xl font-semibold text-foreground"
               data-testid="mainpage_title"
             >
-              {folders?.length > 1 ? "Empty project" : "Start building"}
+              {folders?.length > 1 ? t("Empty project") : t("Start building")}
             </h3>
             <p
               data-testid="empty-project-description"
               className="pb-5 text-sm text-secondary-foreground"
             >
-              Start from scratch with a blank flow.
+              {t("Start from scratch with a blank flow.")}
             </p>
             <Button
               variant="default"
@@ -56,7 +57,7 @@ export const EmptyPage = () => {
                 className="h-4 w-4"
               />
               <span className="hidden whitespace-nowrap font-semibold md:inline">
-                New Flow
+                {t("New Flow")}
               </span>
             </Button>
           </div>

@@ -1,5 +1,6 @@
 import type { FlowType } from "@/types/flow";
 import { downloadFlow, processFlows } from "@/utils/reactflowUtils";
+import { t } from "@/i18n/t";
 import type { useMutationFunctionType } from "../../../../types/api";
 import { api } from "../../api";
 import { getURL } from "../../helpers/constants";
@@ -39,7 +40,11 @@ export const useGetDownloadFlows: useMutationFunctionType<
         },
       });
       if (!response.ok) {
-        throw new Error(`Failed to download flows: ${response.statusText}`);
+        throw new Error(
+          t("Failed to download flows: {{status}}", {
+            status: response.statusText,
+          }),
+        );
       }
 
       const blob = await response.blob();

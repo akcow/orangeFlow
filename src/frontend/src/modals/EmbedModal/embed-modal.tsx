@@ -4,6 +4,7 @@ import {
   oneDark,
   oneLight,
 } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { t } from "@/i18n/t";
 import { useDarkStore } from "@/stores/darkStore";
 import IconComponent from "../../components/common/genericIconComponent";
 import { Button } from "../../components/ui/button";
@@ -59,7 +60,7 @@ export default function EmbedModal({
       <BaseModal.Header>
         <div className="flex items-center gap-2 text-base font-semibold">
           <IconComponent name="Columns2" className="icon-size" />
-          Embed into site
+          {t("Embed into site")}
         </div>
       </BaseModal.Header>
       <BaseModal.Content className="">

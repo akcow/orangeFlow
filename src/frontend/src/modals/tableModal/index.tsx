@@ -4,6 +4,7 @@ import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import TableComponent, {
   type TableComponentProps,
 } from "@/components/core/parameterRenderComponent/components/tableComponent";
+import { t } from "@/i18n/t";
 import type { TableOptionsTypeAPI } from "@/types/api";
 import BaseModal from "../baseModal";
 
@@ -85,7 +86,7 @@ const TableModal = forwardRef<AgGridReact, TableModalProps>(
           ></TableComponent>
         </BaseModal.Content>
         <BaseModal.Footer
-          submit={onSave ? { label: "Save", onClick: onSave } : undefined}
+          submit={onSave ? { label: t("Save"), onClick: onSave } : undefined}
         ></BaseModal.Footer>
       </BaseModal>
     );

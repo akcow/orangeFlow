@@ -1,5 +1,6 @@
 import useAddFlow from "@/hooks/flows/use-add-flow";
 import { getComponent } from "../../../../controllers/API";
+import { t } from "@/i18n/t";
 import type { storeComponent } from "../../../../types/store";
 import cloneFlowWithParent from "../../../../utils/storeUtils";
 
@@ -25,14 +26,14 @@ const useInstallComponent = (
         addFlow({ flow: newFlow })
           .then((id) => {
             setSuccessData({
-              title: `${name} Installed Successfully.`,
+              title: t("{{name}} installed successfully.", { name }),
             });
             setLoading(false);
           })
           .catch((error) => {
             setLoading(false);
             setErrorData({
-              title: `Error installing the ${name}`,
+              title: t("Error installing the {{name}}", { name }),
               list: [error.response.data.detail],
             });
           });
@@ -40,7 +41,7 @@ const useInstallComponent = (
       .catch((err) => {
         setLoading(false);
         setErrorData({
-          title: `Error installing the ${name}`,
+          title: t("Error installing the {{name}}", { name }),
           list: [err.response.data.detail],
         });
         setDownloadsCount(temp);

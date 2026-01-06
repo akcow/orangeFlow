@@ -1,6 +1,7 @@
 import _ from "lodash";
 import { nanoid } from "nanoid";
 import { useState } from "react";
+import { t } from "@/i18n/t";
 import IconComponent from "../../../../../components/common/genericIconComponent";
 import { Input } from "../../../../../components/ui/input";
 import { classNames } from "../../../../../utils/utils";
@@ -82,7 +83,9 @@ const IOKeyPairInput = ({
               value={item.key.trim()}
               className={classNames(item.error ? "input-invalid" : "")}
               placeholder={
-                item.error ? "Duplicate or empty key" : "Type key..."
+                item.error
+                  ? t("Duplicate or empty key")
+                  : t("Type key...")
               }
               onChange={(event) => handleKeyChange(item.id, event.target.value)}
               disabled={!isInputField}
@@ -92,7 +95,7 @@ const IOKeyPairInput = ({
             <Input
               type="text"
               value={item.value}
-              placeholder="Type a value..."
+              placeholder={t("Type a value...")}
               onChange={(event) =>
                 handleValueChange(item.id, event.target.value)
               }

@@ -2,6 +2,7 @@ import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { KnowledgeBaseInfo } from "@/controllers/API/queries/knowledge-bases/use-get-knowledge-bases";
+import { t } from "@/i18n/t";
 
 interface KnowledgeBaseDrawerProps {
   isOpen: boolean;
@@ -31,32 +32,32 @@ const KnowledgeBaseDrawer = ({
         <div className="flex flex-col gap-4">
           <div className="px-4">
             <div className="text-sm text-muted-foreground">
-              No description available.
+              {t("No description available.")}
             </div>
           </div>
 
           <Separator />
 
           <div className="space-y-2 px-4">
-            <label className="text-sm font-medium">Embedding Provider</label>
+            <label className="text-sm font-medium">{t("Embedding Provider")}</label>
             <div className="flex items-center gap-2">
               <div className="text-sm font-medium text-muted-foreground">
-                {knowledgeBase.embedding_model || "Unknown"}
+                {knowledgeBase.embedding_model || t("Unknown")}
               </div>
             </div>
           </div>
 
           <div className="space-y-3 px-4">
-            <h4 className="text-sm font-medium">Source Files</h4>
+            <h4 className="text-sm font-medium">{t("Source Files")}</h4>
             <div className="text-sm text-muted-foreground">
-              No source files available.
+              {t("No source files available.")}
             </div>
           </div>
 
           <div className="space-y-3 px-4">
-            <h4 className="text-sm font-medium">Linked Flows</h4>
+            <h4 className="text-sm font-medium">{t("Linked Flows")}</h4>
             <div className="text-sm text-muted-foreground">
-              No linked flows available.
+              {t("No linked flows available.")}
             </div>
           </div>
         </div>

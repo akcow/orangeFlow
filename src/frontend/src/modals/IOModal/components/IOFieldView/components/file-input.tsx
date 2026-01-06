@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import { createFileUpload } from "@/helpers/create-file-upload";
+import { t } from "@/i18n/t";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import useAlertStore from "@/stores/alertStore";
 import IconComponent from "../../../../../components/common/genericIconComponent";
@@ -109,7 +110,7 @@ export default function IOFileInput({ field, updateValue }: IOFileInputProps) {
           },
           onError: (error) => {
             setErrorData({
-              title: "Error uploading file",
+              title: t("Error uploading file"),
               list: [error.response?.data?.detail],
             });
             console.error("Error occurred while uploading file");
@@ -143,14 +144,14 @@ export default function IOFileInput({ field, updateValue }: IOFileInputProps) {
       >
         {!isDragging && (
           <Button variant="primary" onClick={handleButtonClick}>
-            Upload or drop your file
+            {t("Upload or drop your file")}
           </Button>
         )}
 
         {isDragging ? (
           <>
             <IconComponent name="ArrowUpToLine" className="h-5 w-5 stroke-1" />
-            "Drop your file here"
+            {t("Drop your file here")}
           </>
         ) : image ? (
           <img

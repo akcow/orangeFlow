@@ -1,4 +1,5 @@
 import type { MutableRefObject } from "react";
+import { t } from "@/i18n/t";
 
 export const useStartRecording = async (
   audioContextRef: MutableRefObject<AudioContext | null>,
@@ -96,12 +97,16 @@ export const useStartRecording = async (
       setIsRecording(true);
     } catch (err) {
       console.error("AudioWorklet failed to load:", err);
-      setStatus("Error initializing audio: " + (err as Error).message);
+      setStatus(
+        t("Error initializing audio: {{message}}", {
+          message: (err as Error).message,
+        }),
+      );
     } finally {
       URL.revokeObjectURL(workletUrl);
     }
   } catch (err) {
     console.error("Error accessing microphone:", err);
-    setStatus("Error: " + (err as Error).message);
+    setStatus(t("Error: {{message}}", { message: (err as Error).message }));
   }
 };

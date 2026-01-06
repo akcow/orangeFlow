@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import JsonOutputViewComponent from "@/components/core/jsonOutputComponent/json-output-view";
 import { MAX_TEXT_LENGTH } from "@/constants/constants";
+import { t } from "@/i18n/t";
 import type { LogsLogType, OutputLogType } from "@/types/api";
 import ForwardedIconComponent from "../../../../../../components/common/genericIconComponent";
 import DataOutputComponent from "../../../../../../components/core/dataOutputComponent";
@@ -89,7 +90,7 @@ const SwitchOutputView: React.FC<SwitchOutputViewProps> = ({
   // Custom component for Tool output display
   const ToolOutputDisplay = ({ tools }) => {
     if (!Array.isArray(tools) || tools.length === 0) {
-      return <div>No tools available</div>;
+      return <div>{t("No tools available")}</div>;
     }
 
     return (
@@ -144,7 +145,7 @@ const SwitchOutputView: React.FC<SwitchOutputViewProps> = ({
       <Case
         condition={(!resultType || resultType === "unknown") && !isToolOutput}
       >
-        <div>NO OUTPUT</div>
+        <div>{t("No output")}</div>
       </Case>
       <Case
         condition={
@@ -195,11 +196,9 @@ const SwitchOutputView: React.FC<SwitchOutputViewProps> = ({
               name="AlertCircle"
               className="h-5 w-5 text-primary"
             />
-            <AlertTitle>{"Streaming is not supported"}</AlertTitle>
+            <AlertTitle>{t("Streaming is not supported")}</AlertTitle>
             <AlertDescription>
-              {
-                "Use the playground to interact with components that stream data"
-              }
+              {t("Use the playground to interact with components that stream data")}
             </AlertDescription>
           </Alert>
         </div>

@@ -2,6 +2,7 @@ import { type ButtonHTMLAttributes, useState } from "react";
 import IconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 
 export function EditMessageButton({
@@ -34,7 +35,11 @@ export function EditMessageButton({
   return (
     <div className="flex items-center rounded-md border border-border bg-background">
       {!isAudioMessage && onEdit && (
-        <ShadTooltip styleClasses="z-50" content="Edit message" side="top">
+        <ShadTooltip
+          styleClasses="z-50"
+          content={t("Edit message")}
+          side="top"
+        >
           <div className="p-1">
             <Button
               variant="ghost"
@@ -50,7 +55,7 @@ export function EditMessageButton({
 
       <ShadTooltip
         styleClasses="z-50"
-        content={isCopied ? "Copied!" : "Copy message"}
+        content={isCopied ? t("Copied!") : t("Copy message")}
         side="top"
       >
         <div className="p-1">
@@ -70,7 +75,11 @@ export function EditMessageButton({
 
       {isBotMessage && (
         <div className="flex">
-          <ShadTooltip styleClasses="z-50" content="Helpful" side="top">
+          <ShadTooltip
+            styleClasses="z-50"
+            content={t("Helpful")}
+            side="top"
+          >
             <div className="p-1">
               <Button
                 variant="ghost"
@@ -87,7 +96,11 @@ export function EditMessageButton({
             </div>
           </ShadTooltip>
 
-          <ShadTooltip styleClasses="z-50" content="Not helpful" side="top">
+          <ShadTooltip
+            styleClasses="z-50"
+            content={t("Not helpful")}
+            side="top"
+          >
             <div className="p-1">
               <Button
                 variant="ghost"

@@ -10,6 +10,7 @@ import { ENABLE_PUBLISH } from "@/customization/feature-flags";
 import { track } from "@/customization/utils/analytics";
 import { customOpenNewTab } from "@/customization/utils/custom-open-new-tab";
 import { LangflowButtonRedirectTarget } from "@/customization/utils/urls";
+import { t } from "@/i18n/t";
 import { useUtilityStore } from "@/stores/utilityStore";
 import { swatchColors } from "@/utils/styleUtils";
 import LangflowLogoColor from "../../assets/LangflowLogoColor.svg?react";
@@ -143,7 +144,7 @@ export default function IOModal({
           }
 
           setSuccessData({
-            title: "Session deleted successfully.",
+            title: t("Session deleted successfully."),
           });
         },
         onError: () => {
@@ -153,7 +154,7 @@ export default function IOModal({
           }
 
           setErrorData({
-            title: "Error deleting session.",
+            title: t("Error deleting session."),
           });
         },
       },
@@ -391,7 +392,7 @@ export default function IOModal({
                   <ShadTooltip
                     styleClasses="z-50"
                     side="right"
-                    content="Hide sidebar"
+                    content={t("Hide sidebar")}
                   >
                     <Button
                       variant="ghost"
@@ -420,7 +421,7 @@ export default function IOModal({
                 {sidebarOpen && showPublishOptions && (
                   <div className="absolute bottom-2 left-0 flex w-full flex-col gap-8 border-t border-border px-2 py-4 transition-all">
                     <div className="flex items-center justify-between px-2">
-                      <div className="text-sm">Theme</div>
+                      <div className="text-sm">{t("Theme")}</div>
                       <ThemeButtons />
                     </div>
                     <Button
@@ -429,7 +430,7 @@ export default function IOModal({
                       className="w-full !rounded-xl shadow-lg"
                     >
                       <LangflowLogoColor />
-                      <div className="text-sm">Built with Langflow</div>
+                      <div className="text-sm">{t("Built with Langflow")}</div>
                     </Button>
                   </div>
                 )}
@@ -440,7 +441,7 @@ export default function IOModal({
                 <ShadTooltip
                   styleClasses="z-50"
                   side="right"
-                  content="Built with Langflow"
+                  content={t("Built with Langflow")}
                 >
                   <Button
                     variant="primary"

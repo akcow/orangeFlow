@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
@@ -215,7 +216,7 @@ export const useGetBuildsMutation: useMutationFunctionType<
   const mutation = mutate(
     ["useGetBuildsMutation"],
     (payload: IGetBuilds) =>
-      startPolling(payload) ?? Promise.reject("Failed to start polling"),
+      startPolling(payload) ?? Promise.reject(t("Failed to start polling")),
     {
       ...options,
       retry: 0,

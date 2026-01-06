@@ -2,6 +2,7 @@ import { truncate } from "lodash";
 import { useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import Loading from "@/components/ui/loading";
+import { t } from "@/i18n/t";
 import ConfirmationModal from "../confirmationModal";
 
 export function SaveChangesModal({
@@ -26,11 +27,11 @@ export function SaveChangesModal({
       onClose={onCancel}
       destructiveCancel
       title={
-        (autoSave ? "Flow" : truncate(flowName, { length: 32 })) +
-        " has unsaved changes"
+        (autoSave ? t("Flow") : truncate(flowName, { length: 32 })) +
+        t(" has unsaved changes")
       }
-      cancelText={autoSave ? undefined : "Exit anyway"}
-      confirmationText={autoSave ? undefined : "Save and Exit"}
+      cancelText={autoSave ? undefined : t("Exit anyway")}
+      confirmationText={autoSave ? undefined : t("Save and Exit")}
       onConfirm={
         autoSave
           ? undefined
@@ -47,24 +48,24 @@ export function SaveChangesModal({
         {autoSave ? (
           <div className="mb-4 flex w-full items-center gap-3 rounded-md bg-muted px-4 py-2 text-muted-foreground">
             <Loading className="h-5 w-5" />
-            Saving your changes...
+            {t("Saving your changes...")}
           </div>
         ) : (
           <>
             <div className="mb-4 flex w-full items-center gap-3 rounded-md bg-yellow-100 px-4 py-2 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-100">
               <ForwardedIconComponent name="Info" className="h-5 w-5" />
-              Last saved: {lastSaved ?? "Never"}
+              {t("Last saved:")} {lastSaved ?? t("Never")}
             </div>
-            Unsaved changes will be permanently lost.{" "}
+            {t("Unsaved changes will be permanently lost.")}{" "}
             <a
               target="_blank"
               className="text-secondary underline"
               href="https://docs.langflow.org/configuration-auto-save"
               rel="noopener"
             >
-              Enable auto-saving
+              {t("Enable auto-saving")}
             </a>{" "}
-            to avoid losing progress.
+            {t("to avoid losing progress.")}
           </>
         )}
       </ConfirmationModal.Content>

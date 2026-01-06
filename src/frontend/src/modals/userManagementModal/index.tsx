@@ -2,6 +2,7 @@ import * as Form from "@radix-ui/react-form";
 import { Eye, EyeOff } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
 import IconComponent from "@/components/common/genericIconComponent";
+import { t } from "@/i18n/t";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { CONTROL_NEW_USER } from "../../constants/constants";
@@ -100,7 +101,7 @@ export default function UserManagementModal({
                 }}
               >
                 <Form.Label className="data-[invalid]:label-invalid">
-                  Username{" "}
+                  {t("Username")}{" "}
                   <span className="font-medium text-destructive">*</span>
                 </Form.Label>
               </div>
@@ -113,11 +114,11 @@ export default function UserManagementModal({
                   value={username}
                   className="primary-input"
                   required
-                  placeholder="Username"
+                  placeholder={t("Username")}
                 />
               </Form.Control>
               <Form.Message match="valueMissing" className="field-invalid">
-                Please enter your username
+                {t("Please enter your username")}
               </Form.Message>
             </Form.Field>
 
@@ -135,7 +136,7 @@ export default function UserManagementModal({
                     }}
                   >
                     <Form.Label className="data-[invalid]:label-invalid flex">
-                      Password{" "}
+                      {t("Password")}{" "}
                       <span className="ml-1 mr-1 font-medium text-destructive">
                         *
                       </span>
@@ -169,12 +170,12 @@ export default function UserManagementModal({
                   </Form.Control>
 
                   <Form.Message className="field-invalid" match="valueMissing">
-                    Please enter a password
+                    {t("Please enter a password")}
                   </Form.Message>
 
                   {password != confirmPassword && (
                     <Form.Message className="field-invalid">
-                      Passwords do not match
+                      {t("Passwords do not match")}
                     </Form.Message>
                   )}
                 </Form.Field>
@@ -193,7 +194,7 @@ export default function UserManagementModal({
                     }}
                   >
                     <Form.Label className="data-[invalid]:label-invalid flex">
-                      Confirm password{" "}
+                      {t("Confirm password")}{" "}
                       <span className="ml-1 mr-1 font-medium text-destructive">
                         *
                       </span>
@@ -229,7 +230,7 @@ export default function UserManagementModal({
                     />
                   </Form.Control>
                   <Form.Message className="field-invalid" match="valueMissing">
-                    Please confirm your password
+                    {t("Please confirm your password")}
                   </Form.Message>
                 </Form.Field>
               </div>
@@ -238,7 +239,7 @@ export default function UserManagementModal({
               <Form.Field name="is_active">
                 <div>
                   <Form.Label className="data-[invalid]:label-invalid mr-3">
-                    Active
+                    {t("Active")}
                   </Form.Label>
                   <Form.Control asChild>
                     <Checkbox
@@ -258,7 +259,7 @@ export default function UserManagementModal({
                 <Form.Field name="is_superuser">
                   <div>
                     <Form.Label className="data-[invalid]:label-invalid mr-3">
-                      Superuser
+                      {t("Superuser")}
                     </Form.Label>
                     <Form.Control asChild>
                       <Checkbox

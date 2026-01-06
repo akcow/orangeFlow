@@ -1,6 +1,7 @@
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import { useDeleteKnowledgeBases } from "@/controllers/API/queries/knowledge-bases/use-delete-knowledge-bases";
+import { t } from "@/i18n/t";
 import DeleteConfirmationModal from "@/modals/deleteConfirmationModal";
 import useAlertStore from "@/stores/alertStore";
 import { cn } from "@/utils/utils";
@@ -26,17 +27,19 @@ const KnowledgeBaseSelectionOverlay = ({
   const deleteMutation = useDeleteKnowledgeBases({
     onSuccess: (data) => {
       setSuccessData({
-        title: `${data.deleted_count} Knowledge Base(s) deleted successfully!`,
+        title: t("Deleted {{count}} knowledge base(s) successfully!", {
+          count: data.deleted_count,
+        }),
       });
       onClearSelection();
     },
     onError: (error: any) => {
       setErrorData({
-        title: "Failed to delete knowledge bases",
+        title: t("Failed to delete knowledge bases"),
         list: [
           error?.response?.data?.detail ||
             error?.message ||
-            "An unknown error occurred",
+            t("An unknown error occurred"),
         ],
       });
       onClearSelection();
@@ -55,7 +58,6 @@ const KnowledgeBaseSelectionOverlay = ({
   };
 
   const isVisible = selectedFiles.length > 0;
-  const pluralSuffix = quantitySelected > 1 ? "s" : "";
 
   return (
     <div
@@ -71,12 +73,12 @@ const KnowledgeBaseSelectionOverlay = ({
         )}
       >
         <span className="text-xs text-muted-foreground">
-          {quantitySelected} selected
+          {t("{{count}} selected", { count: quantitySelected })}
         </span>
         <div className="flex items-center gap-2">
           <DeleteConfirmationModal
             onConfirm={handleBulkDelete}
-            description={`knowledge base${pluralSuffix}`}
+            description={t("selected knowledge bases")}
           >
             <Button
               variant="destructive"
@@ -85,7 +87,7 @@ const KnowledgeBaseSelectionOverlay = ({
               data-testid="bulk-delete-kb-btn"
             >
               <ForwardedIconComponent name="Trash2" />
-              Delete
+              {t("Delete")}
             </Button>
           </DeleteConfirmationModal>
         </div>

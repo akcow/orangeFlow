@@ -1,6 +1,7 @@
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 import IconComponent from "../../../components/common/genericIconComponent";
 import type { ChatViewWrapperProps } from "../types/chat-view-wrapper";
@@ -61,7 +62,7 @@ export const ChatViewWrapper = ({
             )}
           >
             {visibleSession === currentFlowId
-              ? "Default Session"
+              ? t("Default Session")
               : `${visibleSession}`}
           </div>
         )}
@@ -72,7 +73,11 @@ export const ChatViewWrapper = ({
             playgroundPage ? "right-2 top-4" : "absolute right-12 top-2 h-8",
           )}
         >
-          <ShadTooltip side="bottom" styleClasses="z-50" content="New Chat">
+          <ShadTooltip
+            side="bottom"
+            styleClasses="z-50"
+            content={t("New Chat")}
+          >
             <Button
               className="mr-2 h-[32px] w-[32px] hover:bg-secondary-hover"
               variant="ghost"
@@ -86,7 +91,7 @@ export const ChatViewWrapper = ({
                 name="Plus"
                 className="!h-[18px] !w-[18px] text-ring"
               />
-            </Button>
+              </Button>
           </ShadTooltip>
           {!playgroundPage && <Separator orientation="vertical" />}
         </div>

@@ -9,12 +9,11 @@ import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { useFolderStore } from "@/stores/foldersStore";
 import useFileDrop from "../hooks/use-on-file-drop";
 
-const EMPTY_PAGE_TITLE = "Welcome to Langflow";
-const EMPTY_PAGE_DESCRIPTION = "Your new favorite way to ship Agents";
-const EMPTY_PAGE_DRAG_AND_DROP_TEXT =
-  "Already have a flow? Drag and drop to upload.";
-const EMPTY_PAGE_FOLDER_DESCRIPTION = "Empty folder";
-const EMPTY_PAGE_CREATE_FIRST_FLOW_BUTTON_TEXT = "Create first flow";
+const EMPTY_PAGE_TITLE = "欢迎使用 Langflow";
+const EMPTY_PAGE_DESCRIPTION = "更高效地构建与发布智能体工作流";
+const EMPTY_PAGE_DRAG_AND_DROP_TEXT = "已有流程？拖拽文件到此处即可上传。";
+const EMPTY_PAGE_FOLDER_DESCRIPTION = "空文件夹";
+const EMPTY_PAGE_CREATE_FIRST_FLOW_BUTTON_TEXT = "创建第一个流程";
 
 export const EmptyPageCommunity = () => {
   const handleFileDrop = useFileDrop(undefined);
@@ -25,7 +24,7 @@ export const EmptyPageCommunity = () => {
   return (
     <DotBackgroundDemo>
       <CardsWrapComponent
-        dragMessage={`Drop your flows or components here`}
+        dragMessage="将流程或组件拖拽到此处"
         onFileDrop={handleFileDrop}
       >
         <div className="m-0 h-full w-full bg-background p-0">

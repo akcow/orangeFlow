@@ -1,6 +1,7 @@
 import type { UseMutationResult } from "@tanstack/react-query";
 import type { ColDef, ColGroupDef } from "ag-grid-community";
 import { useEffect, useRef } from "react";
+import { t } from "@/i18n/t";
 import { useMessagesStore } from "@/stores/messagesStore";
 import {
   extractColumnsFromRows,
@@ -198,7 +199,7 @@ export const useGetMessagesPollingMutation = (
   const mutation = mutate(
     ["useGetMessagesMutation"],
     (payload: MessagesQueryParams) =>
-      startPolling(payload) ?? Promise.reject("Failed to start polling"),
+      startPolling(payload) ?? Promise.reject(t("Failed to start polling")),
     options,
   ) as UseMutationResult<
     MessagesResponse,

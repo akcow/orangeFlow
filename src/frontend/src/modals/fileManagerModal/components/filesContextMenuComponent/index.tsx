@@ -9,6 +9,7 @@ import {
 import { useDeleteFileV2 } from "@/controllers/API/queries/file-management/use-delete-file";
 import { useDuplicateFileV2 } from "@/customization/hooks/use-custom-duplicate-file";
 import { useCustomHandleSingleFileDownload } from "@/customization/hooks/use-custom-handle-single-file-download";
+import { t } from "@/i18n/t";
 import ConfirmationModal from "@/modals/confirmationModal";
 import useAlertStore from "@/stores/alertStore";
 import type { FileType } from "@/types/file_management";
@@ -80,7 +81,7 @@ export default function FilesContextMenuComponent({
               aria-hidden="true"
               className="mr-2 h-4 w-4"
             />
-            Rename
+            {t("Rename")}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={(e) => {
@@ -95,7 +96,7 @@ export default function FilesContextMenuComponent({
               aria-hidden="true"
               className="mr-2 h-4 w-4"
             />
-            Download
+            {t("Download")}
           </DropdownMenuItem>
           {!simplified && (
             <DropdownMenuItem
@@ -111,7 +112,7 @@ export default function FilesContextMenuComponent({
                 aria-hidden="true"
                 className="mr-2 h-4 w-4"
               />
-              Duplicate
+              {t("Duplicate")}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem
@@ -127,7 +128,7 @@ export default function FilesContextMenuComponent({
               aria-hidden="true"
               className="mr-2 h-4 w-4"
             />
-            {isLocal ? "Delete" : "Remove"}
+            {isLocal ? t("Delete") : t("Remove")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -135,17 +136,20 @@ export default function FilesContextMenuComponent({
         open={showDeleteConfirmation}
         onClose={() => setShowDeleteConfirmation(false)}
         onCancel={() => setShowDeleteConfirmation(false)}
-        title={isLocal ? "Delete File" : "Remove File"}
-        titleHeader={`Are you sure you want to ${isLocal ? "delete" : "remove"} "${file.name}"?`}
-        cancelText="Cancel"
+        title={isLocal ? t("Delete File") : t("Remove File")}
+        titleHeader={t('Are you sure you want to {{action}} \"{{name}}\"?', {
+          action: isLocal ? t("delete") : t("remove"),
+          name: file.name,
+        })}
+        cancelText={t("Cancel")}
         size="x-small"
-        confirmationText={isLocal ? "Delete" : "Remove"}
+        confirmationText={isLocal ? t("Delete") : t("Remove")}
         icon={isLocal ? "Trash2" : "ListX"}
         destructive
         onConfirm={() => {
           deleteFile();
           setSuccessData({
-            title: "The file has been deleted successfully",
+            title: t("The file has been deleted successfully"),
           });
           setShowDeleteConfirmation(false);
         }}
@@ -153,8 +157,12 @@ export default function FilesContextMenuComponent({
         <ConfirmationModal.Content>
           <div className="text-sm text-muted-foreground">
             {isLocal
-              ? "This action cannot be undone. The file will be permanently deleted."
-              : "This will remove the file from your list. You can add it back later if needed."}
+              ? t(
+                  "This action cannot be undone. The file will be permanently deleted.",
+                )
+              : t(
+                  "This will remove the file from your list. You can add it back later if needed.",
+                )}
           </div>
         </ConfirmationModal.Content>
       </ConfirmationModal>

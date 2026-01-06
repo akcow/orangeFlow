@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import rehypeMathjax from "rehype-mathjax";
 import remarkGfm from "remark-gfm";
 import type { ContentType } from "@/types/chat";
+import { t } from "@/i18n/t";
 import ForwardedIconComponent from "../../common/genericIconComponent";
 import SimplifiedCodeTabComponent from "../codeTabsComponent";
 import DurationDisplay from "./DurationDisplay";
@@ -132,8 +133,16 @@ export default function ContentDisplay({
     case "error":
       contentData = (
         <div className="text-red-500">
-          {content.reason && <div>Reason: {content.reason}</div>}
-          {content.solution && <div>Solution: {content.solution}</div>}
+          {content.reason && (
+            <div>
+              {t("Reason")}: {content.reason}
+            </div>
+          )}
+          {content.solution && (
+            <div>
+              {t("Solution")}: {content.solution}
+            </div>
+          )}
           {content.traceback && (
             <SimplifiedCodeTabComponent
               language="text"

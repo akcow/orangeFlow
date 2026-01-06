@@ -8,6 +8,7 @@ import LogCanvasControls from "@/components/core/logCanvasControlsComponent";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import useFlowStore from "@/stores/flowStore";
 import { cn } from "@/utils/utils";
 import { useSearchContext } from "../flowSidebarComponent";
@@ -39,12 +40,14 @@ export const MemoizedCanvasControls = memo(
       <CanvasControls>
         <Button
           unstyled
-          unselectable="on"
-          size="icon"
-          data-testid="lock-status"
-          className="flex items-center justify-center px-2 rounded-none gap-1 cursor-default"
-          title={`Lock status: ${isLocked ? "Locked" : "Unlocked"}`}
-        >
+        unselectable="on"
+        size="icon"
+        data-testid="lock-status"
+        className="flex items-center justify-center px-2 rounded-none gap-1 cursor-default"
+        title={t("Lock status: {{status}}", {
+          status: isLocked ? t("Locked") : t("Unlocked"),
+        })}
+      >
           <ForwardedIconComponent
             name={isLocked ? "Lock" : "Unlock"}
             className={cn(
@@ -53,7 +56,7 @@ export const MemoizedCanvasControls = memo(
             )}
           />
           {isLocked && (
-            <span className="text-xs text-destructive">Flow Locked</span>
+            <span className="text-xs text-destructive">{t("Flow Locked")}</span>
           )}
         </Button>
       </CanvasControls>
@@ -106,7 +109,7 @@ export const MemoizedSidebarTrigger = memo(() => {
     >
       <SidebarTrigger className="h-fit w-fit px-3 py-1.5">
         <ForwardedIconComponent name="PanelRightClose" className="h-4 w-4" />
-        <span className="text-foreground">Components</span>
+        <span className="text-foreground">{t("Components")}</span>
       </SidebarTrigger>
     </Panel>
   );

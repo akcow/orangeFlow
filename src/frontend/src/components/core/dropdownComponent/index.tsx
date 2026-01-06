@@ -6,6 +6,7 @@ import { mutateTemplate } from "@/CustomNodes/helpers/mutate-template";
 import LoadingTextComponent from "@/components/common/loadingTextComponent";
 import { RECEIVING_INPUT_VALUE, SELECT_AN_OPTION } from "@/constants/constants";
 import { usePostTemplateValue } from "@/controllers/API/queries/nodes/use-post-template-value";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import useFlowStore from "@/stores/flowStore";
 import { useTypesStore } from "@/stores/typesStore";
@@ -471,7 +472,7 @@ export default function Dropdown({
       <input
         onChange={searchRoleByTerm}
         onKeyDown={handleInputKeyDown}
-        placeholder="Search options..."
+        placeholder={t("Search options...")}
         className="flex h-9 w-full rounded-md bg-transparent py-3 text-[13px] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
         autoComplete="off"
         data-testid="dropdown_search_input"
@@ -634,7 +635,7 @@ export default function Dropdown({
                   name="RefreshCcw"
                   className={cn("h-3 w-3")}
                 />
-                Refresh list
+                {t("Refresh list")}
               </div>
             </CommandItem>
           )}
@@ -682,7 +683,7 @@ export default function Dropdown({
                     name="RefreshCcw"
                     className={cn("refresh-icon h-3 w-3 text-primary")}
                   />
-                  Refresh list
+                  {t("Refresh list")}
                 </div>
               </Button>
             </CommandItem>
@@ -696,7 +697,7 @@ export default function Dropdown({
   if (Object.keys(validOptions).length === 0 && !combobox && isLoading) {
     return (
       <div>
-        <span className="text-sm italic">Loading...</span>
+        <span className="text-sm italic">{t("Loading...")}</span>
       </div>
     );
   }

@@ -1,5 +1,6 @@
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import type { FlowType } from "@/types/flow";
 import useDuplicateFlow from "../../hooks/use-handle-duplicate";
@@ -25,7 +26,11 @@ const DropdownComponent = ({
   const duplicateFlow = () => {
     handleDuplicate().then(() =>
       setSuccessData({
-        title: `${flowData.is_component ? "Component" : "Flow"} duplicated successfully`,
+        title: t(
+          flowData.is_component
+            ? "Component duplicated successfully"
+            : "Flow duplicated successfully",
+        ),
       }),
     );
   };
@@ -54,7 +59,7 @@ const DropdownComponent = ({
           aria-hidden="true"
           className="mr-2 h-4 w-4"
         />
-        Edit details
+        {t("Edit details")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={(e) => {
@@ -69,7 +74,7 @@ const DropdownComponent = ({
           aria-hidden="true"
           className="mr-2 h-4 w-4"
         />
-        Export
+        {t("Export")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={(e) => {
@@ -84,7 +89,7 @@ const DropdownComponent = ({
           aria-hidden="true"
           className="mr-2 h-4 w-4"
         />
-        Duplicate
+        {t("Duplicate")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={(e) => {
@@ -99,7 +104,7 @@ const DropdownComponent = ({
           aria-hidden="true"
           className="mr-2 h-4 w-4"
         />
-        Delete
+        {t("Delete")}
       </DropdownMenuItem>
     </>
   );

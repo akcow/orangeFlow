@@ -7,6 +7,7 @@ import {
   type Mode,
   type JsonEditor as VanillaJsonEditor,
 } from "vanilla-jsoneditor";
+import { t } from "@/i18n/t";
 import useAlertStore from "../../../stores/alertStore";
 import { cn } from "../../../utils/utils";
 import { useMenuCustomization } from "./useMenuCustomization";
@@ -112,18 +113,22 @@ const JsonEditor = ({
               return;
             } catch (_jsonError) {
               setErrorData({
-                title: "Invalid Result",
+                title: t("Invalid Result"),
                 list: [
-                  "The filtered result contains values that cannot be serialized to JSON",
+                  t(
+                    "The filtered result contains values that cannot be serialized to JSON",
+                  ),
                 ],
               });
               return;
             }
           } else {
             setErrorData({
-              title: "Invalid Result",
+              title: t("Invalid Result"),
               list: [
-                "The filtered result must be a JSON object or array, not a primitive value",
+                t(
+                  "The filtered result must be a JSON object or array, not a primitive value",
+                ),
               ],
             });
             return;
@@ -145,8 +150,12 @@ const JsonEditor = ({
       for (const key of path) {
         if (result === undefined || result === null) {
           setErrorData({
-            title: "Invalid Path",
-            list: [`Path '${transformQuery}' led to undefined or null value`],
+            title: t("Invalid Path"),
+            list: [
+              t("Path '{{path}}' led to undefined or null value", {
+                path: transformQuery,
+              }),
+            ],
           });
           return;
         }
@@ -157,9 +166,12 @@ const JsonEditor = ({
             const index = parseInt(indexMatch[1]);
             if (index >= result.length) {
               setErrorData({
-                title: "Invalid Array Index",
+                title: t("Invalid Array Index"),
                 list: [
-                  `Index ${index} is out of bounds for array of length ${result.length}`,
+                  t(
+                    "Index {{index}} is out of bounds for array of length {{length}}",
+                    { index, length: result.length },
+                  ),
                 ],
               });
               return;
@@ -172,8 +184,12 @@ const JsonEditor = ({
             .map((item) => {
               if (!(key in item)) {
                 setErrorData({
-                  title: "Invalid Property",
-                  list: [`Property '${key}' does not exist in array items`],
+                  title: t("Invalid Property"),
+                  list: [
+                    t("Property '{{property}}' does not exist in array items", {
+                      property: key,
+                    }),
+                  ],
                 });
                 return undefined;
               }
@@ -183,8 +199,12 @@ const JsonEditor = ({
         } else {
           if (!(key in result)) {
             setErrorData({
-              title: "Invalid Property",
-              list: [`Property '${key}' does not exist in object`],
+              title: t("Invalid Property"),
+              list: [
+                t("Property '{{property}}' does not exist in object", {
+                  property: key,
+                }),
+              ],
             });
             return;
           }
@@ -210,30 +230,34 @@ const JsonEditor = ({
             return;
           } catch (_jsonError) {
             setErrorData({
-              title: "Invalid Result",
+              title: t("Invalid Result"),
               list: [
-                "The filtered result contains values that cannot be serialized to JSON",
+                t(
+                  "The filtered result contains values that cannot be serialized to JSON",
+                ),
               ],
             });
           }
         } else {
           setErrorData({
-            title: "Invalid Result",
+            title: t("Invalid Result"),
             list: [
-              "The filtered result must be a JSON object or array, not a primitive value",
+              t(
+                "The filtered result must be a JSON object or array, not a primitive value",
+              ),
             ],
           });
         }
       } else {
         setErrorData({
-          title: "Invalid Result",
-          list: ["Transform resulted in undefined value"],
+          title: t("Invalid Result"),
+          list: [t("Transform resulted in undefined value")],
         });
       }
     } catch (error) {
       console.error("Error applying transform:", error);
       setErrorData({
-        title: "Transform Error",
+        title: t("Transform Error"),
         list: [(error as Error).message],
       });
     }

@@ -1,6 +1,7 @@
 import IconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 
 export const AddFolderButton = ({
   onClick,
@@ -11,7 +12,7 @@ export const AddFolderButton = ({
   disabled: boolean;
   loading: boolean;
 }) => (
-  <ShadTooltip content="Create new project" styleClasses="z-50">
+  <ShadTooltip content={t("Create new project")} styleClasses="z-50">
     <Button
       variant="ghost"
       size="icon"

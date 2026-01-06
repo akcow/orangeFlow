@@ -4,6 +4,7 @@ import {
   PAGINATION_ROWS_COUNT,
   PAGINATION_SIZE,
 } from "@/constants/constants";
+import { t } from "@/i18n/t";
 import type { PaginatorComponentType } from "../../../types/components";
 import IconComponent from "../../common/genericIconComponent";
 import { Button } from "../../ui/button";
@@ -48,12 +49,15 @@ export default function PaginatorComponent({
         {(pageIndex - 1) * pageSize + 1}-
         {Math.min(totalRowsCount, (pageIndex - 1) * pageSize + pageSize)}{" "}
         <span className="text-muted-foreground">
-          of {totalRowsCount}{" "}
-          {isComponent === undefined
-            ? "items"
-            : isComponent
-              ? "components"
-              : "flows"}
+          {t("of {{total}} {{type}}", {
+            total: totalRowsCount,
+            type:
+              isComponent === undefined
+                ? t("items")
+                : isComponent
+                  ? t("components")
+                  : t("flows"),
+          })}
         </span>
       </div>
       <div className={"flex items-center gap-2"}>
@@ -76,7 +80,9 @@ export default function PaginatorComponent({
               ))}
             </SelectContent>
           </Select>
-          <span className="text-muted-foreground">of {maxIndex} pages</span>
+          <span className="text-muted-foreground">
+            {t("of {{count}} pages", { count: maxIndex })}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           <Button
@@ -89,7 +95,7 @@ export default function PaginatorComponent({
             variant="ghost"
             size={"iconMd"}
           >
-            <span className="sr-only">Go to previous page</span>
+            <span className="sr-only">{t("Go to previous page")}</span>
             <IconComponent name="ChevronLeft" className="h-4 w-4" />
           </Button>
           <Button
@@ -100,7 +106,7 @@ export default function PaginatorComponent({
             variant="ghost"
             size={"iconMd"}
           >
-            <span className="sr-only">Go to next page</span>
+            <span className="sr-only">{t("Go to next page")}</span>
             <IconComponent name="ChevronRight" className="h-4 w-4" />
           </Button>
         </div>

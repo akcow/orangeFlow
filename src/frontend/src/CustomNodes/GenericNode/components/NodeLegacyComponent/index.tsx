@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import useFlowStore from "@/stores/flowStore";
 import { cn } from "@/utils/utils";
+import { t } from "@/i18n/t";
 import { useGetReplacementComponents } from "../../hooks/use-get-replacement-components";
 
 export default function NodeLegacyComponent({
@@ -32,7 +33,9 @@ export default function NodeLegacyComponent({
     >
       <div className="flex items-center gap-3 w-full">
         <div className="h-2.5 w-2.5 rounded-full bg-warning" />
-        <div className="mb-px flex-1 truncate text-mmd font-medium">Legacy</div>
+        <div className="mb-px flex-1 truncate text-mmd font-medium">
+          {t("Legacy")}
+        </div>
 
         <Button
           variant="ghost"
@@ -42,10 +45,10 @@ export default function NodeLegacyComponent({
             e.stopPropagation();
             setDismissAll(true);
           }}
-          aria-label="Dismiss warning bar"
+          aria-label={t("Dismiss warning bar")}
           data-testid="dismiss-warning-bar"
         >
-          Dismiss
+          {t("Dismiss")}
         </Button>
       </div>
       <div className="text-mmd text-muted-foreground w-full">
@@ -54,12 +57,12 @@ export default function NodeLegacyComponent({
         replacement.length > 0 &&
         foundComponents.some((component) => component) ? (
           <span className="block items-center">
-            Use{" "}
+            {t("Recommended replacement components:")}{" "}
             {foundComponents.map((component, index) => (
               <>
                 {component && (
                   <>
-                    {index > 0 && ", "}
+                    {index > 0 && "、"}
                     <Button
                       variant="link"
                       className=" !text-accent-pink-foreground !text-mmd !inline-block"
@@ -72,10 +75,10 @@ export default function NodeLegacyComponent({
                 )}
               </>
             ))}
-            .
+            。
           </span>
         ) : (
-          "No direct replacement."
+          t("No direct replacement.")
         )}
       </div>
     </div>

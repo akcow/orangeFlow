@@ -40,7 +40,7 @@ const createNewFlow = (
 ) => {
   return {
     description: flow?.description ?? mockGetRandomDescription(),
-    name: flow?.name ? flow.name : "New Flow",
+    name: flow?.name ? flow.name : "新建流程",
     data: flowData,
     id: "",
     icon: flow?.icon ?? undefined,
@@ -88,7 +88,7 @@ describe("createNewFlow", () => {
 
       expect(result).toEqual({
         description: "Random Description",
-        name: "New Flow",
+        name: "新建流程",
         data: mockFlowData,
         id: "",
         icon: undefined,
@@ -224,7 +224,7 @@ describe("createNewFlow", () => {
         flowWithEmptyName,
       );
 
-      expect(result.name).toBe("New Flow");
+      expect(result.name).toBe("新建流程");
     });
 
     it("should handle flow with whitespace-only name", () => {
@@ -461,7 +461,7 @@ describe("createNewFlow", () => {
 
       testCases.forEach((testFlow) => {
         const result = createNewFlow(mockFlowData, mockFolderId, testFlow);
-        expect(result.name).toBe("New Flow");
+        expect(result.name).toBe("新建流程");
       });
     });
 

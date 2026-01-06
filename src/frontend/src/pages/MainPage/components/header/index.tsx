@@ -1,5 +1,6 @@
 import { debounce } from "lodash";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ const HeaderComponent = ({
   isEmptyFolder,
   selectedFlows,
 }: HeaderComponentProps) => {
+  const { t } = useTranslation();
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isCreatingFlow, setIsCreatingFlow] = useState(false);
   const isMCPEnabled = ENABLE_MCP;
@@ -77,7 +79,7 @@ const HeaderComponent = ({
 
   const handleDownload = () => {
     downloadFlows({ ids: selectedFlows });
-    setSuccessData({ title: "Flows downloaded successfully" });
+    setSuccessData({ title: t("Flows downloaded successfully") });
   };
 
   const handleDelete = () => {
@@ -85,7 +87,7 @@ const HeaderComponent = ({
       { flow_ids: selectedFlows },
       {
         onSuccess: () => {
-          setSuccessData({ title: "Flows deleted successfully" });
+          setSuccessData({ title: t("Flows deleted successfully") });
         },
       },
     );
@@ -141,7 +143,7 @@ const HeaderComponent = ({
                 } text-nowrap px-2 pb-2 pt-1 text-mmd`}
               >
                 <div className={flowType === type ? "-mb-px" : ""}>
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                  {type === "flows" ? t("Flows") : t("Components")}
                 </div>
               </Button>
             ))}
@@ -153,7 +155,11 @@ const HeaderComponent = ({
                   icon="Search"
                   data-testid="search-store-input"
                   type="text"
-                  placeholder={`Search ${flowType}...`}
+                  placeholder={
+                    flowType === "flows"
+                      ? t("Search flows...")
+                      : t("Search components...")
+                  }
                   className="mr-2 !text-mmd"
                   inputClassName="!text-mmd"
                   value={debouncedSearch}
@@ -211,12 +217,8 @@ const HeaderComponent = ({
 
                   <DeleteConfirmationModal
                     onConfirm={handleDelete}
-                    description={"flow" + (selectedFlows.length > 1 ? "s" : "")}
-                    note={
-                      "and " +
-                      (selectedFlows.length > 1 ? "their" : "its") +
-                      " message history"
-                    }
+                    description={t("selected flows")}
+                    note={t("and their message history")}
                   >
                     <Button
                       variant="destructive"
@@ -226,11 +228,11 @@ const HeaderComponent = ({
                       loading={isDeleting}
                     >
                       <ForwardedIconComponent name="Trash2" />
-                      Delete
+                      {t("Delete")}
                     </Button>
                   </DeleteConfirmationModal>
                 </div>
-                <ShadTooltip content="New Flow" side="bottom">
+                <ShadTooltip content={t("New Flow")} side="bottom">
                   <Button
                     variant="default"
                     size="iconMd"
@@ -246,7 +248,7 @@ const HeaderComponent = ({
                       className="h-4 w-4"
                     />
                     <span className="hidden whitespace-nowrap font-semibold md:inline">
-                      New Flow
+                      {t("New Flow")}
                     </span>
                   </Button>
                 </ShadTooltip>

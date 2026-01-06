@@ -5,6 +5,7 @@ import { useUpdateMessage } from "@/controllers/API/queries/messages";
 import { CustomMarkdownField } from "@/customization/components/custom-markdown-field";
 import { CustomProfileIcon } from "@/customization/components/custom-profile-icon";
 import { ENABLE_DATASTAX_LANGFLOW } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import Robot from "../../../../../assets/robot.png";
@@ -74,12 +75,12 @@ export default function ChatMessage({
         setStreamUrl(undefined);
         if (JSON.parse(event.data)?.error) {
           setErrorData({
-            title: "Error on Streaming",
+            title: t("Error on Streaming"),
             list: [JSON.parse(event.data)?.error],
           });
         }
         updateChat(chat, chatMessageRef.current);
-        reject(new Error("Streaming failed"));
+        reject(new Error(t("Streaming failed")));
       };
       eventSource.current.addEventListener("close", (event) => {
         setStreamUrl(undefined); // Update state to reflect the stream is closed
@@ -149,7 +150,7 @@ export default function ChatMessage({
         },
         onError: () => {
           setErrorData({
-            title: "Error updating messages.",
+            title: t("Error updating messages."),
           });
         },
       },
@@ -177,7 +178,7 @@ export default function ChatMessage({
       {
         onError: () => {
           setErrorData({
-            title: "Error updating messages.",
+            title: t("Error updating messages."),
           });
         },
       },
@@ -185,7 +186,7 @@ export default function ChatMessage({
   };
 
   const editedFlag = chat.edit ? (
-    <div className="text-sm text-muted-foreground">(Edited)</div>
+    <div className="text-sm text-muted-foreground">{t("(Edited)")}</div>
   ) : null;
 
   if (chat.category === "error") {

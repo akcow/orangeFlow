@@ -13,7 +13,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useUpdateUser } from "@/controllers/API/queries/auth";
 import {
   usePatchFolders,
   usePostFolders,
@@ -26,16 +25,15 @@ import {
   ENABLE_DATASTAX_LANGFLOW,
   ENABLE_FILE_MANAGEMENT,
   ENABLE_KNOWLEDGE_BASES,
-  ENABLE_MCP_NOTICE,
 } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import { track } from "@/customization/utils/analytics";
 import { customGetDownloadFolderBlob } from "@/customization/utils/custom-get-download-folders";
+import { t } from "@/i18n/t";
 import { createFileUpload } from "@/helpers/create-file-upload";
 import { getObjectsFromFilelist } from "@/helpers/get-objects-from-filelist";
 import useUploadFlow from "@/hooks/flows/use-upload-flow";
 import { useIsMobile } from "@/hooks/use-mobile";
-import useAuthStore from "@/stores/authStore";
 import type { FolderType } from "../../../../../pages/MainPage/entities";
 import useAlertStore from "../../../../../stores/alertStore";
 import useFlowsManagerStore from "../../../../../stores/flowsManagerStore";
@@ -47,7 +45,6 @@ import useFileDrop from "../../hooks/use-on-file-drop";
 import { SidebarFolderSkeleton } from "../sidebarFolderSkeleton";
 import { HeaderButtons } from "./components/header-buttons";
 import { InputEditFolderName } from "./components/input-edit-folder-name";
-import { MCPServerNotice } from "./components/mcp-server-notice";
 import { SelectOptions } from "./components/select-options";
 
 type SideBarFoldersButtonsComponentProps = {
@@ -335,27 +332,6 @@ const SideBarFoldersButtonsComponent = ({
 
   const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null);
 
-  const userData = useAuthStore((state) => state.userData);
-  const { mutate: updateUser } = useUpdateUser();
-  const userDismissedMcpDialog = userData?.optins?.mcp_dialog_dismissed;
-
-  const [isDismissedMcpDialog, setIsDismissedMcpDialog] = useState(
-    userDismissedMcpDialog,
-  );
-
-  const handleDismissMcpDialog = () => {
-    setIsDismissedMcpDialog(true);
-    updateUser({
-      user_id: userData?.id!,
-      user: {
-        optins: {
-          ...userData?.optins,
-          mcp_dialog_dismissed: true,
-        },
-      },
-    });
-  };
-
   const handleFilesNavigation = () => {
     _navigate("/assets/files");
   };
@@ -468,12 +444,6 @@ const SideBarFoldersButtonsComponent = ({
           </SidebarGroupContent>
         </SidebarGroup>
         <div className="flex-1" />
-
-        {ENABLE_MCP_NOTICE && !isDismissedMcpDialog && (
-          <div className="p-2">
-            <MCPServerNotice handleDismissDialog={handleDismissMcpDialog} />
-          </div>
-        )}
       </SidebarContent>
       {ENABLE_FILE_MANAGEMENT && (
         <SidebarFooter className="border-t">
@@ -487,7 +457,7 @@ const SideBarFoldersButtonsComponent = ({
                 className="text-sm"
               >
                 <ForwardedIconComponent name="Library" className="h-4 w-4" />
-                Knowledge
+                {t("Knowledge")}
               </SidebarMenuButton>
             )}
             <SidebarMenuButton
@@ -496,7 +466,7 @@ const SideBarFoldersButtonsComponent = ({
               className="text-sm"
             >
               <ForwardedIconComponent name="File" className="h-4 w-4" />
-              My Files
+              {t("My Files")}
             </SidebarMenuButton>
           </div>
         </SidebarFooter>

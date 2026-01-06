@@ -1,5 +1,6 @@
 // Jest setup file for testing environment
 import "@testing-library/jest-dom";
+import "./i18n";
 
 // Mock ResizeObserver if not available in test environment
 global.ResizeObserver = jest.fn().mockImplementation(() => ({

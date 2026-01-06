@@ -7,6 +7,7 @@ import {
   ENABLE_LANGFLOW_STORE,
   ENABLE_PROFILE_ICONS,
 } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import useAuthStore from "@/stores/authStore";
 import { useStoreStore } from "@/stores/storeStore";
 import ForwardedIconComponent from "../../components/common/genericIconComponent";
@@ -26,7 +27,7 @@ export default function SettingsPage(): JSX.Element {
 
   if (showGeneralSettings) {
     sidebarNavItems.push({
-      title: "General",
+      title: t("General"),
       href: "/settings/general",
       icon: (
         <ForwardedIconComponent
@@ -39,7 +40,7 @@ export default function SettingsPage(): JSX.Element {
 
   sidebarNavItems.push(
     {
-      title: "Secret Keys",
+      title: t("Secret Keys"),
       href: "/settings/provider-credentials",
       icon: (
         <ForwardedIconComponent
@@ -49,7 +50,7 @@ export default function SettingsPage(): JSX.Element {
       ),
     },
     {
-      title: "Global Variables",
+      title: t("Global Variables"),
       href: "/settings/global-variables",
       icon: (
         <ForwardedIconComponent
@@ -60,7 +61,7 @@ export default function SettingsPage(): JSX.Element {
     },
 
     {
-      title: "Shortcuts",
+      title: t("Shortcuts"),
       href: "/settings/shortcuts",
       icon: (
         <ForwardedIconComponent
@@ -70,7 +71,7 @@ export default function SettingsPage(): JSX.Element {
       ),
     },
     {
-      title: "Messages",
+      title: t("Messages"),
       href: "/settings/messages",
       icon: (
         <ForwardedIconComponent
@@ -90,8 +91,8 @@ export default function SettingsPage(): JSX.Element {
   return (
     <PageLayout
       backTo={-1 as To}
-      title="Settings"
-      description="Manage the general settings for Langflow."
+      title={t("Settings")}
+      description={t("Manage the general settings for Langflow.")}
     >
       <SidebarProvider width="15rem" defaultOpen={false}>
         <SideBarButtonsComponent items={sidebarNavItems} />

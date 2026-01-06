@@ -1,4 +1,5 @@
 import type { useMutationFunctionType } from "../../../../types/api";
+import { t } from "@/i18n/t";
 import { getURL } from "../../helpers/constants";
 import { UseRequestProcessor } from "../../services/request-processor";
 
@@ -39,7 +40,11 @@ export const useGetDownloadFilesV2: useMutationFunctionType<
       );
     }
     if (!response.ok) {
-      throw new Error(`Failed to download files: ${response.statusText}`);
+      throw new Error(
+        t("Failed to download files: {{status}}", {
+          status: response.statusText,
+        }),
+      );
     }
 
     const blob = await response.blob();

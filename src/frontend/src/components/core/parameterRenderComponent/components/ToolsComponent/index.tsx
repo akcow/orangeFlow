@@ -2,6 +2,7 @@ import { useState } from "react";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { ICON_STROKE_WIDTH } from "@/constants/constants";
 import { ENABLE_MCP_COMPOSER } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import ToolsModal from "@/modals/toolsModal";
 import { cn, testIdCase } from "@/utils/utils";
 import { ForwardedIconComponent } from "../../../../common/genericIconComponent";
@@ -114,7 +115,7 @@ export default function ToolsComponent({
             ))}
             {remainingCount > 0 && (
               <span className="ml-1 self-center text-xs font-normal text-muted-foreground">
-                +{remainingCount} more
+                {t("+{{count}} more", { count: remainingCount })}
               </span>
             )}
           </div>
@@ -123,10 +124,10 @@ export default function ToolsComponent({
           isAction && (
             <div className="mt-2 flex w-full flex-col items-center gap-2 rounded-md border border-dashed p-8">
               <span className="text-sm text-muted-foreground">
-                No actions added to this server
+                {t("No actions added to this server")}
               </span>
               <Button size={"sm"} onClick={() => setIsModalOpen(true)}>
-                <span>Add actions</span>
+                <span>{t("Add actions")}</span>
               </Button>
             </div>
           )
@@ -145,8 +146,8 @@ export default function ToolsComponent({
             <span>
               {placeholder ||
                 (value.length === 0
-                  ? "No actions available"
-                  : "Select actions")}
+                  ? t("No actions available")
+                  : t("Select actions"))}
             </span>
           </Button>
         )}

@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
 import { SIDEBAR_BUNDLES } from "@/utils/styleUtils";
+import { t } from "@/i18n/t";
 import type { CategoryGroupProps } from "../types";
 import { CategoryDisclosure } from "./categoryDisclouse";
 import { SearchConfigTrigger } from "./searchConfigTrigger";
@@ -28,7 +29,7 @@ export const CategoryGroup = memo(function CategoryGroup({
     <SidebarGroup className="p-3 pr-2">
       {ENABLE_NEW_SIDEBAR && (
         <SidebarGroupLabel className="cursor-default flex items-center justify-between w-full">
-          <span>Components</span>
+          <span>{t("Components")}</span>
           <SearchConfigTrigger
             showConfig={showConfig}
             setShowConfig={setShowConfig}

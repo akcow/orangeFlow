@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { t } from "@/i18n/t";
 
 interface SearchBarComponentProps {
   searchCategories?: string[];
@@ -20,11 +21,11 @@ const SearchBarComponent = ({
   searchCategories,
   search,
   setSearch,
-  placeholder = "Search tools...",
+  placeholder = t("Search tools..."),
   onCategoryChange,
 }: SearchBarComponentProps) => {
   const [selectedCategory, setSelectedCategory] = useState(
-    searchCategories?.[0] || "All",
+    searchCategories?.[0] || t("All"),
   );
 
   const handleCategoryChange = (category: string) => {

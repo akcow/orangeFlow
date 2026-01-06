@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/select-custom";
 import type { FolderType } from "@/pages/MainPage/entities";
 import { useUtilityStore } from "@/stores/utilityStore";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 import { handleSelectChange } from "../helpers/handle-select-change";
 import { FolderSelectItem } from "./folder-select-item";
@@ -43,7 +44,7 @@ export const SelectOptions = ({
         }
         value=""
       >
-        <ShadTooltip content="Options" side="right" styleClasses="z-50">
+        <ShadTooltip content={t("Options")} side="right" styleClasses="z-50">
           <SelectTrigger
             className="w-fit"
             id={`options-trigger-${item.name}`}
@@ -68,7 +69,7 @@ export const SelectOptions = ({
               data-testid="btn-rename-project"
               className="text-xs"
             >
-              <FolderSelectItem name="Rename" iconName="SquarePen" />
+              <FolderSelectItem nameKey="Rename" iconName="SquarePen" />
             </SelectItem>
           )}
           <SelectItem
@@ -76,7 +77,7 @@ export const SelectOptions = ({
             data-testid="btn-download-project"
             className="text-xs"
           >
-            <FolderSelectItem name="Download" iconName="Download" />
+            <FolderSelectItem nameKey="Download" iconName="Download" />
           </SelectItem>
           {index > 0 && (
             <SelectItem
@@ -84,7 +85,7 @@ export const SelectOptions = ({
               data-testid="btn-delete-project"
               className="text-xs"
             >
-              <FolderSelectItem name="Delete" iconName="Trash2" />
+              <FolderSelectItem nameKey="Delete" iconName="Trash2" />
             </SelectItem>
           )}
         </SelectContent>

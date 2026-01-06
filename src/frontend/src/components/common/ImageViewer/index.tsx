@@ -10,12 +10,13 @@ import { Separator } from "../../ui/separator";
 import ForwardedIconComponent from "../genericIconComponent";
 import { sanitizePreviewDataUrl } from "@/CustomNodes/GenericNode/components/DoubaoPreviewPanel/helpers";
 import { toRenderableImageSource } from "@/CustomNodes/GenericNode/components/DoubaoPreviewPanel/helpers";
+import { t } from "@/i18n/t";
 
 export default function ImageViewer({ image }: { image: string }) {
   const viewerRef = useRef(null);
   const [_errorDownloading, _setErrordownloading] = useState(false);
   const setErrorList = useAlertStore((state) => state.setErrorData);
-  const [_initialMsg, _setInicialMsg] = useState("Please build your flow");
+  const [_initialMsg, _setInicialMsg] = useState(t("Please build your flow"));
 
   const normalizedImage = sanitizePreviewDataUrl(image) ?? image;
   const [renderSource, setRenderSource] = useState(normalizedImage);

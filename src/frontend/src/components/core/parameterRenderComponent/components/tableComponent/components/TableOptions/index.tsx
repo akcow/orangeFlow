@@ -1,6 +1,7 @@
 import IconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 import type { TableOptionsTypeAPI } from "@/types/api";
 import { cn } from "@/utils/utils";
 
@@ -28,7 +29,7 @@ export default function TableOptions({
       <div className="flex items-center gap-3">
         {addRow && !tableOptions?.block_add && (
           <div>
-            <ShadTooltip content={"Add a new row"}>
+            <ShadTooltip content={t("Add a new row")}>
               <Button data-testid="add-row-button" unstyled onClick={addRow}>
                 <IconComponent
                   name="Plus"
@@ -43,9 +44,9 @@ export default function TableOptions({
             <ShadTooltip
               content={
                 !hasSelection ? (
-                  <span>Select items to duplicate</span>
+                  <span>{t("Select items to duplicate")}</span>
                 ) : (
-                  <span>Duplicate selected items</span>
+                  <span>{t("Duplicate selected items")}</span>
                 )
               }
             >
@@ -73,9 +74,9 @@ export default function TableOptions({
             <ShadTooltip
               content={
                 !hasSelection ? (
-                  <span>Select items to delete</span>
+                  <span>{t("Select items to delete")}</span>
                 ) : (
-                  <span>Delete selected items</span>
+                  <span>{t("Delete selected items")}</span>
                 )
               }
             >
@@ -99,7 +100,7 @@ export default function TableOptions({
           </div>
         )}{" "}
         <div>
-          <ShadTooltip content="Reset Columns">
+          <ShadTooltip content={t("Reset Columns")}>
             <Button
               data-testid="reset-columns-button"
               unstyled
@@ -123,7 +124,7 @@ export default function TableOptions({
         </div>
         {paginationInfo && (
           <div className="ml-2 text-xs text-muted-foreground">
-            <ShadTooltip content="Pagination Info">
+            <ShadTooltip content={t("Pagination Info")}>
               <span>{paginationInfo}</span>
             </ShadTooltip>
           </div>

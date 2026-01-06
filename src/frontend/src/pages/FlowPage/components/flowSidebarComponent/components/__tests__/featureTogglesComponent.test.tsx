@@ -48,12 +48,12 @@ describe("FeatureToggles", () => {
       render(<FeatureToggles {...defaultProps} />);
 
       // Allow multiple instances of "Show" to pass
-      expect(screen.getAllByText("Show").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("显示").length).toBeGreaterThanOrEqual(1);
       expect(screen.getByTestId("badge-purpleStatic-xq")).toHaveTextContent(
-        "Beta",
+        "测试版",
       );
       expect(screen.getByTestId("badge-secondaryStatic-xq")).toHaveTextContent(
-        "Legacy",
+        "旧版",
       );
     });
 
@@ -61,7 +61,7 @@ describe("FeatureToggles", () => {
       render(<FeatureToggles {...defaultProps} />);
 
       expect(screen.getByTestId("badge-purpleStatic-xq")).toHaveTextContent(
-        "Beta",
+        "测试版",
       );
       expect(screen.getByTestId("sidebar-beta-switch")).toBeInTheDocument();
     });
@@ -70,7 +70,7 @@ describe("FeatureToggles", () => {
       render(<FeatureToggles {...defaultProps} />);
 
       expect(screen.getByTestId("badge-secondaryStatic-xq")).toHaveTextContent(
-        "Legacy",
+        "旧版",
       );
       expect(screen.getByTestId("sidebar-legacy-switch")).toBeInTheDocument();
     });
@@ -78,7 +78,7 @@ describe("FeatureToggles", () => {
     it("should render correct number of toggle sections", () => {
       render(<FeatureToggles {...defaultProps} />);
 
-      const toggleSections = screen.getAllByText("Show");
+      const toggleSections = screen.getAllByText("显示");
       expect(toggleSections).toHaveLength(2);
     });
   });
@@ -276,7 +276,7 @@ describe("FeatureToggles", () => {
       render(<FeatureToggles {...defaultProps} />);
 
       const betaBadge = screen.getByTestId("badge-purpleStatic-xq");
-      expect(betaBadge).toHaveTextContent("Beta");
+      expect(betaBadge).toHaveTextContent("测试版");
       expect(betaBadge).toHaveClass("badge-purpleStatic", "badge-xq");
     });
 
@@ -284,7 +284,7 @@ describe("FeatureToggles", () => {
       render(<FeatureToggles {...defaultProps} />);
 
       const legacyBadge = screen.getByTestId("badge-secondaryStatic-xq");
-      expect(legacyBadge).toHaveTextContent("Legacy");
+      expect(legacyBadge).toHaveTextContent("旧版");
       expect(legacyBadge).toHaveClass("badge-secondaryStatic", "badge-xq");
     });
   });
@@ -294,8 +294,8 @@ describe("FeatureToggles", () => {
       render(<FeatureToggles {...defaultProps} />);
 
       const badges = screen.getAllByTestId(/^badge-/);
-      expect(badges[0]).toHaveTextContent("Beta");
-      expect(badges[1]).toHaveTextContent("Legacy");
+      expect(badges[0]).toHaveTextContent("测试版");
+      expect(badges[1]).toHaveTextContent("旧版");
     });
 
     it("should have switches with correct test IDs", () => {

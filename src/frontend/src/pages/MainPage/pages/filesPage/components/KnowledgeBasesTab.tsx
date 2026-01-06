@@ -21,6 +21,7 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import { updateIds } from "@/utils/reactflowUtils";
 import { cn } from "@/utils/utils";
+import { t } from "@/i18n/t";
 import { createKnowledgeBaseColumns } from "../config/knowledgeBaseColumns";
 import KnowledgeBaseEmptyState from "./KnowledgeBaseEmptyState";
 import KnowledgeBaseSelectionOverlay from "./KnowledgeBaseSelectionOverlay";
@@ -72,17 +73,19 @@ const KnowledgeBasesTab = ({
     {
       onSuccess: () => {
         setSuccessData({
-          title: `Knowledge Base "${knowledgeBaseToDelete?.name}" deleted successfully!`,
+          title: t('Knowledge Base "{{name}}" deleted successfully!', {
+            name: knowledgeBaseToDelete?.name ?? "",
+          }),
         });
         resetDeleteState();
       },
       onError: (error: any) => {
         setErrorData({
-          title: "Failed to delete knowledge base",
+          title: t("Failed to delete knowledge base"),
           list: [
             error?.response?.data?.detail ||
               error?.message ||
-              "An unknown error occurred",
+              t("An unknown error occurred"),
           ],
         });
         resetDeleteState();
@@ -92,8 +95,8 @@ const KnowledgeBasesTab = ({
 
   if (error) {
     setErrorData({
-      title: "Failed to load knowledge bases",
-      list: [error?.message || "An unknown error occurred"],
+      title: t("Failed to load knowledge bases"),
+      list: [error?.message || t("An unknown error occurred")],
     });
   }
 
@@ -177,7 +180,7 @@ const KnowledgeBasesTab = ({
             icon="Search"
             data-testid="search-kb-input"
             type="text"
-            placeholder="Search knowledge bases..."
+            placeholder={t("Search knowledge bases...")}
             className="mr-2 w-full"
             value={quickFilterText || ""}
             onChange={(event) => setQuickFilterText(event.target.value)}
@@ -187,7 +190,7 @@ const KnowledgeBasesTab = ({
           className="flex items-center gap-2 font-semibold"
           onClick={handleCreateKnowledge}
         >
-          <ForwardedIconComponent name="Plus" /> Create knowledge
+          <ForwardedIconComponent name="Plus" /> {t("Create knowledge")}
         </Button>
       </div>
 
@@ -232,8 +235,10 @@ const KnowledgeBasesTab = ({
         open={isDeleteModalOpen}
         setOpen={setIsDeleteModalOpen}
         onConfirm={confirmDelete}
-        description={`knowledge base "${knowledgeBaseToDelete?.name || ""}"`}
-        note="This action cannot be undone"
+        description={t('knowledge base "{{name}}"', {
+          name: knowledgeBaseToDelete?.name ?? "",
+        })}
+        note={t("This action cannot be undone")}
       >
         <></>
       </DeleteConfirmationModal>

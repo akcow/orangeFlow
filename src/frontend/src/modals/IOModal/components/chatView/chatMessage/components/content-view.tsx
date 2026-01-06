@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ForwardedIconComponent } from "@/components/common/genericIconComponent";
 import { TextShimmer } from "@/components/ui/TextShimmer";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 import CodeTabsComponent from "../../../../../../components/core/codeTabsComponent";
 import LogoIcon from "./chat-logo-icon";
@@ -36,7 +37,7 @@ export const ErrorView = ({
               <LogoIcon />
               <div className="flex items-center">
                 <TextShimmer className="" duration={1}>
-                  Flow running...
+                  {t("Flow running...")}
                 </TextShimmer>
               </div>
             </motion.div>
@@ -66,7 +67,7 @@ export const ErrorView = ({
                             {content.component && (
                               <>
                                 <span>
-                                  An error occured in the{" "}
+                                  {t("An error occurred in the")}{" "}
                                   <span
                                     className={cn(
                                       closeChat ?? "cursor-pointer underline",
@@ -80,18 +81,21 @@ export const ErrorView = ({
                                   >
                                     <strong>{content.component}</strong>
                                   </span>{" "}
-                                  Component, stopping your flow. See below for
-                                  more details.
+                                  {t(
+                                    "component, stopping your flow. See below for more details.",
+                                  )}
                                 </span>
                               </>
                             )}
                           </div>
                           <div>
                             <h3 className="pb-3 font-semibold">
-                              Error details:
+                              {t("Error details:")}
                             </h3>
                             {content.field && (
-                              <p className="pb-1">Field: {content.field}</p>
+                              <p className="pb-1">
+                                {t("Field:")} {content.field}
+                              </p>
                             )}
                             {content.reason && (
                               <span className="">
@@ -171,12 +175,14 @@ export const ErrorView = ({
                             {content.solution && (
                               <div className="mt-4">
                                 <h3 className="pb-3 font-semibold">
-                                  Steps to fix:
+                                  {t("Steps to fix")}:
                                 </h3>
                                 <ol className="list-decimal pl-5">
-                                  <li>Check the component settings</li>
-                                  <li>Ensure all required fields are filled</li>
-                                  <li>Re-run your flow</li>
+                                  <li>{t("Check the component settings")}</li>
+                                  <li>
+                                    {t("Ensure all required fields are filled")}
+                                  </li>
+                                  <li>{t("Re-run your flow")}</li>
                                 </ol>
                               </div>
                             )}

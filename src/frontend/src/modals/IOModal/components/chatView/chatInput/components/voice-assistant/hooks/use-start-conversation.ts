@@ -1,4 +1,5 @@
 import { getLocalStorage } from "@/utils/local-storage-util";
+import { t } from "@/i18n/t";
 
 export const useStartConversation = (
   flowId: string,
@@ -33,7 +34,7 @@ export const useStartConversation = (
     wsRef.current = new WebSocket(url);
 
     wsRef.current.onopen = () => {
-      setStatus("Connected");
+      setStatus(t("Connected"));
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -69,18 +70,18 @@ export const useStartConversation = (
         // 1000 is normal closure
         console.warn(`WebSocket closed with code ${event.code}`);
       }
-      setStatus(`Disconnected (${event.code})`);
+      setStatus(t("Disconnected ({{code}})", { code: event.code }));
       stopRecording();
     };
 
     wsRef.current.onerror = (error) => {
       console.error("WebSocket Error:", error);
-      setStatus("Connection error");
+      setStatus(t("Connection error"));
       stopRecording();
     };
   } catch (error) {
     console.error("Failed to create WebSocket:", error);
-    setStatus("Connection failed");
+    setStatus(t("Connection failed"));
     stopRecording();
   }
 };

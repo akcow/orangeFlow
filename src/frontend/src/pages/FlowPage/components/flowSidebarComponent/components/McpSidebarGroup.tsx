@@ -13,6 +13,7 @@ import DeleteConfirmationModal from "@/modals/deleteConfirmationModal";
 import useAlertStore from "@/stores/alertStore";
 import type { APIClassType } from "@/types/api";
 import { removeCountFromString } from "@/utils/utils";
+import { t } from "@/i18n/t";
 import { SearchConfigTrigger } from "./searchConfigTrigger";
 import SidebarDraggableComponent from "./sidebarDraggableComponent";
 
@@ -43,7 +44,7 @@ const McpEmptyState = ({ isLoading }: { isLoading?: boolean }) => {
   return (
     <>
       <div className="flex flex-col h-full w-full items-center justify-center py-8 px-4 text-center min-h-[200px]">
-        <p className="text-muted-foreground mb-4">No MCP Servers Added</p>
+        <p className="text-muted-foreground mb-4">{t("No MCP Servers Added")}</p>
         <Button
           variant="outline"
           size="sm"
@@ -51,7 +52,7 @@ const McpEmptyState = ({ isLoading }: { isLoading?: boolean }) => {
           onClick={handleAddMcpServerClick}
           data-testid="add-mcp-server-button-sidebar"
         >
-          <span>Add MCP Server</span>
+          <span>{t("Add MCP Server")}</span>
         </Button>
       </div>
       <AddMcpServerModal open={addMcpOpen} setOpen={setAddMcpOpen} />
@@ -111,7 +112,7 @@ const McpSidebarGroup = ({
     <SidebarGroup className={`p-3 pr-2${!hasMcpServers ? " h-full" : ""}`}>
       {hasMcpServers && (
         <SidebarGroupLabel className="cursor-default w-full flex items-center justify-between">
-          <span>MCP Servers</span>
+          <span>{t("MCP Servers")}</span>
           {showSearchConfigTrigger && (
             <SearchConfigTrigger
               showConfig={showConfig}
@@ -122,7 +123,7 @@ const McpSidebarGroup = ({
       )}
       <SidebarGroupContent className="h-full">
         <SidebarMenu className={!hasMcpServers ? " h-full" : ""}>
-          {isLoading && <span>Loading...</span>}
+          {isLoading && <span>{t("Loading...")}</span>}
           {isSuccess && !hasMcpServers && (
             <McpEmptyState isLoading={isLoading} />
           )}
@@ -173,7 +174,7 @@ const McpSidebarGroup = ({
               setDeleteModalOpen(false);
               setServerToDelete(null);
             }}
-            description={"MCP Server"}
+            description={t("MCP Server")}
           />
         </SidebarMenu>
       </SidebarGroupContent>

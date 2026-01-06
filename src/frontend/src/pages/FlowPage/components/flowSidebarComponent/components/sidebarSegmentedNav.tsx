@@ -9,6 +9,7 @@ import {
   type SidebarSection,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 import { useSearchContext } from "../index";
 
@@ -64,7 +65,7 @@ const SidebarSegmentedNav = () => {
           <div key={item.id}>
             {item.id === "add_note" && <Separator className="w-full" />}
             <SidebarMenuItem className="px-1">
-              <ShadTooltip content={item.tooltip} side="right">
+              <ShadTooltip content={t(item.tooltip)} side="right">
                 <SidebarMenuButton
                   size="md"
                   onClick={(e) => {
@@ -108,7 +109,7 @@ const SidebarSegmentedNav = () => {
                     name={item.icon}
                     className="h-5 w-5"
                   />
-                  <span className="sr-only">{item.label}</span>
+                  <span className="sr-only">{t(item.label)}</span>
                 </SidebarMenuButton>
               </ShadTooltip>
             </SidebarMenuItem>

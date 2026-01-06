@@ -58,7 +58,7 @@ jest.mock("../index", () => {
                   <button data-testid="sidebar-trigger">
                     <span data-testid="icon-PanelLeftOpen" />
                   </button>
-                  Knowledge
+                  知识库
                 </div>
                 <div className="flex h-full flex-col">
                   <div data-testid="knowledge-bases-tab">
@@ -134,7 +134,7 @@ describe("KnowledgePage", () => {
     render(<KnowledgePage />, { wrapper: createTestWrapper() });
 
     expect(screen.getByTestId("mainpage_title")).toBeInTheDocument();
-    expect(screen.getByText("Knowledge")).toBeInTheDocument();
+    expect(screen.getByText("知识库")).toBeInTheDocument();
   });
 
   it("renders sidebar trigger", () => {

@@ -1,4 +1,5 @@
 import * as Form from "@radix-ui/react-form";
+import { t } from "@/i18n/t";
 import InputComponent from "../../../../../components/core/parameterRenderComponent/components/inputComponent";
 import { Button } from "../../../../../components/ui/button";
 import {
@@ -42,7 +43,7 @@ const StoreApiKeyFormComponent = ({
       >
         <Card x-chunk="dashboard-04-chunk-2" id="api">
           <CardHeader>
-            <CardTitle>Store API Key</CardTitle>
+            <CardTitle>{t("Store API Key")}</CardTitle>
             <CardDescription>
               {(hasApiKey && !validApiKey
                 ? INVALID_API_KEY
@@ -63,11 +64,11 @@ const StoreApiKeyFormComponent = ({
                     value={apikey}
                     isForm
                     password={true}
-                    placeholder="Insert your API Key"
+                    placeholder={t("Insert your API Key")}
                     className="w-full"
                   />
                   <Form.Message match="valueMissing" className="field-invalid">
-                    Please enter your API Key
+                    {t("Please enter your API Key")}
                   </Form.Message>
                 </Form.Field>
               </div>
@@ -91,7 +92,7 @@ const StoreApiKeyFormComponent = ({
                 type="submit"
                 data-testid="api-key-save-button-store"
               >
-                Save
+                {t("Save")}
               </Button>
             </Form.Submit>
           </CardFooter>

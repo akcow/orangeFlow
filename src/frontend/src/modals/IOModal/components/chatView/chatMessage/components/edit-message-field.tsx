@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { t } from "@/i18n/t";
 
 export default function EditMessageField({
   message: initialMessage,
@@ -51,7 +52,7 @@ export default function EditMessageField({
               }}
               className="mt-2 bg-primary text-background hover:bg-primary-hover hover:text-secondary"
             >
-              Save
+              {t("Save")}
             </Button>
             <Button
               variant={"secondary"}
@@ -63,12 +64,13 @@ export default function EditMessageField({
               }}
               className="mt-2 !bg-transparent text-foreground hover:!bg-secondary-hover"
             >
-              Cancel
+              {t("Cancel")}
             </Button>
           </div>
           <div className="text-mmd font-medium text-muted-foreground word-break-break-word">
-            Editing messages will update the memory but won't restart the
-            conversation.
+            {t(
+              "Editing messages will update the memory but won't restart the conversation.",
+            )}
           </div>
         </div>
         <div></div>

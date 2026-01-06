@@ -1,5 +1,6 @@
 import { faCopy } from "@fortawesome/free-solid-svg-icons";
 import { type MenuItem, Mode } from "vanilla-jsoneditor";
+import { t } from "@/i18n/t";
 
 export const filterTextModeItems = (items: MenuItem[]): MenuItem[] => {
   return items.filter((item) => {
@@ -32,8 +33,8 @@ export const createCopyButton = (
       const editor = getEditor();
       if (!editor) {
         setErrorData({
-          title: "Copy Failed",
-          list: ["Editor not available"],
+          title: t("Copy Failed"),
+          list: [t("Editor not available")],
         });
         return;
       }
@@ -46,17 +47,17 @@ export const createCopyButton = (
       navigator.clipboard
         .writeText(textContent)
         .then(() => {
-          setSuccessData({ title: "JSON copied to clipboard" });
+          setSuccessData({ title: t("JSON copied to clipboard") });
         })
         .catch(() => {
           setErrorData({
-            title: "Copy Failed",
-            list: ["Unable to copy to clipboard. Please copy manually."],
+            title: t("Copy Failed"),
+            list: [t("Unable to copy to clipboard. Please copy manually.")],
           });
         });
     },
     icon: faCopy,
-    title: "Copy JSON to clipboard",
+    title: t("Copy JSON to clipboard"),
   };
 };
 
@@ -73,7 +74,7 @@ export const addCopyButtonToItems = (
 export const enhanceExistingCopyButtons = (
   items: MenuItem[],
   setSuccessData: (data: { title: string }) => void,
-  successMessage: string = "JSON copied to clipboard",
+  successMessage: string = t("JSON copied to clipboard"),
 ): MenuItem[] => {
   return items.map((item) => {
     if (item.type === "button" && item.title?.toLowerCase().includes("copy")) {

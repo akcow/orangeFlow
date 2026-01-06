@@ -4,6 +4,7 @@ import useFlowStore from "@/stores/flowStore";
 import type { FlowType } from "@/types/flow";
 import { processDataFromFlow } from "@/utils/reactflowUtils";
 import useAddFlow from "./use-add-flow";
+import { t } from "@/i18n/t";
 
 const useUploadFlow = () => {
   const addFlow = useAddFlow();
@@ -37,7 +38,7 @@ const useUploadFlow = () => {
       files = await createFileUpload();
     }
     if (!files.every((file) => file.type === "application/json")) {
-      throw new Error("Invalid file type");
+      throw new Error(t("Invalid file type"));
     }
     return await getFlowsFromFiles({
       files,
@@ -69,7 +70,7 @@ const useUploadFlow = () => {
         )
       ) {
         throw new Error(
-          "You cannot upload a component as a flow or vice versa",
+          t("You cannot upload a component as a flow or vice versa"),
         );
       } else {
         let currentPosition = position;
@@ -85,7 +86,7 @@ const useUploadFlow = () => {
               await addFlow({ flow });
             }
           } else {
-            throw new Error("Invalid flow data");
+            throw new Error(t("Invalid flow data"));
           }
         }
       }

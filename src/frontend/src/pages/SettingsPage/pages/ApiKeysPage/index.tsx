@@ -11,6 +11,7 @@ import {
   useDeleteApiKey,
   useGetApiKeysQuery,
 } from "@/controllers/API/queries/api-keys";
+import { t } from "@/i18n/t";
 import TableComponent from "../../../../components/core/parameterRenderComponent/components/tableComponent";
 import { AuthContext } from "../../../../contexts/authContext";
 import useAlertStore from "../../../../stores/alertStore";
@@ -31,8 +32,9 @@ export default function ApiKeysPage() {
     if (data !== undefined) {
       const updatedKeysList = data["api_keys"].map((apikey) => ({
         ...apikey,
-        name: apikey.name && apikey.name !== "" ? apikey.name : "Untitled",
-        last_used_at: apikey.last_used_at ?? "Never",
+        name:
+          apikey.name && apikey.name !== "" ? apikey.name : t("Untitled"),
+        last_used_at: apikey.last_used_at ?? t("Never"),
       }));
       setKeysList(updatedKeysList);
       setUserId(data["user_id"]);
@@ -93,7 +95,7 @@ export default function ApiKeysPage() {
         <TableComponent
           key={"apiKeys"}
           onDelete={handleDeleteApi}
-          overlayNoRowsTemplate="No data available"
+          overlayNoRowsTemplate={t("No data available")}
           onSelectionChanged={(event: SelectionChangedEvent) => {
             setSelectedRows(event.api.getSelectedRows().map((row) => row.id));
           }}

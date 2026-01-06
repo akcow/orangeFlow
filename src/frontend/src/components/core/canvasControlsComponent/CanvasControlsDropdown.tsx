@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { shallow } from "zustand/shallow";
 import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -86,7 +87,7 @@ const CanvasControlsDropdown = () => {
           data-testid="canvas_controls_dropdown"
           className="group rounded-none px-2 py-2 hover:bg-muted"
           unstyled
-          title="Canvas Controls"
+          title={t("Canvas Controls")}
         >
           <div className="flex items-center justify-center ">
             <div className="text-sm pr-1 text-muted-foreground">
@@ -106,34 +107,34 @@ const CanvasControlsDropdown = () => {
         className="flex flex-col w-full"
       >
         <DropdownControlButton
-          tooltipText="Zoom In"
+          tooltipText={t("Zoom In")}
           onClick={handleZoomIn}
           disabled={maxZoomReached}
           testId="zoom_in"
-          label="Zoom In"
+          label={t("Zoom In")}
           shortcut={KEYBOARD_SHORTCUTS.ZOOM_IN.key}
         />
         <DropdownControlButton
-          tooltipText="Zoom Out"
+          tooltipText={t("Zoom Out")}
           onClick={handleZoomOut}
           disabled={minZoomReached}
           testId="zoom_out"
-          label="Zoom Out"
+          label={t("Zoom Out")}
           shortcut={KEYBOARD_SHORTCUTS.ZOOM_OUT.key}
         />
         <Separator />
         <DropdownControlButton
-          tooltipText="Reset zoom to 100%"
+          tooltipText={t("Reset zoom to 100%")}
           onClick={handleResetZoom}
           testId="reset_zoom"
-          label="Zoom To 100%"
+          label={t("Zoom To 100%")}
           shortcut={KEYBOARD_SHORTCUTS.RESET_ZOOM.key}
         />
         <DropdownControlButton
-          tooltipText="Fit view to show all nodes"
+          tooltipText={t("Fit view to show all nodes")}
           onClick={handleFitView}
           testId="fit_view"
-          label="Zoom To Fit"
+          label={t("Zoom To Fit")}
           shortcut={KEYBOARD_SHORTCUTS.FIT_VIEW.key}
         />
       </DropdownMenuContent>

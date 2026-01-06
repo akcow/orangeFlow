@@ -1,4 +1,5 @@
 import type { MutableRefObject } from "react";
+import { t } from "@/i18n/t";
 
 export const useInitializeAudio = async (
   audioContextRef: MutableRefObject<AudioContext | null>,
@@ -25,6 +26,6 @@ export const useInitializeAudio = async (
     startConversation();
   } catch (error) {
     console.error("Failed to initialize audio:", error);
-    setStatus("Error: Failed to initialize audio");
+    setStatus(t("Error: Failed to initialize audio"));
   }
 };

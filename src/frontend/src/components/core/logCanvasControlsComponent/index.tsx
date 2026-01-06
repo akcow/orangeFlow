@@ -1,6 +1,7 @@
 import { Panel } from "@xyflow/react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 import FlowLogsModal from "@/modals/flowLogsModal";
 
 const LogCanvasControls = () => {
@@ -17,7 +18,7 @@ const LogCanvasControls = () => {
           className="flex items-center !gap-1.5"
         >
           <ForwardedIconComponent name="Terminal" className="text-primary" />
-          <span className="text-mmd font-normal">Logs</span>
+          <span className="text-mmd font-normal">{t("Logs")}</span>
         </Button>
       </FlowLogsModal>
     </Panel>

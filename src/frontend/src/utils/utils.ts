@@ -3,6 +3,7 @@ import clsx, { type ClassValue } from "clsx";
 import moment from "moment";
 import TableAutoCellRender from "@/components/core/parameterRenderComponent/components/tableComponent/components/tableAutoCellRender";
 import TableDropdownCellEditor from "@/components/core/parameterRenderComponent/components/tableComponent/components/tableDropdownCellEditor";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import { type ColumnField, FormatterType } from "@/types/utils/functions";
 import "moment-timezone";
@@ -570,7 +571,7 @@ export function FormatColumns(columns: ColumnField[]): ColDef<any>[] {
             );
           } catch (error: any) {
             useAlertStore.getState().setErrorData({
-              title: "Error parsing string",
+              title: t("Error parsing string"),
               list: [String(error.message ?? error)],
             });
             return oldValue;

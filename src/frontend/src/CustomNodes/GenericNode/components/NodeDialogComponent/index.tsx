@@ -14,6 +14,7 @@ import {
 import { usePostTemplateValue } from "@/controllers/API/queries/nodes/use-post-template-value";
 import { getCustomParameterTitle } from "@/customization/components/custom-parameter";
 import { track } from "@/customization/utils/analytics";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import useFlowStore from "@/stores/flowStore";
 import type { APIClassType, InputFieldType } from "@/types/api";
@@ -148,10 +149,12 @@ export const NodeDialog: React.FC<NodeDialogProps> = ({
       const knowledgeBaseName =
         fieldValues["01_new_kb_name"] ||
         fieldValues["new_kb_name"] ||
-        "Knowledge Base";
+        t("Knowledge Base");
 
       setSuccessData({
-        title: `Knowledge Base "${knowledgeBaseName}" created successfully!`,
+        title: t('Knowledge Base "{{name}}" created successfully!', {
+          name: knowledgeBaseName,
+        }),
       });
     }
 
@@ -194,7 +197,7 @@ export const NodeDialog: React.FC<NodeDialogProps> = ({
 
     if (missingRequiredFields.length > 0) {
       handleErrorData({
-        title: "Missing required fields",
+        title: t("Missing required fields"),
         list: missingRequiredFields,
       });
       return;

@@ -15,17 +15,17 @@ jest.mock("../KnowledgeBasesTab", () => {
     <div data-testid="knowledge-bases-tab">
       <input
         data-testid="search-kb-input"
-        placeholder="Search knowledge bases..."
+        placeholder="搜索知识库…"
         value={quickFilterText || ""}
         onChange={(e) => setQuickFilterText?.(e.target.value)}
       />
       <div data-testid="table-content">
         <div>Mock Table</div>
         <div data-testid="selected-count">
-          {selectedFiles?.length || 0} selected
+          已选择 {selectedFiles?.length || 0} 项
         </div>
         <div data-testid="shift-pressed">
-          {isShiftPressed ? "Shift pressed" : "No shift"}
+          {isShiftPressed ? "按住 Shift" : "未按 Shift"}
         </div>
         {onRowClick && (
           <button
@@ -85,7 +85,7 @@ describe("KnowledgeBasesTab", () => {
     expect(searchInput).toBeInTheDocument();
     expect(searchInput).toHaveAttribute(
       "placeholder",
-      "Search knowledge bases...",
+      "搜索知识库…",
     );
   });
 

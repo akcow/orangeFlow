@@ -18,6 +18,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
+import { t } from "@/i18n/t";
 import { parseString, sanitizeMcpName } from "@/utils/stringManipulation";
 
 export default function ToolsTable({
@@ -179,7 +180,7 @@ export default function ToolsTable({
   const columnDefs: ColDef[] = [
     {
       field: isAction ? "display_name" : "name",
-      headerName: isAction ? "Flow Name" : "Name",
+      headerName: isAction ? t("Flow Name") : t("Name"),
       flex: 1,
       valueGetter: (params) =>
         !isAction
@@ -193,13 +194,13 @@ export default function ToolsTable({
     },
     {
       field: "description",
-      headerName: "Description",
+      headerName: t("Description"),
       flex: 2,
       cellClass: "text-muted-foreground",
     },
     {
       field: "name",
-      headerName: isAction ? "Tool" : "Slug",
+      headerName: isAction ? t("Tool") : t("Slug"),
       flex: 1,
       resizable: false,
       valueGetter: (params) =>
@@ -321,7 +322,7 @@ export default function ToolsTable({
         <div className="flex-none px-4">
           <Input
             icon="Search"
-            placeholder="Search tools..."
+            placeholder={t("Search tools...")}
             inputClassName="h-8"
             value={searchQuery}
             onChange={handleSearchChange}
@@ -360,7 +361,7 @@ export default function ToolsTable({
                     className="text-mmd font-medium"
                     htmlFor="sidebar-name-input"
                   >
-                    {isAction ? "Tool name" : "Slug"}
+                    {isAction ? t("Tool name") : t("Slug")}
                   </label>
 
                   <Input
@@ -368,13 +369,17 @@ export default function ToolsTable({
                     value={sidebarName}
                     onChange={handleNameChange}
                     maxLength={46}
-                    placeholder="Edit name..."
+                    placeholder={t("Edit name...")}
                     data-testid="input_update_name"
                   />
                   <div className="text-xs text-muted-foreground">
                     {isAction
-                      ? "Used as the function name when this flow is exposed to clients."
-                      : "Used as the function name when this tool is exposed to the agent."}
+                      ? t(
+                          "Used as the function name when this flow is exposed to clients.",
+                        )
+                      : t(
+                          "Used as the function name when this tool is exposed to the agent.",
+                        )}
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -382,21 +387,23 @@ export default function ToolsTable({
                     className="text-mmd font-medium"
                     htmlFor="sidebar-desc-input"
                   >
-                    {isAction ? "Tool description" : "Description"}
+                    {isAction ? t("Tool description") : t("Description")}
                   </label>
 
                   <Textarea
                     id="sidebar-desc-input"
                     value={sidebarDescription}
                     onChange={handleDescriptionChange}
-                    placeholder="Edit description..."
+                    placeholder={t("Edit description...")}
                     className="h-24"
                     data-testid="input_update_description"
                   />
                   <div className="text-xs text-muted-foreground">
                     {isAction
-                      ? "This is the description for the tool exposed to a client."
-                      : "This is the description for the tool exposed to the agents."}
+                      ? t("This is the description for the tool exposed to a client.")
+                      : t(
+                          "This is the description for the tool exposed to the agents.",
+                        )}
                   </div>
                 </div>
               </div>
@@ -427,9 +434,11 @@ export default function ToolsTable({
                   <div className="flex h-full flex-col gap-4">
                     {actionArgs.length > 0 && (
                       <div className="flex flex-col gap-1.5">
-                        <h3 className="text-base font-medium">Parameters</h3>
+                        <h3 className="text-base font-medium">
+                          {t("Parameters")}
+                        </h3>
                         <p className="text-mmd text-muted-foreground">
-                          Manage inputs for this tool
+                          {t("Manage inputs for this tool")}
                         </p>
                       </div>
                     )}
@@ -452,7 +461,7 @@ export default function ToolsTable({
                         <Input
                           id="sidebar-desc-input"
                           disabled
-                          placeholder="Input controlled by the agent"
+                          placeholder={t("Input controlled by the agent")}
                           onChange={(e) => {}}
                         />
                       </div>
@@ -471,7 +480,7 @@ export default function ToolsTable({
               onClick={handleClose}
               data-testid="btn_close_tools_modal"
             >
-              Close
+              {t("Close")}
             </Button>
           </div>
         </SidebarFooter>

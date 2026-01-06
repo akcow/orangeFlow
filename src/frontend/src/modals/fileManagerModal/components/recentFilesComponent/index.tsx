@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { IS_MAC } from "@/constants/constants";
 import { usePostRenameFileV2 } from "@/controllers/API/queries/file-management/use-put-rename-file";
 import { CustomLink } from "@/customization/components/custom-link";
+import { t } from "@/i18n/t";
 import { sortByBoolean, sortByDate } from "@/pages/MainPage/utils/sort-flows";
 import type { FileType } from "@/types/file_management";
 import FilesRendererComponent from "../filesRendererComponent";
@@ -148,7 +149,7 @@ export default function RecentFilesComponent({
         <div className="flex-1">
           <Input
             icon="Search"
-            placeholder="Search files..."
+            placeholder={t("Search files...")}
             inputClassName="h-8"
             data-testid="search-files-input"
             value={searchQuery}
@@ -174,14 +175,14 @@ export default function RecentFilesComponent({
           <div className="flex h-full w-full items-center justify-center text-sm">
             <span>
               {searchQuery !== ""
-                ? "No files found, try again "
-                : "Upload or import files, "}
-              or visit{" "}
+                ? t("No files found, try again ")
+                : t("Upload or import files, ")}
+              {t("or visit")}{" "}
               <CustomLink
                 className="text-accent-pink-foreground underline"
                 to="/files"
               >
-                My Files.
+                {t("My Files.")}
               </CustomLink>
             </span>
           </div>

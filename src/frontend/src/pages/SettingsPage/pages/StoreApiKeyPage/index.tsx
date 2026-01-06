@@ -4,6 +4,7 @@ import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { CONTROL_PATCH_USER_STATE } from "@/constants/constants";
 import { AuthContext } from "@/contexts/authContext";
 import { usePostAddApiKey } from "@/controllers/API/queries/api-keys";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import { useStoreStore } from "@/stores/storeStore";
 import type { inputHandlerEventType } from "@/types/components";
@@ -29,7 +30,7 @@ const StoreApiKeyPage = () => {
 
   const { mutate: addApiKey } = usePostAddApiKey({
     onSuccess: () => {
-      setSuccessData({ title: "API key saved successfully" });
+      setSuccessData({ title: t("API key saved successfully") });
       setHasApiKey(true);
       setValidApiKey(true);
       setLoadingApiKey(false);
@@ -37,7 +38,7 @@ const StoreApiKeyPage = () => {
     },
     onError: (error) => {
       setErrorData({
-        title: "API key save error",
+        title: t("API key save error"),
         list: [(error as any)?.response?.data?.detail],
       });
       setHasApiKey(false);
@@ -65,14 +66,14 @@ const StoreApiKeyPage = () => {
             className="flex items-center text-lg font-semibold tracking-tight"
             data-testid="settings_menu_header"
           >
-            Langflow Store
+            {t("Langflow Store")}
             <ForwardedIconComponent
               name="Store"
               className="ml-2 h-5 w-5 text-primary"
             />
           </h2>
           <p className="text-sm text-muted-foreground">
-            Manage access to the Langflow Store.
+            {t("Manage access to the Langflow Store.")}
           </p>
         </div>
       </div>

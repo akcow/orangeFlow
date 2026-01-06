@@ -18,6 +18,7 @@ import { usePostRenameFileV2 } from "@/controllers/API/queries/file-management/u
 import { useCustomHandleBulkFilesDownload } from "@/customization/hooks/use-custom-handle-bulk-files-download";
 import { customPostUploadFileV2 } from "@/customization/hooks/use-custom-post-upload-file";
 import useUploadFile from "@/hooks/files/use-upload-file";
+import { t } from "@/i18n/t";
 import DeleteConfirmationModal from "@/modals/deleteConfirmationModal";
 import FilesContextMenuComponent from "@/modals/fileManagerModal/components/filesContextMenuComponent";
 import useAlertStore from "@/stores/alertStore";
@@ -80,12 +81,14 @@ const FilesTab = ({
         files: files,
       });
       setSuccessData({
-        title: `File${filesIds.length > 1 ? "s" : ""} uploaded successfully`,
+        title: t("Uploaded {{count}} files successfully", {
+          count: filesIds.length,
+        }),
       });
     } catch (error: any) {
       setErrorData({
-        title: "Error uploading file",
-        list: [error.message || "An error occurred while uploading the file"],
+        title: t("Error uploading file"),
+        list: [error.message || t("An error occurred while uploading the file")],
       });
     }
   };
@@ -113,7 +116,7 @@ const FilesTab = ({
 
   const colDefs: ColDef[] = [
     {
-      headerName: "Name",
+      headerName: t("Name"),
       field: "name",
       flex: 2,
       headerCheckboxSelection: true,
@@ -157,7 +160,7 @@ const FilesTab = ({
             {params.data.progress !== undefined &&
             params.data.progress === -1 ? (
               <span className="text-xs text-primary">
-                Upload failed,{" "}
+                {t("Upload failed,")}{" "}
                 <span
                   className="cursor-pointer text-accent-pink-foreground underline"
                   onClick={(e) => {
@@ -167,7 +170,7 @@ const FilesTab = ({
                     }
                   }}
                 >
-                  try again?
+                  {t("try again?")}
                 </span>
               </span>
             ) : (
@@ -178,7 +181,7 @@ const FilesTab = ({
       },
     },
     {
-      headerName: "Type",
+      headerName: t("Type"),
       field: "path",
       flex: 1,
       filter: "agTextColumnFilter",
@@ -190,7 +193,7 @@ const FilesTab = ({
         "text-muted-foreground cursor-text select-text group-[.no-select-cells]:cursor-default group-[.no-select-cells]:select-none",
     },
     {
-      headerName: "Size",
+      headerName: t("Size"),
       field: "size",
       flex: 1,
       valueFormatter: (params) => {
@@ -201,7 +204,7 @@ const FilesTab = ({
         "text-muted-foreground cursor-text select-text group-[.no-select-cells]:cursor-default group-[.no-select-cells]:select-none",
     },
     {
-      headerName: "Modified",
+      headerName: t("Modified"),
       field: "updated_at",
       valueFormatter: (params) => {
         return params.data.progress
@@ -269,9 +272,9 @@ const FilesTab = ({
         },
         onError: (error) => {
           setErrorData({
-            title: "Error deleting files",
+            title: t("Error deleting files"),
             list: [
-              error.message || "An error occurred while deleting the files",
+              error.message || t("An error occurred while deleting the files"),
             ],
           });
         },
@@ -281,7 +284,7 @@ const FilesTab = ({
 
   const UploadButtonComponent = useMemo(() => {
     return (
-      <ShadTooltip content="Upload File" side="bottom">
+      <ShadTooltip content={t("Upload File")} side="bottom">
         <Button
           className="!px-3 md:!px-4 md:!pl-3.5"
           onClick={async () => {
@@ -296,7 +299,7 @@ const FilesTab = ({
             className="h-4 w-4"
           />
           <span className="hidden whitespace-nowrap font-semibold md:inline">
-            Upload Files
+            {t("Upload Files")}
           </span>
         </Button>
       </ShadTooltip>
@@ -312,7 +315,7 @@ const FilesTab = ({
               icon="Search"
               data-testid="search-store-input"
               type="text"
-              placeholder={`Search files...`}
+              placeholder={t("Search files...")}
               className="mr-2 w-full"
               value={quickFilterText || ""}
               onChange={(event) => {
@@ -387,7 +390,7 @@ const FilesTab = ({
                   )}
                 >
                   <span className="text-xs text-muted-foreground">
-                    {quantitySelected} selected
+                    {t("{{count}} selected", { count: quantitySelected })}
                   </span>
                   <div className="flex items-center gap-2">
                     <Button
@@ -402,7 +405,7 @@ const FilesTab = ({
 
                     <DeleteConfirmationModal
                       onConfirm={handleDelete}
-                      description={"file" + (quantitySelected > 1 ? "s" : "")}
+                      description={t("selected files")}
                     >
                       <Button
                         variant="destructive"
@@ -412,7 +415,7 @@ const FilesTab = ({
                         data-testid="bulk-delete-btn"
                       >
                         <ForwardedIconComponent name="Trash2" />
-                        Delete
+                        {t("Delete")}
                       </Button>
                     </DeleteConfirmationModal>
                   </div>
@@ -423,13 +426,13 @@ const FilesTab = ({
         ) : (
           <CardsWrapComponent
             onFileDrop={onFileDrop}
-            dragMessage="Drop files to upload"
+            dragMessage={t("Drop files to upload")}
           >
             <div className="flex h-full w-full flex-col items-center justify-center gap-8 pb-8">
               <div className="flex flex-col items-center gap-2">
-                <h3 className="text-2xl font-semibold">No files</h3>
+                <h3 className="text-2xl font-semibold">{t("No files")}</h3>
                 <p className="text-lg text-secondary-foreground">
-                  Upload files or import from your preferred cloud.
+                  {t("Upload files or import from your preferred cloud.")}
                 </p>
               </div>
               <div className="flex items-center gap-2">

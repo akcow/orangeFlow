@@ -1,5 +1,6 @@
 import type { ColDef, ColGroupDef } from "ag-grid-community";
 import TableComponent from "@/components/core/parameterRenderComponent/components/tableComponent";
+import { t } from "@/i18n/t";
 import { useUtilityStore } from "@/stores/utilityStore";
 import "ag-grid-community/styles/ag-grid.css"; // Mandatory CSS required by the grid
 import "ag-grid-community/styles/ag-theme-balham.css"; // Optional Theme applied to the grid
@@ -45,7 +46,7 @@ function DataOutputComponent({
         defaultMinWidth: maxItemsLength,
       }}
       key={"dataOutputComponent"}
-      overlayNoRowsTemplate="No data available"
+      overlayNoRowsTemplate={t("No data available")}
       paginationInfo={
         rows.length > maxItemsLength ? rows[maxItemsLength] : undefined
       }

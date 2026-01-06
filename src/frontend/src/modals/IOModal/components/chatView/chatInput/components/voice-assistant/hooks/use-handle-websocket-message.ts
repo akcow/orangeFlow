@@ -1,4 +1,5 @@
 import { BuildStatus } from "@/constants/enums";
+import { t } from "@/i18n/t";
 import { base64ToFloat32Array } from "../helpers/utils";
 
 export const useHandleWebsocketMessage = (
@@ -35,9 +36,9 @@ export const useHandleWebsocketMessage = (
       if (data.response?.status_details?.error?.code) {
         const errorCode =
           data.response?.status_details?.error?.code?.replaceAll("_", " ");
-        setStatus(`API key error: ${errorCode}`);
-        showErrorAlert("API key error: " + errorCode, [
-          "Please check your API key and try again",
+        setStatus(t("API key error: {{code}}", { code: errorCode }));
+        showErrorAlert(t("API key error: {{code}}", { code: errorCode }), [
+          t("Please check your API key and try again"),
         ]);
       }
       break;
@@ -121,22 +122,22 @@ export const useHandleWebsocketMessage = (
 
     case "error":
       if (data.code === "api_key_missing") {
-        setStatus("Error: " + "API key is missing");
-        showErrorAlert("API key not valid", [
-          "Please check your API key and try again",
+        setStatus(t("Error: API key is missing"));
+        showErrorAlert(t("API key not valid"), [
+          t("Please check your API key and try again"),
         ]);
         return;
       }
       if (data.error.message.toLowerCase().includes("api key")) {
-        setStatus("Error: " + "API key is missing");
-        showErrorAlert("API key not valid", [
-          "Please check your API key and try again",
+        setStatus(t("Error: API key is missing"));
+        showErrorAlert(t("API key not valid"), [
+          t("Please check your API key and try again"),
         ]);
         return;
       }
       data.error.message === "Cancellation failed: no active response found"
         ? interruptPlayback()
-        : setStatus("Error: " + data.error);
+        : setStatus(t("Error: {{error}}", { error: String(data.error) }));
       break;
   }
 };

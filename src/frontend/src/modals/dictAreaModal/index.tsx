@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { JsonEditor as VanillaJsonEditor } from "vanilla-jsoneditor";
+import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import IconComponent from "../../components/common/genericIconComponent";
 import JsonEditor from "../../components/core/jsonEditor";
@@ -42,8 +43,8 @@ export default function DictAreaModal({
       } catch (error) {
         console.error("Error getting JSON:", error);
         setErrorData({
-          title: "Error getting dictionary",
-          list: ["Check your dictionary format"],
+          title: t("Error getting dictionary"),
+          list: [t("Check your dictionary format")],
         });
       }
     }
@@ -69,20 +70,20 @@ export default function DictAreaModal({
   const IteractiveReader = () => {
     return (
       <span>
-        Customize your dictionary, adding or editing key-value pairs as needed.
-        Supports adding new{" "}
+        {t("Customize your dictionary, adding or editing key-value pairs as needed.")}
+        {t(" Supports adding new ")}{" "}
         <span
           onClick={() => handleChangeType("object")}
           className="cursor-pointer underline"
         >
-          objects &#123; &#125;
+          {t("objects")} &#123; &#125;
         </span>{" "}
-        or{" "}
+        {t("or")}{" "}
         <span
           onClick={() => handleChangeType("array")}
           className="cursor-pointer underline"
         >
-          arrays [].
+          {t("arrays")} [].
         </span>
       </span>
     );
@@ -91,7 +92,7 @@ export default function DictAreaModal({
   const renderHeader = () => (
     <BaseModal.Header description={onChange ? IteractiveReader() : null}>
       <span className="pr-2">
-        {onChange ? "Edit Dictionary" : "View Dictionary"}
+        {onChange ? t("Edit Dictionary") : t("View Dictionary")}
       </span>
       <IconComponent
         name="BookMarked"
@@ -130,7 +131,9 @@ export default function DictAreaModal({
       </BaseModal.Trigger>
       {renderHeader()}
       {renderContent()}
-      <BaseModal.Footer submit={onChange ? { label: "Save" } : undefined} />
+      <BaseModal.Footer
+        submit={onChange ? { label: t("Save") } : undefined}
+      />
     </BaseModal>
   );
 }

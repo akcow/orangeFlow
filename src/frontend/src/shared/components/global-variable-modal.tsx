@@ -1,6 +1,7 @@
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import GlobalVariableModal from "@/components/core/GlobalVariableModal/GlobalVariableModal";
 import { CommandItem } from "@/components/ui/command";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 
 const GeneralGlobalVariableModal = () => {
@@ -13,7 +14,7 @@ const GeneralGlobalVariableModal = () => {
             className={cn("mr-2 h-4 w-4 text-primary")}
             aria-hidden="true"
           />
-          <span>Add New Variable</span>
+          <span>{t("Add New Variable")}</span>
         </CommandItem>
       </GlobalVariableModal>
     </>

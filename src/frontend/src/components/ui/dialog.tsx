@@ -3,6 +3,7 @@ import { Cross2Icon } from "@radix-ui/react-icons";
 import * as React from "react";
 import DialogContentWithouFixed from "@/customization/components/custom-dialog-content-without-fixed";
 import { dialogClass } from "@/customization/utils/dialog-class";
+import { t } from "@/i18n/t";
 import { cn } from "../../utils/utils";
 import ShadTooltip from "../common/shadTooltipComponent";
 
@@ -79,13 +80,13 @@ const DialogContent = React.forwardRef<
         >
           {!hasDialogTitle && (
             <VisuallyHidden>
-              <DialogTitle>Dialog</DialogTitle>
+              <DialogTitle>{t("Dialog")}</DialogTitle>
             </VisuallyHidden>
           )}
           {children}
           <ShadTooltip
             styleClasses="z-50"
-            content="Close"
+            content={t("Close")}
             side="bottom"
             avoidCollisions
           >
@@ -96,7 +97,7 @@ const DialogContent = React.forwardRef<
               )}
             >
               <Cross2Icon className="h-[18px] w-[18px]" />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">{t("Close")}</span>
             </DialogPrimitive.Close>
           </ShadTooltip>
         </DialogPrimitive.Content>

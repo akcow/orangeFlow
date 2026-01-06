@@ -1,4 +1,5 @@
 import { OPENAI_VOICES } from "@/constants/constants";
+import { t } from "@/i18n/t";
 import IconComponent from "../../../../../../../../../../components/common/genericIconComponent";
 import ShadTooltip from "../../../../../../../../../../components/common/shadTooltipComponent";
 import {
@@ -27,8 +28,12 @@ const VoiceSelect = ({
   return (
     <div className="grid w-full items-center gap-2">
       <span className="flex w-full items-center text-sm">
-        Voice
-        <ShadTooltip content="You can select ElevenLabs voices if you have an ElevenLabs API key. Otherwise, you can only select OpenAI voices.">
+        {t("Voice")}
+        <ShadTooltip
+          content={t(
+            "You can select ElevenLabs voices if you have an ElevenLabs API key. Otherwise, you can only select OpenAI voices.",
+          )}
+        >
           <div>
             <IconComponent
               name="Info"
@@ -41,7 +46,7 @@ const VoiceSelect = ({
 
       <Select value={voice} onValueChange={handleSetVoice}>
         <SelectTrigger className="h-9 w-full">
-          <SelectValue placeholder="Select" />
+          <SelectValue placeholder={t("Select")} />
         </SelectTrigger>
         <SelectContent className="max-h-[200px]">
           <SelectGroup>

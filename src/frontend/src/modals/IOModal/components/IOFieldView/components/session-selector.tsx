@@ -13,6 +13,7 @@ import { useUpdateSessionName } from "@/controllers/API/queries/messages/use-ren
 import { useGetFlowId } from "@/modals/IOModal/hooks/useGetFlowId";
 import useFlowStore from "@/stores/flowStore";
 import { useVoiceStore } from "@/stores/voiceStore";
+import { t } from "@/i18n/t";
 import { cn } from "@/utils/utils";
 
 export default function SessionSelector({
@@ -166,7 +167,7 @@ export default function SessionSelector({
             <ShadTooltip styleClasses="z-50" content={session}>
               <div className="relative w-full overflow-hidden">
                 <span className="w-full truncate">
-                  {session === currentFlowId ? "Default Session" : session}
+                  {session === currentFlowId ? t("Default Session") : session}
                 </span>
                 <div
                   className={cn(
@@ -187,7 +188,11 @@ export default function SessionSelector({
           )}
         </div>
         <Select value={""} onValueChange={handleSelectChange}>
-          <ShadTooltip styleClasses="z-50" side="right" content="Options">
+          <ShadTooltip
+            styleClasses="z-50"
+            side="right"
+            content={t("Options")}
+          >
             <SelectTrigger
               onClick={(e) => {
                 e.stopPropagation();
@@ -211,7 +216,7 @@ export default function SessionSelector({
             >
               <div className="flex items-center">
                 <IconComponent name="SquarePen" className="mr-2 h-4 w-4" />
-                Rename
+                {t("Rename")}
               </div>
             </SelectItem>
             <SelectItem
@@ -221,7 +226,7 @@ export default function SessionSelector({
               <div className="flex w-full items-center justify-between">
                 <div className="flex items-center">
                   <IconComponent name="Scroll" className="mr-2 h-4 w-4" />
-                  Message logs
+                  {t("Message logs")}
                 </div>
               </div>
             </SelectItem>
@@ -231,7 +236,7 @@ export default function SessionSelector({
             >
               <div className="flex items-center text-status-red hover:text-status-red">
                 <IconComponent name="Trash2" className="mr-2 h-4 w-4" />
-                Delete
+                {t("Delete")}
               </div>
             </SelectItem>
           </SelectContent>

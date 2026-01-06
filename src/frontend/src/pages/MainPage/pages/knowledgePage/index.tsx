@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import type { KnowledgeBaseInfo } from "@/controllers/API/queries/knowledge-bases/use-get-knowledge-bases";
+import { t } from "@/i18n/t";
 import KnowledgeBaseDrawer from "../filesPage/components/KnowledgeBaseDrawer";
 import KnowledgeBasesTab from "../filesPage/components/KnowledgeBasesTab";
 
@@ -114,7 +115,7 @@ export const KnowledgePage = () => {
                     </SidebarTrigger>
                   </div>
                 </div>
-                Knowledge
+                {t("Knowledge")}
               </div>
               <div className="flex h-full flex-col">
                 <KnowledgeBasesTab {...tabProps} />

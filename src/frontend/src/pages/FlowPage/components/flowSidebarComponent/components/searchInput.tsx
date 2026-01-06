@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Input } from "@/components/ui/input";
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
+import { t } from "@/i18n/t";
 import ShortcutDisplay from "../../nodeToolbarComponent/shortcutDisplay";
 
 export const SearchInput = memo(function SearchInput({
@@ -26,7 +27,7 @@ export const SearchInput = memo(function SearchInput({
         icon={"Search"}
         data-testid="sidebar-search-input"
         inputClassName="w-full rounded-lg bg-background text-sm"
-        placeholder="Search"
+        placeholder={t("Search")}
         onFocus={handleInputFocus}
         onBlur={handleInputBlur}
         onChange={handleInputChange}

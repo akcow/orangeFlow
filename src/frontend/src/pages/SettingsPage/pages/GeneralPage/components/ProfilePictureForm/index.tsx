@@ -4,6 +4,7 @@ import {
   type ProfilePicturesQueryResponse,
   useGetProfilePicturesQuery,
 } from "@/controllers/API/queries/files";
+import { t } from "@/i18n/t";
 import { Button } from "../../../../../../components/ui/button";
 import {
   Card,
@@ -41,9 +42,9 @@ const ProfilePictureFormComponent = ({
     >
       <Card x-chunk="dashboard-04-chunk-1">
         <CardHeader>
-          <CardTitle>Profile Picture</CardTitle>
+          <CardTitle>{t("Profile Picture")}</CardTitle>
           <CardDescription>
-            Choose the image that appears as your profile picture.
+            {t("Choose the image that appears as your profile picture.")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -67,7 +68,7 @@ const ProfilePictureFormComponent = ({
         </CardContent>
         <CardFooter className="border-t px-6 py-4">
           <Form.Submit asChild>
-            <Button type="submit">Save</Button>
+            <Button type="submit">{t("Save")}</Button>
           </Form.Submit>
         </CardFooter>
       </Card>

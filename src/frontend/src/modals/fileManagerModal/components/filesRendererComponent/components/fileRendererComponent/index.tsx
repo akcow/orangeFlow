@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { customPostUploadFileV2 } from "@/customization/hooks/use-custom-post-upload-file";
+import { t } from "@/i18n/t";
 import type { FileType } from "@/types/file_management";
 import { formatFileSize } from "@/utils/stringManipulation";
 import { FILE_ICONS } from "@/utils/styleUtils";
@@ -51,7 +52,7 @@ export default function FileRendererComponent({
 
   return (
     <ShadTooltip
-      content={file.disabled ? "Type not supported by component" : ""}
+      content={file.disabled ? t("Type not supported by component") : ""}
       side="bottom"
       align="start"
     >
@@ -156,7 +157,7 @@ export default function FileRendererComponent({
               )}
               {file.progress !== undefined && file.progress === -1 ? (
                 <span className="text-mmd text-primary">
-                  Upload failed,{" "}
+                  {t("Upload failed,")}{" "}
                   <span
                     className="cursor-pointer text-accent-pink-foreground underline"
                     onClick={(e) => {
@@ -166,7 +167,7 @@ export default function FileRendererComponent({
                       }
                     }}
                   >
-                    try again?
+                    {t("try again?")}
                   </span>
                 </span>
               ) : (

@@ -1,4 +1,5 @@
 import { MorphingMenu } from "@/components/ui/morphing-menu";
+import { t } from "@/i18n/t";
 
 export default function ImportButtonComponent({
   variant = "large",
@@ -30,6 +31,10 @@ export default function ImportButtonComponent({
   ];
 
   return (
-    <MorphingMenu variant={variant} trigger="Import from..." items={items} />
+    <MorphingMenu
+      variant={variant}
+      trigger={t("Import from...")}
+      items={items}
+    />
   );
 }

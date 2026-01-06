@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useGetDownloadFileMutation } from "@/controllers/API/queries/files";
+import { t } from "@/i18n/t";
 import { ForwardedIconComponent } from "../../../../../../components/common/genericIconComponent";
 import { BASE_URL_API } from "../../../../../../constants/constants";
 import type { fileCardPropsType } from "../../../../../../types/components";
@@ -66,7 +67,7 @@ export default function FileCard({
           <ForwardedIconComponent name="File" className="h-8 w-8" />
           <div className="flex flex-col">
             <span className="font-bold">{formatFileName(fileName, 20)}</span>
-            <span>File</span>
+            <span>{t("File")}</span>
           </div>
         </div>
         <DownloadButton

@@ -1,6 +1,7 @@
 import type { To } from "react-router-dom";
 import { CustomBanner } from "@/customization/components/custom-banner";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
+import { t } from "@/i18n/t";
 import { Button } from "../../ui/button";
 import { Separator } from "../../ui/separator";
 import ForwardedIconComponent from "../genericIconComponent";
@@ -49,7 +50,9 @@ export default function PageLayout({
                   data-testid="mainpage_title"
                 >
                   {title}
-                  {betaIcon && <span className="store-beta-icon">Beta</span>}
+                  {betaIcon && (
+                    <span className="store-beta-icon">{t("Beta")}</span>
+                  )}
                 </h2>
               </div>
               <p className="text-muted-foreground">{description}</p>

@@ -6,6 +6,7 @@ import {
   Position,
 } from "@xyflow/react";
 import { useState } from "react";
+import { t } from "@/i18n/t";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { scapeJSONParse } from "@/utils/reactflowUtils";
@@ -96,7 +97,7 @@ export function DefaultEdge({
           >
             <button
               type="button"
-              aria-label="Remove connection"
+              aria-label={t("Remove connection")}
               className="group flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
               onClick={(event) => {
                 event.preventDefault();

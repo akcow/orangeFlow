@@ -3,6 +3,7 @@ import useAuthStore from "@/stores/authStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import { useUtilityStore } from "@/stores/utilityStore";
 import type { useQueryFunctionType } from "@/types/api";
+import { useEffect } from "react";
 import { api } from "../../api";
 import { getURL } from "../../helpers/constants";
 import { UseRequestProcessor } from "../../services/request-processor";
@@ -20,18 +21,22 @@ export const useGetFoldersQuery: useQueryFunctionType<
 
   const getFoldersFn = async (): Promise<FolderType[]> => {
     const res = await api.get(`${getURL("PROJECTS")}/`);
-    const data = res.data;
-
-    const myCollectionId = data?.find((f) => f.name === defaultFolderName)?.id;
-    setMyCollectionId(myCollectionId);
-    setFolders(data);
-
-    return data;
+    return res.data;
   };
 
   const queryResult = query(["useGetFolders"], getFoldersFn, {
     ...options,
     enabled: isAuthenticated && (options?.enabled ?? true),
   });
+
+  useEffect(() => {
+    if (!queryResult.data) return;
+
+    setFolders(queryResult.data);
+    const myCollectionId =
+      queryResult.data.find((f) => f.name === defaultFolderName)?.id ?? "";
+    setMyCollectionId(myCollectionId);
+  }, [defaultFolderName, queryResult.data, setFolders, setMyCollectionId]);
+
   return queryResult;
 };

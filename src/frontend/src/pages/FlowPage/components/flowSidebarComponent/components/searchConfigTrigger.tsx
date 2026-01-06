@@ -1,6 +1,7 @@
 import { ForwardedIconComponent } from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/t";
 
 interface SearchConfigTriggerProps {
   showConfig: boolean;
@@ -13,7 +14,7 @@ export const SearchConfigTrigger = ({
 }: SearchConfigTriggerProps) => {
   return (
     <div className="flex items-center justify-center">
-      <ShadTooltip content="Component settings" styleClasses="z-50">
+      <ShadTooltip content={t("Component settings")} styleClasses="z-50">
         <Button
           variant={showConfig ? "ghostActive" : "ghost"}
           size="iconMd"

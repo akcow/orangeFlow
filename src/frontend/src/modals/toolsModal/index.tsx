@@ -4,6 +4,7 @@ import { type ForwardedRef, forwardRef, useEffect, useState } from "react";
 import type { handleOnNewValueType } from "@/CustomNodes/hooks/use-handle-new-value";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { t } from "@/i18n/t";
 import BaseModal from "../baseModal";
 import ToolsTable from "./components/toolsTable";
 
@@ -48,7 +49,7 @@ const ToolsModal = forwardRef<AgGridReact, ToolsModalProps>(
     const [data, setData] = useState<any[]>(cloneDeep(rows));
 
     useEffect(() => {
-      if (placeholder === "Loading actions...") {
+      if (placeholder === "Loading actions..." || placeholder === t("Loading actions...")) {
         handleOnNewValue({
           value: [],
         });
