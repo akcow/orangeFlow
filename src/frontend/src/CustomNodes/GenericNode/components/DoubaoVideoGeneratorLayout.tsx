@@ -99,6 +99,18 @@ const MODEL_LIMITS: Record<
     maxDuration: 10,
     enableLastFrame: false,
   },
+  VEO3.1: {
+    resolutions: ["720p", "1080p"],
+    minDuration: 4,
+    maxDuration: 8,
+    enableLastFrame: true,
+  },
+  "veo3.1-fast": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 4,
+    maxDuration: 8,
+    enableLastFrame: true,
+  },
 };
 
 function getWanAllowedDurations(modelName: string, mode: string | null) {
@@ -120,6 +132,8 @@ const DEFAULT_FIRST_FRAME_EXTENSIONS = [
   "tiff",
 ];
 const FIRST_FRAME_MAX_UPLOADS = 6;
+const VEO_REFERENCE_IMAGE_LIMIT = 3;
+const VEO_MAX_UPLOADS = 5;
 const SENSITIVE_FIELDS = ["api_key"];
 const FIRST_FRAME_FIELD_FALLBACK: InputFieldType = {
   type: "file",
@@ -179,8 +193,11 @@ export default function DoubaoVideoGeneratorLayout({
     "";
   const normalizedModelName = selectedModel.toString().trim();
   const isWanModel = normalizedModelName.startsWith("wan2.");
+  const isVeoModel =
+    normalizedModelName === "VEO3.1" || normalizedModelName === "veo3.1-fast";
   const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
   const allowLastFrame = modelLimits?.enableLastFrame ?? true;
+  const firstFrameMaxUploads = isVeoModel ? VEO_MAX_UPLOADS : FIRST_FRAME_MAX_UPLOADS;
   const customFields = new Set<string>([
     PROMPT_NAME,
     FIRST_FRAME_FIELD,
@@ -431,6 +448,10 @@ export default function DoubaoVideoGeneratorLayout({
         template.resolution?.options?.[0] ??
         "1080p",
     ).trim();
+    const selectedDurationValue = Number(
+      template.duration?.value ?? template.duration?.default ?? template.duration?.options?.[0] ?? 8,
+    );
+    const veoEntries = isVeoModel ? collectFirstFrameEntries(firstFrameField) : [];
     return CONTROL_FIELDS.map((field) => {
       const templateField = template[field.name];
       if (!templateField) return null;
@@ -479,11 +500,37 @@ export default function DoubaoVideoGeneratorLayout({
             }
           }
         }
+
+        if (isVeoModel) {
+          const baseAllowed = [4, 6, 8];
+          const hasFirst =
+            veoEntries.some((entry) => entry.role === "first") || veoEntries.length === 1;
+          const hasReference = veoEntries.some((entry) => entry.role === "reference");
+          const hasLast = Boolean(hasLastFrameEdge || hasLastFrameValue);
+          const isReferenceMode = Boolean(hasReference && !hasFirst && !hasLast);
+          const isInterpolationMode = Boolean(hasFirst && hasLast);
+          const mustBeEight =
+            selectedResolutionValue === "1080p" || isReferenceMode || isInterpolationMode;
+          const allowedSet = new Set<number>(mustBeEight ? [8] : baseAllowed);
+          const extraDisabled = options.filter((option) => !allowedSet.has(Number(option)));
+          disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
+          if (typeof numericValue === "number" && !Number.isNaN(numericValue) && !allowedSet.has(numericValue)) {
+            value = mustBeEight ? 8 : baseAllowed[0];
+          }
+        }
       }
 
       if (field.name === "resolution" && modelLimits?.resolutions?.length) {
         const allowed = new Set(modelLimits.resolutions.map(String));
         disabledOptions = options.filter((option) => !allowed.has(String(option)));
+      }
+      if (field.name === "resolution" && isVeoModel) {
+        const allowed = new Set<string>(["720p", "1080p"]);
+        const baseDisabled = options.filter((option) => !allowed.has(String(option)));
+        disabledOptions = [...(disabledOptions ?? []), ...baseDisabled];
+        if (!Number.isNaN(selectedDurationValue) && selectedDurationValue !== 8) {
+          disabledOptions = [...(disabledOptions ?? []), "1080p"];
+        }
       }
 
       if (field.name === ASPECT_RATIO_FIELD) {
@@ -502,6 +549,17 @@ export default function DoubaoVideoGeneratorLayout({
             }
             disabledOptions = options.filter((opt) => disabled.has(String(opt)));
           }
+        }
+        if (isVeoModel) {
+          const hasFirst =
+            veoEntries.some((entry) => entry.role === "first") || veoEntries.length === 1;
+          const hasReference = veoEntries.some((entry) => entry.role === "reference");
+          const hasLast = Boolean(hasLastFrameEdge || hasLastFrameValue);
+          const isReferenceMode = Boolean(hasReference && !hasFirst && !hasLast);
+          const allowed = isReferenceMode
+            ? new Set<string>(["16:9"])
+            : new Set<string>(["16:9", "9:16"]);
+          disabledOptions = options.filter((opt) => !allowed.has(String(opt)));
         }
       }
 
@@ -541,7 +599,11 @@ export default function DoubaoVideoGeneratorLayout({
     }).filter(Boolean) as Array<DoubaoControlConfig>;
   }, [
     PRO_FAST_MODEL,
+    firstFrameField,
+    hasLastFrameEdge,
+    hasLastFrameValue,
     isFirstLastFrameMode,
+    isVeoModel,
     isWanModel,
     modelLimits,
     normalizedModelName,
@@ -676,15 +738,57 @@ export default function DoubaoVideoGeneratorLayout({
       return source === selectedLastFrameSource;
     });
   }, [selectedLastFrameSource, upstreamLastFramePreviews]);
-  const selectedFirstFrame = combinedFirstFramePreviews[0] ?? null;
-  const firstFrameCount = combinedFirstFramePreviews.length;
-  const localFirstFrameCount = firstFramePreviews.length;
   const firstFrameEntries = useMemo(
     () => collectFirstFrameEntries(firstFrameField),
     [firstFrameField],
   );
-  const canUploadMoreFirstFrames =
-    localFirstFrameCount < FIRST_FRAME_MAX_UPLOADS;
+  const buildFirstFrameFieldUpdate = useCallback(
+    (entries: FirstFrameEntry[], { forceRoles = false }: { forceRoles?: boolean } = {}) => {
+      const shouldIncludeRoles = forceRoles || isVeoModel || entries.some((entry) => entry.role);
+      const fallbackRole = entries.length === 1 ? "first" : "reference";
+      return {
+        value: shouldIncludeRoles
+          ? entries.map((entry) => ({
+              name: entry.name,
+              display_name: entry.name,
+              role: entry.role ?? fallbackRole,
+            }))
+          : entries.map((entry) => entry.name),
+        file_path: entries.map((entry) => entry.path),
+      };
+    },
+    [isVeoModel],
+  );
+
+  useEffect(() => {
+    if (!isVeoModel) return;
+    if (!firstFrameEntries.length) return;
+    if (firstFrameEntries.some((entry) => entry.role)) return;
+
+    const defaultRole = firstFrameEntries.length === 1 ? "first" : "reference";
+    handleFirstFrameChange(
+      buildFirstFrameFieldUpdate(
+        firstFrameEntries.map((entry) => ({ ...entry, role: defaultRole })),
+        { forceRoles: true },
+      ),
+      { skipSnapshot: true },
+    );
+  }, [buildFirstFrameFieldUpdate, firstFrameEntries, handleFirstFrameChange, isVeoModel]);
+
+  const selectedFirstFrameIndex = useMemo(() => {
+    if (!isVeoModel) return 0;
+    const roleIndex = firstFrameEntries.findIndex((entry) => entry.role === "first");
+    if (roleIndex >= 0) return roleIndex;
+    if (firstFrameEntries.length === 1 && !firstFrameEntries[0]?.role) return 0;
+    return -1;
+  }, [firstFrameEntries, isVeoModel]);
+  const selectedFirstFrame =
+    selectedFirstFrameIndex >= 0
+      ? (combinedFirstFramePreviews[selectedFirstFrameIndex] ?? null)
+      : null;
+  const firstFrameCount = combinedFirstFramePreviews.length;
+  const localFirstFrameCount = firstFramePreviews.length;
+  const canUploadMoreFirstFrames = localFirstFrameCount < firstFrameMaxUploads;
   const firstFrameFileTypes =
     firstFrameField?.fileTypes ??
     firstFrameField?.file_types ??
@@ -1165,7 +1269,9 @@ export default function DoubaoVideoGeneratorLayout({
       handleReferenceChange: handleFirstFrameChange,
       setErrorData,
       setReferenceUploadPending: setFirstFrameUploadPending,
-      maxEntries: FIRST_FRAME_MAX_UPLOADS,
+      maxEntries: firstFrameMaxUploads,
+      enableRoles: isVeoModel,
+      maxReferenceImages: isVeoModel ? VEO_REFERENCE_IMAGE_LIMIT : null,
     });
   }, [
     firstFrameField,
@@ -1176,6 +1282,8 @@ export default function DoubaoVideoGeneratorLayout({
     uploadFirstFrameFile,
     validateFileSize,
     handleFirstFrameChange,
+    firstFrameMaxUploads,
+    isVeoModel,
     setErrorData,
   ]);
 
@@ -1185,12 +1293,9 @@ export default function DoubaoVideoGeneratorLayout({
       const entries = collectFirstFrameEntries(firstFrameField);
       if (!entries.length || index < 0 || index >= entries.length) return;
       entries.splice(index, 1);
-      handleFirstFrameChange({
-        value: entries.map((entry) => entry.name),
-        file_path: entries.map((entry) => entry.path),
-      });
+      handleFirstFrameChange(buildFirstFrameFieldUpdate(entries));
     },
-    [firstFrameField, handleFirstFrameChange, localFirstFrameCount],
+    [buildFirstFrameFieldUpdate, firstFrameField, handleFirstFrameChange, localFirstFrameCount],
   );
 
   const handleSetPrimaryFirstFrame = useCallback(
@@ -1201,12 +1306,140 @@ export default function DoubaoVideoGeneratorLayout({
       if (index >= entries.length) return;
       const [selected] = entries.splice(index, 1);
       entries.unshift(selected);
-      handleFirstFrameChange({
-        value: entries.map((entry) => entry.name),
-        file_path: entries.map((entry) => entry.path),
-      });
+      handleFirstFrameChange(buildFirstFrameFieldUpdate(entries));
     },
-    [firstFrameField, handleFirstFrameChange, localFirstFrameCount],
+    [buildFirstFrameFieldUpdate, firstFrameField, handleFirstFrameChange, localFirstFrameCount],
+  );
+
+  const handleVeoSetFirstFrame = useCallback(
+    (index: number) => {
+      if (!isVeoModel) return;
+      if (index >= localFirstFrameCount) return;
+      const entries = collectFirstFrameEntries(firstFrameField);
+      if (!entries.length || index < 0 || index >= entries.length) return;
+      if (entries[index]?.role === "last") {
+        setErrorData({
+          title: "无法设置首帧",
+          list: ["该图片已被设为尾帧，请先取消尾帧或选择其他图片作为首帧。"],
+        });
+        return;
+      }
+
+      const updated = entries.map((entry, idx) => {
+        if (idx === index) return { ...entry, role: "first" as const };
+        if (entry.role === "first") return { ...entry, role: "reference" as const };
+        return { ...entry, role: entry.role ?? "reference" };
+      });
+
+      const referenceCount = updated.filter((entry) => (entry.role ?? "reference") === "reference").length;
+      if (referenceCount > VEO_REFERENCE_IMAGE_LIMIT) {
+        setErrorData({
+          title: "参考图数量超限",
+          list: [`Veo 3.1 参考图最多 ${VEO_REFERENCE_IMAGE_LIMIT} 张，请先把某张设为首帧/尾帧或删除后再试。`],
+        });
+        return;
+      }
+
+      handleFirstFrameChange(buildFirstFrameFieldUpdate(updated, { forceRoles: true }));
+    },
+    [
+      buildFirstFrameFieldUpdate,
+      firstFrameField,
+      handleFirstFrameChange,
+      isVeoModel,
+      localFirstFrameCount,
+      setErrorData,
+    ],
+  );
+
+  const handleVeoSetReferenceImage = useCallback(
+    (index: number) => {
+      if (!isVeoModel) return;
+      if (index >= localFirstFrameCount) return;
+      const entries = collectFirstFrameEntries(firstFrameField);
+      if (!entries.length || index < 0 || index >= entries.length) return;
+
+      const updated = entries.map((entry, idx) => {
+        if (idx !== index) return { ...entry, role: entry.role ?? "reference" };
+        return { ...entry, role: "reference" as const };
+      });
+
+      const referenceCount = updated.filter((entry) => (entry.role ?? "reference") === "reference").length;
+      if (referenceCount > VEO_REFERENCE_IMAGE_LIMIT) {
+        setErrorData({
+          title: "参考图数量超限",
+          list: [`Veo 3.1 参考图最多 ${VEO_REFERENCE_IMAGE_LIMIT} 张，请先把某张设为首帧/尾帧或删除后再试。`],
+        });
+        return;
+      }
+
+      handleFirstFrameChange(buildFirstFrameFieldUpdate(updated, { forceRoles: true }));
+    },
+    [
+      buildFirstFrameFieldUpdate,
+      firstFrameField,
+      handleFirstFrameChange,
+      isVeoModel,
+      localFirstFrameCount,
+      setErrorData,
+    ],
+  );
+
+  const handleVeoSetLastFrame = useCallback(
+    (index: number) => {
+      if (!isVeoModel) return;
+      if (!allowLastFrame) return;
+      if (index >= localFirstFrameCount) return;
+      const entries = collectFirstFrameEntries(firstFrameField);
+      if (!entries.length || index < 0 || index >= entries.length) return;
+
+      const hasOtherFirst = entries.some(
+        (entry, idx) => (entry.role ?? (entries.length === 1 ? "first" : "reference")) === "first" && idx !== index,
+      );
+      if (!hasOtherFirst) {
+        setErrorData({
+          title: "无法设置尾帧",
+          list: ["Veo 插值需要先选择首帧（首帧与尾帧不能是同一张）。"],
+        });
+        return;
+      }
+      if (entries[index]?.role === "first") {
+        setErrorData({
+          title: "无法设置尾帧",
+          list: ["首帧与尾帧不能是同一张图片。"],
+        });
+        return;
+      }
+
+      const updated = entries.map((entry, idx) => {
+        if (idx === index) return { ...entry, role: "last" as const };
+        if (entry.role === "last") return { ...entry, role: "reference" as const };
+        return { ...entry, role: entry.role ?? "reference" };
+      });
+
+      const referenceCount = updated.filter((entry) => (entry.role ?? "reference") === "reference").length;
+      if (referenceCount > VEO_REFERENCE_IMAGE_LIMIT) {
+        setErrorData({
+          title: "参考图数量超限",
+          list: [`Veo 3.1 参考图最多 ${VEO_REFERENCE_IMAGE_LIMIT} 张，请先把某张设为首帧或删除后再试。`],
+        });
+        return;
+      }
+
+      const target = updated[index]!;
+      handleFirstFrameChange(buildFirstFrameFieldUpdate(updated, { forceRoles: true }), { skipSnapshot: true });
+      handleLastFrameChange({ value: target.name, file_path: target.path }, { skipSnapshot: true });
+    },
+    [
+      allowLastFrame,
+      buildFirstFrameFieldUpdate,
+      firstFrameField,
+      handleFirstFrameChange,
+      handleLastFrameChange,
+      isVeoModel,
+      localFirstFrameCount,
+      setErrorData,
+    ],
   );
 
   const handleSetLastFrame = useCallback(
@@ -1224,11 +1457,33 @@ export default function DoubaoVideoGeneratorLayout({
   );
 
   const handleClearLastFrame = useCallback(() => {
+    if (isVeoModel) {
+      const entries = collectFirstFrameEntries(firstFrameField);
+      if (entries.some((entry) => entry.role === "last")) {
+        handleFirstFrameChange(
+          buildFirstFrameFieldUpdate(
+            entries.map((entry) =>
+              entry.role === "last" ? { ...entry, role: "reference" } : entry,
+            ),
+            { forceRoles: true },
+          ),
+          { skipSnapshot: true },
+        );
+      }
+    }
     handleLastFrameChange({ value: null, file_path: null });
     if (!hasLastFrameEdge) {
       setForceFirstLastFrameMode(false);
     }
-  }, [handleLastFrameChange, hasLastFrameEdge, setForceFirstLastFrameMode]);
+  }, [
+    buildFirstFrameFieldUpdate,
+    firstFrameField,
+    handleFirstFrameChange,
+    handleLastFrameChange,
+    hasLastFrameEdge,
+    isVeoModel,
+    setForceFirstLastFrameMode,
+  ]);
 
   useEffect(() => {
     if (!allowLastFrame) {
@@ -1474,7 +1729,9 @@ export default function DoubaoVideoGeneratorLayout({
             <DialogHeader>
               <DialogTitle>上传图片或视频</DialogTitle>
               <DialogDescription>
-              支持 JPG/PNG/WebP 等图片格式；wan2.6 还支持 MP4/MOV 参考视频。
+                {isVeoModel
+                  ? "Veo 3.1 仅支持图片输入：可设置首帧/尾帧，或最多 3 张参考图。"
+                  : "支持 JPG/PNG/WebP 等图片格式；wan2.6 还支持 MP4/MOV 参考视频。"}
               </DialogDescription>
             </DialogHeader>
           {firstFrameField ? (
@@ -1503,7 +1760,7 @@ export default function DoubaoVideoGeneratorLayout({
                   <span>{isFirstFrameUploadPending ? "上传中..." : "上传图片或视频"}</span>
                 </button>
                 <p className="text-xs text-muted-foreground">
-                  已保留 {firstFrameCount} / {FIRST_FRAME_MAX_UPLOADS} 张候选图
+                  已保留 {firstFrameCount} / {firstFrameMaxUploads} 张候选素材
                 </p>
                 {!canUploadMoreFirstFrames && (
                   <p className="text-xs text-amber-600">
@@ -1556,7 +1813,7 @@ export default function DoubaoVideoGeneratorLayout({
                 <div className="flex items-center justify-between text-xs text-[#636A86] dark:text-slate-300">
                   <span>首帧候选管理</span>
                   <span className="font-medium text-[#1B66FF]">
-                    {firstFrameCount} / {FIRST_FRAME_MAX_UPLOADS}
+                    {firstFrameCount} / {firstFrameMaxUploads}
                   </span>
                 </div>
 
@@ -1571,6 +1828,14 @@ export default function DoubaoVideoGeneratorLayout({
                         previewSource &&
                         previewSource.toString().trim() === selectedLastFrameSource;
                       const isUpstream = index >= localFirstFrameCount;
+                      const localRole = !isUpstream ? firstFrameEntries[index]?.role : undefined;
+                      const isSelectedFirstFrame = isVeoModel
+                        ? localRole === "first" ||
+                          (!localRole &&
+                            !isUpstream &&
+                            firstFrameEntries.length === 1 &&
+                            index === 0)
+                        : index === 0;
 
                       return (
                         <div
@@ -1593,14 +1858,19 @@ export default function DoubaoVideoGeneratorLayout({
                                 className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
                               />
                             )}
-                            {index === 0 && (
+                            {isSelectedFirstFrame && (
                               <span className="absolute left-3 top-3 rounded-full bg-[#1B66FF]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
-                                当前首帧
+                                {isVeoModel ? "首帧" : "当前首帧"}
+                              </span>
+                            )}
+                            {isVeoModel && !isUpstream && localRole === "reference" && (
+                              <span className="absolute left-3 top-3 rounded-full bg-[#10B981]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
+                                参考图
                               </span>
                             )}
                             {isSelectedLastFrame && (
                               <span className="absolute right-3 top-3 rounded-full bg-[#111827]/80 px-2 py-0.5 text-[11px] font-medium text-white shadow">
-                                当前尾帧
+                                {isVeoModel ? "尾帧" : "当前尾帧"}
                               </span>
                             )}
                             {isUpstream && (
@@ -1614,25 +1884,58 @@ export default function DoubaoVideoGeneratorLayout({
                               {preview.label ?? preview.fileName ?? `候选图 ${index + 1}`}
                             </span>
                             <div className="flex items-center gap-2">
-                              {allowLastFrame && (
-                                <button
-                                  type="button"
-                                  className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
-                                  onClick={() => handleSetLastFrame(index)}
-                                  disabled={isUpstream}
-                                >
-                                  {isSelectedLastFrame ? "已设尾帧" : "设为尾帧"}
-                                </button>
-                              )}
-                              {index !== 0 && (
-                                <button
-                                  type="button"
-                                  className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
-                                  onClick={() => handleSetPrimaryFirstFrame(index)}
-                                  disabled={isUpstream}
-                                >
-                                  设为首帧
-                                </button>
+                              {isVeoModel ? (
+                                <>
+                                  {allowLastFrame && (
+                                    <button
+                                      type="button"
+                                      className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                      onClick={() => handleVeoSetLastFrame(index)}
+                                      disabled={isUpstream}
+                                    >
+                                      {isSelectedLastFrame ? "已设尾帧" : "设为尾帧"}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                    onClick={() => handleVeoSetFirstFrame(index)}
+                                    disabled={isUpstream || isSelectedFirstFrame}
+                                  >
+                                    {isSelectedFirstFrame ? "已设首帧" : "设为首帧"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-[#10B981] hover:underline dark:text-[#34d399]"
+                                    onClick={() => handleVeoSetReferenceImage(index)}
+                                    disabled={isUpstream || localRole === "reference"}
+                                  >
+                                    {localRole === "reference" ? "已设参考" : "设为参考"}
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  {allowLastFrame && (
+                                    <button
+                                      type="button"
+                                      className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                      onClick={() => handleSetLastFrame(index)}
+                                      disabled={isUpstream}
+                                    >
+                                      {isSelectedLastFrame ? "已设尾帧" : "设为尾帧"}
+                                    </button>
+                                  )}
+                                  {index !== 0 && (
+                                    <button
+                                      type="button"
+                                      className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                                      onClick={() => handleSetPrimaryFirstFrame(index)}
+                                      disabled={isUpstream}
+                                    >
+                                      设为首帧
+                                    </button>
+                                  )}
+                                </>
                               )}
                               <button
                                 type="button"
@@ -1662,7 +1965,9 @@ export default function DoubaoVideoGeneratorLayout({
           )}
           <DialogFooter>
             <p className="w-full text-center text-xs text-muted-foreground">
-              最多保留 {FIRST_FRAME_MAX_UPLOADS} 张候选图，新上传的图片默认用作首帧。
+              {isVeoModel
+                ? "最多保留 5 份素材（首帧 1、尾帧 1、参考图最多 3）。"
+                : `最多保留 ${FIRST_FRAME_MAX_UPLOADS} 张候选图，新上传的图片默认用作首帧。`}
             </p>
           </DialogFooter>
         </DialogContent>
@@ -1671,7 +1976,11 @@ export default function DoubaoVideoGeneratorLayout({
   );
 }
 
-type FirstFrameEntry = { name: string; path: string };
+type FirstFrameEntry = {
+  name: string;
+  path: string;
+  role?: "first" | "reference" | "last";
+};
 
 async function handleFirstFrameUpload({
   referenceField,
@@ -1684,6 +1993,8 @@ async function handleFirstFrameUpload({
   setErrorData,
   setReferenceUploadPending,
   maxEntries,
+  enableRoles,
+  maxReferenceImages,
 }: {
   referenceField: InputFieldType;
   accept: string;
@@ -1697,6 +2008,8 @@ async function handleFirstFrameUpload({
   setErrorData: (payload: any) => void;
   setReferenceUploadPending: (loading: boolean) => void;
   maxEntries: number;
+  enableRoles: boolean;
+  maxReferenceImages: number | null;
 }) {
   if (!currentFlowId) {
     setErrorData({
@@ -1734,6 +2047,32 @@ async function handleFirstFrameUpload({
     }
   }
 
+  const existingEntries = collectFirstFrameEntries(referenceField);
+  if (existingEntries.length + files.length > maxEntries) {
+    setErrorData({
+      title: "已达到候选素材上限",
+      list: [`最多保留 ${maxEntries} 份素材，请先删除不需要的图片后再上传。`],
+    });
+    return;
+  }
+
+  if (enableRoles && maxReferenceImages != null) {
+    const existingReferenceCount = existingEntries.filter(
+      (entry) => (entry.role ?? "reference") === "reference",
+    ).length;
+    const newReferenceCount =
+      existingEntries.length === 0 && files.length === 1 ? 0 : files.length;
+    if (existingReferenceCount + newReferenceCount > maxReferenceImages) {
+      setErrorData({
+        title: "参考图数量超限",
+        list: [
+          `Veo 3.1 参考图最多 ${maxReferenceImages} 张：请先把某张设为首帧/尾帧或删除后再上传。`,
+        ],
+      });
+      return;
+    }
+  }
+
   setReferenceUploadPending(true);
   try {
     const uploadedEntries: FirstFrameEntry[] = [];
@@ -1747,7 +2086,13 @@ async function handleFirstFrameUpload({
         if (!serverPath) {
           throw new Error("缺少文件路径");
         }
-        uploadedEntries.push({ name: file.name, path: serverPath });
+        const defaultRole =
+          enableRoles && existingEntries.length === 0 && files.length === 1
+            ? "first"
+            : enableRoles
+              ? "reference"
+              : undefined;
+        uploadedEntries.push({ name: file.name, path: serverPath, role: defaultRole });
       } catch (error: any) {
         console.error(error);
         setErrorData({
@@ -1763,17 +2108,23 @@ async function handleFirstFrameUpload({
 
     if (!uploadedEntries.length) return;
 
-    const existingEntries = collectFirstFrameEntries(referenceField);
     const mergedEntries = [...uploadedEntries, ...existingEntries];
-    const limitedEntries =
-      mergedEntries.length > maxEntries
-        ? mergedEntries.slice(0, maxEntries)
-        : mergedEntries;
 
-    handleReferenceChange({
-      value: limitedEntries.map((entry) => entry.name),
-      file_path: limitedEntries.map((entry) => entry.path),
-    });
+    handleReferenceChange(
+      enableRoles
+        ? {
+            value: mergedEntries.map((entry) => ({
+              name: entry.name,
+              display_name: entry.name,
+              role: entry.role ?? (mergedEntries.length === 1 ? "first" : "reference"),
+            })),
+            file_path: mergedEntries.map((entry) => entry.path),
+          }
+        : {
+            value: mergedEntries.map((entry) => entry.name),
+            file_path: mergedEntries.map((entry) => entry.path),
+          },
+    );
   } finally {
     setReferenceUploadPending(false);
   }
@@ -1797,9 +2148,14 @@ function collectFirstFrameEntries(field: InputFieldType): FirstFrameEntry[] {
         : undefined) ||
       extractFileName(resolvedPath) ||
       `候选素材 ${index + 1}`;
+    const role =
+      rawValue && typeof rawValue === "object"
+        ? extractReferenceRole(rawValue)
+        : undefined;
     entries.push({
       name: resolvedName,
       path: resolvedPath,
+      role,
     });
   }
   return entries;
@@ -1914,6 +2270,30 @@ function extractReferenceLabel(entry: unknown): string | undefined {
     for (const candidate of candidates) {
       if (typeof candidate === "string" && candidate.trim()) {
         return candidate.trim();
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractReferenceRole(entry: unknown): FirstFrameEntry["role"] | undefined {
+  if (!entry && entry !== 0) return undefined;
+  if (typeof entry !== "object") return undefined;
+  const record = entry as any;
+  const direct = record.role;
+  if (typeof direct === "string" && direct.trim()) {
+    const normalized = direct.trim();
+    if (normalized === "first" || normalized === "reference" || normalized === "last") {
+      return normalized;
+    }
+  }
+  const nested = record.value;
+  if (nested && typeof nested === "object") {
+    const nestedRole = (nested as any).role;
+    if (typeof nestedRole === "string" && nestedRole.trim()) {
+      const normalized = nestedRole.trim();
+      if (normalized === "first" || normalized === "reference" || normalized === "last") {
+        return normalized;
       }
     }
   }

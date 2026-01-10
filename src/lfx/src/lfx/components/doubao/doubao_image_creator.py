@@ -69,6 +69,19 @@ class DoubaoImageCreator(Component):
             "min_area": 921_600,
             "max_area": 16_777_216,
         },
+        "Nano Banana": {
+            "provider": "gemini",
+            "model_id": "gemini-2.5-flash-image",
+            "max_reference_images": 3,
+            "supports_image_size": False,
+        },
+        "Nano Banana Pro": {
+            "provider": "gemini",
+            "model_id": "gemini-3-pro-image-preview",
+            "max_reference_images": 14,
+            "max_high_fidelity_reference_images": 5,
+            "supports_image_size": True,
+        },
         "wan2.6": {
             "t2i_model": "wan2.6-t2i",
             "i2i_model": "wan2.6-image",
@@ -115,6 +128,7 @@ class DoubaoImageCreator(Component):
     DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
     DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "bmp", "webp"}
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
+    GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
     inputs = [
         DropdownInput(
@@ -278,6 +292,9 @@ class DoubaoImageCreator(Component):
         model_meta = self.MODEL_CATALOG.get(self.model_name)
         if not model_meta:
             return self._error("未匹配到可用模型，请重新选择。")
+
+        if model_meta.get("provider") == "gemini":
+            return self._build_images_gemini(prompt=prompt, model_meta=model_meta)
 
         is_dashscope = "t2i_model" in model_meta or "i2i_model" in model_meta
         if not prompt:
@@ -529,6 +546,243 @@ class DoubaoImageCreator(Component):
             }
 
         return Data(data=result_data, type="image")
+
+    def _build_images_gemini(self, *, prompt: str, model_meta: dict[str, Any]) -> Data:
+        model_id = str(model_meta.get("model_id") or "").strip()
+        if not model_id:
+            return self._error("Gemini model_id 缺失，请检查配置。")
+
+        max_reference_images = int(model_meta.get("max_reference_images") or 0) or self.MAX_REFERENCE_IMAGES
+        supports_image_size = bool(model_meta.get("supports_image_size"))
+        high_fidelity_limit = int(model_meta.get("max_high_fidelity_reference_images") or 0) or None
+
+        aspect_ratio = str(self.aspect_ratio or "1:1").strip() or "1:1"
+        if aspect_ratio not in self.ASPECT_RATIOS:
+            return self._error("请选择有效的图像比例。")
+        resolution = str(self.resolution or "").strip()
+
+        creds = resolve_credentials(
+            component_app_id=None,
+            component_access_token=None,
+            component_api_key=self.api_key,
+            provider="gemini",
+            env_api_key_var="GEMINI_API_KEY",
+        )
+        api_key = (creds.api_key or "").strip().strip("'").strip('"')
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key.split(" ", 1)[1].strip()
+        if not api_key:
+            api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+        if api_key.startswith("****"):
+            return self._error("检测到被掩码的 Gemini API Key（形如 ****1234），请重新配置完整 key。")
+        if not api_key:
+            return self._error("未检测到 GEMINI_API_KEY/GOOGLE_API_KEY，请在 .env 或 Provider Credentials 中配置。")
+
+        warnings: list[str] = []
+
+        draft_payload = getattr(self, "draft_output", None)
+        if isinstance(draft_payload, Data):
+            draft_payload = draft_payload.data
+
+        # History: take the last preview output (persisted by the frontend) as extra input images.
+        draft_images, draft_meta = self._prepare_reference_images_from_value(
+            draft_payload,
+            max_reference_images=max_reference_images,
+        )
+        uploaded_images, uploaded_meta = self._prepare_reference_images(
+            max_reference_images=max_reference_images,
+        )
+
+        input_images: list[str] = []
+        input_meta: list[dict[str, Any]] = []
+        for idx, data_url in enumerate(draft_images):
+            if len(input_images) >= max_reference_images:
+                break
+            meta = draft_meta[idx] if idx < len(draft_meta) else {}
+            input_images.append(data_url)
+            input_meta.append({**meta, "origin": "draft_output"})
+
+        for idx, data_url in enumerate(uploaded_images):
+            if len(input_images) >= max_reference_images:
+                warnings.append(f"参考图输入超过上限，已自动忽略后续图片（上限 {max_reference_images} 张）。")
+                break
+            meta = uploaded_meta[idx] if idx < len(uploaded_meta) else {}
+            input_images.append(data_url)
+            input_meta.append({**meta, "origin": "reference_images"})
+
+        if not prompt:
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_gallery = [
+                {"index": index, "image_data_url": data_url, "ratio": aspect_ratio}
+                for index, data_url in enumerate(input_images)
+            ]
+            payload = {
+                "bridge_mode": True,
+                "images": preview_gallery,
+                "model": {"name": self.model_name, "model_id": model_id},
+                "warnings": warnings or None,
+            }
+            payload["doubao_preview"] = {
+                "token": f"{self.name}-bridge",
+                "kind": "image",
+                "available": bool(preview_gallery),
+                "generated_at": generated_at,
+                "payload": payload,
+            }
+            self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
+            return Data(data=payload, type="image")
+
+        if high_fidelity_limit and len(input_images) > high_fidelity_limit:
+            warnings.append(f"Nano Banana Pro 建议高保真输入不超过 {high_fidelity_limit} 张，超过后可能影响细节质量。")
+
+        try:
+            parts: list[dict[str, Any]] = [{"text": prompt}]
+            for data_url in input_images:
+                inline = self._gemini_inline_part_from_data_url(data_url)
+                if inline:
+                    parts.append(inline)
+        except ValueError as exc:
+            return self._error(str(exc))
+
+        generation_config: dict[str, Any] = {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {"aspectRatio": aspect_ratio},
+        }
+        if supports_image_size:
+            image_size = self._gemini_image_size_from_resolution(resolution)
+            if image_size:
+                generation_config["imageConfig"]["imageSize"] = image_size
+
+        payload: dict[str, Any] = {
+            "contents": [{"parts": parts}],
+            "generationConfig": generation_config,
+        }
+
+        url = f"{self.GEMINI_API_BASE}/models/{model_id}:generateContent"
+        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+
+        self.status = "🍌 Gemini 模型提交成功，等待生成..."
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=180)
+            response.raise_for_status()
+            result = response.json()
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gemini 调用失败：{exc}")
+
+        images, text = self._extract_gemini_images_and_text(result)
+        if not images:
+            return self._error("Gemini 未返回可用的图片数据，请检查提示词或稍后重试。")
+
+        generated_images: list[dict[str, Any]] = []
+        preview_gallery: list[dict[str, Any]] = []
+        for index, data_url in enumerate(images):
+            generated_images.append({"index": index, "image_data_url": data_url})
+            preview_gallery.append({"index": index, "image_data_url": data_url, "ratio": aspect_ratio})
+
+        generated_at = datetime.now(timezone.utc).isoformat()
+        preview_token = f"gemini-{uuid4().hex[:8]}"
+        resolved_image_size = (
+            self._gemini_image_size_from_resolution(resolution) if supports_image_size else None
+        )
+        doubao_preview = {
+            "token": preview_token,
+            "kind": "image",
+            "available": True,
+            "generated_at": generated_at,
+            "payload": {
+                "images": preview_gallery,
+                "prompt": prompt,
+                "text": text,
+                "model": {"name": self.model_name, "model_id": model_id},
+                "aspect_ratio": aspect_ratio,
+                "image_size": resolved_image_size,
+                "input_images": input_meta,
+                "image_count": len(preview_gallery),
+                "warnings": warnings or None,
+            },
+        }
+
+        result_data: dict[str, Any] = {
+            "prompt": prompt,
+            "text": text,
+            "model": self.model_name,
+            "model_id": model_id,
+            "aspect_ratio": aspect_ratio,
+            "image_size": resolved_image_size,
+            "generated_images": generated_images,
+            "input_images": input_meta,
+            "warnings": warnings or None,
+            "doubao_preview": doubao_preview,
+        }
+        if isinstance(result, dict) and result.get("usageMetadata"):
+            result_data["usage"] = result["usageMetadata"]
+
+        self.status = f"✅ Gemini 已生成 {len(images)} 张图片"
+        return Data(data=result_data, type="image")
+
+    @staticmethod
+    def _gemini_image_size_from_resolution(resolution: str | None) -> str | None:
+        if not resolution:
+            return None
+        label = str(resolution)
+        if "4K" in label:
+            return "4K"
+        if "2K" in label:
+            return "2K"
+        if "1K" in label:
+            return "1K"
+        return None
+
+    @staticmethod
+    def _gemini_inline_part_from_data_url(data_url: str) -> dict[str, Any] | None:
+        if not data_url:
+            return None
+        trimmed = data_url.strip()
+        if not trimmed.startswith("data:") or ";base64," not in trimmed:
+            raise ValueError("Gemini 参考图必须为 data:*;base64, 格式。")
+        header, encoded = trimmed.split(";base64,", 1)
+        mime_type = header.replace("data:", "").strip() or "image/png"
+        encoded = encoded.strip()
+        if not encoded:
+            return None
+        return {"inlineData": {"mimeType": mime_type, "data": encoded}}
+
+    @staticmethod
+    def _extract_gemini_images_and_text(result: Any) -> tuple[list[str], str]:
+        if not isinstance(result, dict):
+            return [], ""
+        candidates = result.get("candidates") or []
+        if not isinstance(candidates, list) or not candidates:
+            return [], ""
+        first = candidates[0]
+        if not isinstance(first, dict):
+            return [], ""
+        content = first.get("content") or {}
+        parts = content.get("parts") or []
+        if not isinstance(parts, list):
+            return [], ""
+
+        images: list[str] = []
+        texts: list[str] = []
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("thought") is True:
+                continue
+            text_value = part.get("text")
+            if isinstance(text_value, str) and text_value.strip():
+                texts.append(text_value.strip())
+
+            inline = part.get("inlineData") or part.get("inline_data")
+            if not isinstance(inline, dict):
+                continue
+            data = inline.get("data")
+            if not isinstance(data, str) or not data.strip():
+                continue
+            mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
+            images.append(f"data:{mime};base64,{data.strip()}")
+
+        return images, "\n".join(texts).strip()
 
     def _build_images_dashscope(self, *, prompt: str, model_meta: dict[str, Any]) -> Data:
         try:
@@ -1006,6 +1260,38 @@ class DoubaoImageCreator(Component):
 
         raw_items = uploads if isinstance(uploads, list) else [uploads]
         limit = int(max_reference_images or self.MAX_REFERENCE_IMAGES)
+        return self._prepare_reference_images_from_items(
+            raw_items,
+            limit=limit,
+            allowed_extensions=allowed_extensions,
+        )
+
+    def _prepare_reference_images_from_value(
+        self,
+        value: Any,
+        *,
+        max_reference_images: int | None = None,
+        allowed_extensions: set[str] | None = None,
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        if not value:
+            return [], []
+        raw_items = value if isinstance(value, list) else [value]
+        limit = int(max_reference_images or self.MAX_REFERENCE_IMAGES)
+        return self._prepare_reference_images_from_items(
+            raw_items,
+            limit=limit,
+            allowed_extensions=allowed_extensions,
+        )
+
+    def _prepare_reference_images_from_items(
+        self,
+        raw_items: list[Any],
+        *,
+        limit: int,
+        allowed_extensions: set[str] | None = None,
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        if limit <= 0:
+            return [], []
         if len(raw_items) > limit:
             raise ValueError(f"最多支持上传 {limit} 张参考图。")
 
@@ -1015,7 +1301,7 @@ class DoubaoImageCreator(Component):
         for item in raw_items:
             if len(payloads) >= limit:
                 break
-            if self._try_append_data_payloads(item, payloads, metadata):
+            if self._try_append_data_payloads(item, payloads, metadata, limit=limit):
                 continue
             path_value = self._extract_file_path(item)
             if not path_value:
@@ -1065,11 +1351,14 @@ class DoubaoImageCreator(Component):
         item: Any,
         payloads: list[str],
         metadata: list[dict[str, Any]],
+        *,
+        limit: int | None = None,
     ) -> bool:
         containers = self._collect_reference_containers(item)
+        effective_limit = int(limit or self.MAX_REFERENCE_IMAGES)
         appended = False
         for container in containers:
-            if len(payloads) >= self.MAX_REFERENCE_IMAGES:
+            if len(payloads) >= effective_limit:
                 break
             inline_value = self._first_non_empty(
                 container,

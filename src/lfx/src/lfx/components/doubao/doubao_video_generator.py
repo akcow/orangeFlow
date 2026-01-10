@@ -32,6 +32,7 @@ from lfx.inputs.inputs import (
 )
 from lfx.template.field.base import Output
 from lfx.utils.public_files import generate_public_file_token
+from lfx.utils.provider_credentials import DEFAULT_PROVIDER_KEY, get_provider_credentials
 
 load_dotenv()
 
@@ -51,6 +52,8 @@ class DoubaoVideoGenerator(Component):
         "Doubao-Seedance-1.0-pro-fast｜251015": "doubao-seedance-1-0-pro-fast-251015",
         "wan2.6": "wan2.6",
         "wan2.5": "wan2.5",
+        "VEO3.1": "veo-3.1-generate-preview",
+        "veo3.1-fast": "veo-3.1-fast-generate-preview",
     }
 
     MODEL_LIMITS = {
@@ -84,9 +87,23 @@ class DoubaoVideoGenerator(Component):
             "max_duration": 10,
             "supports_last_frame": False,
         },
+        "VEO3.1": {
+            "resolutions": ["720p", "1080p"],
+            "min_duration": 4,
+            "max_duration": 8,
+            "supports_last_frame": True,
+        },
+        "veo3.1-fast": {
+            "resolutions": ["720p", "1080p"],
+            "min_duration": 4,
+            "max_duration": 8,
+            "supports_last_frame": True,
+        },
     }
 
     SUPPORTED_RATIOS = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"]
+    VEO_SUPPORTED_RATIOS = ["16:9", "9:16"]
+    VEO_SUPPORTED_DURATIONS = [4, 6, 8]
 
     DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
@@ -260,6 +277,15 @@ class DoubaoVideoGenerator(Component):
         model_name = str(self.model_name or "").strip()
         if model_name.startswith("wan2."):
             return self._build_video_dashscope(prompt=merged_prompt, model_name=model_name)
+        if self._is_veo_model(model_name):
+            api_key = self._resolve_api_key(provider="google", env_vars=("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+            if not api_key:
+                return self._error(
+                    "未检测到 Gemini API Key，请在节点或 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY，"
+                    "或在 密钥配置 - Google / 默认密钥 中输入。"
+                )
+            endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
+            return self._build_video_veo(prompt=merged_prompt, endpoint_id=endpoint_id, api_key=api_key)
 
         creds = resolve_credentials(
             component_app_id=None,

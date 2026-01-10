@@ -129,6 +129,9 @@ export default function DoubaoImageCreatorLayout({
   }, [template]);
   const selectedModelName = String(template.model_name?.value ?? "");
   const isWanModel = selectedModelName.startsWith("wan2.");
+  const isNanoBanana = selectedModelName === "Nano Banana";
+  const isNanoBananaPro = selectedModelName === "Nano Banana Pro";
+  const isGeminiImageModel = isNanoBanana || isNanoBananaPro;
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
   const onConnect = useFlowStore((state) => state.onConnect);
@@ -223,6 +226,11 @@ export default function DoubaoImageCreatorLayout({
     nodeId: data.id,
     name: "aspect_ratio",
   });
+  const { handleOnNewValue: handleImageCountChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "image_count",
+  });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
   const { mutateAsync: uploadReferenceFile } = usePostUploadFile();
@@ -257,6 +265,13 @@ export default function DoubaoImageCreatorLayout({
     hasAnyReferenceSelected,
     handleAspectRatioChange,
   ]);
+
+  useEffect(() => {
+    if (!isGeminiImageModel) return;
+    const current = Number(template.image_count?.value ?? 1);
+    if (!Number.isFinite(current) || current <= 1) return;
+    handleImageCountChange({ value: 1 }, { skipSnapshot: true });
+  }, [isGeminiImageModel, template.image_count?.value, handleImageCountChange]);
 
   const handleRun = () => {
     clearFlowPoolForNodes([nodeIdForRun]);
@@ -328,19 +343,34 @@ export default function DoubaoImageCreatorLayout({
 
         return undefined;
       })();
+
+      const geminiDisabledOptions = (() => {
+        if (!isGeminiImageModel) return undefined;
+
+        if (field.name === "image_count") {
+          return options.filter((opt) => Number(opt) > 1);
+        }
+
+        if (field.name === "resolution") {
+          return isNanoBanana ? options : undefined;
+        }
+
+        return undefined;
+      })();
+
       return {
         ...field,
         template: templateField,
         options,
         value: templateField.value,
         tooltip: tooltipText,
-        disabledOptions,
+        disabledOptions: geminiDisabledOptions ?? disabledOptions,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [template, isWanModel, hasAnyReferenceSelected]);
+  }, [template, isWanModel, hasAnyReferenceSelected, isGeminiImageModel, isNanoBanana]);
 
   const maxReferenceEntries = useMemo(() => {
-    const defaultLimit = isWanModel ? 4 : MAX_REFERENCE_IMAGES;
+    const defaultLimit = isWanModel ? 4 : isNanoBanana ? 3 : MAX_REFERENCE_IMAGES;
     const explicitLimit =
       (typeof referenceField?.max_length === "number" && referenceField?.max_length) ||
       (typeof referenceField?.max_files === "number" && referenceField?.max_files) ||
@@ -349,7 +379,7 @@ export default function DoubaoImageCreatorLayout({
       return explicitLimit;
     }
     return defaultLimit;
-  }, [referenceField, isWanModel]);
+  }, [referenceField, isWanModel, isNanoBanana]);
   const maxLocalEntries = Math.max(
     maxReferenceEntries - upstreamReferencePreviews.length,
     0,
@@ -1195,6 +1225,11 @@ export default function DoubaoImageCreatorLayout({
                 <p className="text-xs text-muted-foreground">
                   已选择 {selectedReferenceCount} / {maxReferenceEntries} 张参考图
                 </p>
+                {isNanoBananaPro && selectedReferenceCount > 5 && (
+                  <p className="text-xs text-amber-600">
+                    Nano Banana Pro 建议高保真输入不超过 5 张，超过后可能影响细节质量。
+                  </p>
+                )}
                 {!canAddMoreReferences && (
                   <p className="text-xs text-amber-600">
                     已达到参考图上限，请删除不需要的图片后再上传。
