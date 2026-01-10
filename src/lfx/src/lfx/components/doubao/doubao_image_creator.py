@@ -644,14 +644,24 @@ class DoubaoImageCreator(Component):
         except ValueError as exc:
             return self._error(str(exc))
 
-        generation_config: dict[str, Any] = {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {"aspectRatio": aspect_ratio},
-        }
+        generation_config: dict[str, Any] = {}
+        # 添加 imageConfig（根据官方文档）
         if supports_image_size:
             image_size = self._gemini_image_size_from_resolution(resolution)
             if image_size:
-                generation_config["imageConfig"]["imageSize"] = image_size
+                generation_config["imageConfig"] = {
+                    "aspectRatio": aspect_ratio,
+                    "imageSize": image_size,
+                }
+            else:
+                generation_config["imageConfig"] = {
+                    "aspectRatio": aspect_ratio,
+                }
+        else:
+            # Nano Banana 不支持 imageSize，只设置 aspectRatio
+            generation_config["imageConfig"] = {
+                "aspectRatio": aspect_ratio,
+            }
 
         payload: dict[str, Any] = {
             "contents": [{"parts": parts}],
@@ -661,11 +671,28 @@ class DoubaoImageCreator(Component):
         url = f"{self.GEMINI_API_BASE}/models/{model_id}:generateContent"
         headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
 
+        # 调试日志（可选）
+        import json
+        self.status = f"🍌 调用 Gemini API: {model_id}"
+        print(f"[Gemini Debug] Payload: {json.dumps(payload, indent=2, ensure_ascii=False)[:1000]}...")
+
         self.status = "🍌 Gemini 模型提交成功，等待生成..."
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=180)
             response.raise_for_status()
             result = response.json()
+        except requests.HTTPError as exc:
+            # 尝试获取详细的错误信息
+            error_detail = str(exc)
+            try:
+                if exc.response is not None:
+                    error_json = exc.response.json()
+                    if "error" in error_json:
+                        error_info = error_json["error"]
+                        error_detail = f"{error_info.get('status', '')}: {error_info.get('message', '')}"
+            except Exception:
+                pass
+            return self._error(f"Gemini API 调用失败 ({exc.response.status_code if exc.response else 'Unknown'}): {error_detail}")
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Gemini 调用失败：{exc}")
 

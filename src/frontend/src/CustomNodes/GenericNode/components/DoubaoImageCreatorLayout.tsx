@@ -231,6 +231,11 @@ export default function DoubaoImageCreatorLayout({
     nodeId: data.id,
     name: "image_count",
   });
+  const { handleOnNewValue: handleResolutionChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "resolution",
+  });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
   const { mutateAsync: uploadReferenceFile } = usePostUploadFile();
@@ -273,6 +278,21 @@ export default function DoubaoImageCreatorLayout({
     handleImageCountChange({ value: 1 }, { skipSnapshot: true });
   }, [isGeminiImageModel, template.image_count?.value, handleImageCountChange]);
 
+  useEffect(() => {
+    // Nano Banana 模型不支持 image_size 参数，自动设置为 "Auto"
+    // 其他模型不支持 Auto 选项，切换到默认值 "2K（推荐）"
+    const current = String(template.resolution?.value ?? "");
+    if (isNanoBanana) {
+      if (current !== "Auto") {
+        handleResolutionChange({ value: "Auto" }, { skipSnapshot: true });
+      }
+    } else {
+      if (current === "Auto") {
+        handleResolutionChange({ value: "2K（推荐）" }, { skipSnapshot: true });
+      }
+    }
+  }, [isNanoBanana, template.resolution?.value, handleResolutionChange]);
+
   const handleRun = () => {
     clearFlowPoolForNodes([nodeIdForRun]);
     if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
@@ -307,9 +327,33 @@ export default function DoubaoImageCreatorLayout({
         options = buildRangeOptions(templateField);
       }
       if (field.name === "aspect_ratio") {
-        options = options.filter((opt) =>
-          isWanModel ? true : String(opt).toLowerCase() !== "adaptive",
-        );
+        // Nano Banana 系列模型支持额外的宽高比（4:5, 5:4, 21:9）
+        // 其他模型不支持这些宽高比，需要过滤掉
+        const geminiExclusiveRatios = new Set(["4:5", "5:4", "21:9"]);
+
+        options = options.filter((opt) => {
+          const optStr = String(opt);
+          // 非 Gemini 模型（Nano Banana 系列）隐藏这些宽高比
+          if (!isGeminiImageModel && geminiExclusiveRatios.has(optStr)) {
+            return false;
+          }
+          // 非 wan 模型移除 adaptive 选项
+          if (!isWanModel && optStr.toLowerCase() === "adaptive") {
+            return false;
+          }
+          return true;
+        });
+      }
+      if (field.name === "resolution") {
+        // Auto 选项只在 Nano Banana 模型时显示
+        options = options.filter((opt) => {
+          const optStr = String(opt);
+          // 如果是 Auto 选项，只在 Nano Banana 模型时显示
+          if (optStr === "Auto") {
+            return isNanoBanana;
+          }
+          return true;
+        });
       }
 
       const tooltipText =
@@ -352,6 +396,8 @@ export default function DoubaoImageCreatorLayout({
         }
 
         if (field.name === "resolution") {
+          // Nano Banana 不支持 image_size 参数，禁用所有分辨率选项
+          // Nano Banana Pro 支持 image_size 参数，不禁用任何选项
           return isNanoBanana ? options : undefined;
         }
 

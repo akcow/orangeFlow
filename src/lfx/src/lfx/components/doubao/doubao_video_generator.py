@@ -278,11 +278,11 @@ class DoubaoVideoGenerator(Component):
         if model_name.startswith("wan2."):
             return self._build_video_dashscope(prompt=merged_prompt, model_name=model_name)
         if self._is_veo_model(model_name):
-            api_key = self._resolve_api_key(provider="google", env_vars=("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+            api_key = self._resolve_api_key(provider="gemini", env_vars=("GEMINI_API_KEY", "GOOGLE_API_KEY"))
             if not api_key:
                 return self._error(
                     "未检测到 Gemini API Key，请在节点或 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY，"
-                    "或在 密钥配置 - Google / 默认密钥 中输入。"
+                    "或在 Settings - Provider Credentials - Google (Gemini/Veo) 中输入。"
                 )
             endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
             return self._build_video_veo(prompt=merged_prompt, endpoint_id=endpoint_id, api_key=api_key)
@@ -1451,6 +1451,310 @@ class DoubaoVideoGenerator(Component):
 
         except Exception:
             return None
+
+    def _is_veo_model(self, model_name: str) -> bool:
+        """判断是否为 Veo 模型"""
+        normalized = str(model_name or "").strip().upper()
+        return normalized in {"VEO3.1", "VEO3.1-FAST"}
+
+    def _resolve_api_key(self, *, provider: str, env_vars: tuple[str, ...]) -> str | None:
+        """解析 API Key，优先级：组件参数 > Provider Credentials > 环境变量"""
+        # 1. 检查组件参数中的 api_key
+        component_api_key = getattr(self, "api_key", None)
+        if component_api_key:
+            key = str(component_api_key).strip()
+            if key and not key.startswith("****"):
+                return key
+
+        # 2. 尝试从 Provider Credentials 获取
+        try:
+            creds = get_provider_credentials(provider_key=provider)
+            if creds:
+                api_key = creds.api_key
+                if api_key and not api_key.startswith("****"):
+                    return str(api_key).strip()
+        except Exception:
+            pass
+
+        # 3. 检查环境变量
+        import os
+        for env_var in env_vars:
+            key = os.getenv(env_var, "")
+            if key and not key.startswith("****"):
+                return str(key).strip()
+
+        return None
+
+    def _collect_veo_entries_from_first_frame(self, raw: Any) -> list[dict[str, Any]]:
+        """从 first_frame_image 收集 Veo 需要的条目（包含角色信息）"""
+        entries: list[dict[str, Any]] = []
+
+        items = []
+        if isinstance(raw, (list, tuple)):
+            items.extend(list(raw))
+        elif raw is not None:
+            items.append(raw)
+
+        for item in items:
+            # 提取 URL
+            url = self._extract_image_url(item)
+            if not url:
+                continue
+
+            # 提取角色
+            role = "reference"
+            if isinstance(item, dict):
+                raw_role = item.get("role")
+                if isinstance(raw_role, str):
+                    raw_role = raw_role.strip().lower()
+                    if raw_role in {"first", "reference", "last"}:
+                        role = raw_role
+
+            entries.append({"url": url, "role": role})
+
+        return entries
+
+    def _build_video_veo(self, *, prompt: str, endpoint_id: str, api_key: str) -> Data:
+        """使用 Google Veo 3.1 API 生成视频"""
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError:
+            return self._error(
+                "缺少 Google GenAI SDK，请安装: pip install google-genai\n"
+                "或者在 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY"
+            )
+
+        try:
+            client = genai.Client(api_key=api_key)
+
+            # 获取参数并验证
+            resolution = str(getattr(self, "resolution", "720p") or "720p").strip()
+            duration = int(getattr(self, "duration", 8) or 8)
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+
+            # 强制参数验证
+            if resolution not in ["720p", "1080p"]:
+                resolution = "720p"
+            if duration not in [4, 6, 8]:
+                duration = 8
+            if aspect_ratio not in ["16:9", "9:16"]:
+                aspect_ratio = "16:9"
+
+            # 1080p 只支持 8 秒，自动调整
+            if resolution == "1080p" and duration != 8:
+                duration = 8
+                self.status = "⚠️ Veo 3.1: 1080p 分辨率仅支持 8 秒时长，已自动调整"
+
+            # 收集图片输入并识别模式
+            first_frame_url = None
+            last_frame_url = None
+            reference_images = []
+
+            # 处理 first_frame_image with roles
+            first_frame_raw = getattr(self, "first_frame_image", None)
+            if first_frame_raw:
+                entries = self._collect_veo_entries_from_first_frame(first_frame_raw)
+                for entry in entries:
+                    role = entry.get("role", "reference")
+                    url = entry.get("url")
+                    if not url:
+                        continue
+
+                    if role == "first":
+                        first_frame_url = url
+                    elif role == "last":
+                        last_frame_url = url
+                    elif role == "reference":
+                        reference_images.append(url)
+
+            # 处理 last_frame_image (兼容独立输入)
+            if not last_frame_url:
+                last_frame_raw = getattr(self, "last_frame_image", None)
+                if last_frame_raw:
+                    url = self._extract_image_url(last_frame_raw)
+                    if url:
+                        last_frame_url = url
+
+            # 检测模式
+            has_first = bool(first_frame_url)
+            has_last = bool(last_frame_url)
+            has_reference = bool(reference_images)
+
+            is_reference_mode = has_reference and not has_first and not has_last
+            is_interpolation_mode = has_first and has_last
+
+            # 参考图模式只能用 16:9 和 8 秒
+            if is_reference_mode:
+                if aspect_ratio != "16:9":
+                    return self._error("Veo 3.1 使用参考图时仅支持 16:9 比例")
+                if duration != 8:
+                    duration = 8
+                    self.status = "⚠️ Veo 3.1: 参考图模式仅支持 8 秒时长，已自动调整"
+
+            # 插值模式必须 8 秒
+            if is_interpolation_mode and duration != 8:
+                duration = 8
+                self.status = "⚠️ Veo 3.1: 插值模式仅支持 8 秒时长，已自动调整"
+
+            # 构建请求配置
+            config = types.GenerateVideosConfig(
+                aspect_ratio=aspect_ratio,
+            )
+
+            # 添加参考图（最多 3 张）
+            if reference_images:
+                if len(reference_images) > 3:
+                    self.status = f"⚠️ 参考图超过 3 张，仅使用前 3 张"
+                    reference_images = reference_images[:3]
+
+                # 准备参考图对象
+                ref_image_objects = []
+                for ref_url in reference_images:
+                    img_obj = self._prepare_gemini_image(ref_url)
+                    if img_obj:
+                        ref_image_objects.append(img_obj)
+
+                if ref_image_objects:
+                    config.reference_images = [
+                        types.VideoGenerationReferenceImage(
+                            image=img_obj,
+                            reference_type="asset"
+                        )
+                        for img_obj in ref_image_objects
+                    ]
+
+            # 添加尾帧（用于插值）
+            if last_frame_url:
+                last_frame_obj = self._prepare_gemini_image(last_frame_url)
+                if last_frame_obj:
+                    config.last_frame = last_frame_obj
+
+            # 准备首帧图片
+            image_obj = None
+            if first_frame_url:
+                image_obj = self._prepare_gemini_image(first_frame_url)
+
+            # 创建生成任务
+            operation = client.models.generate_videos(
+                model=endpoint_id,
+                prompt=prompt,
+                image=image_obj,
+                config=config,
+            )
+
+            # 轮询等待结果
+            max_wait_time = 600
+            start_time = time.time()
+            poll_interval = 10
+
+            while not operation.done:
+                elapsed = time.time() - start_time
+                if elapsed > max_wait_time:
+                    return self._error(f"Veo 3.1 视频生成超时（>{max_wait_time}s）")
+                self.status = f"⏳ 等待 Veo 3.1 生成... ({int(elapsed)}s)"
+                time.sleep(poll_interval)
+                operation = client.operations.get(operation)
+
+            # 获取结果
+            generated_video = operation.response.generated_videos[0]
+            video_obj = generated_video.video
+
+            # 获取视频 URL
+            video_url = None
+            if hasattr(video_obj, 'uri'):
+                video_url = video_obj.uri
+            elif hasattr(video_obj, 'url'):
+                video_url = video_obj.url
+            elif isinstance(video_obj, str):
+                video_url = video_obj
+
+            if not video_url:
+                return self._error("Veo 3.1 未返回视频 URL")
+
+            # 获取封面
+            cover_url = None
+            if hasattr(generated_video, 'image'):
+                cover_obj = generated_video.image
+                if hasattr(cover_obj, 'uri'):
+                    cover_url = cover_obj.uri
+                elif hasattr(cover_obj, 'url'):
+                    cover_url = cover_obj.url
+
+            # 构建返回数据
+            result_data = {
+                "cover": cover_url or "",
+                "video_url": video_url,
+                "model": {
+                    "name": self.model_name,
+                    "model_id": endpoint_id,
+                },
+            }
+
+            self.status = f"✅ Veo 3.1 视频生成成功"
+            return Data(data=result_data, type="video")
+
+        except Exception as exc:
+            import traceback
+            error_details = traceback.format_exc()
+            return self._error(f"Veo 3.1 调用失败: {exc}\n{error_details}")
+
+    def _prepare_gemini_image(self, image_source: str) -> Any:
+        """准备 Gemini API 需要的图片对象"""
+        try:
+            from google.genai import types
+
+            # HTTP/HTTPS URL
+            if image_source.startswith("http://") or image_source.startswith("https://"):
+                import requests
+                resp = requests.get(image_source, timeout=30)
+                resp.raise_for_status()
+                image_data = base64.b64encode(resp.content).decode("utf-8")
+                return types.Image(image_bytes=image_data, mime_type="image/jpeg")
+
+            # Base64 data URL
+            if image_source.startswith("data:image"):
+                return types.Image(image_bytes=image_source.split(",", 1)[1])
+
+            # 本地路径
+            encoded = self._encode_local_image(image_source)
+            if encoded and encoded.startswith("data:image"):
+                return types.Image(image_bytes=encoded.split(",", 1)[1])
+
+            return None
+        except Exception:
+            return None
+
+    def _encode_local_image(self, file_path: str) -> str | None:
+        """编码本地图片为 data URL"""
+        try:
+            import os
+            if not os.path.exists(file_path):
+                return None
+
+            with open(file_path, "rb") as f:
+                image_data = f.read()
+
+            # 限制大小
+            max_size = 10 * 1024 * 1024  # 10MB
+            if len(image_data) > max_size:
+                return None
+
+            base64_data = base64.b64encode(image_data).decode("utf-8")
+            return f"data:image/jpeg;base64,{base64_data}"
+        except Exception:
+            return None
+
+    def _extract_image_url(self, item: Any) -> str | None:
+        """从图片条目中提取 URL"""
+        if isinstance(item, str):
+            return item.strip() or None
+        if isinstance(item, dict):
+            for key in ["url", "image_url", "file_path", "path", "value"]:
+                url = item.get(key)
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
+        return None
 
 
 def _contains_oss_resource(payload: Any) -> bool:

@@ -4,6 +4,7 @@ export const PROVIDER_OPTIONS = [
   { key: "doubao", label: "豆包" },
   { key: "dashscope_tts", label: "DashScope (Qwen-TTS)" },
   { key: "deepseek", label: "DeepSeek" },
+  { key: "gemini", label: "Google (Gemini/Veo)" },
 ];
 
 export const PROVIDER_FIELD_WHITELIST: Record<
@@ -13,4 +14,5 @@ export const PROVIDER_FIELD_WHITELIST: Record<
   doubao: ["api_key"],
   dashscope_tts: ["api_key"],
   deepseek: ["api_key"],
+  gemini: ["api_key"],
 };

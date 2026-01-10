@@ -99,7 +99,7 @@ const MODEL_LIMITS: Record<
     maxDuration: 10,
     enableLastFrame: false,
   },
-  VEO3.1: {
+  "VEO3.1": {
     resolutions: ["720p", "1080p"],
     minDuration: 4,
     maxDuration: 8,
@@ -509,8 +509,9 @@ export default function DoubaoVideoGeneratorLayout({
           const hasLast = Boolean(hasLastFrameEdge || hasLastFrameValue);
           const isReferenceMode = Boolean(hasReference && !hasFirst && !hasLast);
           const isInterpolationMode = Boolean(hasFirst && hasLast);
-          const mustBeEight =
-            selectedResolutionValue === "1080p" || isReferenceMode || isInterpolationMode;
+          // 只有在参考图模式或插值模式时才必须使用 8 秒
+          // 1080p 的限制由后端处理，不在前端强制禁用
+          const mustBeEight = isReferenceMode || isInterpolationMode;
           const allowedSet = new Set<number>(mustBeEight ? [8] : baseAllowed);
           const extraDisabled = options.filter((option) => !allowedSet.has(Number(option)));
           disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
@@ -528,9 +529,9 @@ export default function DoubaoVideoGeneratorLayout({
         const allowed = new Set<string>(["720p", "1080p"]);
         const baseDisabled = options.filter((option) => !allowed.has(String(option)));
         disabledOptions = [...(disabledOptions ?? []), ...baseDisabled];
-        if (!Number.isNaN(selectedDurationValue) && selectedDurationValue !== 8) {
-          disabledOptions = [...(disabledOptions ?? []), "1080p"];
-        }
+        // Veo 模型：1080p 仅在时长为 8 秒时可用
+        // 但我们不在前端强制禁用，让用户可以自由选择
+        // 如果用户选择了不兼容的组合（如 1080p + 4秒），后端会自动调整
       }
 
       if (field.name === ASPECT_RATIO_FIELD) {
