@@ -202,25 +202,82 @@ class TextCreation(Component):
         except Exception as exc:  # noqa: BLE001
             return self._error(f"缺少 requests 依赖，请安装后重试：{exc}")
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        # 验证 API Key（仅检查是否为空）
+        if not api_key or not api_key.strip():
+            return self._error("Gemini API Key 未配置。请在 .env 中配置 GEMINI_API_KEY 或在节点中输入。")
+
+        # 使用国内代理地址（注意：路径格式为 models/{model}，不是直接 {model}）
+        url = f"https://cdn.12ai.org/v1beta/models/{model_name}:generateContent?key={api_key}"
         headers = {
-            "x-goog-api-key": api_key,
             "Content-Type": "application/json",
         }
+
+        # 构建 parts，支持文本和多媒体
+        parts = self._build_gemini_parts(prompt)
+
         payload = {
             "contents": [
                 {
-                    "parts": [{"text": prompt}],
+                    "parts": parts,
                 }
             ]
+        }
+
+        # 添加调试信息
+        import json
+
+        # 检查 API Key 来源
+        api_key_source = "未知"
+        if os.getenv("GEMINI_API_KEY"):
+            api_key_source = ".env 文件 (GEMINI_API_KEY)"
+        elif os.getenv("GOOGLE_API_KEY"):
+            api_key_source = ".env 文件 (GOOGLE_API_KEY)"
+        else:
+            api_key_source = "未找到 API Key"
+
+        debug_info = {
+            "url": url,
+            "api_key_length": len(api_key),
+            "api_key_preview": api_key[:8] + "..." if len(api_key) > 8 else api_key,
+            "api_key_source": api_key_source,
+            "env_gemini_key_set": bool(os.getenv("GEMINI_API_KEY")),
+            "env_google_key_set": bool(os.getenv("GOOGLE_API_KEY")),
+            "model": model_name,
+            "payload_preview": json.dumps(payload, ensure_ascii=False)[:500] + "..." if len(json.dumps(payload)) > 500 else json.dumps(payload, ensure_ascii=False)
         }
 
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=90)
             response.raise_for_status()
             result = response.json()
+        except requests.HTTPError as exc:
+            # 尝试获取详细错误信息
+            error_detail = str(exc)
+            status_code = exc.response.status_code if exc.response else "Unknown"
+            response_text = ""
+
+            try:
+                if exc.response is not None:
+                    response_text = exc.response.text
+                    error_json = exc.response.json()
+                    if "error" in error_json:
+                        error_info = error_json["error"]
+                        error_detail = f"{error_info.get('status', '')}: {error_info.get('message', '')}"
+
+                        # 添加更详细的错误信息
+                        if "details" in error_info:
+                            error_detail += f" | 详情: {error_info['details']}"
+            except Exception:
+                if response_text:
+                    error_detail = f"{error_detail} | 响应: {response_text[:300]}"
+
+            return self._error(
+                f"Gemini 3 调用失败 [HTTP {status_code}]\n"
+                f"错误详情: {error_detail}\n"
+                f"\n调试信息:\n{json.dumps(debug_info, ensure_ascii=False, indent=2)}"
+            )
         except Exception as exc:  # noqa: BLE001
-            return self._error(f"Gemini 3 调用失败：{exc}")
+            return self._error(f"Gemini 3 调用失败：{exc}\n\n调试信息:\n{json.dumps(debug_info, ensure_ascii=False, indent=2)}")
 
         text = self._extract_gemini_text(result)
         if not text:
@@ -249,6 +306,127 @@ class TextCreation(Component):
 
         self.status = "✅ Gemini 3 文本生成完成"
         return Data(data=result_data, text_key="text")
+
+    def _build_gemini_parts(self, prompt_source: Any) -> list[dict[str, Any]]:
+        """构建 Gemini API 的 parts，支持文本、图像和视频。"""
+        parts: list[dict[str, Any]] = []
+
+        def _add_from_value(value: Any) -> None:
+            """从值中提取并添加内容到 parts"""
+            if value is None:
+                return
+
+            # 处理 Data 对象
+            if isinstance(value, Data):
+                _add_from_value(value.data)
+                return
+
+            # 处理字典
+            if isinstance(value, dict):
+                # 优先处理文本内容
+                text_value = value.get("text") or value.get("prompt") or value.get("content")
+                if isinstance(text_value, str) and text_value.strip():
+                    parts.append({"text": str(text_value).strip()})
+
+                # 处理图像数据
+                image_data = self._extract_image_from_dict(value)
+                if image_data:
+                    parts.append(image_data)
+
+                # 处理视频数据
+                video_data = self._extract_video_from_dict(value)
+                if video_data:
+                    parts.append(video_data)
+
+                # 递归处理嵌套的列表
+                for key in ["images", "generated_images", "videos", "reference_images"]:
+                    nested = value.get(key)
+                    if isinstance(nested, list):
+                        for item in nested:
+                            _add_from_value(item)
+
+                return
+
+            # 处理列表
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    _add_from_value(item)
+                return
+
+            # 处理字符串
+            if isinstance(value, str) and value.strip():
+                # 检查是否为 data URL
+                if value.strip().startswith("data:"):
+                    mime_type = value.strip().split(":")[1].split(";")[0] if ":" in value else "image/png"
+                    if ";base64," in value:
+                        _, encoded = value.strip().split(";base64,", 1)
+                        if mime_type.startswith("image/"):
+                            parts.append({"inline_data": {"mime_type": mime_type, "data": encoded.strip()}})
+                        elif mime_type.startswith("video/"):
+                            parts.append({"inline_data": {"mime_type": mime_type, "data": encoded.strip()}})
+                else:
+                    parts.append({"text": value.strip()})
+
+        _add_from_value(prompt_source)
+        return parts if parts else [{"text": ""}]
+
+    @staticmethod
+    def _extract_image_from_dict(data: dict[str, Any]) -> dict[str, Any] | None:
+        """从字典中提取图像数据"""
+        # 常见的图像数据字段
+        image_keys = ["image_data_url", "data_url", "preview_base64", "image_base64", "image", "cover_preview_base64"]
+
+        for key in image_keys:
+            value = data.get(key)
+            if not isinstance(value, str) or not value.strip():
+                continue
+
+            value = value.strip()
+
+            # 已经是 data URL 格式
+            if value.startswith("data:image"):
+                try:
+                    mime_type = value.split(":")[1].split(";")[0]
+                    _, encoded = value.split(";base64,", 1)
+                    return {"inline_data": {"mime_type": mime_type, "data": encoded.strip()}}
+                except Exception:
+                    continue
+
+            # 可能是纯 base64
+            if ";" not in value and "," not in value:
+                try:
+                    import base64
+                    # 尝试解码验证是否为有效的 base64
+                    base64.b64decode(value)
+                    return {"inline_data": {"mime_type": "image/png", "data": value.strip()}}
+                except Exception:
+                    continue
+
+        return None
+
+    @staticmethod
+    def _extract_video_from_dict(data: dict[str, Any]) -> dict[str, Any] | None:
+        """从字典中提取视频数据"""
+        # 常见的视频数据字段
+        video_keys = ["video_data_url", "video_base64", "video"]
+
+        for key in video_keys:
+            value = data.get(key)
+            if not isinstance(value, str) or not value.strip():
+                continue
+
+            value = value.strip()
+
+            # 已经是 data URL 格式
+            if value.startswith("data:video"):
+                try:
+                    mime_type = value.split(":")[1].split(";")[0]
+                    _, encoded = value.split(";base64,", 1)
+                    return {"inline_data": {"mime_type": mime_type, "data": encoded.strip()}}
+                except Exception:
+                    continue
+
+        return None
 
     @staticmethod
     def _extract_gemini_text(result: dict[str, Any]) -> str:
@@ -308,9 +486,24 @@ class TextCreation(Component):
         return ""
 
     def _resolve_gemini_api_key(self) -> str:
-        """Resolve Gemini API key from node input, provider credentials, or env."""
-        candidates: list[str | None] = [self.api_key]
+        """Resolve Gemini API key from env only (not from node parameter)."""
+        candidates: list[str] = []
 
+        # 调试:记录所有来源
+        sources = []
+
+        # 优先从环境变量读取(最高优先级)
+        gemini_env = os.getenv("GEMINI_API_KEY", "")
+        google_env = os.getenv("GOOGLE_API_KEY", "")
+
+        if gemini_env:
+            candidates.append(gemini_env)
+            sources.append(f"ENV(GEMINI_API_KEY): {gemini_env[:8]}... (len={len(gemini_env)})")
+        if google_env:
+            candidates.append(google_env)
+            sources.append(f"ENV(GOOGLE_API_KEY): {google_env[:8]}...")
+
+        # 其次从 Provider Credentials 读取
         try:  # pragma: no cover - runtime dependency
             from langflow.services.deps import get_settings_service
 
@@ -318,13 +511,27 @@ class TextCreation(Component):
             config_dir = settings_service.settings.config_dir
             google_creds = get_provider_credentials("google", config_dir)
             default_creds = get_provider_credentials(DEFAULT_PROVIDER_KEY, config_dir)
-            candidates.extend([google_creds.api_key, default_creds.api_key])
-        except Exception:
-            pass
 
-        candidates.extend([os.getenv("GEMINI_API_KEY", ""), os.getenv("GOOGLE_API_KEY", "")])
+            if google_creds and google_creds.api_key:
+                candidates.append(google_creds.api_key)
+                sources.append(f"Provider(Google): {google_creds.api_key[:8]}...")
+            if default_creds and default_creds.api_key:
+                candidates.append(default_creds.api_key)
+                sources.append(f"Provider(Default): {default_creds.api_key[:8]}...")
+        except Exception as e:
+            sources.append(f"Provider Error: {str(e)[:50]}")
+
+        # 记录调试信息
+        import sys
+        print(f"[DEBUG] _resolve_gemini_api_key sources:", file=sys.stderr)
+        for s in sources:
+            print(f"  - {s}", file=sys.stderr)
 
         for key in candidates:
             if key and key.strip():
-                return key.strip()
+                result = key.strip()
+                print(f"[DEBUG] Selected API key: {result[:8]}... (len={len(result)})", file=sys.stderr)
+                return result
+
+        print("[DEBUG] No valid API key found!", file=sys.stderr)
         return ""
