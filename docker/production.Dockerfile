@@ -1,60 +1,64 @@
-# 生产环境 Dockerfile - 基于你的自定义代码构建
-# 适用于服务器部署
+# syntax=docker/dockerfile:1
 
-FROM python:3.12
+# Multi-stage production build:
+# - frontend-builder: builds the React/Vite frontend to static files
+# - runtime: installs Python deps (via uv.lock) + copies custom code
 
-LABEL maintainer="your-email@example.com"
-LABEL description="Custom Langflow with Seedream Components"
+FROM node:20-bookworm-slim AS frontend-builder
+WORKDIR /frontend
 
-# 设置环境变量
+COPY src/frontend/package.json src/frontend/package-lock.json ./
+RUN npm ci
+
+COPY src/frontend/ ./
+RUN npm run build
+
+FROM python:3.12-slim AS runtime
+
+LABEL description="Custom Langflow (includes lfx custom components)"
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     LANGFLOW_CONFIG_DIR=/app/langflow_config \
     LANGFLOW_LOG_LEVEL=INFO
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     git \
-    gcc \
-    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 安装 uv
 RUN pip install --no-cache-dir uv
 
-# 复制项目文件
+# Copy workspace metadata and sources (uv workspace install needs local sources).
 COPY pyproject.toml uv.lock README.md ./
-COPY src/backend/base/pyproject.toml ./src/backend/base/
-COPY src/backend/base/README.md ./src/backend/base/
-COPY src/lfx/pyproject.toml ./src/lfx/
-COPY src/lfx/README.md ./src/lfx/
+COPY src/backend/base/pyproject.toml src/backend/base/README.md ./src/backend/base/
+COPY src/lfx/pyproject.toml src/lfx/README.md ./src/lfx/
+COPY src/backend ./src/backend
+COPY src/lfx ./src/lfx
 
-# 使用 uv 安装依赖
-RUN uv sync --frozen --no-dev --no-editable --extra postgresql
+# Replace backend-bundled frontend assets with freshly built ones.
+RUN rm -rf ./src/backend/base/langflow/frontend/*
+COPY --from=frontend-builder /frontend/build/ ./src/backend/base/langflow/frontend/
 
-# 复制源代码
-COPY src ./src
+# Install Python deps (and workspace packages) deterministically from uv.lock.
+RUN uv sync --frozen --no-dev --extra postgresql
 
-# 设置 Python 路径
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/src/backend/base:/app/src/lfx/src:$PYTHONPATH"
 
-# 创建配置目录
-RUN mkdir -p /app/langflow_config
+RUN mkdir -p /app/langflow_config /app/data
 
-# 暴露端口
 EXPOSE 7860
 
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:7860/health || exit 1
+    CMD curl -fsS http://localhost:7860/health || exit 1
 
-# 启动命令
-CMD ["python", "-m", "langflow", "run", \
+CMD ["langflow", "run", \
      "--host", "0.0.0.0", \
      "--port", "7860", \
-     "--log-level", "info"]
+     "--log-level", "info", \
+     "--frontend-path", "/app/src/backend/base/langflow/frontend"]
+

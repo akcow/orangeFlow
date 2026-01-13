@@ -45,7 +45,12 @@ echo ""
 echo -e "${GREEN}[2/7]${NC} 检查配置文件..."
 if [ ! -f ".env" ]; then
     echo -e "${YELLOW}未找到 .env 文件,从模板创建...${NC}"
-    cp .env.production .env
+    if [ -f ".env.example" ]; then
+        cp .env.example .env
+    else
+        echo -e "${RED}错误: 未找到 .env.example 模板文件${NC}"
+        exit 1
+    fi
 
     # 生成随机密钥
     SECRET_KEY=$(openssl rand -hex 32)
@@ -72,9 +77,9 @@ echo ""
 
 # 停止旧容器(如果存在)
 echo -e "${GREEN}[3/7]${NC} 停止旧容器..."
-if docker-compose -f production.docker-compose.yml ps | grep -q "Up"; then
+if docker compose -f production.docker-compose.yml ps 2>/dev/null | grep -q "Up"; then
     echo "发现运行中的容器,正在停止..."
-    docker-compose -f production.docker-compose.yml down
+    docker compose -f production.docker-compose.yml down
     echo -e "${GREEN}✓ 旧容器已停止${NC}"
 else
     echo -e "${GREEN}✓ 没有运行中的容器${NC}"
@@ -84,7 +89,7 @@ echo ""
 # 构建镜像
 echo -e "${GREEN}[4/7]${NC} 构建 Docker 镜像..."
 echo -e "${YELLOW}这可能需要 5-15 分钟,请耐心等待...${NC}"
-if docker-compose -f production.docker-compose.yml build --no-cache; then
+if docker compose -f production.docker-compose.yml build; then
     echo -e "${GREEN}✓ 镜像构建成功${NC}"
 else
     echo -e "${RED}✗ 镜像构建失败${NC}"
@@ -94,12 +99,12 @@ echo ""
 
 # 启动服务
 echo -e "${GREEN}[5/7]${NC} 启动服务..."
-if docker-compose -f production.docker-compose.yml up -d; then
+if docker compose -f production.docker-compose.yml up -d; then
     echo -e "${GREEN}✓ 服务已启动${NC}"
 else
     echo -e "${RED}✗ 服务启动失败${NC}"
     echo "运行以下命令查看日志:"
-    echo "docker-compose -f production.docker-compose.yml logs"
+    echo "docker compose -f production.docker-compose.yml logs"
     exit 1
 fi
 echo ""
@@ -140,9 +145,9 @@ echo -e "  本地访问: ${GREEN}http://localhost:7860${NC}"
 echo -e "  外网访问: ${GREEN}http://$(hostname -I | awk '{print $1}'):7860${NC}"
 echo ""
 echo "管理命令:"
-echo "  查看日志: docker-compose -f production.docker-compose.yml logs -f"
-echo "  停止服务: docker-compose -f production.docker-compose.yml down"
-echo "  重启服务: docker-compose -f production.docker-compose.yml restart"
+echo "  查看日志: docker compose -f production.docker-compose.yml logs -f"
+echo "  停止服务: docker compose -f production.docker-compose.yml down"
+echo "  重启服务: docker compose -f production.docker-compose.yml restart"
 echo ""
 echo "默认管理员账户:"
 echo "  用户名: admin"
@@ -155,5 +160,5 @@ echo "1. 请及时备份数据库和配置文件"
 echo "2. 生产环境建议配置 HTTPS"
 echo "3. 定期更新依赖包和安全补丁"
 echo ""
-echo "详细文档: cat DEPLOYMENT.md"
+echo "详细文档: cat ../SERVER_DEPLOYMENT_GUIDE.md"
 echo "=========================================="
