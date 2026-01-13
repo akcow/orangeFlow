@@ -58,6 +58,8 @@ const CONTROL_FIELDS = [
 
 const PROMPT_NAME = "prompt";
 const REFERENCE_FIELD = "reference_images";
+const MULTI_TURN_FIELD = "enable_multi_turn";
+const ONLINE_SEARCH_FIELD = "enable_google_search";
 const MAX_REFERENCE_IMAGES = 14;
 const DEFAULT_REFERENCE_EXTENSIONS = [
   "png",
@@ -109,6 +111,8 @@ export default function DoubaoImageCreatorLayout({
   const customFields = new Set<string>([
     PROMPT_NAME,
     REFERENCE_FIELD,
+    MULTI_TURN_FIELD,
+    ONLINE_SEARCH_FIELD,
     ...CONTROL_FIELDS.map((item) => item.name),
     ...SENSITIVE_FIELDS,
   ]);
@@ -132,6 +136,7 @@ export default function DoubaoImageCreatorLayout({
   const isNanoBanana = selectedModelName === "Nano Banana";
   const isNanoBananaPro = selectedModelName === "Nano Banana Pro";
   const isGeminiImageModel = isNanoBanana || isNanoBananaPro;
+  const supportsGeminiFeatureButtons = isNanoBananaPro;
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
   const onConnect = useFlowStore((state) => state.onConnect);
@@ -236,6 +241,16 @@ export default function DoubaoImageCreatorLayout({
     nodeId: data.id,
     name: "resolution",
   });
+  const { handleOnNewValue: handleMultiTurnChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: MULTI_TURN_FIELD,
+  });
+  const { handleOnNewValue: handleOnlineSearchChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: ONLINE_SEARCH_FIELD,
+  });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
   const { mutateAsync: uploadReferenceFile } = usePostUploadFile();
@@ -257,6 +272,80 @@ export default function DoubaoImageCreatorLayout({
     : data.id;
 
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+
+  const canonicalTemplate = (templates as any)?.[data.type]?.template as
+    | Record<string, any>
+    | undefined;
+  const canonicalMultiTurnField = canonicalTemplate?.[MULTI_TURN_FIELD];
+  const canonicalOnlineSearchField = canonicalTemplate?.[ONLINE_SEARCH_FIELD];
+
+  useEffect(() => {
+    if (!supportsGeminiFeatureButtons) return;
+    if (!data.node) return;
+
+    const currentTemplate = data.node.template ?? {};
+    const patches: Record<string, any> = {};
+
+    if (!currentTemplate[MULTI_TURN_FIELD]) {
+      patches[MULTI_TURN_FIELD] = {
+        ...(canonicalMultiTurnField ?? {
+          _input_type: "BoolInput",
+          name: MULTI_TURN_FIELD,
+          display_name: "多轮对话",
+          type: "bool",
+          advanced: true,
+          required: false,
+          show: true,
+        }),
+        value: false,
+      };
+    }
+
+    if (!currentTemplate[ONLINE_SEARCH_FIELD]) {
+      patches[ONLINE_SEARCH_FIELD] = {
+        ...(canonicalOnlineSearchField ?? {
+          _input_type: "BoolInput",
+          name: ONLINE_SEARCH_FIELD,
+          display_name: "联网搜索",
+          type: "bool",
+          advanced: true,
+          required: false,
+          show: true,
+        }),
+        value: false,
+      };
+    }
+
+    const keys = Object.keys(patches);
+    if (!keys.length) return;
+
+    setNodes((oldNodes) => {
+      return oldNodes.map((node) => {
+        if (node.id !== data.id) return node;
+        if (node.type !== "genericNode") return node;
+        const nextNode = { ...node };
+        const nextData = { ...(nextNode.data as any) };
+        const nextApiNode = { ...(nextData.node as any) };
+        const nextTemplate = { ...(nextApiNode.template ?? {}) };
+        keys.forEach((key) => {
+          if (!nextTemplate[key]) {
+            nextTemplate[key] = patches[key];
+          }
+        });
+        nextApiNode.template = nextTemplate;
+        nextData.node = nextApiNode;
+        nextNode.data = nextData;
+        return nextNode;
+      });
+    });
+  }, [
+    supportsGeminiFeatureButtons,
+    data.id,
+    data.node,
+    setNodes,
+    canonicalMultiTurnField,
+    canonicalOnlineSearchField,
+  ]);
 
   useEffect(() => {
     if (!isWanModel) return;
@@ -414,6 +503,17 @@ export default function DoubaoImageCreatorLayout({
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
   }, [template, isWanModel, hasAnyReferenceSelected, isGeminiImageModel, isNanoBanana]);
+
+  const multiTurnEnabled = Boolean(template?.[MULTI_TURN_FIELD]?.value);
+  const onlineSearchEnabled = Boolean(template?.[ONLINE_SEARCH_FIELD]?.value);
+
+  const toggleMultiTurn = useCallback(() => {
+    handleMultiTurnChange({ value: !multiTurnEnabled });
+  }, [handleMultiTurnChange, multiTurnEnabled]);
+
+  const toggleOnlineSearch = useCallback(() => {
+    handleOnlineSearchChange({ value: !onlineSearchEnabled });
+  }, [handleOnlineSearchChange, onlineSearchEnabled]);
 
   const maxReferenceEntries = useMemo(() => {
     const defaultLimit = isWanModel ? 4 : isNanoBanana ? 3 : MAX_REFERENCE_IMAGES;
@@ -1191,6 +1291,45 @@ export default function DoubaoImageCreatorLayout({
               {controlConfigs.map((config) => (
                 <DoubaoParameterButton key={config.name} data={data} config={config} />
               ))}
+
+              {supportsGeminiFeatureButtons && (
+                <>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={toggleMultiTurn}
+                    className={cn(
+                      "flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-medium transition",
+                      multiTurnEnabled
+                        ? "border-[#2E7BFF] bg-[#2E7BFF] text-white"
+                        : "border-[#E0E5F6] bg-[#F4F6FB] text-[#2E3150] hover:bg-[#E9EEFF] dark:border-white/15 dark:bg-white/10 dark:text-white",
+                      isBusy && "cursor-not-allowed opacity-60",
+                    )}
+                  >
+                    多轮对话
+                    <span className={cn("text-xs", multiTurnEnabled ? "text-white/90" : "text-[#7D85A8] dark:text-slate-300")}>
+                      {multiTurnEnabled ? "开启" : "关闭"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={toggleOnlineSearch}
+                    className={cn(
+                      "flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-medium transition",
+                      onlineSearchEnabled
+                        ? "border-[#2E7BFF] bg-[#2E7BFF] text-white"
+                        : "border-[#E0E5F6] bg-[#F4F6FB] text-[#2E3150] hover:bg-[#E9EEFF] dark:border-white/15 dark:bg-white/10 dark:text-white",
+                      isBusy && "cursor-not-allowed opacity-60",
+                    )}
+                  >
+                    联网搜索
+                    <span className={cn("text-xs", onlineSearchEnabled ? "text-white/90" : "text-[#7D85A8] dark:text-slate-300")}>
+                      {onlineSearchEnabled ? "开启" : "关闭"}
+                    </span>
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"

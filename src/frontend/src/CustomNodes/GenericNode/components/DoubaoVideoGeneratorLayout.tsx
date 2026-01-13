@@ -210,7 +210,11 @@ export default function DoubaoVideoGeneratorLayout({
   const isSoraModel = normalizedModelName === "sora-2" || normalizedModelName === "sora-2-pro";
   const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
   const allowLastFrame = modelLimits?.enableLastFrame ?? true;
-  const firstFrameMaxUploads = isVeoModel ? VEO_MAX_UPLOADS : FIRST_FRAME_MAX_UPLOADS;
+  const firstFrameMaxUploads = isSoraModel
+    ? 1
+    : isVeoModel
+      ? VEO_MAX_UPLOADS
+      : FIRST_FRAME_MAX_UPLOADS;
   const customFields = new Set<string>([
     PROMPT_NAME,
     FIRST_FRAME_FIELD,
@@ -272,6 +276,10 @@ export default function DoubaoVideoGeneratorLayout({
   const [isFirstFrameDialogOpen, setFirstFrameDialogOpen] = useState(false);
   const [isFirstFrameUploadPending, setFirstFrameUploadPending] = useState(false);
   const [forceFirstLastFrameMode, setForceFirstLastFrameMode] = useState(false);
+  const [
+    disableSoraModelSelectionAfterFrameActions,
+    setDisableSoraModelSelectionAfterFrameActions,
+  ] = useState(false);
   const { handleOnNewValue: handleFirstFrameChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
@@ -603,6 +611,9 @@ export default function DoubaoVideoGeneratorLayout({
       if (field.name === "model_name" && shouldDisableProFastModel) {
         disabledOptions = [...(disabledOptions ?? []), PRO_FAST_MODEL];
       }
+      if (field.name === "model_name" && disableSoraModelSelectionAfterFrameActions) {
+        disabledOptions = [...(disabledOptions ?? []), "sora-2", "sora-2-pro"];
+      }
       if (field.name === "model_name" && isFirstLastFrameMode) {
         const wanModels = options.filter((option) => String(option).trim().startsWith("wan2."));
         disabledOptions = [...(disabledOptions ?? []), ...wanModels];
@@ -635,6 +646,7 @@ export default function DoubaoVideoGeneratorLayout({
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
   }, [
+    disableSoraModelSelectionAfterFrameActions,
     PRO_FAST_MODEL,
     firstFrameField,
     hasLastFrameEdge,
@@ -826,7 +838,23 @@ export default function DoubaoVideoGeneratorLayout({
       : null;
   const firstFrameCount = combinedFirstFramePreviews.length;
   const localFirstFrameCount = firstFramePreviews.length;
-  const canUploadMoreFirstFrames = localFirstFrameCount < firstFrameMaxUploads;
+  const canUploadMoreFirstFrames = isSoraModel
+    ? firstFrameCount < firstFrameMaxUploads
+    : localFirstFrameCount < firstFrameMaxUploads;
+  const veoHasFirstOrLastLocally = useMemo(() => {
+    if (!isVeoModel) return false;
+    const localEntries = firstFrameEntries.slice(0, localFirstFrameCount);
+    const hasFirst = localEntries.some((entry) => entry.role === "first") || localEntries.length === 1;
+    const hasLast =
+      localEntries.some((entry) => entry.role === "last") ||
+      Boolean(hasLastFrameEdge || hasLastFrameValue);
+    return hasFirst || hasLast;
+  }, [firstFrameEntries, hasLastFrameEdge, hasLastFrameValue, isVeoModel, localFirstFrameCount]);
+  const veoHasReferenceLocally = useMemo(() => {
+    if (!isVeoModel) return false;
+    const localEntries = firstFrameEntries.slice(0, localFirstFrameCount);
+    return localEntries.some((entry) => entry.role === "reference");
+  }, [firstFrameEntries, isVeoModel, localFirstFrameCount]);
   const firstFrameFileTypes =
     firstFrameField?.fileTypes ??
     firstFrameField?.file_types ??
@@ -866,16 +894,15 @@ export default function DoubaoVideoGeneratorLayout({
         id: data.id,
         fieldName: FIRST_FRAME_FIELD,
       },
-      tooltip:
-        firstFrameField.input_types?.join(", ") ??
-        firstFrameField.type ??
-        "首帧图输入",
-      title: firstFrameField.display_name ?? "首帧图输入",
+      tooltip: isSoraModel
+        ? "Sora 参考图输入（input_reference）"
+        : firstFrameField.input_types?.join(", ") ?? firstFrameField.type ?? "首帧图输入",
+      title: isSoraModel ? "参考图输入" : firstFrameField.display_name ?? "首帧图输入",
       colors,
       colorName,
       proxy: firstFrameField.proxy,
     };
-  }, [firstFrameField, types, data.id]);
+  }, [data.id, firstFrameField, isSoraModel, types]);
 
   const lastFrameHandleMeta = useMemo(() => {
     const colors = getNodeInputColors(
@@ -1095,6 +1122,13 @@ export default function DoubaoVideoGeneratorLayout({
   ]);
 
   const handleCreateFirstLastFrameUpstreamNodes = useCallback(() => {
+    if (isSoraModel) {
+      setErrorData({
+        title: "Sora 不支持首尾帧模式",
+        list: ["Sora 系列仅支持参考图生视频（最多 1 张 input_reference）。"],
+      });
+      return;
+    }
     const currentNode = nodes.find((node) => node.id === data.id);
     if (!currentNode) return;
 
@@ -1273,15 +1307,19 @@ export default function DoubaoVideoGeneratorLayout({
     template,
     templates,
     resolveSeedanceModelForFirstLastFrame,
+    isSoraModel,
+    setErrorData,
   ]);
 
   const handlePreviewSuggestionClick = useCallback(
     (label: string) => {
       if (label === FIRST_FRAME_BUTTON_LABEL) {
+        setDisableSoraModelSelectionAfterFrameActions(true);
         handleCreateFirstFrameUpstreamNode();
         return;
       }
       if (label === FIRST_LAST_FRAME_BUTTON_LABEL) {
+        setDisableSoraModelSelectionAfterFrameActions(true);
         handleCreateFirstLastFrameUpstreamNodes();
       }
     },
@@ -1290,6 +1328,7 @@ export default function DoubaoVideoGeneratorLayout({
       FIRST_LAST_FRAME_BUTTON_LABEL,
       handleCreateFirstFrameUpstreamNode,
       handleCreateFirstLastFrameUpstreamNodes,
+      setDisableSoraModelSelectionAfterFrameActions,
     ],
   );
 
@@ -1765,18 +1804,20 @@ export default function DoubaoVideoGeneratorLayout({
       >
           <DialogContent className="w-[500px]">
             <DialogHeader>
-              <DialogTitle>上传图片或视频</DialogTitle>
-              <DialogDescription>
-                {isVeoModel
-                  ? "Veo 3.1 仅支持图片输入：可设置首帧/尾帧，或最多 3 张参考图。"
-                  : "支持 JPG/PNG/WebP 等图片格式；wan2.6 还支持 MP4/MOV 参考视频。"}
-              </DialogDescription>
+              <DialogTitle>{isSoraModel ? "上传参考图（Sora）" : "上传图片或视频"}</DialogTitle>
+                <DialogDescription>
+                  {isSoraModel
+                    ? "Sora 系列仅支持参考图生视频（最多 1 张，将作为 input_reference）。不支持首尾帧插值，请上传 1 张图片并填写提示词。"
+                    : isVeoModel
+                      ? "Veo 3.1 仅支持图片输入：可设置首帧/尾帧，或最多 3 张参考图。提示：如已设置首帧/尾帧，参考图会被自动忽略（首/尾帧优先）。"
+                      : "支持 JPG/PNG/WebP 等图片格式；wan2.6 还支持 MP4/MOV 参考视频。"}
+               </DialogDescription>
             </DialogHeader>
           {firstFrameField ? (
             <div className="space-y-4">
               <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 dark:border dark:border-white/10 dark:bg-[#111a2b]/80">
                 <p className="text-sm font-medium text-foreground">
-                  选择要上传的图片或视频（支持多选）
+                  {isSoraModel ? "选择要上传的参考图（最多 1 张）" : "选择要上传的图片或视频（支持多选）"}
                 </p>
                 <button
                   type="button"
@@ -1795,19 +1836,33 @@ export default function DoubaoVideoGeneratorLayout({
                      isFirstFrameUploadPending && "animate-spin",
                    )}
                  />
-                  <span>{isFirstFrameUploadPending ? "上传中..." : "上传图片或视频"}</span>
+                  <span>
+                    {isFirstFrameUploadPending
+                      ? "上传中..."
+                      : isSoraModel
+                        ? "上传参考图"
+                        : "上传图片或视频"}
+                  </span>
                 </button>
                 <p className="text-xs text-muted-foreground">
-                  已保留 {firstFrameCount} / {firstFrameMaxUploads} 张候选素材
+                  已保留 {firstFrameCount} / {firstFrameMaxUploads} {isSoraModel ? "张参考图" : "张候选素材"}
                 </p>
+                {isSoraModel && firstFrameCount > 1 && (
+                  <p className="text-xs text-amber-600">
+                    检测到多个参考图输入，Sora 仅会使用列表中的第一张图片作为 input_reference。建议上游图片节点只生成 1 张；如为本节点上传的图片，可删除多余项。
+                  </p>
+                )}
                 {!canUploadMoreFirstFrames && (
                   <p className="text-xs text-amber-600">
-                    已达到候选图上限，请删除不需要的图片后再上传。
+                    {isSoraModel
+                      ? "已达到参考图上限，请删除后再上传。"
+                      : "已达到候选图上限，请删除不需要的图片后再上传。"}
                   </p>
                 )}
                 {selectedFirstFrame && (
                   <p className="text-xs text-[#4B5168] dark:text-slate-200">
-                    当前首帧：{selectedFirstFrame.fileName ?? selectedFirstFrame.label}
+                    {isSoraModel ? "当前参考图：" : "当前首帧："}
+                    {selectedFirstFrame.fileName ?? selectedFirstFrame.label}
                   </p>
                 )}
                 {allowLastFrame ? (
@@ -1842,21 +1897,27 @@ export default function DoubaoVideoGeneratorLayout({
                       请选择图片设置为尾帧，模型将按首尾衔接生成视频。
                     </p>
                   )
-                ) : (
+                ) : isSoraModel ? null : (
                   <p className="text-xs text-amber-700">当前模型不支持尾帧设置</p>
                 )}
               </div>
 
               <div className="space-y-3 rounded-2xl border border-dashed border-[#E0E5F2] bg-white/80 p-3 dark:border-white/15 dark:bg-[#0a1220]/70">
                 <div className="flex items-center justify-between text-xs text-[#636A86] dark:text-slate-300">
-                  <span>首帧候选管理</span>
+                  <span>{isSoraModel ? "参考图管理" : "首帧候选管理"}</span>
                   <span className="font-medium text-[#1B66FF]">
                     {firstFrameCount} / {firstFrameMaxUploads}
                   </span>
                 </div>
 
                 {firstFrameCount > 0 ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-3">
+                    {isVeoModel && veoHasFirstOrLastLocally && veoHasReferenceLocally && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100">
+                        已设置首帧/尾帧：参考图将被忽略（首/尾帧优先）。
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
                     {combinedFirstFramePreviews.map((preview, index) => {
                       const previewSource =
                         preview.downloadSource ?? preview.imageSource ?? "";
@@ -1890,20 +1951,24 @@ export default function DoubaoVideoGeneratorLayout({
                                 preload="metadata"
                               />
                             ) : (
-                              <img
-                                src={preview.imageSource}
-                                alt={preview.label ?? preview.fileName ?? `候选素材 ${index + 1}`}
-                                className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                              />
-                            )}
-                            {isSelectedFirstFrame && (
-                              <span className="absolute left-3 top-3 rounded-full bg-[#1B66FF]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
-                                {isVeoModel ? "首帧" : "当前首帧"}
-                              </span>
-                            )}
+                                <img
+                                  src={preview.imageSource}
+                                  alt={
+                                    preview.label ??
+                                    preview.fileName ??
+                                    `${isSoraModel ? "参考图" : "候选素材"} ${index + 1}`
+                                  }
+                                  className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                                />
+                              )}
+                              {isSelectedFirstFrame && (
+                                <span className="absolute left-3 top-3 rounded-full bg-[#1B66FF]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
+                                  {isVeoModel ? "首帧" : isSoraModel ? "参考图" : "当前首帧"}
+                                </span>
+                              )}
                             {isVeoModel && !isUpstream && localRole === "reference" && (
                               <span className="absolute left-3 top-3 rounded-full bg-[#10B981]/90 px-2 py-0.5 text-[11px] font-medium text-white shadow">
-                                参考图
+                                {veoHasFirstOrLastLocally ? "参考图(将忽略)" : "参考图"}
                               </span>
                             )}
                             {isSelectedLastFrame && (
@@ -1919,7 +1984,9 @@ export default function DoubaoVideoGeneratorLayout({
                           </div>
                           <div className="flex items-center justify-between px-3 py-2 text-[11px] text-[#5E6484] dark:text-slate-200">
                             <span className="line-clamp-1">
-                              {preview.label ?? preview.fileName ?? `候选图 ${index + 1}`}
+                              {preview.label ??
+                                preview.fileName ??
+                                `${isSoraModel ? "参考图" : "候选图"} ${index + 1}`}
                             </span>
                             <div className="flex items-center gap-2">
                               {isVeoModel ? (
@@ -1963,7 +2030,7 @@ export default function DoubaoVideoGeneratorLayout({
                                       {isSelectedLastFrame ? "已设尾帧" : "设为尾帧"}
                                     </button>
                                   )}
-                                  {index !== 0 && (
+                                  {!isSoraModel && index !== 0 && (
                                     <button
                                       type="button"
                                       className="text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
@@ -1988,10 +2055,13 @@ export default function DoubaoVideoGeneratorLayout({
                         </div>
                       );
                     })}
+                    </div>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    目前还没有候选素材，点击上方按钮上传图片或视频。
+                    {isSoraModel
+                      ? "目前还没有参考图，点击上方按钮上传 1 张图片。"
+                      : "目前还没有候选素材，点击上方按钮上传图片或视频。"}
                   </p>
                 )}
               </div>
@@ -2003,9 +2073,11 @@ export default function DoubaoVideoGeneratorLayout({
           )}
           <DialogFooter>
             <p className="w-full text-center text-xs text-muted-foreground">
-              {isVeoModel
-                ? "最多保留 5 份素材（首帧 1、尾帧 1、参考图最多 3）。"
-                : `最多保留 ${FIRST_FRAME_MAX_UPLOADS} 张候选图，新上传的图片默认用作首帧。`}
+              {isSoraModel
+                ? "Sora 最多 1 张参考图（input_reference）。"
+                : isVeoModel
+                  ? "最多保留 5 份素材（首帧 1、尾帧 1、参考图最多 3）。"
+                  : `最多保留 ${firstFrameMaxUploads} 张候选图，新上传的图片默认用作首帧。`}
             </p>
           </DialogFooter>
         </DialogContent>
@@ -2051,14 +2123,14 @@ async function handleFirstFrameUpload({
 }) {
   if (!currentFlowId) {
     setErrorData({
-      title: "无法上传首帧图",
+      title: maxEntries === 1 ? "无法上传参考图" : "无法上传首帧图",
       list: ["请先保存或重新打开画布后再试。"],
     });
     return;
   }
 
   const files = await createFileUpload({
-    multiple: true,
+    multiple: maxEntries > 1,
     accept,
   });
   if (!files.length) return;

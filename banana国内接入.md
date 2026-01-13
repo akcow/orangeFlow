@@ -156,6 +156,11 @@ curl -s -X POST \
 # 需要将第一轮的响应加入对话历史
 ```
 
+### 在本项目（LangFlow 组件）中使用
+- **多轮图片对话**：`DoubaoImageCreator` 支持自动维护并透传 `gemini_history`（字段 `enable_multi_turn`）。
+- **历史存放位置**：输出的 `gemini_history` 与 `doubao_preview.payload.gemini_history`。
+- **最大轮数**：默认 4 轮，可通过环境变量 `GEMINI_MULTI_TURN_MAX_TURNS` 调整（1–12）。
+
 ## 高级功能¶
 ### 高分辨率输出 (gemini-3-pro-image-preview)¶
 ```bash
@@ -189,6 +194,11 @@ curl -s -X POST \
     }
   }'
 ```
+
+#### 在本项目（LangFlow 组件）中使用
+- **Google 搜索接地**：`DoubaoImageCreator` 提供开关 `enable_google_search`；也可用环境变量 `GEMINI_ENABLE_GOOGLE_SEARCH=1` 强制开启。
+- **请求差异**：开启后会自动设置 `responseModalities=["TEXT","IMAGE"]` 并携带 `tools=[{"google_search":{}}]`。
+- **兼容性**：部分国内代理/网关可能不支持 `google_search` tools，如遇 4xx 错误需在网关侧开启或关闭该开关。
 
 ### 多张参考图片 (gemini-3-pro-image-preview)¶
 最多可使用 14 张参考图片：

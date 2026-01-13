@@ -11,6 +11,7 @@ import requests
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 
@@ -280,6 +281,23 @@ class DoubaoVideoGenerator(Component):
             value=600,
             advanced=True,
             info="Sora API 请求超时时间（秒）",
+        ),
+        DropdownInput(
+            name="sora_group",
+            display_name="Sora 分组",
+            options=["auto", "reverse", "official"],
+            value="auto",
+            advanced=True,
+            required=False,
+            info="可选：用于国内代理侧的渠道分组选择。auto 为默认；sora-2/sora-2-pro 常见为 reverse。",
+        ),
+        StrInput(
+            name="sora_distributor",
+            display_name="Sora Distributor",
+            value="",
+            advanced=True,
+            required=False,
+            info="可选：指定国内代理侧的 distributor（渠道）。留空则由服务端自动选择。",
         ),
     ]
 
@@ -1570,28 +1588,75 @@ class DoubaoVideoGenerator(Component):
 
     def _collect_veo_entries_from_first_frame(self, raw: Any) -> list[dict[str, Any]]:
         """从 first_frame_image 收集 Veo 需要的条目（包含角色信息）"""
+        def _to_list(value: Any) -> list[Any]:
+            if value is None:
+                return []
+            if isinstance(value, (list, tuple)):
+                return [item for item in value if item is not None]
+            return [value]
+
+        def _normalize_role(value: Any | None) -> str | None:
+            if not isinstance(value, str):
+                return None
+            normalized = value.strip().lower()
+            if not normalized:
+                return None
+            alias_map = {
+                "start": "first",
+                "first_frame": "first",
+                "last_frame": "last",
+                "ref": "reference",
+            }
+            normalized = alias_map.get(normalized, normalized)
+            if normalized in {"first", "reference", "last"}:
+                return normalized
+            return None
+
+        # UI 会把 FileInput 存成一个对象：{ value: [...], file_path: [...] }
+        # 其中 value 里可能含 role，file_path 里是对应的路径/URL。
+        container: dict[str, Any] | None = None
+        if isinstance(raw, Data) and isinstance(raw.data, dict):
+            container = raw.data
+        elif isinstance(raw, dict):
+            container = raw
+
+        values: list[Any]
+        paths: list[Any]
+        if container is not None and ("value" in container or "file_path" in container):
+            values = _to_list(container.get("value"))
+            paths = _to_list(container.get("file_path"))
+        else:
+            values = _to_list(raw)
+            paths = []
+
+        default_role = "first" if max(len(values), len(paths)) <= 1 else "reference"
+        length = max(len(values), len(paths))
         entries: list[dict[str, Any]] = []
+        for idx in range(length):
+            value_entry = values[idx] if idx < len(values) else None
+            path_entry = paths[idx] if idx < len(paths) else None
 
-        items = []
-        if isinstance(raw, (list, tuple)):
-            items.extend(list(raw))
-        elif raw is not None:
-            items.append(raw)
-
-        for item in items:
-            # 提取 URL
-            url = self._extract_image_url(item)
+            url = self._extract_image_url(path_entry) or self._extract_image_url(value_entry)
             if not url:
                 continue
 
-            # 提取角色
-            role = "reference"
-            if isinstance(item, dict):
-                raw_role = item.get("role")
-                if isinstance(raw_role, str):
-                    raw_role = raw_role.strip().lower()
-                    if raw_role in {"first", "reference", "last"}:
-                        role = raw_role
+            role: str = default_role
+            role_source: dict[str, Any] | None = None
+            if isinstance(value_entry, Data) and isinstance(value_entry.data, dict):
+                role_source = value_entry.data
+            elif isinstance(value_entry, dict):
+                role_source = value_entry
+
+            if role_source is not None:
+                direct = _normalize_role(role_source.get("role"))
+                if direct:
+                    role = direct
+                else:
+                    nested = role_source.get("value")
+                    if isinstance(nested, dict):
+                        nested_role = _normalize_role(nested.get("role"))
+                        if nested_role:
+                            role = nested_role
 
             entries.append({"url": url, "role": role})
 
@@ -1608,6 +1673,8 @@ class DoubaoVideoGenerator(Component):
             return self._error("未配置 Veo API Key，请在 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY")
 
         try:
+            requested_endpoint_id = endpoint_id
+
             # 获取参数并验证
             resolution = str(getattr(self, "resolution", "720p") or "720p").strip()
             duration = int(getattr(self, "duration", 8) or 8)
@@ -1631,17 +1698,34 @@ class DoubaoVideoGenerator(Component):
             if first_frame_raw:
                 entries = self._collect_veo_entries_from_first_frame(first_frame_raw)
                 for entry in entries:
-                    role = entry.get("role", "reference")
+                    role = entry.get("role", "first")
                     url = entry.get("url")
                     if not url:
                         continue
 
                     if role == "first":
-                        first_frame_url = url
+                        if not first_frame_url:
+                            first_frame_url = url
+                        else:
+                            self.status = "⚠️ Veo 3.1: 检测到多个首帧输入，仅使用第一张"
                     elif role == "last":
-                        last_frame_url = url
+                        if not last_frame_url:
+                            last_frame_url = url
+                        else:
+                            self.status = "⚠️ Veo 3.1: 检测到多个尾帧输入，仅使用第一张"
                     elif role == "reference":
                         reference_images.append(url)
+
+            # 去重并保持顺序
+            if reference_images:
+                seen: set[str] = set()
+                deduped: list[str] = []
+                for url in reference_images:
+                    if url in seen:
+                        continue
+                    seen.add(url)
+                    deduped.append(url)
+                reference_images = deduped
 
             # 处理 last_frame_image (兼容独立输入)
             if not last_frame_url:
@@ -1656,8 +1740,21 @@ class DoubaoVideoGenerator(Component):
             has_last = bool(last_frame_url)
             has_reference = bool(reference_images)
 
-            is_reference_mode = has_reference and not has_first and not has_last
+            # 稳定性优先：只要设置了首帧/尾帧，就按 images 模式走，参考图会被忽略（由前端提示用户）
+            if has_reference and (has_first or has_last):
+                reference_images = []
+                has_reference = False
+                self.status = "⚠️ Veo 3.1: 检测到首帧/尾帧输入，参考图将被忽略（首/尾帧优先）"
+            if has_last and not has_first:
+                return self._error("Veo 3.1: 插值模式需要同时提供首帧与尾帧")
+
+            is_reference_mode = has_reference
             is_interpolation_mode = has_first and has_last
+
+            # 智能切换：参考图模式仅标准版支持
+            if is_reference_mode and endpoint_id == "veo-3.1-fast-generate-preview":
+                endpoint_id = "veo-3.1-generate-preview"
+                self.status = "⚠️ Veo 3.1: 检测到参考图输入，已自动从 fast 切换到标准版模型"
 
             # 模型限制检查
             is_fast_model = endpoint_id == "veo-3.1-fast-generate-preview"
@@ -1733,7 +1830,12 @@ class DoubaoVideoGenerator(Component):
                 if aspect_ratio != "16:9":
                     metadata["aspectRatio"] = aspect_ratio
 
-            # 纯文生视频模式：不添加 metadata（使用 API 默认值）
+            # 纯文生视频模式：当用户显式选择了非默认参数时仍需传递 metadata
+            else:
+                if duration != 8 or aspect_ratio != "16:9":
+                    metadata = {"durationSeconds": duration}
+                    if aspect_ratio != "16:9":
+                        metadata["aspectRatio"] = aspect_ratio
 
             # 只有当 metadata 不为空时才添加到请求中
             if metadata:
@@ -1748,18 +1850,26 @@ class DoubaoVideoGenerator(Component):
 
             self.status = f"📋 创建 Veo 视频生成任务... (模式: {'参考图' if is_reference_mode else '插值' if is_interpolation_mode else '文生/图生'})"
 
-            # 调试：打印完整请求
-            import json
-            request_debug = json.dumps(request_payload, ensure_ascii=False, indent=2)
-            print(f"[VEO DEBUG] 请求 URL: {url}", file=__import__('sys').stderr)
-            print(f"[VEO DEBUG] 请求 Headers: {headers}", file=__import__('sys').stderr)
-            print(f"[VEO DEBUG] 请求 Body: {request_debug}", file=__import__('sys').stderr)
+            debug_enabled = str(os.getenv("LANGFLOW_VEO_DEBUG", "")).strip().lower() in {"1", "true", "yes"}
+            if debug_enabled:
+                import json
+
+                safe_headers = dict(headers)
+                if "Authorization" in safe_headers:
+                    safe_headers["Authorization"] = "Bearer ****"
+                request_debug = json.dumps(request_payload, ensure_ascii=False, indent=2)
+                if len(request_debug) > 4000:
+                    request_debug = request_debug[:4000] + "...<truncated>"
+                print(f"[VEO DEBUG] 请求 URL: {url}", file=__import__('sys').stderr)
+                print(f"[VEO DEBUG] 请求 Headers: {safe_headers}", file=__import__('sys').stderr)
+                print(f"[VEO DEBUG] 请求 Body: {request_debug}", file=__import__('sys').stderr)
 
             try:
                 create_response = requests.post(url, headers=headers, json=request_payload, timeout=60)
-                print(f"[VEO DEBUG] 响应状态码: {create_response.status_code}", file=__import__('sys').stderr)
-                print(f"[VEO DEBUG] 响应 Headers: {dict(create_response.headers)}", file=__import__('sys').stderr)
-                print(f"[VEO DEBUG] 响应 Body: {create_response.text[:1000]}", file=__import__('sys').stderr)
+                if debug_enabled:
+                    print(f"[VEO DEBUG] 响应状态码: {create_response.status_code}", file=__import__('sys').stderr)
+                    print(f"[VEO DEBUG] 响应 Headers: {dict(create_response.headers)}", file=__import__('sys').stderr)
+                    print(f"[VEO DEBUG] 响应 Body: {create_response.text[:1000]}", file=__import__('sys').stderr)
                 create_response.raise_for_status()
                 create_result = create_response.json()
             except requests.HTTPError as exc:
@@ -1849,6 +1959,7 @@ class DoubaoVideoGenerator(Component):
                 "model": {
                     "name": self.model_name,
                     "model_id": endpoint_id,
+                    **({"requested_model_id": requested_endpoint_id} if requested_endpoint_id != endpoint_id else {}),
                 },
                 "prompt": prompt,
                 "resolution": resolution,
@@ -1939,6 +2050,10 @@ class DoubaoVideoGenerator(Component):
             requested_duration = duration
             resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
             aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+            configured_group = str(getattr(self, "sora_group", "auto") or "auto").strip().lower()
+            if configured_group in {"", "auto"}:
+                configured_group = str(model_limits.get("channel_type") or "auto").strip().lower()
+            configured_distributor = str(getattr(self, "sora_distributor", "") or "").strip()
 
             # 获取可用配置
             available_durations = model_limits.get("available_durations", [10, 15])
@@ -1974,11 +2089,18 @@ class DoubaoVideoGenerator(Component):
 
             # 构建 API 请求
             api_base = str(getattr(self, "sora_api_base", self.SORA_API_BASE) or self.SORA_API_BASE).strip().rstrip("/")
-            url = f"{api_base}/v1/videos"
+            query: dict[str, str] = {}
+            if configured_group and configured_group != "auto":
+                query["group"] = configured_group
+            if configured_distributor:
+                query["distributor"] = configured_distributor
+            query_suffix = f"?{urlencode(query)}" if query else ""
+            url = f"{api_base}/v1/videos{query_suffix}"
 
             self.status = f"📋 创建 Sora 视频生成任务... (model: {endpoint_id}, size: {size}, duration: {duration}s)"
 
             try:
+                response = None
                 files = None
                 payload = {
                     "model": endpoint_id,
@@ -2014,15 +2136,23 @@ class DoubaoVideoGenerator(Component):
                 create_result = response.json()
             except requests.HTTPError as exc:
                 error_detail = str(exc)
-                if exc.response is not None:
+                http_response = getattr(exc, "response", None) or response
+                if http_response is not None:
                     try:
-                        error_json = exc.response.json()
+                        error_json = http_response.json()
                         if "error" in error_json:
                             error_info = error_json["error"]
                             error_detail = f"{error_info.get('message', error_info)}"
                     except Exception:
-                        error_detail = exc.response.text[:500]
-                return self._error(f"Sora API 调用失败 [HTTP {exc.response.status_code if exc.response else 'Unknown'}]: {error_detail}")
+                        error_detail = str(http_response.text)[:500]
+                status_code = getattr(http_response, "status_code", None) or "Unknown"
+                if "无可用渠道" in error_detail or "distributor" in error_detail:
+                    error_detail = (
+                        f"{error_detail}\n"
+                        "提示：这通常表示你的 token 在当前分组/渠道下未开通该模型。"
+                        "可尝试在节点高级参数中设置 `sora_group`/`sora_distributor`，或联系服务商开通。"
+                    )
+                return self._error(f"Sora API 调用失败 [HTTP {status_code}]: {error_detail}")
             except Exception as exc:
                 return self._error(f"Sora API 调用失败: {exc}")
 
@@ -2040,7 +2170,7 @@ class DoubaoVideoGenerator(Component):
             # 轮询查询任务状态
             timeout_seconds = int(getattr(self, "sora_timeout_seconds", self.SORA_DEFAULT_TIMEOUT) or self.SORA_DEFAULT_TIMEOUT)
             start_time = time.time()
-            poll_url = f"{api_base}/v1/videos/{task_id}"
+            poll_url = f"{api_base}/v1/videos/{task_id}{query_suffix}"
 
             while True:
                 # 检查超时
@@ -2053,7 +2183,8 @@ class DoubaoVideoGenerator(Component):
                     poll_response.raise_for_status()
                     poll_result = poll_response.json()
                 except requests.HTTPError as exc:
-                    return self._error(f"查询 Sora 任务状态失败 [HTTP {exc.response.status_code if exc.response else 'Unknown'}]")
+                    status_code = getattr(getattr(exc, "response", None), "status_code", None) or "Unknown"
+                    return self._error(f"查询 Sora 任务状态失败 [HTTP {status_code}]")
                 except Exception as exc:
                     return self._error(f"查询 Sora 任务状态失败: {exc}")
 

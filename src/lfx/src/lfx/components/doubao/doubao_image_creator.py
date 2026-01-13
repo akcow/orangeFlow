@@ -76,6 +76,8 @@ class DoubaoImageCreator(Component):
             "model_id": "gemini-2.5-flash-image",
             "max_reference_images": 3,
             "supports_image_size": False,
+            "supports_multi_turn": False,
+            "supports_google_search": False,
         },
         "Nano Banana Pro": {
             "provider": "gemini",
@@ -83,6 +85,8 @@ class DoubaoImageCreator(Component):
             "max_reference_images": 14,
             "max_high_fidelity_reference_images": 5,
             "supports_image_size": True,
+            "supports_multi_turn": True,
+            "supports_google_search": True,
         },
         "wan2.6": {
             "t2i_model": "wan2.6-t2i",
@@ -132,6 +136,9 @@ class DoubaoImageCreator(Component):
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
     # 国内代理地址（与文本创作组件保持一致）
     GEMINI_API_BASE = "https://new.12ai.org/v1beta"
+    GEMINI_ENV_ENABLE_MULTI_TURN = "GEMINI_ENABLE_MULTI_TURN"
+    GEMINI_ENV_MAX_TURNS = "GEMINI_MULTI_TURN_MAX_TURNS"
+    GEMINI_ENV_ENABLE_GOOGLE_SEARCH = "GEMINI_ENABLE_GOOGLE_SEARCH"
 
     inputs = [
         DropdownInput(
@@ -233,6 +240,26 @@ class DoubaoImageCreator(Component):
             show=False,
             required=False,
             value={},
+        ),
+        BoolInput(
+            name="enable_multi_turn",
+            display_name="多轮对话",
+            value=False,
+            advanced=True,
+            info=(
+                "仅 Nano Banana Pro 支持。启用后会把上一轮的 user/model content 保存为 history，"
+                "下一轮请求会携带这些历史。默认只保留最近 4 轮（可用环境变量 GEMINI_MULTI_TURN_MAX_TURNS 修改）。"
+            ),
+        ),
+        BoolInput(
+            name="enable_google_search",
+            display_name="联网搜索",
+            value=False,
+            advanced=True,
+            info=(
+                "仅 Nano Banana Pro 支持。启用后会在 generateContent payload 中添加 tools=[{google_search:{}}]。"
+                "注意：一些代理/网关可能不支持；启用后会自动设置 responseModalities=[\"TEXT\",\"IMAGE\"]。"
+            ),
         ),
         DropdownInput(
             name="resolution",
@@ -575,11 +602,49 @@ class DoubaoImageCreator(Component):
         if isinstance(draft_payload, Data):
             draft_payload = draft_payload.data
 
-        # History: take the last preview output (persisted by the frontend) as extra input images.
-        draft_images, draft_meta = self._prepare_reference_images_from_value(
-            draft_payload,
-            max_reference_images=max_reference_images,
+        def _env_truthy(name: str) -> bool:
+            value = str(os.getenv(name, "")).strip().lower()
+            return value in {"1", "true", "yes", "y", "on"}
+
+        supports_multi_turn = bool(model_meta.get("supports_multi_turn"))
+        supports_google_search = bool(model_meta.get("supports_google_search"))
+        enable_multi_turn = supports_multi_turn and (
+            bool(getattr(self, "enable_multi_turn", False)) or _env_truthy(self.GEMINI_ENV_ENABLE_MULTI_TURN)
         )
+        enable_google_search = supports_google_search and (
+            bool(getattr(self, "enable_google_search", False)) or _env_truthy(self.GEMINI_ENV_ENABLE_GOOGLE_SEARCH)
+        )
+        try:
+            max_turns = int(str(os.getenv(self.GEMINI_ENV_MAX_TURNS, "4")).strip() or "4")
+        except Exception:
+            max_turns = 4
+        max_turns = max(1, min(max_turns, 12))
+
+        def _extract_gemini_history(value: Any) -> list[dict[str, Any]]:
+            if not value or not isinstance(value, dict):
+                return []
+            direct = value.get("gemini_history")
+            if isinstance(direct, list) and all(isinstance(item, dict) for item in direct):
+                return direct  # type: ignore[return-value]
+            preview = value.get("doubao_preview")
+            if isinstance(preview, dict):
+                payload = preview.get("payload")
+                if isinstance(payload, dict):
+                    history = payload.get("gemini_history")
+                    if isinstance(history, list) and all(isinstance(item, dict) for item in history):
+                        return history  # type: ignore[return-value]
+            return []
+
+        history: list[dict[str, Any]] = _extract_gemini_history(draft_payload) if enable_multi_turn else []
+
+        # Multi-turn mode prefers using full conversation history; otherwise we fallback to
+        # taking the last preview output (persisted by the frontend) as extra input images.
+        draft_images, draft_meta = ([], [])
+        if not history:
+            draft_images, draft_meta = self._prepare_reference_images_from_value(
+                draft_payload,
+                max_reference_images=max_reference_images,
+            )
         uploaded_images, uploaded_meta = self._prepare_reference_images(
             max_reference_images=max_reference_images,
         )
@@ -602,11 +667,50 @@ class DoubaoImageCreator(Component):
             input_meta.append({**meta, "origin": "reference_images"})
 
         if not prompt:
+            def _extract_cached_gallery(value: Any) -> list[dict[str, Any]]:
+                if not value or not isinstance(value, dict):
+                    return []
+
+                preview = value.get("doubao_preview")
+                if isinstance(preview, dict):
+                    preview_payload = preview.get("payload")
+                    if isinstance(preview_payload, dict):
+                        images = preview_payload.get("images")
+                        if isinstance(images, list) and all(isinstance(item, dict) for item in images):
+                            return [item for item in images if item.get("image_data_url") or item.get("image_url") or item.get("url")]
+
+                direct_images = value.get("images")
+                if isinstance(direct_images, list) and all(isinstance(item, dict) for item in direct_images):
+                    return [item for item in direct_images if item.get("image_data_url") or item.get("image_url") or item.get("url")]
+
+                generated_images = value.get("generated_images")
+                if isinstance(generated_images, list) and all(isinstance(item, dict) for item in generated_images):
+                    gallery: list[dict[str, Any]] = []
+                    for item in generated_images:
+                        inline = item.get("image_data_url") or item.get("preview_data_url") or item.get("preview_base64")
+                        remote = item.get("image_url") or item.get("url")
+                        if inline or remote:
+                            gallery.append(
+                                {
+                                    "index": item.get("index", len(gallery)),
+                                    "image_data_url": inline,
+                                    "image_url": remote,
+                                    "label": item.get("label"),
+                                }
+                            )
+                    return gallery
+
+                return []
+
             generated_at = datetime.now(timezone.utc).isoformat()
             preview_gallery = [
                 {"index": index, "image_data_url": data_url, "ratio": aspect_ratio}
                 for index, data_url in enumerate(input_images)
             ]
+            if not preview_gallery:
+                cached = _extract_cached_gallery(draft_payload)
+                if cached:
+                    preview_gallery = cached
             base_payload = {
                 "bridge_mode": True,
                 "images": preview_gallery,
@@ -654,18 +758,16 @@ class DoubaoImageCreator(Component):
             generation_config["imageConfig"] = {
                 "aspectRatio": aspect_ratio,
             }
-        # 设置 responseModalities 只返回图片（不返回文本）
-        # 这样可以避免 API 返回 C2PA 签名等额外数据
-        generation_config["responseModalities"] = ["IMAGE"]
+        # 默认只返回图片以减少 payload 体积；启用 tools/search 时通常需要文本输出。
+        generation_config["responseModalities"] = ["TEXT", "IMAGE"] if enable_google_search else ["IMAGE"]
 
-        payload: dict[str, Any] = {
-            "contents": [{"parts": parts}],
-            "generationConfig": generation_config,
-        }
+        user_content: dict[str, Any] = {"role": "user", "parts": parts}
+        contents: list[dict[str, Any]] = [*history, user_content] if history else [user_content]
 
-        # Google 搜索接地功能可能导致返回 C2PA 签名的图片，暂时禁用
-        # 如果需要启用，请取消下面的注释
-        # payload["tools"] = [{"google_search": {}}]
+        payload: dict[str, Any] = {"contents": contents, "generationConfig": generation_config}
+
+        if enable_google_search:
+            payload["tools"] = [{"google_search": {}}]
 
         # 使用国内代理方式：通过 URL 参数传递 key
         url = f"{self.GEMINI_API_BASE}/models/{model_id}:generateContent?key={api_key}"
@@ -806,6 +908,25 @@ class DoubaoImageCreator(Component):
         resolved_image_size = (
             self._gemini_image_size_from_resolution(resolution) if supports_image_size else None
         )
+
+        next_history: list[dict[str, Any]] = history[:] if history else []
+        if enable_multi_turn:
+            model_parts: list[dict[str, Any]] = []
+            if isinstance(text, str) and text.strip():
+                model_parts.append({"text": text.strip()})
+            for data_url in processed_images:
+                try:
+                    inline = self._gemini_inline_part_from_data_url(data_url)
+                except Exception:
+                    inline = None
+                if inline:
+                    model_parts.append(inline)
+            if model_parts:
+                next_history.extend([user_content, {"role": "model", "parts": model_parts}])
+                max_messages = max_turns * 2
+                if len(next_history) > max_messages:
+                    next_history = next_history[-max_messages:]
+
         doubao_preview = {
             "token": preview_token,
             "kind": "image",
@@ -821,6 +942,7 @@ class DoubaoImageCreator(Component):
                 "input_images": input_meta,
                 "image_count": len(preview_gallery),
                 "warnings": warnings or None,
+                "gemini_history": next_history if enable_multi_turn else None,
             },
         }
 
@@ -834,6 +956,7 @@ class DoubaoImageCreator(Component):
             "generated_images": generated_images,
             "input_images": input_meta,
             "warnings": warnings or None,
+            "gemini_history": next_history if enable_multi_turn else None,
             "doubao_preview": doubao_preview,
         }
         if isinstance(result, dict) and result.get("usageMetadata"):

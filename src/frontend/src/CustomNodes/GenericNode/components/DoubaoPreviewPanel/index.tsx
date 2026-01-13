@@ -108,6 +108,23 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       () => nodes.find((candidate) => candidate.id === nodeId)?.data?.node,
       [nodes, nodeId],
     );
+    const selectedModelName = useMemo(() => {
+      const template = (node as any)?.template ?? {};
+      const value =
+        template?.model_name?.value ??
+        template?.model_name?.default ??
+        template?.model_name?.options?.[0] ??
+        "";
+      return String(value ?? "").trim();
+    }, [node]);
+
+    const disabledSuggestions = useMemo(() => {
+      if (appearance !== "videoGenerator") return [];
+      if (selectedModelName !== "sora-2" && selectedModelName !== "sora-2-pro") {
+        return [];
+      }
+      return ["首帧生成视频", "首尾帧生成视频"];
+    }, [appearance, selectedModelName]);
 
     const draftPreview = useMemo(() => {
       const draftValue = (node as any)?.template?.draft_output?.value;
@@ -120,7 +137,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         ? preview && preview.kind === "audio" && preview.available
           ? preview
           : draftPreview ?? preview
-        : preview ?? draftPreview;
+        : preview && (preview.available || preview.error)
+          ? preview
+          : draftPreview ?? preview;
 
     // Persist latest output payload into a hidden field so the component can act as a bridge
     // (prompt empty -> passthrough cached preview to downstream) and survive reloads.
@@ -140,6 +159,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         return;
       }
       if (appearance === "audioCreator" && !candidatePreview.available) {
+        return;
+      }
+      if (appearance !== "audioCreator" && !candidatePreview.available && !candidatePreview.error) {
         return;
       }
 
@@ -612,6 +634,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             appearance={appearance}
             onUploadClick={onRequestUpload}
             onSuggestionClick={handleSuggestionClick}
+            disabledSuggestions={disabledSuggestions}
           />
         }
       >
@@ -638,6 +661,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             appearance={appearance}
             onUploadClick={onRequestUpload}
             onSuggestionClick={handleSuggestionClick}
+            disabledSuggestions={disabledSuggestions}
           />
         )}
       </Suspense>
@@ -648,6 +672,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         appearance={appearance}
         onUploadClick={onRequestUpload}
         onSuggestionClick={handleSuggestionClick}
+        disabledSuggestions={disabledSuggestions}
       />
     );
 
@@ -1089,15 +1114,17 @@ function EmptyPreview({
   appearance = "default",
   onUploadClick,
   onSuggestionClick,
+  disabledSuggestions,
 }: {
   isBuilding: boolean;
   kind: "image" | "video" | "audio";
   appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
   onUploadClick?: () => void;
   onSuggestionClick?: (label: string) => void;
+  disabledSuggestions?: string[];
 }) {
   const renderSuggestionButtons = (
-    items: Array<{ label: string; icon: string }>,
+    items: Array<{ label: string; icon: string; disabled?: boolean }>,
   ) => (
     <div className="w-full max-w-[520px] space-y-2 text-left">
       <div className="text-xs font-semibold text-[#444A63] dark:text-slate-200">
@@ -1108,10 +1135,17 @@ function EmptyPreview({
           <button
             key={item.label}
             type="button"
-            className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-[#3C4258] shadow-sm transition hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+            disabled={Boolean(isBuilding || item.disabled)}
+            className={cn(
+              "flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-[#3C4258] shadow-sm transition dark:border-white/10 dark:bg-white/5 dark:text-slate-100",
+              isBuilding || item.disabled
+                ? "cursor-not-allowed opacity-60"
+                : "hover:border-slate-300 hover:bg-white dark:hover:border-white/20",
+            )}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              if (isBuilding || item.disabled) return;
               onSuggestionClick?.(item.label);
             }}
           >
@@ -1132,14 +1166,24 @@ function EmptyPreview({
     appearance === "audioCreator";
   const uploadLinkLabel =
     appearance === "videoGenerator"
-      ? "暂无结果，上传图片作为视频封面"
+      ? disabledSuggestions?.length
+        ? "暂无结果，上传参考图"
+        : "暂无结果，上传图片作为视频封面"
       : "暂无结果，请上传图片";
 
   if (isMinimal) {
     if (appearance === "videoGenerator") {
       const suggestions = [
-        { label: "首帧生成视频", icon: "Clapperboard" },
-        { label: "首尾帧生成视频", icon: "Clapperboard" },
+        {
+          label: "首帧生成视频",
+          icon: "Clapperboard",
+          disabled: disabledSuggestions?.includes("首帧生成视频"),
+        },
+        {
+          label: "首尾帧生成视频",
+          icon: "Clapperboard",
+          disabled: disabledSuggestions?.includes("首尾帧生成视频"),
+        },
       ];
       return (
         <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
