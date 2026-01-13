@@ -49,6 +49,11 @@ def _serialize_str(obj: str, max_length: int | None, _) -> str:
     Returns:
         str: The original or truncated string, with an ellipsis appended if truncated.
     """
+    # Do not truncate data URLs (commonly used for inline image/audio/video previews).
+    # Truncation corrupts the payload and breaks downstream rendering.
+    lowered = obj.lstrip().lower()
+    if lowered.startswith(("data:image", "data:audio", "data:video")):
+        return obj
     if max_length is None or len(obj) <= max_length:
         return obj
     return obj[:max_length] + "..."
@@ -132,6 +137,9 @@ def _serialize_instance(obj: Any, *_) -> str:
 def _truncate_value(value: Any, max_length: int | None, max_items: int | None) -> Any:
     """Truncate value based on its type and provided limits."""
     if max_length is not None and isinstance(value, str) and len(value) > max_length:
+        lowered = value.lstrip().lower()
+        if lowered.startswith(("data:image", "data:audio", "data:video")):
+            return value
         return value[:max_length]
     if max_items is not None and isinstance(value, list | tuple) and len(value) > max_items:
         return value[:max_items]

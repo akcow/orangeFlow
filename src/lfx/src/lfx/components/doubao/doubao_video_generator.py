@@ -54,6 +54,8 @@ class DoubaoVideoGenerator(Component):
         "wan2.5": "wan2.5",
         "VEO3.1": "veo-3.1-generate-preview",
         "veo3.1-fast": "veo-3.1-fast-generate-preview",
+        "sora-2": "sora-2",
+        "sora-2-pro": "sora-2-pro",
     }
 
     MODEL_LIMITS = {
@@ -92,12 +94,35 @@ class DoubaoVideoGenerator(Component):
             "min_duration": 4,
             "max_duration": 8,
             "supports_last_frame": True,
+            "supports_reference_images": True,  # 标准版支持参考图片
         },
         "veo3.1-fast": {
             "resolutions": ["720p", "1080p"],
             "min_duration": 4,
             "max_duration": 8,
             "supports_last_frame": True,
+            "supports_reference_images": False,  # 快速版不支持参考图片
+        },
+        # Sora 模型配置（逆向渠道）
+        "sora-2": {
+            "resolutions": ["720p", "1080p"],
+            "min_duration": 10,
+            "max_duration": 15,
+            "supports_last_frame": False,
+            "supports_reference_images": True,
+            "available_durations": [10, 15],
+            "available_sizes": ["720x1280", "1280x720", "1024x1792", "1792x1024"],
+            "channel_type": "reverse",  # 逆向渠道
+        },
+        "sora-2-pro": {
+            "resolutions": ["720p", "1080p"],
+            "min_duration": 10,
+            "max_duration": 25,
+            "supports_last_frame": False,
+            "supports_reference_images": True,
+            "available_durations": [10, 15, 25],
+            "available_sizes": ["720x1280", "1280x720", "1024x1792", "1792x1024"],
+            "channel_type": "reverse",  # 逆向渠道
         },
     }
 
@@ -107,6 +132,11 @@ class DoubaoVideoGenerator(Component):
 
     DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
+
+    # Sora API 配置
+    SORA_API_BASE = "https://cdn.12ai.org"
+    SORA_POLL_INTERVAL_SECONDS = 3.0
+    SORA_DEFAULT_TIMEOUT = 600
 
     inputs = [
         DropdownInput(
@@ -200,7 +230,7 @@ class DoubaoVideoGenerator(Component):
             display_name="视频时长",
             required=False,
             value=5,
-            info="生成视频的时长（秒）。Doubao: 2-12s；wan2.6: 5/10/15；wan2.5: 5/10。",
+            info="生成视频的时长（秒）。Doubao: 2-12s；wan2.6: 5/10/15；wan2.5: 5/10；Veo: 4/6/8；Sora-2: 10/15；Sora-2-pro: 10/15/25。",
         ),
         DropdownInput(
             name="aspect_ratio",
@@ -208,7 +238,7 @@ class DoubaoVideoGenerator(Component):
             options=SUPPORTED_RATIOS,
             value="16:9",
             required=False,
-            info="设置视频的宽高比，支持常见比例及adaptive自适应选项。",
+            info="设置视频的宽高比。Doubao/wan/Veo: 支持常见比例及adaptive；Sora: 自动转换为对应尺寸（16:9→1280x720, 9:16→720x1280）。",
         ),
         FileInput(
             name="first_frame_image",
@@ -217,7 +247,7 @@ class DoubaoVideoGenerator(Component):
             list_add_label="继续添加候选图",
             file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "mp4", "mov"],
             input_types=["Data"],
-            info="可选：上传图片或视频，或连接上游图片节点（wan2.6：上传视频将作为参考生视频输入）。",
+            info="可选：上传图片或视频，或连接上游图片节点。\n- Doubao/wan: 首帧图片\n- Veo: 首帧/尾帧/参考图（根据role字段）\n- Sora: 参考图片（input_reference）",
         ),
         FileInput(
             name="last_frame_image",
@@ -234,8 +264,22 @@ class DoubaoVideoGenerator(Component):
             required=False,
             value="",
             placeholder="如留空将读取 .env 中的 ARK_API_KEY",
-            info="可选：覆盖模型所需的 API Key。\n- Doubao/Ark 模型：使用 ARK_API_KEY\n- wan/DashScope 模型：使用 DASHSCOPE_API_KEY\n",
+            info="可选：覆盖模型所需的 API Key。\n- Doubao/Ark 模型：使用 ARK_API_KEY\n- wan/DashScope 模型：使用 DASHSCOPE_API_KEY\n- Sora 模型：使用 OPENAI_API_KEY（Settings-Provider Credentials-OpenAI）\n- Veo 模型：使用 GEMINI_API_KEY/GOOGLE_API_KEY",
             load_from_db=False,
+        ),
+        StrInput(
+            name="sora_api_base",
+            display_name="Sora API Base",
+            value="https://cdn.12ai.org",
+            advanced=True,
+            info="Sora API 基础地址，默认 https://cdn.12ai.org",
+        ),
+        IntInput(
+            name="sora_timeout_seconds",
+            display_name="Sora 超时时间",
+            value=600,
+            advanced=True,
+            info="Sora API 请求超时时间（秒）",
         ),
     ]
 
@@ -286,6 +330,15 @@ class DoubaoVideoGenerator(Component):
                 )
             endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
             return self._build_video_veo(prompt=merged_prompt, endpoint_id=endpoint_id, api_key=api_key)
+        if self._is_sora_model(model_name):
+            api_key = self._resolve_api_key(provider="openai", env_vars=("OPENAI_API_KEY",))
+            if not api_key:
+                return self._error(
+                    "未检测到 OpenAI API Key，请在节点或 .env 中配置 OPENAI_API_KEY，"
+                    "或在 Settings - Provider Credentials - OpenAI 中输入。"
+                )
+            endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
+            return self._build_video_sora(prompt=merged_prompt, endpoint_id=endpoint_id, api_key=api_key)
 
         creds = resolve_credentials(
             component_app_id=None,
@@ -1457,31 +1510,61 @@ class DoubaoVideoGenerator(Component):
         normalized = str(model_name or "").strip().upper()
         return normalized in {"VEO3.1", "VEO3.1-FAST"}
 
-    def _resolve_api_key(self, *, provider: str, env_vars: tuple[str, ...]) -> str | None:
-        """解析 API Key，优先级：组件参数 > Provider Credentials > 环境变量"""
-        # 1. 检查组件参数中的 api_key
-        component_api_key = getattr(self, "api_key", None)
-        if component_api_key:
-            key = str(component_api_key).strip()
-            if key and not key.startswith("****"):
-                return key
+    def _is_sora_model(self, model_name: str) -> bool:
+        """判断是否为 Sora 模型"""
+        normalized = str(model_name or "").strip().lower()
+        return normalized in {"sora-2", "sora-2-pro"}
 
-        # 2. 尝试从 Provider Credentials 获取
+    def _resolve_api_key(self, *, provider: str, env_vars: tuple[str, ...]) -> str | None:
+        """解析 API Key，优先级：Provider Credentials > 环境变量 > 组件参数
+
+        Provider Credentials 读取顺序：指定的 provider -> openai（对所有模型）-> google（仅 Veo）
+        """
+        candidates: list[str] = []
+
+        # 1. 优先从 Provider Credentials 读取
         try:
-            creds = get_provider_credentials(provider_key=provider)
-            if creds:
-                api_key = creds.api_key
-                if api_key and not api_key.startswith("****"):
-                    return str(api_key).strip()
+            from langflow.services.deps import get_settings_service
+
+            settings_service = get_settings_service()
+            config_dir = settings_service.settings.config_dir
+
+            # 读取指定的 provider
+            provider_creds = get_provider_credentials(provider, config_dir)
+            if provider_creds and provider_creds.api_key and not provider_creds.api_key.startswith("****"):
+                candidates.append(str(provider_creds.api_key).strip())
+
+            # openai 供应商对所有模型都可用（作为备选）
+            openai_creds = get_provider_credentials("openai", config_dir)
+            if openai_creds and openai_creds.api_key and not openai_creds.api_key.startswith("****"):
+                candidates.append(str(openai_creds.api_key).strip())
+
+            # google 供应商仅对 Veo 模型作为备选
+            if provider == "gemini":
+                google_creds = get_provider_credentials("google", config_dir)
+                if google_creds and google_creds.api_key and not google_creds.api_key.startswith("****"):
+                    candidates.append(str(google_creds.api_key).strip())
         except Exception:
             pass
 
-        # 3. 检查环境变量
+        # 2. 检查环境变量
         import os
         for env_var in env_vars:
             key = os.getenv(env_var, "")
             if key and not key.startswith("****"):
-                return str(key).strip()
+                candidates.append(str(key).strip())
+
+        # 3. 最后检查组件参数中的 api_key
+        component_api_key = getattr(self, "api_key", None)
+        if component_api_key:
+            key = str(component_api_key).strip()
+            if key and not key.startswith("****"):
+                candidates.append(key)
+
+        # 返回第一个有效的 API Key
+        for key in candidates:
+            if key:
+                return key
 
         return None
 
@@ -1514,20 +1597,17 @@ class DoubaoVideoGenerator(Component):
 
         return entries
 
+    # Veo 国内代理配置
+    VEO_API_BASE = "https://new.12ai.org"
+    VEO_POLL_INTERVAL = 5  # 轮询间隔（秒）
+    VEO_MAX_WAIT_TIME = 600  # 最大等待时间（秒）
+
     def _build_video_veo(self, *, prompt: str, endpoint_id: str, api_key: str) -> Data:
-        """使用 Google Veo 3.1 API 生成视频"""
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError:
-            return self._error(
-                "缺少 Google GenAI SDK，请安装: pip install google-genai\n"
-                "或者在 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY"
-            )
+        """使用 Veo 3.1 国内代理 API 生成视频"""
+        if not api_key or not api_key.strip():
+            return self._error("未配置 Veo API Key，请在 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY")
 
         try:
-            client = genai.Client(api_key=api_key)
-
             # 获取参数并验证
             resolution = str(getattr(self, "resolution", "720p") or "720p").strip()
             duration = int(getattr(self, "duration", 8) or 8)
@@ -1538,13 +1618,8 @@ class DoubaoVideoGenerator(Component):
                 resolution = "720p"
             if duration not in [4, 6, 8]:
                 duration = 8
-            if aspect_ratio not in ["16:9", "9:16"]:
+            if aspect_ratio not in self.VEO_SUPPORTED_RATIOS:
                 aspect_ratio = "16:9"
-
-            # 1080p 只支持 8 秒，自动调整
-            if resolution == "1080p" and duration != 8:
-                duration = 8
-                self.status = "⚠️ Veo 3.1: 1080p 分辨率仅支持 8 秒时长，已自动调整"
 
             # 收集图片输入并识别模式
             first_frame_url = None
@@ -1584,8 +1659,13 @@ class DoubaoVideoGenerator(Component):
             is_reference_mode = has_reference and not has_first and not has_last
             is_interpolation_mode = has_first and has_last
 
-            # 参考图模式只能用 16:9 和 8 秒
+            # 模型限制检查
+            is_fast_model = endpoint_id == "veo-3.1-fast-generate-preview"
+
+            # 参考图模式：仅标准版支持，必须是 16:9 和 8 秒
             if is_reference_mode:
+                if is_fast_model:
+                    return self._error("参考图片功能仅 veo-3.1-generate-preview（标准版）支持，快速版不支持")
                 if aspect_ratio != "16:9":
                     return self._error("Veo 3.1 使用参考图时仅支持 16:9 比例")
                 if duration != 8:
@@ -1597,164 +1677,442 @@ class DoubaoVideoGenerator(Component):
                 duration = 8
                 self.status = "⚠️ Veo 3.1: 插值模式仅支持 8 秒时长，已自动调整"
 
-            # 构建请求配置
-            config = types.GenerateVideosConfig(
-                aspect_ratio=aspect_ratio,
-            )
+            # 构建请求体
+            request_payload = {
+                "model": endpoint_id,
+                "prompt": prompt,
+            }
 
-            # 添加参考图（最多 3 张）
-            if reference_images:
+            # 添加图片（images 数组）
+            images_list = []
+            if first_frame_url:
+                images_list.append(first_frame_url)
+            if last_frame_url:
+                images_list.append(last_frame_url)
+
+            if images_list:
+                request_payload["images"] = images_list
+
+            # metadata - 仅在需要时添加
+            metadata = None
+
+            # 添加参考图片（仅标准版，且不能与 images 同时使用）
+            if is_reference_mode and not is_fast_model:
                 if len(reference_images) > 3:
                     self.status = f"⚠️ 参考图超过 3 张，仅使用前 3 张"
                     reference_images = reference_images[:3]
 
-                # 准备参考图对象
-                ref_image_objects = []
+                # 构建参考图片对象
+                ref_images_payload = []
                 for ref_url in reference_images:
-                    img_obj = self._prepare_gemini_image(ref_url)
-                    if img_obj:
-                        ref_image_objects.append(img_obj)
+                    # 转换图片格式为 API 需要的格式
+                    # 注意：referenceImages 支持 HTTP URL 直接使用（会自动下载）
+                    # 也支持 base64 字符串
+                    ref_images_payload.append({
+                        "image": {
+                            "bytesBase64Encoded": ref_url  # 直接使用 URL 或 base64
+                        },
+                        "referenceType": "asset"
+                    })
 
-                if ref_image_objects:
-                    config.reference_images = [
-                        types.VideoGenerationReferenceImage(
-                            image=img_obj,
-                            reference_type="asset"
-                        )
-                        for img_obj in ref_image_objects
-                    ]
+                if ref_images_payload:
+                    metadata = {
+                        "aspectRatio": aspect_ratio,
+                        "durationSeconds": duration,
+                        "referenceImages": ref_images_payload
+                    }
 
-            # 添加尾帧（用于插值）
-            if last_frame_url:
-                last_frame_obj = self._prepare_gemini_image(last_frame_url)
-                if last_frame_obj:
-                    config.last_frame = last_frame_obj
+            # 插值模式或图生视频模式，只添加必要的 metadata 参数
+            elif is_interpolation_mode or images_list:
+                # 帧插值必须指定 durationSeconds: 8
+                # 图生视频可以选择性添加 metadata
+                metadata = {
+                    "durationSeconds": duration
+                }
+                # 如果不是默认比例，添加 aspectRatio
+                if aspect_ratio != "16:9":
+                    metadata["aspectRatio"] = aspect_ratio
 
-            # 准备首帧图片
-            image_obj = None
-            if first_frame_url:
-                image_obj = self._prepare_gemini_image(first_frame_url)
+            # 纯文生视频模式：不添加 metadata（使用 API 默认值）
 
-            # 创建生成任务
-            operation = client.models.generate_videos(
-                model=endpoint_id,
-                prompt=prompt,
-                image=image_obj,
-                config=config,
-            )
+            # 只有当 metadata 不为空时才添加到请求中
+            if metadata:
+                request_payload["metadata"] = metadata
 
-            # 轮询等待结果
-            max_wait_time = 600
+            # 发送请求
+            url = f"{self.VEO_API_BASE}/v1/videos"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            }
+
+            self.status = f"📋 创建 Veo 视频生成任务... (模式: {'参考图' if is_reference_mode else '插值' if is_interpolation_mode else '文生/图生'})"
+
+            # 调试：打印完整请求
+            import json
+            request_debug = json.dumps(request_payload, ensure_ascii=False, indent=2)
+            print(f"[VEO DEBUG] 请求 URL: {url}", file=__import__('sys').stderr)
+            print(f"[VEO DEBUG] 请求 Headers: {headers}", file=__import__('sys').stderr)
+            print(f"[VEO DEBUG] 请求 Body: {request_debug}", file=__import__('sys').stderr)
+
+            try:
+                create_response = requests.post(url, headers=headers, json=request_payload, timeout=60)
+                print(f"[VEO DEBUG] 响应状态码: {create_response.status_code}", file=__import__('sys').stderr)
+                print(f"[VEO DEBUG] 响应 Headers: {dict(create_response.headers)}", file=__import__('sys').stderr)
+                print(f"[VEO DEBUG] 响应 Body: {create_response.text[:1000]}", file=__import__('sys').stderr)
+                create_response.raise_for_status()
+                create_result = create_response.json()
+            except requests.HTTPError as exc:
+                error_detail = str(exc)
+                if exc.response is not None:
+                    try:
+                        error_json = exc.response.json()
+                        if "error" in error_json:
+                            error_info = error_json["error"]
+                            error_detail = f"{error_info.get('status', '')}: {error_info.get('message', '')}"
+                    except Exception:
+                        error_detail = exc.response.text[:300]
+                return self._error(f"Veo API 调用失败 [HTTP {exc.response.status_code if exc.response else 'Unknown'}]: {error_detail}")
+            except Exception as exc:
+                return self._error(f"Veo API 调用失败: {exc}")
+
+            # 检查错误
+            if "error" in create_result:
+                return self._error(f"Veo API 返回错误: {create_result['error']}")
+
+            # 获取 task_id
+            task_id = create_result.get("task_id")
+            if not task_id:
+                return self._error(f"Veo API 未返回 task_id: {create_result}")
+
+            self.status = f"⏳ Veo 任务已创建 (ID: {task_id})，开始轮询..."
+
+            # 轮询查询任务状态
             start_time = time.time()
-            poll_interval = 10
+            poll_url = f"{self.VEO_API_BASE}/v1/videos/{task_id}"
 
-            while not operation.done:
-                elapsed = time.time() - start_time
-                if elapsed > max_wait_time:
-                    return self._error(f"Veo 3.1 视频生成超时（>{max_wait_time}s）")
-                self.status = f"⏳ 等待 Veo 3.1 生成... ({int(elapsed)}s)"
-                time.sleep(poll_interval)
-                operation = client.operations.get(operation)
+            while True:
+                # 检查超时
+                if time.time() - start_time > self.VEO_MAX_WAIT_TIME:
+                    return self._error(f"Veo 视频生成超时（>{self.VEO_MAX_WAIT_TIME}s），task_id={task_id}")
 
-            # 获取结果
-            generated_video = operation.response.generated_videos[0]
-            video_obj = generated_video.video
+                try:
+                    poll_response = requests.get(poll_url, headers=headers, timeout=30)
+                    poll_response.raise_for_status()
+                    poll_result = poll_response.json()
+                except requests.HTTPError as exc:
+                    return self._error(f"查询 Veo 任务状态失败 [HTTP {exc.response.status_code if exc.response else 'Unknown'}]")
+                except Exception as exc:
+                    return self._error(f"查询 Veo 任务状态失败: {exc}")
+
+                status = poll_result.get("status", "")
+                progress = poll_result.get("progress", 0)
+
+                if status == "completed":
+                    self.status = f"✅ Veo 视频生成成功！"
+                    break
+                elif status == "failure":
+                    fail_reason = poll_result.get("fail_reason", "未知错误")
+                    return self._error(f"Veo 视频生成失败: {fail_reason}")
+                else:
+                    self.status = f"⏳ Veo 生成中... 状态: {status}, 进度: {progress}%"
+                    time.sleep(self.VEO_POLL_INTERVAL)
 
             # 获取视频 URL
-            video_url = None
-            if hasattr(video_obj, 'uri'):
-                video_url = video_obj.uri
-            elif hasattr(video_obj, 'url'):
-                video_url = video_obj.url
-            elif isinstance(video_obj, str):
-                video_url = video_obj
+            video_url = f"{self.VEO_API_BASE}/v1/videos/{task_id}/content"
 
-            if not video_url:
-                return self._error("Veo 3.1 未返回视频 URL")
+            # 尝试下载视频并转换为 base64，以便前端可以直接播放
+            video_base64 = None
+            try:
+                self.status = "📥 正在下载视频..."
+                video_response = requests.get(video_url, headers=headers, timeout=60)
+                video_response.raise_for_status()
 
-            # 获取封面
-            cover_url = None
-            if hasattr(generated_video, 'image'):
-                cover_obj = generated_video.image
-                if hasattr(cover_obj, 'uri'):
-                    cover_url = cover_obj.uri
-                elif hasattr(cover_obj, 'url'):
-                    cover_url = cover_obj.url
+                # 检查内容类型
+                content_type = video_response.headers.get("Content-Type", "video/mp4")
+
+                # 转换为 base64
+                import base64
+                video_data = base64.b64encode(video_response.content).decode("utf-8")
+                video_base64 = f"data:{content_type};base64,{video_data}"
+                self.status = "✅ 视频下载成功"
+            except Exception as e:
+                self.status = f"⚠️ 视频下载失败，将使用 URL: {str(e)}"
+                video_base64 = None
 
             # 构建返回数据
             result_data = {
-                "cover": cover_url or "",
+                "task_id": task_id,
+                "status": "completed",
                 "video_url": video_url,
+                "video_base64": video_base64,  # 添加 base64 编码的视频
                 "model": {
                     "name": self.model_name,
                     "model_id": endpoint_id,
                 },
+                "prompt": prompt,
+                "resolution": resolution,
+                "duration": duration,
+                "aspect_ratio": aspect_ratio,
+                "mode": "reference" if is_reference_mode else "interpolation" if is_interpolation_mode else "text/image",
+                "generation_time": int(time.time() - start_time),
+                "first_frame_used": has_first,
+                "last_frame_used": has_last,
+                "reference_count": len(reference_images),
+                "doubao_preview": {
+                    "token": task_id,
+                    "kind": "video",
+                    "available": True,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "payload": {
+                        "video_url": video_url,
+                        "video_base64": video_base64,  # 添加 base64 编码的视频
+                        "task_id": task_id,
+                    },
+                },
             }
 
-            self.status = f"✅ Veo 3.1 视频生成成功"
+            self.status = f"✅ Veo 视频生成成功 ({resolution}, {duration}秒, {aspect_ratio})"
             return Data(data=result_data, type="video")
 
         except Exception as exc:
             import traceback
             error_details = traceback.format_exc()
-            return self._error(f"Veo 3.1 调用失败: {exc}\n{error_details}")
+            return self._error(f"Veo 调用失败: {exc}\n{error_details}")
 
-    def _prepare_gemini_image(self, image_source: str) -> Any:
-        """准备 Gemini API 需要的图片对象"""
+    def _normalize_veo_image(self, image_source: str) -> str | None:
+        """
+        将各种图片格式转换为 Veo API 需要的格式
+        返回：HTTP(S) URL、Base64 字符串或 Data URI
+        """
         try:
-            from google.genai import types
-
-            # HTTP/HTTPS URL
+            # 已经是 HTTP(S) URL
             if image_source.startswith("http://") or image_source.startswith("https://"):
-                import requests
-                resp = requests.get(image_source, timeout=30)
-                resp.raise_for_status()
-                image_data = base64.b64encode(resp.content).decode("utf-8")
-                return types.Image(image_bytes=image_data, mime_type="image/jpeg")
+                return image_source
 
-            # Base64 data URL
+            # Data URI 格式，直接返回
             if image_source.startswith("data:image"):
-                return types.Image(image_bytes=image_source.split(",", 1)[1])
+                # 提取 base64 部分
+                if ";base64," in image_source:
+                    return image_source.split(";base64,", 1)[1]
+                return image_source
 
-            # 本地路径
-            encoded = self._encode_local_image(image_source)
-            if encoded and encoded.startswith("data:image"):
-                return types.Image(image_bytes=encoded.split(",", 1)[1])
+            # 纯 Base64 字符串（尝试解码验证）
+            trimmed = image_source.strip()
+            if ";" not in trimmed and "," not in trimmed and not trimmed.startswith("data:"):
+                try:
+                    base64.b64decode(trimmed)
+                    return trimmed
+                except Exception:
+                    pass
+
+            # 本地文件路径
+            local_path = self._resolve_local_path(trimmed)
+            if local_path and local_path.exists():
+                with open(local_path, "rb") as f:
+                    image_data = f.read()
+
+                # 限制大小
+                max_size = 10 * 1024 * 1024  # 10MB
+                if len(image_data) > max_size:
+                    return None
+
+                mime_type, _ = mimetypes.guess_type(str(local_path))
+                mime_type = mime_type or "image/jpeg"
+
+                base64_data = base64.b64encode(image_data).decode("utf-8")
+                return base64_data
 
             return None
         except Exception:
             return None
 
-    def _encode_local_image(self, file_path: str) -> str | None:
-        """编码本地图片为 data URL"""
+    def _build_video_sora(self, *, prompt: str, endpoint_id: str, api_key: str) -> Data:
+        """使用 Sora 2/2-Pro 国内代理 API 生成视频"""
+        if not api_key or not api_key.strip():
+            return self._error("未配置 OpenAI API Key，请在 .env 中配置 OPENAI_API_KEY 或在 Settings - Provider Credentials - OpenAI 中配置")
+
         try:
-            import os
-            if not os.path.exists(file_path):
-                return None
+            # 获取参数
+            model_limits = self.MODEL_LIMITS.get(self.model_name, {})
+            duration = int(getattr(self, "duration", 10) or 10)
+            requested_duration = duration
+            resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
 
-            with open(file_path, "rb") as f:
-                image_data = f.read()
+            # 获取可用配置
+            available_durations = model_limits.get("available_durations", [10, 15])
+            available_sizes = model_limits.get("available_sizes", ["720x1280", "1280x720", "1024x1792", "1792x1024"])
 
-            # 限制大小
-            max_size = 10 * 1024 * 1024  # 10MB
-            if len(image_data) > max_size:
-                return None
+            # 验证并调整 duration
+            if duration not in available_durations:
+                duration = available_durations[0]
+                self.status = f"⚠️ Sora: 时长 {requested_duration} 不支持，已调整为 {duration} 秒"
 
-            base64_data = base64.b64encode(image_data).decode("utf-8")
-            return f"data:image/jpeg;base64,{base64_data}"
-        except Exception:
-            return None
+            # Sora 使用 size 参数（如 "1280x720"），而不是 aspect_ratio。
+            # 国内接入文档给出的 size 选项仅覆盖横/竖屏两类尺寸：低分辨率(1280x720/720x1280) 与高分辨率(1792x1024/1024x1792)。
+            normalized_ratio = aspect_ratio.strip()
+            if normalized_ratio not in {"16:9", "9:16"}:
+                normalized_ratio = "16:9"
+            normalized_resolution = resolution.lower().replace(" ", "")
+            use_high_res = normalized_resolution.startswith("1080")
 
-    def _extract_image_url(self, item: Any) -> str | None:
-        """从图片条目中提取 URL"""
-        if isinstance(item, str):
-            return item.strip() or None
-        if isinstance(item, dict):
-            for key in ["url", "image_url", "file_path", "path", "value"]:
-                url = item.get(key)
-                if isinstance(url, str) and url.strip():
-                    return url.strip()
-        return None
+            if normalized_ratio == "16:9":
+                size = "1792x1024" if use_high_res else "1280x720"
+                preferred_sizes = ["1280x720", "1792x1024"]
+            else:
+                size = "1024x1792" if use_high_res else "720x1280"
+                preferred_sizes = ["720x1280", "1024x1792"]
+
+            if size not in available_sizes:
+                for candidate in preferred_sizes:
+                    if candidate in available_sizes:
+                        size = candidate
+                        break
+                else:
+                    size = available_sizes[0]
+
+            # 构建 API 请求
+            api_base = str(getattr(self, "sora_api_base", self.SORA_API_BASE) or self.SORA_API_BASE).strip().rstrip("/")
+            url = f"{api_base}/v1/videos"
+
+            self.status = f"📋 创建 Sora 视频生成任务... (model: {endpoint_id}, size: {size}, duration: {duration}s)"
+
+            try:
+                files = None
+                payload = {
+                    "model": endpoint_id,
+                    "prompt": prompt,
+                    "seconds": str(duration),
+                    "size": size,
+                }
+
+                # 处理参考图片（input_reference）
+                reference_image_raw = getattr(self, "first_frame_image", None)
+                if reference_image_raw:
+                    reference_image_url = self._extract_image_url(reference_image_raw)
+                    if reference_image_url and reference_image_url.startswith("data:image/"):
+                        # base64 图片，需要转换为二进制上传
+                        try:
+                            import io
+                            mime_and_data = reference_image_url.split(",", 1)
+                            mime_type = mime_and_data[0].split(":")[1].split(";")[0]
+                            base64_data = mime_and_data[1]
+                            image_bytes = base64.b64decode(base64_data)
+                            files = {"input_reference": ("reference.jpg", io.BytesIO(image_bytes), mime_type)}
+                        except Exception:
+                            files = None
+
+                headers = {"Authorization": f"Bearer {api_key}"}
+                if files:
+                    # 带参考图：multipart/form-data
+                    response = requests.post(url, headers=headers, data=payload, files=files, timeout=60)
+                else:
+                    # 无参考图：使用 application/json（文档明确支持），避免发送 x-www-form-urlencoded 导致 415/400
+                    response = requests.post(url, headers=headers, json=payload, timeout=60)
+                response.raise_for_status()
+                create_result = response.json()
+            except requests.HTTPError as exc:
+                error_detail = str(exc)
+                if exc.response is not None:
+                    try:
+                        error_json = exc.response.json()
+                        if "error" in error_json:
+                            error_info = error_json["error"]
+                            error_detail = f"{error_info.get('message', error_info)}"
+                    except Exception:
+                        error_detail = exc.response.text[:500]
+                return self._error(f"Sora API 调用失败 [HTTP {exc.response.status_code if exc.response else 'Unknown'}]: {error_detail}")
+            except Exception as exc:
+                return self._error(f"Sora API 调用失败: {exc}")
+
+            # 检查错误
+            if "error" in create_result:
+                return self._error(f"Sora API 返回错误: {create_result['error']}")
+
+            # 获取 task_id
+            task_id = create_result.get("id")
+            if not task_id:
+                return self._error(f"Sora API 未返回 task_id: {create_result}")
+
+            self.status = f"⏳ Sora 任务已创建 (ID: {task_id})，开始轮询..."
+
+            # 轮询查询任务状态
+            timeout_seconds = int(getattr(self, "sora_timeout_seconds", self.SORA_DEFAULT_TIMEOUT) or self.SORA_DEFAULT_TIMEOUT)
+            start_time = time.time()
+            poll_url = f"{api_base}/v1/videos/{task_id}"
+
+            while True:
+                # 检查超时
+                if time.time() - start_time > timeout_seconds:
+                    return self._error(f"Sora 视频生成超时（>{timeout_seconds}s），task_id={task_id}")
+
+                try:
+                    poll_headers = {"Authorization": f"Bearer {api_key}"}
+                    poll_response = requests.get(poll_url, headers=poll_headers, timeout=30)
+                    poll_response.raise_for_status()
+                    poll_result = poll_response.json()
+                except requests.HTTPError as exc:
+                    return self._error(f"查询 Sora 任务状态失败 [HTTP {exc.response.status_code if exc.response else 'Unknown'}]")
+                except Exception as exc:
+                    return self._error(f"查询 Sora 任务状态失败: {exc}")
+
+                status = poll_result.get("status", "")
+                progress = poll_result.get("progress", 0)
+
+                if status == "completed":
+                    self.status = f"✅ Sora 视频生成成功！"
+                    break
+                elif status == "failed":
+                    fail_reason = poll_result.get("error", {}).get("message", "未知错误")
+                    return self._error(f"Sora 视频生成失败: {fail_reason}")
+                else:
+                    self.status = f"⏳ Sora 生成中... 状态: {status}, 进度: {progress}%"
+                    time.sleep(self.SORA_POLL_INTERVAL_SECONDS)
+
+            # 获取视频 URL
+            video_url = poll_result.get("video_url")
+            if not video_url:
+                return self._error(f"Sora 任务成功但缺少 video_url: {poll_result}")
+
+            # 构建返回数据
+            result_data = {
+                "provider": "sora",
+                "task_id": task_id,
+                "task_status": "completed",
+                "model": {
+                    "name": self.model_name,
+                    "model_id": endpoint_id,
+                },
+                "prompt": prompt,
+                "size": size,
+                "duration": duration,
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "generation_time": int(time.time() - start_time),
+                "reference_image_used": bool(reference_image_raw),
+                "video_url": video_url,
+                "videos": [{"video_url": video_url}],
+                "doubao_preview": {
+                    "token": task_id,
+                    "kind": "video",
+                    "available": True,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "payload": {
+                        "video_url": video_url,
+                        "videos": [{"video_url": video_url}],
+                        "task_id": task_id,
+                    },
+                },
+            }
+
+            self.status = f"✅ Sora 视频生成成功 ({size}, {duration}秒)"
+            return Data(data=result_data, type="video")
+
+        except Exception as exc:
+            import traceback
+            error_details = traceback.format_exc()
+            return self._error(f"Sora 调用失败: {exc}\n{error_details}")
 
 
 def _contains_oss_resource(payload: Any) -> bool:

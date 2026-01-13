@@ -56,6 +56,9 @@ class TestSerializationHypothesis:
     @given(text=text_strategy)
     def test_string_serialization(self, text: str) -> None:
         result: str = serialize(text)
+        if text.lstrip().lower().startswith(("data:image", "data:audio", "data:video")):
+            assert result == text
+            return
         if len(text) > MAX_TEXT_LENGTH:
             expected: str = text[:MAX_TEXT_LENGTH] + "..."
             assert result == expected
@@ -205,6 +208,11 @@ class TestSerializationHypothesis:
     def test_none_serialization(self) -> None:
         result: None = serialize(None)
         assert result is None
+
+    def test_data_url_is_not_truncated(self) -> None:
+        data_url = "data:image/png;base64," + ("A" * (MAX_TEXT_LENGTH * 2))
+        assert serialize(data_url) == data_url
+        assert serialize(data_url, max_length=10) == data_url
 
     def test_custom_type_serialization(self) -> None:
         from typing import TypeVar

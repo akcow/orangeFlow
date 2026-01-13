@@ -52,6 +52,12 @@ def _env_mapping(provider: str) -> dict[str, str]:
             "access_token": "GEMINI_ACCESS_TOKEN",
             "api_key": "GEMINI_API_KEY",
         }
+    if provider == "openai":
+        return {
+            "app_id": "OPENAI_APP_ID",
+            "access_token": "OPENAI_ACCESS_TOKEN",
+            "api_key": "OPENAI_API_KEY",
+        }
     if provider in {"dashscope", "dashscope_tts", "qwen_tts"}:
         return {
             "app_id": "TTS_APP_ID",

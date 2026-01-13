@@ -80,7 +80,7 @@ def resolve_credentials(
     env_access_token_var: str = "TTS_TOKEN",
     env_api_key_var: str = "ARK_API_KEY",
 ) -> SharedCredentials:
-    """Resolve credentials with priority: per-node override > env/.env > shared config.
+    """Resolve credentials with priority: Provider Credentials > env/.env > per-node parameter.
 
     Security note:
     - Never accept masked placeholder values like "****1234" from any source.
@@ -93,21 +93,23 @@ def resolve_credentials(
         env_var: str,
         transform: Callable[[str], str] | None = None,
     ) -> str:
+        # 1. 优先使用 Provider Credentials (shared_value)
+        if shared_value:
+            trimmed = shared_value.strip()
+            if trimmed and not trimmed.startswith("****"):
+                return transform(trimmed) if transform else trimmed
+
+        # 2. 其次使用环境变量
+        env_val = os.getenv(env_var, "").strip()
+        if env_val:
+            return transform(env_val) if transform else env_val
+
+        # 3. 最后使用节点参数 (direct_value)
         if direct_value:
             trimmed_direct = direct_value.strip()
             if trimmed_direct and not trimmed_direct.startswith("****"):
                 return transform(trimmed_direct) if transform else trimmed_direct
 
-        env_val = os.getenv(env_var, "").strip()
-        if env_val:
-            return transform(env_val) if transform else env_val
-
-        # Fallback to saved shared config only when env is not set.
-        # Never accept masked placeholder values like "****1234".
-        if shared_value:
-            trimmed = shared_value.strip()
-            if trimmed and not trimmed.startswith("****"):
-                return trimmed
         return ""
 
     return SharedCredentials(

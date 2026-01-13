@@ -5,6 +5,7 @@ export const PROVIDER_OPTIONS = [
   { key: "dashscope_tts", label: "DashScope (Qwen-TTS)" },
   { key: "deepseek", label: "DeepSeek" },
   { key: "gemini", label: "Google (Gemini/Veo)" },
+  { key: "openai", label: "OpenAI (Sora)" },
 ];
 
 export const PROVIDER_FIELD_WHITELIST: Record<
@@ -15,4 +16,5 @@ export const PROVIDER_FIELD_WHITELIST: Record<
   dashscope_tts: ["api_key"],
   deepseek: ["api_key"],
   gemini: ["api_key"],
+  openai: ["api_key"],
 };

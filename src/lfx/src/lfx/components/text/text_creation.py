@@ -486,13 +486,36 @@ class TextCreation(Component):
         return ""
 
     def _resolve_gemini_api_key(self) -> str:
-        """Resolve Gemini API key from env only (not from node parameter)."""
+        """Resolve Gemini API key from providers first, then env.
+
+        Priority: Provider(gemini) -> Provider(google) -> ENV(GEMINI_API_KEY) -> ENV(GOOGLE_API_KEY)
+        Note: Does NOT read default provider to avoid picking up stale test values.
+        """
         candidates: list[str] = []
 
         # 调试:记录所有来源
         sources = []
 
-        # 优先从环境变量读取(最高优先级)
+        # 1. 优先从 Provider Credentials 读取 (gemini -> google，不读取 default)
+        try:  # pragma: no cover - runtime dependency
+            from langflow.services.deps import get_settings_service
+
+            settings_service = get_settings_service()
+            config_dir = settings_service.settings.config_dir
+
+            gemini_creds = get_provider_credentials("gemini", config_dir)
+            google_creds = get_provider_credentials("google", config_dir)
+
+            if gemini_creds and gemini_creds.api_key:
+                candidates.append(gemini_creds.api_key)
+                sources.append(f"Provider(Gemini): {gemini_creds.api_key[:8]}... (len={len(gemini_creds.api_key)})")
+            if google_creds and google_creds.api_key:
+                candidates.append(google_creds.api_key)
+                sources.append(f"Provider(Google): {google_creds.api_key[:8]}... (len={len(google_creds.api_key)})")
+        except Exception as e:
+            sources.append(f"Provider Error: {str(e)[:50]}")
+
+        # 2. 其次从环境变量读取
         gemini_env = os.getenv("GEMINI_API_KEY", "")
         google_env = os.getenv("GOOGLE_API_KEY", "")
 
@@ -501,25 +524,7 @@ class TextCreation(Component):
             sources.append(f"ENV(GEMINI_API_KEY): {gemini_env[:8]}... (len={len(gemini_env)})")
         if google_env:
             candidates.append(google_env)
-            sources.append(f"ENV(GOOGLE_API_KEY): {google_env[:8]}...")
-
-        # 其次从 Provider Credentials 读取
-        try:  # pragma: no cover - runtime dependency
-            from langflow.services.deps import get_settings_service
-
-            settings_service = get_settings_service()
-            config_dir = settings_service.settings.config_dir
-            google_creds = get_provider_credentials("google", config_dir)
-            default_creds = get_provider_credentials(DEFAULT_PROVIDER_KEY, config_dir)
-
-            if google_creds and google_creds.api_key:
-                candidates.append(google_creds.api_key)
-                sources.append(f"Provider(Google): {google_creds.api_key[:8]}...")
-            if default_creds and default_creds.api_key:
-                candidates.append(default_creds.api_key)
-                sources.append(f"Provider(Default): {default_creds.api_key[:8]}...")
-        except Exception as e:
-            sources.append(f"Provider Error: {str(e)[:50]}")
+            sources.append(f"ENV(GOOGLE_API_KEY): {google_env[:8]}... (len={len(google_env)})")
 
         # 记录调试信息
         import sys

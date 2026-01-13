@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import inspect
 import mimetypes
@@ -44,6 +45,7 @@ from lfx.inputs.inputs import (
     StrInput,
 )
 from lfx.components.doubao.shared_credentials import resolve_credentials
+from lfx.utils.provider_credentials import get_provider_credentials
 from lfx.schema.data import Data
 from lfx.template.field.base import Output
 
@@ -128,7 +130,8 @@ class DoubaoImageCreator(Component):
     DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
     DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "bmp", "webp"}
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
-    GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+    # 国内代理地址（与文本创作组件保持一致）
+    GEMINI_API_BASE = "https://new.12ai.org/v1beta"
 
     inputs = [
         DropdownInput(
@@ -561,22 +564,10 @@ class DoubaoImageCreator(Component):
             return self._error("请选择有效的图像比例。")
         resolution = str(self.resolution or "").strip()
 
-        creds = resolve_credentials(
-            component_app_id=None,
-            component_access_token=None,
-            component_api_key=self.api_key,
-            provider="gemini",
-            env_api_key_var="GEMINI_API_KEY",
-        )
-        api_key = (creds.api_key or "").strip().strip("'").strip('"')
-        if api_key.lower().startswith("bearer "):
-            api_key = api_key.split(" ", 1)[1].strip()
+        # 解析 Gemini API Key（优先级：gemini provider → google provider → 环境变量 GEMINI_API_KEY → GOOGLE_API_KEY → 节点参数）
+        api_key = self._resolve_gemini_api_key()
         if not api_key:
-            api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-        if api_key.startswith("****"):
-            return self._error("检测到被掩码的 Gemini API Key（形如 ****1234），请重新配置完整 key。")
-        if not api_key:
-            return self._error("未检测到 GEMINI_API_KEY/GOOGLE_API_KEY，请在 .env 或 Provider Credentials 中配置。")
+            return self._error("未检测到 GEMINI_API_KEY/GOOGLE_API_KEY，请在 .env 或 Provider Credentials (Gemini/Google) 中配置。")
 
         warnings: list[str] = []
 
@@ -616,21 +607,22 @@ class DoubaoImageCreator(Component):
                 {"index": index, "image_data_url": data_url, "ratio": aspect_ratio}
                 for index, data_url in enumerate(input_images)
             ]
-            payload = {
+            base_payload = {
                 "bridge_mode": True,
                 "images": preview_gallery,
                 "model": {"name": self.model_name, "model_id": model_id},
                 "warnings": warnings or None,
             }
-            payload["doubao_preview"] = {
+            doubao_preview = {
                 "token": f"{self.name}-bridge",
                 "kind": "image",
                 "available": bool(preview_gallery),
                 "generated_at": generated_at,
-                "payload": payload,
+                "payload": base_payload,
             }
+            result_payload = {**base_payload, "doubao_preview": doubao_preview}
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
-            return Data(data=payload, type="image")
+            return Data(data=result_payload, type="image")
 
         if high_fidelity_limit and len(input_images) > high_fidelity_limit:
             warnings.append(f"Nano Banana Pro 建议高保真输入不超过 {high_fidelity_limit} 张，超过后可能影响细节质量。")
@@ -662,18 +654,39 @@ class DoubaoImageCreator(Component):
             generation_config["imageConfig"] = {
                 "aspectRatio": aspect_ratio,
             }
+        # 设置 responseModalities 只返回图片（不返回文本）
+        # 这样可以避免 API 返回 C2PA 签名等额外数据
+        generation_config["responseModalities"] = ["IMAGE"]
 
         payload: dict[str, Any] = {
             "contents": [{"parts": parts}],
             "generationConfig": generation_config,
         }
 
-        url = f"{self.GEMINI_API_BASE}/models/{model_id}:generateContent"
-        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+        # Google 搜索接地功能可能导致返回 C2PA 签名的图片，暂时禁用
+        # 如果需要启用，请取消下面的注释
+        # payload["tools"] = [{"google_search": {}}]
+
+        # 使用国内代理方式：通过 URL 参数传递 key
+        url = f"{self.GEMINI_API_BASE}/models/{model_id}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
 
         # 调试日志（可选）
         import json
-        self.status = f"🍌 调用 Gemini API: {model_id}"
+        from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+        self.status = f"🍌 调用 Gemini API (国内代理): {model_id}"
+        # Never log raw API keys.
+        try:
+            split = urlsplit(url)
+            query = [
+                (key, "***" if key == "key" else value)
+                for key, value in parse_qsl(split.query, keep_blank_values=True)
+            ]
+            safe_url = urlunsplit((split.scheme, split.netloc, split.path, urlencode(query), split.fragment))
+        except Exception:
+            safe_url = f"{self.GEMINI_API_BASE}/models/{model_id}:generateContent?key=***"
+        print(f"[Gemini Debug] URL: {safe_url}")
         print(f"[Gemini Debug] Payload: {json.dumps(payload, indent=2, ensure_ascii=False)[:1000]}...")
 
         self.status = "🍌 Gemini 模型提交成功，等待生成..."
@@ -681,30 +694,112 @@ class DoubaoImageCreator(Component):
             response = requests.post(url, headers=headers, json=payload, timeout=180)
             response.raise_for_status()
             result = response.json()
+
+            # 调试：打印完整响应结构（不包含 data）
+            print(f"[Gemini Debug] Response received, status={response.status_code}")
+            if 'candidates' in result and result['candidates']:
+                candidate = result['candidates'][0]
+                print(f"  candidate keys: {list(candidate.keys())}")
+                if 'content' in candidate and 'parts' in candidate['content']:
+                    parts = candidate['content']['parts']
+                    print(f"  parts count: {len(parts)}")
+                    for i, part in enumerate(parts):
+                        part_keys = list(part.keys())
+                        print(f"    part {i}: {part_keys}")
+                        if 'inlineData' in part:
+                            inline = part['inlineData']
+                            mime_type = inline.get('mimeType', 'unknown')
+                            data_len = len(inline.get('data', ''))
+                            print(f"      inlineData: mimeType={mime_type}, data_len={data_len}")
         except requests.HTTPError as exc:
             # 尝试获取详细的错误信息
             error_detail = str(exc)
+            status_code = exc.response.status_code if exc.response else "Unknown"
             try:
                 if exc.response is not None:
+                    response_text = exc.response.text
                     error_json = exc.response.json()
                     if "error" in error_json:
                         error_info = error_json["error"]
                         error_detail = f"{error_info.get('status', '')}: {error_info.get('message', '')}"
+                        # 添加更详细的错误信息
+                        if "details" in error_info:
+                            error_detail += f" | 详情: {error_info['details']}"
+                    else:
+                        error_detail = f"{response_text[:300]}"
             except Exception:
-                pass
-            return self._error(f"Gemini API 调用失败 ({exc.response.status_code if exc.response else 'Unknown'}): {error_detail}")
+                if hasattr(exc, 'response') and exc.response:
+                    error_detail = f"{error_detail} | 响应: {exc.response.text[:300]}"
+            return self._error(f"Gemini API 调用失败 (HTTP {status_code}): {error_detail}")
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Gemini 调用失败：{exc}")
 
         images, text = self._extract_gemini_images_and_text(result)
         if not images:
+            # 添加调试：打印原始响应结构
+            print(f"[Gemini Debug] No images found. Response structure:")
+            print(f"  candidates: {list(result.get('candidates', []).__class__.__name__)}")
+            if result.get('candidates'):
+                first_candidate = result['candidates'][0] if isinstance(result['candidates'], list) else result['candidates']
+                print(f"  first_candidate keys: {list(first_candidate.keys()) if isinstance(first_candidate, dict) else 'not a dict'}")
+                if isinstance(first_candidate, dict) and 'content' in first_candidate:
+                    content = first_candidate['content']
+                    print(f"  content keys: {list(content.keys()) if isinstance(content, dict) else 'not a dict'}")
+                    if isinstance(content, dict) and 'parts' in content:
+                        parts = content['parts']
+                        print(f"  parts count: {len(parts) if isinstance(parts, list) else 'not a list'}")
+                        if isinstance(parts, list):
+                            for i, part in enumerate(parts[:3]):  # 只打印前3个
+                                print(f"    part {i} keys: {list(part.keys()) if isinstance(part, dict) else 'not a dict'}")
             return self._error("Gemini 未返回可用的图片数据，请检查提示词或稍后重试。")
+
+        # 调试：打印图片信息
+        print(f"[Gemini Debug] Found {len(images)} image(s)")
+        for i, img in enumerate(images):
+            print(f"  Image {i}: data URL prefix = {img[:100]}..., length = {len(img)}")
+
+        # 处理图片：使用 PIL 重新编码去除 C2PA 签名
+        processed_images = []
+        for i, img_data_url in enumerate(images):
+            try:
+                print(f"[Gemini Debug] Processing image {i}, original length = {len(img_data_url)}")
+                processed_url = self._process_gemini_image(img_data_url)
+                if processed_url:
+                    processed_images.append(processed_url)
+                    reduction = (1 - len(processed_url)/len(img_data_url)) * 100
+                    print(f"[Gemini Debug] Image {i} processed successfully: {len(img_data_url)} -> {len(processed_url)} bytes ({reduction:.1f}% reduction)")
+                else:
+                    # 如果处理失败，使用原始图片
+                    processed_images.append(img_data_url)
+                    print(f"[Gemini Debug] Image {i} processing returned None, using original")
+            except Exception as e:
+                # 处理出错，使用原始图片
+                processed_images.append(img_data_url)
+                print(f"[Gemini Debug] Image {i} processing error: {e}, using original")
+
+        # 调试：打印最终图片 URL 长度
+        print(f"[Gemini Debug] Final image data URL length: {len(processed_images[0]) if processed_images else 0}")
 
         generated_images: list[dict[str, Any]] = []
         preview_gallery: list[dict[str, Any]] = []
-        for index, data_url in enumerate(images):
+        for index, data_url in enumerate(processed_images):
             generated_images.append({"index": index, "image_data_url": data_url})
-            preview_gallery.append({"index": index, "image_data_url": data_url, "ratio": aspect_ratio})
+
+            # 获取图片尺寸信息
+            width, height = self._get_image_dimensions_from_data_url(data_url)
+            size_bytes = len(data_url) - len("data:image/jpeg;base64,")
+
+            # 添加图片信息（注意：Gemini 没有 HTTP URL，所以 image_url 设为 None）
+            # 前端应该优先使用 image_data_url 来显示图片
+            preview_gallery.append({
+                "index": index,
+                "image_url": None,  # Gemini 没有 HTTP URL，设为 None 让前端使用 image_data_url
+                "image_data_url": data_url,
+                "width": width,
+                "height": height,
+                "size": f"{size_bytes / 1024:.1f}KB" if size_bytes > 0 else None,
+                "ratio": aspect_ratio
+            })
 
         generated_at = datetime.now(timezone.utc).isoformat()
         preview_token = f"gemini-{uuid4().hex[:8]}"
@@ -759,6 +854,88 @@ class DoubaoImageCreator(Component):
         if "1K" in label:
             return "1K"
         return None
+
+    @staticmethod
+    def _get_image_dimensions_from_data_url(data_url: str) -> tuple[int, int] | tuple[None, None]:
+        """从 data URL 获取图片尺寸"""
+        try:
+            if not data_url or not data_url.startswith("data:") or ";base64," not in data_url:
+                return None, None
+
+            header, encoded = data_url.split(";base64,", 1)
+            image_bytes = base64.b64decode(encoded)
+
+            # 使用 PIL 获取尺寸
+            from PIL import Image
+            img = Image.open(io.BytesIO(image_bytes))
+            return img.size
+        except Exception:
+            return None, None
+
+    @staticmethod
+    def _process_gemini_image(data_url: str) -> str | None:
+        """处理 Gemini 返回的图片，尝试去除 C2PA 签名或优化格式。
+
+        Gemini Nano Banana Pro 返回的图片可能包含 C2PA 签名，
+        这会导致图片文件过大或某些浏览器无法正确显示。
+        此方法尝试重新编码图片以去除元数据。
+        """
+        if not data_url or not data_url.startswith("data:"):
+            return None
+
+        try:
+            # 分离 MIME 类型和 base64 数据
+            if ";base64," not in data_url:
+                return None
+            header, encoded = data_url.split(";base64,", 1)
+            mime_type = header.replace("data:", "").strip() or "image/jpeg"
+
+            # 解码 base64
+            image_bytes = base64.b64decode(encoded)
+
+            # 尝试使用 PIL 重新编码图片（去除 C2PA 签名等元数据）
+            try:
+                from PIL import Image
+                print(f"[Gemini Image Process] PIL imported successfully")
+                print(f"[Gemini Image Process] Decoded {len(image_bytes)} bytes from base64")
+
+                # 从字节流加载图片
+                img = Image.open(io.BytesIO(image_bytes))
+                print(f"[Gemini Image Process] Image opened: size={img.size}, mode={img.mode}, format={img.format}")
+
+                # 转换为 RGB（如果是 RGBA）
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'P':
+                        img = img.convert('RGBA')
+                    background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                    img = background
+                elif img.mode not in ('RGB', 'L'):
+                    img = img.convert('RGB')
+
+                # 保存到字节流（去除所有元数据）
+                output = io.BytesIO()
+                img.save(output, format='JPEG', quality=95, optimize=True)
+                output.seek(0)
+                processed_bytes = output.getvalue()
+
+                # 重新编码为 base64
+                processed_encoded = base64.b64encode(processed_bytes).decode('utf-8')
+                processed_url = f"data:image/jpeg;base64,{processed_encoded}"
+
+                print(f"[Gemini Image Process] Original: {len(image_bytes)} bytes -> Processed: {len(processed_bytes)} bytes")
+                return processed_url
+
+            except ImportError:
+                print("[Gemini Image Process] PIL not available, skipping processing")
+                return None
+            except Exception as e:
+                print(f"[Gemini Image Process] PIL processing failed: {e}")
+                return None
+
+        except Exception as e:
+            print(f"[Gemini Image Process] Failed to process image: {e}")
+            return None
 
     @staticmethod
     def _gemini_inline_part_from_data_url(data_url: str) -> dict[str, Any] | None:
@@ -1525,6 +1702,58 @@ class DoubaoImageCreator(Component):
             return int(width_str), int(height_str)
         except ValueError:
             return None, None
+
+    def _resolve_gemini_api_key(self) -> str:
+        """Resolve Gemini API key from providers (gemini → google), then env vars, then node param.
+
+        Priority:
+        1. Provider Credentials: gemini → google (NOT default)
+        2. Environment variables: GEMINI_API_KEY → GOOGLE_API_KEY
+        3. Node parameter: self.api_key
+        """
+        candidates: list[str] = []
+
+        # 1. 从 Provider Credentials 读取（仅 gemini 和 google，不读取 default）
+        try:  # pragma: no cover - runtime dependency
+            from langflow.services.deps import get_settings_service
+
+            settings_service = get_settings_service()
+            config_dir = settings_service.settings.config_dir
+
+            # 尝试读取 gemini provider
+            gemini_creds = get_provider_credentials("gemini", config_dir)
+            if gemini_creds and gemini_creds.api_key and not gemini_creds.api_key.strip().startswith("****"):
+                candidates.append(gemini_creds.api_key.strip())
+
+            # 尝试读取 google provider
+            google_creds = get_provider_credentials("google", config_dir)
+            if google_creds and google_creds.api_key and not google_creds.api_key.strip().startswith("****"):
+                candidates.append(google_creds.api_key.strip())
+        except Exception:
+            pass
+
+        # 2. 从环境变量读取
+        gemini_env = os.getenv("GEMINI_API_KEY", "").strip()
+        if gemini_env:
+            candidates.append(gemini_env)
+        google_env = os.getenv("GOOGLE_API_KEY", "").strip()
+        if google_env:
+            candidates.append(google_env)
+
+        # 3. 从节点参数读取
+        node_key = (getattr(self, "api_key", None) or "").strip()
+        if node_key and not node_key.startswith("****"):
+            node_key = node_key.strip("'").strip('"')
+            if node_key.lower().startswith("bearer "):
+                node_key = node_key.split(" ", 1)[1].strip()
+            if node_key:
+                candidates.append(node_key)
+
+        # 返回第一个有效的 API Key
+        for key in candidates:
+            if key:
+                return key
+        return ""
 
     @staticmethod
     def _error(message: str) -> Data:

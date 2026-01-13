@@ -416,15 +416,18 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const videoPreview = useMemo(() => {
       if (kind !== "video" || !resolvedPreview?.payload) return null;
+      // 优先使用 base64 编码的视频（避免认证问题）
+      const videoBase64: string | undefined = resolvedPreview.payload?.video_base64;
       const videoUrl: string | undefined = resolvedPreview.payload?.video_url;
-      if (!videoUrl) return null;
+      const finalVideoUrl = videoBase64 || videoUrl;
+      if (!finalVideoUrl) return null;
       return {
-        videoUrl,
+        videoUrl: finalVideoUrl,
         poster:
           resolvedPreview.payload?.cover_preview_base64 ||
           resolvedPreview.payload?.cover_url,
         duration: resolvedPreview.payload?.duration,
-        extension: inferExtensionFromSource(videoUrl, "mp4"),
+        extension: inferExtensionFromSource(finalVideoUrl, "mp4"),
       };
     }, [kind, resolvedPreview]);
 

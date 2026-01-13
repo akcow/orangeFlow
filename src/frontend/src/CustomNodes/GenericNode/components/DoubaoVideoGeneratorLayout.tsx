@@ -111,6 +111,18 @@ const MODEL_LIMITS: Record<
     maxDuration: 8,
     enableLastFrame: true,
   },
+  "sora-2": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 10,
+    maxDuration: 15,
+    enableLastFrame: false,
+  },
+  "sora-2-pro": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 10,
+    maxDuration: 25,
+    enableLastFrame: false,
+  },
 };
 
 function getWanAllowedDurations(modelName: string, mode: string | null) {
@@ -195,6 +207,7 @@ export default function DoubaoVideoGeneratorLayout({
   const isWanModel = normalizedModelName.startsWith("wan2.");
   const isVeoModel =
     normalizedModelName === "VEO3.1" || normalizedModelName === "veo3.1-fast";
+  const isSoraModel = normalizedModelName === "sora-2" || normalizedModelName === "sora-2-pro";
   const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
   const allowLastFrame = modelLimits?.enableLastFrame ?? true;
   const firstFrameMaxUploads = isVeoModel ? VEO_MAX_UPLOADS : FIRST_FRAME_MAX_UPLOADS;
@@ -519,6 +532,23 @@ export default function DoubaoVideoGeneratorLayout({
             value = mustBeEight ? 8 : baseAllowed[0];
           }
         }
+
+        if (isSoraModel) {
+          // Sora 模型的时长限制：sora-2 支持 10/15 秒，sora-2-pro 支持 10/15/25 秒
+          const allowedDurations = normalizedModelName === "sora-2" ? [10, 15] : [10, 15, 25];
+          const normalizedOptions = options
+            .map((option) => Number(option))
+            .filter((option) => !Number.isNaN(option));
+          options = Array.from(new Set([...normalizedOptions, ...allowedDurations])).sort(
+            (a, b) => a - b,
+          );
+          const allowedSet = new Set(allowedDurations);
+          const extraDisabled = options.filter((option) => !allowedSet.has(Number(option)));
+          disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
+          if (typeof numericValue === "number" && !Number.isNaN(numericValue) && !allowedSet.has(numericValue)) {
+            value = allowedDurations[0];
+          }
+        }
       }
 
       if (field.name === "resolution" && modelLimits?.resolutions?.length) {
@@ -560,6 +590,12 @@ export default function DoubaoVideoGeneratorLayout({
           const allowed = isReferenceMode
             ? new Set<string>(["16:9"])
             : new Set<string>(["16:9", "9:16"]);
+          disabledOptions = options.filter((opt) => !allowed.has(String(opt)));
+        }
+
+        if (isSoraModel) {
+          // Sora API 支持的尺寸仅覆盖横/竖屏两种比例：16:9 与 9:16
+          const allowed = new Set<string>(["16:9", "9:16"]);
           disabledOptions = options.filter((opt) => !allowed.has(String(opt)));
         }
       }
@@ -604,6 +640,7 @@ export default function DoubaoVideoGeneratorLayout({
     hasLastFrameEdge,
     hasLastFrameValue,
     isFirstLastFrameMode,
+    isSoraModel,
     isVeoModel,
     isWanModel,
     modelLimits,
