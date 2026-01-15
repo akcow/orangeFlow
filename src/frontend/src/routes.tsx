@@ -32,10 +32,10 @@ import CollectionPage from "./pages/MainPage/pages/main-page";
 import SettingsPage from "./pages/SettingsPage";
 import ApiKeysPage from "./pages/SettingsPage/pages/ApiKeysPage";
 import GeneralPage from "./pages/SettingsPage/pages/GeneralPage";
-import GlobalVariablesPage from "./pages/SettingsPage/pages/GlobalVariablesPage";
 import MessagesPage from "./pages/SettingsPage/pages/messagesPage";
-import ShortcutsPage from "./pages/SettingsPage/pages/ShortcutsPage";
+import ModelConfigPage from "./pages/SettingsPage/pages/ModelConfigPage";
 import ProviderCredentialsPage from "./pages/SettingsPage/pages/ProviderCredentialsPage";
+import ShortcutsPage from "./pages/SettingsPage/pages/ShortcutsPage";
 import ViewPage from "./pages/ViewPage";
 
 const AdminPage = lazy(() => import("./pages/AdminPage"));
@@ -127,8 +127,8 @@ const router = createBrowserRouter(
                     element={<CustomNavigate replace to={"general"} />}
                   />
                   <Route
-                    path="global-variables"
-                    element={<GlobalVariablesPage />}
+                    path="model-config"
+                    element={<ModelConfigPage />}
                   />
                   <Route
                     path="provider-credentials"

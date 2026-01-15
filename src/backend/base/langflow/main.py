@@ -456,6 +456,9 @@ def create_app():
     app.include_router(router)
     app.include_router(health_check_router)
     app.include_router(log_router)
+    
+    from langflow.gateway import router as gateway_router
+    app.include_router(gateway_router)
 
     @app.exception_handler(Exception)
     async def exception_handler(_request: Request, exc: Exception):

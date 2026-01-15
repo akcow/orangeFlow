@@ -1,15 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useNavigate } from "react-router-dom";
 import { getSpecificClassFromBuildStatus } from "@/CustomNodes/helpers/get-class-from-build-status";
 import { mutateTemplate } from "@/CustomNodes/helpers/mutate-template";
 import useIconStatus from "@/CustomNodes/hooks/use-icons-status";
 import useUpdateValidationStatus from "@/CustomNodes/hooks/use-update-validation-status";
 import useValidationStatusString from "@/CustomNodes/hooks/use-validation-status-string";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+// ... (keep existing imports)
+
+
 import { Button } from "@/components/ui/button";
 import { ICON_STROKE_WIDTH } from "@/constants/constants";
 import { BuildStatus } from "@/constants/enums";
 import { usePostTemplateValue } from "@/controllers/API/queries/nodes/use-post-template-value";
+import { useGetGlobalVariables } from "@/controllers/API/queries/variables";
 import { track } from "@/customization/utils/analytics";
 import { customOpenNewTab } from "@/customization/utils/custom-open-new-tab";
 import useAlertStore from "@/stores/alertStore";
@@ -154,7 +167,7 @@ export default function NodeStatus({
             postTemplateValue,
             setErrorData,
             nodeAuth?.name ?? "auth_link",
-            () => {},
+            () => { },
             data.node.tool_mode,
           );
         }, POLLING_INTERVAL);
@@ -291,7 +304,29 @@ export default function NodeStatus({
 
   const stopBuilding = useFlowStore((state) => state.stopBuilding);
 
+  const navigate = useNavigate();
+  const { data: globalVariables } = useGetGlobalVariables();
+  const [showKeyModal, setShowKeyModal] = useState(false);
+
   const handleClickRun = () => {
+    const hasApiKey = globalVariables?.some(
+      (v) => v.name === "MODEL_API_KEY" && v.value,
+    );
+
+    if (!hasApiKey && process.env.NODE_ENV !== "development") {
+      // In dev mode we might skip this, but requirement is strict.
+      // Actually let's assume strict requirement unless user says otherwise.
+      // But wait, user request implies this is for PRODUCTION usage or end-user usage.
+      setShowKeyModal(true);
+      return;
+    }
+    // Double check logic:
+    // If hasApiKey is false, show Modal. 
+    if (!hasApiKey) {
+      setShowKeyModal(true);
+      return;
+    }
+
     clearFlowPoolForNodes([nodeId_]);
 
     if (BuildStatus.BUILDING === buildStatus && isHovered) {
@@ -317,7 +352,7 @@ export default function NodeStatus({
     "h-3.5 w-3.5 transition-all group-hover/node:opacity-100",
     isHovered ? "text-foreground" : "text-muted-foreground",
     BuildStatus.BUILDING === buildStatus &&
-      (isHovered ? "text-status-red" : "animate-spin"),
+    (isHovered ? "text-status-red" : "animate-spin"),
   );
 
   const getTooltipContent = () => {
@@ -345,18 +380,18 @@ export default function NodeStatus({
     isAuthenticated: boolean,
     isPolling: boolean,
   ): string => {
-    return cn(
-      "nodrag button-run-bg group relative h-4 w-4 p-0.5 rounded-sm border border-accent-amber-foreground transition-colors hover:bg-accent-amber",
-      connectionLink === "error"
-        ? "border-destructive text-destructive"
-        : isAuthenticated && !isPolling
-          ? "border-accent-emerald-foreground hover:border-accent-amber-foreground"
-          : "",
-      connectionLink === "" &&
+      return cn(
+        "nodrag button-run-bg group relative h-4 w-4 p-0.5 rounded-sm border border-accent-amber-foreground transition-colors hover:bg-accent-amber",
+        connectionLink === "error"
+          ? "border-destructive text-destructive"
+          : isAuthenticated && !isPolling
+            ? "border-accent-emerald-foreground hover:border-accent-amber-foreground"
+            : "",
+        connectionLink === "" &&
         (!apiKeyValue || apiKeyValue === "COMPOSIO_API_KEY") &&
         "cursor-not-allowed opacity-50",
-    );
-  };
+      );
+    };
 
   const getConnectionIconClasses: (
     connectionLink: string,
@@ -367,17 +402,17 @@ export default function NodeStatus({
     isAuthenticated: boolean,
     isPolling: boolean,
   ): string => {
-    return cn(
-      "transition-opacity h-2.5 w-2.5",
-      connectionLink === "error"
-        ? "text-destructive"
-        : isAuthenticated && !isPolling
-          ? "text-accent-emerald-foreground"
-          : "text-accent-amber-foreground",
-      isPolling && "animate-spin",
-      isAuthenticated && !isPolling ? "group-hover:opacity-0" : "",
-    );
-  };
+      return cn(
+        "transition-opacity h-2.5 w-2.5",
+        connectionLink === "error"
+          ? "text-destructive"
+          : isAuthenticated && !isPolling
+            ? "text-accent-emerald-foreground"
+            : "text-accent-amber-foreground",
+        isPolling && "animate-spin",
+        isAuthenticated && !isPolling ? "group-hover:opacity-0" : "",
+      );
+    };
 
   const getDataTestId = () => {
     if (isAuthenticated && !isPolling) {
@@ -391,6 +426,24 @@ export default function NodeStatus({
 
   return (
     <div className="flex shrink-0 items-center gap-2">
+      <Dialog open={showKeyModal} onOpenChange={setShowKeyModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>需填写API Key</DialogTitle>
+            <DialogDescription>
+              使用自定义组件模型前，请先在设置中填写API Key。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowKeyModal(false)}>
+              取消
+            </Button>
+            <Button onClick={() => navigate("/settings/model-config")}>
+              去填写
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {(showNodeStatus || nodeAuth) && (
         <div className="flex items-center gap-2 self-center">
           {showNodeStatus && (

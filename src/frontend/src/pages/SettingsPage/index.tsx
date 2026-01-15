@@ -38,23 +38,14 @@ export default function SettingsPage(): JSX.Element {
     });
   }
 
+
   sidebarNavItems.push(
     {
-      title: t("Secret Keys"),
-      href: "/settings/provider-credentials",
+      title: "模型配置",
+      href: "/settings/model-config",
       icon: (
         <ForwardedIconComponent
-          name="KeyRound"
-          className="w-4 flex-shrink-0 justify-start stroke-[1.5]"
-        />
-      ),
-    },
-    {
-      title: t("Global Variables"),
-      href: "/settings/global-variables",
-      icon: (
-        <ForwardedIconComponent
-          name="Globe"
+          name="Settings2"
           className="w-4 flex-shrink-0 justify-start stroke-[1.5]"
         />
       ),
