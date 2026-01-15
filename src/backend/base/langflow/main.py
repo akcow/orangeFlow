@@ -462,6 +462,17 @@ def create_app():
 
     @app.exception_handler(Exception)
     async def exception_handler(_request: Request, exc: Exception):
+        # Ensure hosted gateway errors keep their structured payload.
+        try:
+            from langflow.gateway.errors import GatewayError as HostedGatewayError
+
+            if isinstance(exc, HostedGatewayError):
+                await logger.aerror(f"GatewayError: {exc}", exc_info=exc)
+                return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
+        except Exception:
+            # Best-effort: never let error formatting crash the handler.
+            pass
+
         if isinstance(exc, HTTPException):
             await logger.aerror(f"HTTPException: {exc}", exc_info=exc)
             return JSONResponse(

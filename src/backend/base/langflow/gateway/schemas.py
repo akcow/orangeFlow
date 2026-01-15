@@ -25,6 +25,8 @@ class ChatCompletionRequest(BaseModel):
     response_format: Optional[Dict[str, Any]] = None  # { "type": "json_object" }
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    # Provider-specific knobs/passthrough fields.
+    extra_body: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
 class ImageGenerationRequest(BaseModel):
@@ -36,6 +38,8 @@ class ImageGenerationRequest(BaseModel):
     style: Optional[str] = "vivid"
     response_format: str = "url"  # url or b64_json
     user: Optional[str] = None
+    # Provider-specific knobs/passthrough fields (e.g. reference images, seed, negative_prompt).
+    extra_body: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
 class VideoGenerationRequest(BaseModel):
@@ -55,6 +59,8 @@ class AudioSpeechRequest(BaseModel):
     voice: str
     response_format: str = "mp3"
     speed: float = 1.0
+    # Provider-specific knobs/passthrough fields.
+    extra_body: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
 class GatewayErrorResponse(BaseModel):

@@ -323,8 +323,7 @@ class DoubaoImageCreator(Component):
         if not model_meta:
             return self._error("未匹配到可用模型，请重新选择。")
 
-        if model_meta.get("provider") == "gemini":
-            return self._build_images_gemini(prompt=prompt, model_meta=model_meta)
+        # Note: Gemini is handled after bridge-mode checks.
 
         is_dashscope = "t2i_model" in model_meta or "i2i_model" in model_meta
         if not prompt:
@@ -388,8 +387,55 @@ class DoubaoImageCreator(Component):
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
             return Data(data=payload, type="image")
 
+        # Hosted gateway path (server-managed credentials; no Provider Credentials UI / node keys).
+        try:
+            resolution = self.resolution or "2Kï¼ˆæŽ¨èï¼‰"
+            aspect_ratio = self.aspect_ratio or "1:1"
+            image_count = int(self.image_count or 1)
+            image_count = max(1, min(image_count, 6))
+            size_info = self._resolve_size(model_meta, resolution, aspect_ratio)
+            max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
+            reference_payloads, reference_meta = self._prepare_reference_images(
+                max_reference_images=max_refs,
+                allowed_extensions=set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None,
+            )
+        except ValueError as exc:
+            return self._error(str(exc))
+
+        if model_meta.get("provider") == "gemini":
+            return self._build_images_gemini_gateway(
+                prompt=prompt,
+                model_meta=model_meta,
+                resolution=resolution,
+                aspect_ratio=aspect_ratio,
+                image_count=image_count,
+                size_info=size_info,
+                reference_payloads=reference_payloads,
+                reference_meta=reference_meta,
+            )
+
         if is_dashscope:
-            return self._build_images_dashscope(prompt=prompt, model_meta=model_meta)
+            return self._build_images_wan_gateway(
+                prompt=prompt,
+                model_meta=model_meta,
+                resolution=resolution,
+                aspect_ratio=aspect_ratio,
+                image_count=image_count,
+                size_info=size_info,
+                reference_payloads=reference_payloads,
+                reference_meta=reference_meta,
+            )
+
+        return self._build_images_doubao_gateway(
+            prompt=prompt,
+            model_meta=model_meta,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            image_count=image_count,
+            size_info=size_info,
+            reference_payloads=reference_payloads,
+            reference_meta=reference_meta,
+        )
 
         creds = resolve_credentials(
             component_app_id=None,
@@ -576,6 +622,334 @@ class DoubaoImageCreator(Component):
             }
 
         return Data(data=result_data, type="image")
+
+    def _build_images_doubao_gateway(
+        self,
+        *,
+        prompt: str,
+        model_meta: dict[str, Any],
+        resolution: str,
+        aspect_ratio: str,
+        image_count: int,
+        size_info: dict[str, Any],
+        reference_payloads: list[str],
+        reference_meta: list[dict[str, Any]],
+    ) -> Data:
+        """Doubao/Ark image generation via hosted gateway."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            extra_body: dict[str, Any] = {"watermark": False}
+            if image_count > 1:
+                extra_body["sequential_image_generation"] = "auto"
+                extra_body["sequential_image_generation_options"] = {"max_images": int(image_count)}
+            if reference_payloads:
+                extra_body["image"] = reference_payloads
+
+            self.status = "Submitting image generation task (gateway)..."
+            response = images_generations(
+                model=str(model_meta["model_id"]),
+                prompt=prompt,
+                n=int(image_count),
+                size=str(size_info["size_value"]),
+                response_format="url",
+                extra_body=extra_body,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+
+            response_data = (response or {}).get("data") or []
+            if not isinstance(response_data, list) or not response_data:
+                return self._error(f"Gateway returned no images: {response}")
+
+            images: list[dict[str, Any]] = []
+            preview_gallery: list[dict[str, Any]] = []
+            for index, entry in enumerate(response_data):
+                image_url = None
+                if isinstance(entry, dict):
+                    image_url = entry.get("url") or entry.get("image_url")
+                if not isinstance(image_url, str) or not image_url.strip():
+                    continue
+                image_url = image_url.strip()
+
+                size_text = str(size_info.get("size_value") or "")
+                width, height = self._parse_size(size_text)
+                preview_data, preview_error = self._download_preview(image_url)
+                image_record: dict[str, Any] = {
+                    "index": index,
+                    "image_url": image_url,
+                    "size": size_text or (f"{width}x{height}" if width and height else ""),
+                    "width": width,
+                    "height": height,
+                }
+                if preview_data:
+                    image_record["image_data_url"] = preview_data
+                if preview_error:
+                    image_record["preview_error"] = preview_error
+                images.append(image_record)
+
+                preview_gallery.append(
+                    {
+                        "index": index,
+                        "image_url": image_url,
+                        "image_data_url": preview_data,
+                        "width": width,
+                        "height": height,
+                        "size": image_record["size"],
+                        "ratio": aspect_ratio,
+                    }
+                )
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": bool(preview_gallery),
+                "generated_at": generated_at,
+                "payload": {
+                    "images": preview_gallery,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": model_meta["model_id"]},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                },
+            }
+
+            self.status = "Image generated"
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": model_meta["model_id"]},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "size": size_info.get("size_value"),
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway image generation failed: {exc}")
+
+    def _build_images_wan_gateway(
+        self,
+        *,
+        prompt: str,
+        model_meta: dict[str, Any],
+        resolution: str,
+        aspect_ratio: str,
+        image_count: int,
+        size_info: dict[str, Any],
+        reference_payloads: list[str],
+        reference_meta: list[dict[str, Any]],
+    ) -> Data:
+        """Wan (DashScope) image generation via hosted gateway."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            is_i2i = bool(reference_payloads)
+            dashscope_model = model_meta.get("i2i_model") if is_i2i else model_meta.get("t2i_model")
+            if not dashscope_model:
+                return self._error("Missing dashscope model mapping.")
+
+            extra_body: dict[str, Any] = {
+                "images": reference_payloads,
+                "negative_prompt": str(getattr(self, "negative_prompt", "") or ""),
+                "seed": int(getattr(self, "seed", 0) or 0),
+                "prompt_extend": bool(getattr(self, "prompt_extend", True)),
+                "watermark": bool(getattr(self, "watermark", False)),
+                "size": str(size_info.get("size_value") or ""),
+            }
+
+            response = images_generations(
+                model=str(dashscope_model),
+                prompt=prompt,
+                n=int(image_count),
+                size=str(size_info.get("size_value") or ""),
+                response_format="url",
+                extra_body=extra_body,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+
+            response_data = (response or {}).get("data") or []
+            if not isinstance(response_data, list) or not response_data:
+                return self._error(f"Gateway returned no images: {response}")
+
+            images: list[dict[str, Any]] = []
+            preview_gallery: list[dict[str, Any]] = []
+            for index, entry in enumerate(response_data):
+                image_url = None
+                if isinstance(entry, dict):
+                    image_url = entry.get("url") or entry.get("image_url")
+                if not isinstance(image_url, str) or not image_url.strip():
+                    continue
+                image_url = image_url.strip()
+
+                size_text = str(size_info.get("size_value") or "")
+                width, height = self._parse_size(size_text.replace("*", "x"))
+                preview_data, preview_error = self._download_preview(image_url)
+                image_record: dict[str, Any] = {"index": index, "image_url": image_url, "width": width, "height": height, "size": size_text}
+                if preview_data:
+                    image_record["image_data_url"] = preview_data
+                if preview_error:
+                    image_record["preview_error"] = preview_error
+                images.append(image_record)
+                preview_gallery.append(
+                    {
+                        "index": index,
+                        "image_url": image_url,
+                        "image_data_url": preview_data,
+                        "width": width,
+                        "height": height,
+                        "size": size_text,
+                        "ratio": aspect_ratio,
+                    }
+                )
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": bool(preview_gallery),
+                "generated_at": generated_at,
+                "payload": {
+                    "images": preview_gallery,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": str(dashscope_model)},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                },
+            }
+
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": str(dashscope_model)},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "size": size_info.get("size_value"),
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway wan image failed: {exc}")
+
+    def _build_images_gemini_gateway(
+        self,
+        *,
+        prompt: str,
+        model_meta: dict[str, Any],
+        resolution: str,
+        aspect_ratio: str,
+        image_count: int,
+        size_info: dict[str, Any],
+        reference_payloads: list[str],
+        reference_meta: list[dict[str, Any]],
+    ) -> Data:
+        """Gemini image generation via hosted gateway (Nano Banana models)."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            parts: list[dict[str, Any]] = [{"text": prompt}]
+            for data_url in reference_payloads:
+                if not isinstance(data_url, str) or not data_url.startswith("data:image/") or ";base64," not in data_url:
+                    continue
+                header, b64 = data_url.split(";base64,", 1)
+                mime_type = header.split(":", 1)[1] if ":" in header else "image/jpeg"
+                parts.append({"inline_data": {"mime_type": mime_type, "data": b64}})
+
+            gemini_payload: dict[str, Any] = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {"imageConfig": {"aspectRatio": aspect_ratio}, "responseModalities": ["IMAGE"]},
+            }
+
+            response = images_generations(
+                model=str(model_meta["model_id"]),
+                prompt=prompt,
+                n=int(image_count),
+                size=str(size_info.get("size_value") or ""),
+                response_format="b64_json",
+                extra_body={"gemini_payload": gemini_payload},
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+
+            response_data = (response or {}).get("data") or []
+            if not isinstance(response_data, list) or not response_data:
+                return self._error(f"Gateway returned no images: {response}")
+
+            images: list[dict[str, Any]] = []
+            preview_gallery: list[dict[str, Any]] = []
+            for index, entry in enumerate(response_data):
+                image_data_url = None
+                image_url = None
+                if isinstance(entry, dict):
+                    if isinstance(entry.get("b64_json"), str) and entry["b64_json"].strip():
+                        image_data_url = f"data:image/png;base64,{entry['b64_json'].strip()}"
+                    elif isinstance(entry.get("url"), str):
+                        image_url = entry["url"].strip()
+                record: dict[str, Any] = {"index": index}
+                if image_url:
+                    record["image_url"] = image_url
+                    preview_data, preview_error = self._download_preview(image_url)
+                    if preview_data:
+                        record["image_data_url"] = preview_data
+                    if preview_error:
+                        record["preview_error"] = preview_error
+                if image_data_url:
+                    record["image_data_url"] = image_data_url
+                images.append(record)
+                preview_gallery.append({"index": index, "image_url": image_url, "image_data_url": record.get("image_data_url"), "ratio": aspect_ratio})
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": bool(preview_gallery),
+                "generated_at": generated_at,
+                "payload": {
+                    "images": preview_gallery,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": model_meta["model_id"]},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                },
+            }
+
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": model_meta["model_id"]},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway gemini image failed: {exc}")
 
     def _build_images_gemini(self, *, prompt: str, model_meta: dict[str, Any]) -> Data:
         model_id = str(model_meta.get("model_id") or "").strip()

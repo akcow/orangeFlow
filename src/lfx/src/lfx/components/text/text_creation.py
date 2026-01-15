@@ -137,40 +137,24 @@ class TextCreation(Component):
 
         model_name = self.model_name or "deepseek-chat"
 
-        if self._is_gemini3(model_name):
-            api_key = self._resolve_gemini_api_key()
-            if not api_key:
-                return self._error(
-                    "未检测到 Gemini API Key，请在节点或 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY，"
-                    "或在 密钥配置 - Google / 默认密钥 中输入。"
-                )
-            return self._generate_gemini3_text(prompt=prompt, model_name=model_name, api_key=api_key)
-
-        api_key = self._resolve_deepseek_api_key()
-        if not api_key:
-            return self._error(
-                "未检测到 DeepSeek API Key，请在节点或 .env 中配置 DEEPSEEK_API_KEY，" "或在 密钥配置 - DeepSeek 中输入。"
-            )
-        api_base = (self.api_base or "https://api.deepseek.com/v1").rstrip("/")
-
         try:
-            from langchain_openai import ChatOpenAI
-        except ImportError:
-            return self._error("缺少 langchain-openai 依赖，请安装后重试。")
+            # Route all model calls through the hosted gateway (server-managed credentials).
+            from langflow.gateway.client import chat_completions
 
-        try:
-            llm = ChatOpenAI(
+            rsp = chat_completions(
                 model=model_name,
-                base_url=api_base,
-                api_key=api_key,
-                temperature=0.7,
-                streaming=False,
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
             )
-            response = llm.invoke([HumanMessage(content=prompt)])
-            content = getattr(response, "content", None) or str(response)
-            usage = getattr(response, "usage_metadata", None)
+            content = (
+                (((rsp.get("choices") or [{}])[0] or {}).get("message") or {}).get("content")
+                if isinstance(rsp, dict)
+                else None
+            ) or ""
+            usage = rsp.get("usage") if isinstance(rsp, dict) else None
         except Exception as exc:  # noqa: BLE001
-            return self._error(f"DeepSeek 调用失败：{exc}")
+            return self._error(f"模型调用失败：{exc}")
 
         generated_at = datetime.now(timezone.utc).isoformat()
         preview_payload = {
@@ -187,13 +171,12 @@ class TextCreation(Component):
             "text": content,
             "prompt": prompt,
             "model": model_name,
-            "api_base": api_base,
             "text_preview": preview_payload,
         }
         if usage:
             result_data["usage"] = usage
 
-        self.status = "✅ DeepSeek 文本生成完成"
+        self.status = "✅ 文本生成完成"
         return Data(data=result_data, text_key="text")
 
     def _generate_gemini3_text(self, *, prompt: str, model_name: str, api_key: str) -> Data:

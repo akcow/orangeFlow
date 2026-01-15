@@ -41,16 +41,27 @@ export const useShortcutsStore = create<shortcutsStoreType>((set, get) => ({
     });
   },
   getShortcutsFromStorage: () => {
-    if (localStorage.getItem("langflow-shortcuts")) {
-      const savedShortcuts = localStorage.getItem("langflow-shortcuts");
-      const savedArr = JSON.parse(savedShortcuts!);
+    const savedShortcuts = localStorage.getItem("langflow-shortcuts");
+    if (!savedShortcuts) return;
+
+    // Avoid a hard crash (white screen) when localStorage has corrupted/invalid JSON.
+    try {
+      const savedArr = JSON.parse(savedShortcuts);
+      if (!Array.isArray(savedArr)) {
+        throw new Error("langflow-shortcuts is not an array");
+      }
+
       savedArr.forEach(({ name, shortcut }) => {
         const shortcutName = toCamelCase(name);
         set({
           [shortcutName]: shortcut,
         });
       });
-      get().setShortcuts(JSON.parse(savedShortcuts!));
+      get().setShortcuts(savedArr);
+    } catch (e) {
+      // Reset bad data and fall back to defaults.
+      console.warn("Failed to load shortcuts from localStorage; resetting.", e);
+      localStorage.removeItem("langflow-shortcuts");
     }
   },
 }));

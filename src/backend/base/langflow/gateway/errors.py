@@ -30,7 +30,7 @@ class GatewayError(HTTPException):
 
 
 class AuthError(GatewayError):
-    def __init__(self, message: str = "Invalid Hosted Key", request_id: str = ""):
+    def __init__(self, message: str = "API Key 无效或已过期", request_id: str = ""):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="PROVIDER_AUTH_FAILED",
@@ -51,10 +51,14 @@ class ModelNotFoundError(GatewayError):
 
 class UpstreamError(GatewayError):
     def __init__(self, message: str, provider: str, code: str = "UPSTREAM_ERROR", request_id: str = ""):
+        msg = str(message or "").strip()
+        if not msg:
+            # Avoid leaking an empty detail string (it renders as "502: " in many clients).
+            msg = "上游服务返回错误（响应为空）"
         super().__init__(
             status_code=status.HTTP_502_BAD_GATEWAY,
             code=code,
-            message=message,
+            message=msg,
             provider=provider,
             request_id=request_id,
         )

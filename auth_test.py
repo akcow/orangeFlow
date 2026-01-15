@@ -2,11 +2,16 @@
 import os
 import sys
 import asyncio
+from pathlib import Path
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
 # Verify path setup
+# Ensure local imports work when running tests without installing packages.
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "src" / "backend" / "base"))
+sys.path.insert(0, str(ROOT / "src" / "lfx" / "src"))
 sys.path.insert(0, r"c:\Users\wang\Desktop\新建文件夹 (2)\src\backend\base")
 
 from langflow.gateway.router import router

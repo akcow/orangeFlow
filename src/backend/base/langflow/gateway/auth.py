@@ -19,11 +19,11 @@ async def get_hosted_key(
     2. Database for valid ApiKey (User-generated)
     """
     if not authorization:
-        raise AuthError(message="Missing Authorization header")
+        raise AuthError(message="缺少 Authorization 请求头")
 
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
-        raise AuthError(message="Invalid authentication scheme")
+        raise AuthError(message="认证方式无效（需要 Bearer）")
 
     # 1. Check Env Var (Master Key)
     expected_key = os.getenv("HOSTED_GATEWAY_KEY")
@@ -37,4 +37,4 @@ async def get_hosted_key(
     if user:
         return token
 
-    raise AuthError(message="Invalid Hosted Key")
+    raise AuthError(message="API Key 无效或已过期")

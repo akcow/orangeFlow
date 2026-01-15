@@ -309,20 +309,17 @@ export default function NodeStatus({
   const [showKeyModal, setShowKeyModal] = useState(false);
 
   const handleClickRun = () => {
-    const hasApiKey = globalVariables?.some(
-      (v) => v.name === "MODEL_API_KEY" && v.value,
-    );
+    const modulePath = ((data.node as any)?.metadata?.module ?? "") as string;
+    const isLfxCustomNode =
+      typeof modulePath === "string" && modulePath.startsWith("lfx.");
 
-    if (!hasApiKey && process.env.NODE_ENV !== "development") {
-      // In dev mode we might skip this, but requirement is strict.
-      // Actually let's assume strict requirement unless user says otherwise.
-      // But wait, user request implies this is for PRODUCTION usage or end-user usage.
-      setShowKeyModal(true);
-      return;
-    }
-    // Double check logic:
-    // If hasApiKey is false, show Modal. 
-    if (!hasApiKey) {
+    const hasApiKey = globalVariables?.some((v) => {
+      if (v.name !== "MODEL_API_KEY") return false;
+      const raw = typeof v.value === "string" ? v.value.trim() : "";
+      return Boolean(raw) && !raw.startsWith("****");
+    });
+
+    if (isLfxCustomNode && !hasApiKey) {
       setShowKeyModal(true);
       return;
     }
@@ -357,9 +354,9 @@ export default function NodeStatus({
 
   const getTooltipContent = () => {
     if (BuildStatus.BUILDING === buildStatus && isHovered) {
-      return "Stop build";
+      return "停止运行";
     }
-    return "Run component";
+    return "运行";
   };
 
   const handleClickConnect = () => {
@@ -431,7 +428,7 @@ export default function NodeStatus({
           <DialogHeader>
             <DialogTitle>需填写API Key</DialogTitle>
             <DialogDescription>
-              使用自定义组件模型前，请先在设置中填写API Key。
+              运行自定义组件前，请先在“设置 → 模型配置”页面填写 API Key。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

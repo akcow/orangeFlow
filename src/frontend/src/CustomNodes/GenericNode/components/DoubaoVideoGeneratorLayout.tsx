@@ -568,8 +568,13 @@ export default function DoubaoVideoGeneratorLayout({
         const baseDisabled = options.filter((option) => !allowed.has(String(option)));
         disabledOptions = [...(disabledOptions ?? []), ...baseDisabled];
         // Veo 模型：1080p 仅在时长为 8 秒时可用
-        // 但我们不在前端强制禁用，让用户可以自由选择
-        // 如果用户选择了不兼容的组合（如 1080p + 4秒），后端会自动调整
+        const durationIsEight = Number.isFinite(selectedDurationValue) ? selectedDurationValue === 8 : true;
+        if (!durationIsEight) {
+          disabledOptions = [...(disabledOptions ?? []), "1080p"];
+          if (String(value ?? "").trim() === "1080p") {
+            value = "720p";
+          }
+        }
       }
 
       if (field.name === ASPECT_RATIO_FIELD) {

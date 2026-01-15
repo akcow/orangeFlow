@@ -1,3 +1,8 @@
+import pytest
+
+# This file is an ad-hoc integration script (requires a running server at BASE_URL).
+pytest.skip("integration script; requires running Langflow server", allow_module_level=True)
+
 import httpx
 import asyncio
 import os

@@ -264,52 +264,22 @@ class DoubaoTTS(Component):
             self.status = "桥梁模式：合成文本为空，直通预览音频"
             return Data(data=payload, type="audio")
 
-        creds = resolve_credentials(
-            component_app_id=None,
-            component_access_token=None,
-            component_api_key=getattr(self, "api_key", None),
-            provider="dashscope_tts",
-            env_api_key_var="DASHSCOPE_API_KEY",
-        )
-        api_key = (creds.api_key or "").strip()
-        if not api_key:
-            return self._error("DashScope API key not found. Please set DASHSCOPE_API_KEY or fill it in the node.")
-
-        base_http_api_url = (getattr(self, "base_http_api_url", "") or "").strip() or self.DEFAULT_BASE_HTTP_API_URL
         voice_display_name = (getattr(self, "voice_type", "") or "").strip()
         voice = self.VOICE_MAPPING.get(voice_display_name, voice_display_name)
 
         try:
-            import dashscope  # type: ignore
-        except Exception as exc:  # noqa: BLE001
-            return self._error(f"Missing dependency 'dashscope'. Please install dashscope>=1.24.6. ({exc})")
+            from langflow.gateway.client import audio_speech
 
-        try:
-            dashscope.base_http_api_url = base_http_api_url
-            self.status = f"Calling DashScope Qwen-TTS ({self.MODEL_NAME})..."
-            response = dashscope.MultiModalConversation.call(
+            self.status = f"Calling Hosted Gateway TTS ({self.MODEL_NAME})..."
+            audio_bytes = audio_speech(
                 model=self.MODEL_NAME,
-                api_key=api_key,
-                text=text,
+                input=text,
                 voice=voice,
-                language_type="Auto",
-                stream=False,
+                response_format="wav",
+                user_id=str(getattr(self, "user_id", "") or "") or None,
             )
         except Exception as exc:  # noqa: BLE001
-            return self._error(f"DashScope call failed: {exc}")
-
-        audio_url = self._safe_get(response, ["output", "audio", "url"]) or self._safe_get(
-            response, ["output", "audio_url"]
-        )
-        if not audio_url:
-            return self._error(f"DashScope response did not contain audio url. response={response!r}")
-
-        try:
-            audio_resp = requests.get(str(audio_url), timeout=60)
-            audio_resp.raise_for_status()
-            audio_bytes = audio_resp.content
-        except Exception as exc:  # noqa: BLE001
-            return self._error(f"Failed to download audio from url: {exc}")
+            return self._error(f"Hosted Gateway TTS call failed: {exc}")
 
         encoding = "wav"
         sample_rate = 24000

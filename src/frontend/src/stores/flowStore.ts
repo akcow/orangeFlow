@@ -303,13 +303,27 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     const newEdges = cleanEdges(nodes, edges);
     const { inputs, outputs } = getInputsAndOutputs(nodes);
     get().updateComponentsToUpdate(nodes);
+
+    const safeParseStringArray = (raw: string | null, key: string) => {
+      if (!raw) return [] as string[];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? (parsed as string[]) : ([] as string[]);
+      } catch (e) {
+        console.warn(`Failed to parse ${key} from localStorage; resetting.`, e);
+        localStorage.removeItem(key);
+        return [] as string[];
+      }
+    };
     set({
-      dismissedNodes: JSON.parse(
-        localStorage.getItem(`dismiss_${flow?.id}`) ?? "[]",
-      ) as string[],
-      dismissedNodesLegacy: JSON.parse(
-        localStorage.getItem(`dismiss_legacy_${flow?.id}`) ?? "[]",
-      ) as string[],
+      dismissedNodes: safeParseStringArray(
+        localStorage.getItem(`dismiss_${flow?.id}`),
+        `dismiss_${flow?.id}`,
+      ),
+      dismissedNodesLegacy: safeParseStringArray(
+        localStorage.getItem(`dismiss_legacy_${flow?.id}`),
+        `dismiss_legacy_${flow?.id}`,
+      ),
     });
     unselectAllNodesEdges(nodes, newEdges);
     if (flow?.id) {

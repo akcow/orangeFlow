@@ -11,6 +11,11 @@ from langflow.gateway.schemas import ChatCompletionRequest
 class OpenAIProvider(ProviderAdapter):
     """Adapter for OpenAI-compatible providers (OpenAI, DeepSeek, Moonshot, etc.)."""
 
+    def __init__(self, api_key: str, base_url: str | None = None):
+        super().__init__(api_key=api_key, base_url=base_url)
+        # Ensure base_url is always set for OpenAI-compat.
+        self.base_url = (self.base_url or "https://api.openai.com/v1").rstrip("/")
+
     async def chat_completion(self, request: ChatCompletionRequest) -> Dict[str, Any] | AsyncGenerator[str, None]:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -19,6 +24,10 @@ class OpenAIProvider(ProviderAdapter):
         
         # Prepare payload
         payload = request.model_dump(exclude_none=True)
+        # Merge provider-specific overrides (if any).
+        extra = (request.extra_body or {}) if hasattr(request, "extra_body") else {}
+        if isinstance(extra, dict) and extra:
+            payload.update(extra)
         
         # Handle specific adjustments if needed (e.g. DeepSeek specific params)
         # For now, pass through standard OpenAI params.
@@ -68,9 +77,14 @@ class OpenAIProvider(ProviderAdapter):
             message = error_data.get("error", {}).get("message", str(response.text))
         except Exception:
             message = response.text
+
+        msg = (str(message or "")).strip()
+        if not msg:
+            body = (response.text or "").strip()
+            msg = f"上游服务返回 HTTP {response.status_code}" + (f": {body[:500]}" if body else "（响应为空）")
         
         raise UpstreamError(
-            message=message,
+            message=msg,
             provider="openai",
             code=f"UPSTREAM_{response.status_code}"
         )

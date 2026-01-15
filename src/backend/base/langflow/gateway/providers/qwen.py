@@ -84,9 +84,14 @@ class QwenProvider(ProviderAdapter):
             message = error_data.get("message", str(response.text))
         except Exception:
             message = response.text
+
+        msg = (str(message or "")).strip()
+        if not msg:
+            body = (response.text or "").strip()
+            msg = f"上游服务返回 HTTP {response.status_code}" + (f": {body[:500]}" if body else "（响应为空）")
         
         raise UpstreamError(
-             message=message,
+             message=msg,
              provider="qwen",
              code=f"UPSTREAM_{response.status_code}"
         )

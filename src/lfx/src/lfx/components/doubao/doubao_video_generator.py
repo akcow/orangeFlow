@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 
-from volcenginesdkarkruntime import Ark
+# NOTE: This component now routes through the hosted gateway; no direct Ark SDK usage.
 
 # LFX系统导入
 from lfx.custom.custom_component.component import Component
@@ -33,7 +33,6 @@ from lfx.inputs.inputs import (
 )
 from lfx.template.field.base import Output
 from lfx.utils.public_files import generate_public_file_token
-from lfx.utils.provider_credentials import DEFAULT_PROVIDER_KEY, get_provider_credentials
 
 load_dotenv()
 
@@ -130,6 +129,7 @@ class DoubaoVideoGenerator(Component):
     SUPPORTED_RATIOS = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"]
     VEO_SUPPORTED_RATIOS = ["16:9", "9:16"]
     VEO_SUPPORTED_DURATIONS = [4, 6, 8]
+    VEO_SUPPORTED_RESOLUTIONS = ["720p", "1080p"]
 
     DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
@@ -224,14 +224,14 @@ class DoubaoVideoGenerator(Component):
             options=["480p", "720p", "1080p"],
             value="1080p",
             required=False,
-            info="生成视频的分辨率，1080p为推荐选项。",
+            info="生成视频的分辨率。Veo: 1080p 仅支持 8 秒；当选择 4/6 秒时会自动使用 720p。",
         ),
         IntInput(
             name="duration",
             display_name="视频时长",
             required=False,
             value=5,
-            info="生成视频的时长（秒）。Doubao: 2-12s；wan2.6: 5/10/15；wan2.5: 5/10；Veo: 4/6/8；Sora-2: 10/15；Sora-2-pro: 10/15/25。",
+            info="生成视频的时长（秒）。Doubao: 2-12s；wan2.6: 5/10/15；wan2.5: 5/10；Veo: 4/6/8（1080p 仅支持 8 秒，4/6 秒会自动使用 720p）；Sora-2: 10/15；Sora-2-pro: 10/15/25。",
         ),
         DropdownInput(
             name="aspect_ratio",
@@ -337,26 +337,17 @@ class DoubaoVideoGenerator(Component):
             return Data(data=payload, type="video")
 
         model_name = str(self.model_name or "").strip()
+        endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
+
+        # All provider calls go through the hosted gateway (server-managed credentials).
         if model_name.startswith("wan2."):
-            return self._build_video_dashscope(prompt=merged_prompt, model_name=model_name)
+            return self._build_video_wan_gateway(prompt=merged_prompt, model_name=model_name)
         if self._is_veo_model(model_name):
-            api_key = self._resolve_api_key(provider="gemini", env_vars=("GEMINI_API_KEY", "GOOGLE_API_KEY"))
-            if not api_key:
-                return self._error(
-                    "未检测到 Gemini API Key，请在节点或 .env 中配置 GEMINI_API_KEY/GOOGLE_API_KEY，"
-                    "或在 Settings - Provider Credentials - Google (Gemini/Veo) 中输入。"
-                )
-            endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
-            return self._build_video_veo(prompt=merged_prompt, endpoint_id=endpoint_id, api_key=api_key)
+            return self._build_video_veo_gateway(prompt=merged_prompt, endpoint_id=endpoint_id)
         if self._is_sora_model(model_name):
-            api_key = self._resolve_api_key(provider="openai", env_vars=("OPENAI_API_KEY",))
-            if not api_key:
-                return self._error(
-                    "未检测到 OpenAI API Key，请在节点或 .env 中配置 OPENAI_API_KEY，"
-                    "或在 Settings - Provider Credentials - OpenAI 中输入。"
-                )
-            endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
-            return self._build_video_sora(prompt=merged_prompt, endpoint_id=endpoint_id, api_key=api_key)
+            return self._build_video_sora_gateway(prompt=merged_prompt, endpoint_id=endpoint_id)
+
+        return self._build_video_gateway(prompt=merged_prompt, endpoint_id=endpoint_id, model_display_name=model_name)
 
         creds = resolve_credentials(
             component_app_id=None,
@@ -1681,9 +1672,9 @@ class DoubaoVideoGenerator(Component):
             aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
 
             # 强制参数验证
-            if resolution not in ["720p", "1080p"]:
+            if resolution not in self.VEO_SUPPORTED_RESOLUTIONS:
                 resolution = "720p"
-            if duration not in [4, 6, 8]:
+            if duration not in self.VEO_SUPPORTED_DURATIONS:
                 duration = 8
             if aspect_ratio not in self.VEO_SUPPORTED_RATIOS:
                 aspect_ratio = "16:9"
@@ -1774,6 +1765,10 @@ class DoubaoVideoGenerator(Component):
                 duration = 8
                 self.status = "⚠️ Veo 3.1: 插值模式仅支持 8 秒时长，已自动调整"
 
+            # Veo 3.1: 1080p 仅在 8 秒时可用。为保证用户选择的时长生效，自动降级到 720p。
+            if resolution == "1080p" and duration != 8:
+                resolution = "720p"
+
             # 构建请求体
             request_payload = {
                 "model": endpoint_id,
@@ -1816,6 +1811,7 @@ class DoubaoVideoGenerator(Component):
                     metadata = {
                         "aspectRatio": aspect_ratio,
                         "durationSeconds": duration,
+                        "resolution": resolution,
                         "referenceImages": ref_images_payload
                     }
 
@@ -1824,7 +1820,8 @@ class DoubaoVideoGenerator(Component):
                 # 帧插值必须指定 durationSeconds: 8
                 # 图生视频可以选择性添加 metadata
                 metadata = {
-                    "durationSeconds": duration
+                    "durationSeconds": duration,
+                    "resolution": resolution,
                 }
                 # 如果不是默认比例，添加 aspectRatio
                 if aspect_ratio != "16:9":
@@ -1832,8 +1829,8 @@ class DoubaoVideoGenerator(Component):
 
             # 纯文生视频模式：当用户显式选择了非默认参数时仍需传递 metadata
             else:
-                if duration != 8 or aspect_ratio != "16:9":
-                    metadata = {"durationSeconds": duration}
+                if duration != 8 or aspect_ratio != "16:9" or resolution != "720p":
+                    metadata = {"durationSeconds": duration, "resolution": resolution}
                     if aspect_ratio != "16:9":
                         metadata["aspectRatio"] = aspect_ratio
 
@@ -2244,6 +2241,531 @@ class DoubaoVideoGenerator(Component):
             import traceback
             error_details = traceback.format_exc()
             return self._error(f"Sora 调用失败: {exc}\n{error_details}")
+
+    @staticmethod
+    def _first_url_from_payload(value: Any) -> str | None:
+        """Best-effort extraction of a video url from heterogeneous upstream responses."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            candidate = value.strip()
+            if candidate.startswith(("http://", "https://")):
+                return candidate
+            return None
+        if isinstance(value, dict):
+            # Prefer explicit keys.
+            for key in ("video_url", "url", "download_url", "content_url"):
+                v = value.get(key)
+                if isinstance(v, str) and v.strip().startswith(("http://", "https://")):
+                    return v.strip()
+            for v in value.values():
+                found = DoubaoVideoGenerator._first_url_from_payload(v)
+                if found:
+                    return found
+            return None
+        if isinstance(value, (list, tuple)):
+            for v in value:
+                found = DoubaoVideoGenerator._first_url_from_payload(v)
+                if found:
+                    return found
+        return None
+
+    def _gateway_content_url(self, *, task_id: str) -> str:
+        """Best-effort URL for fetching video bytes through our own gateway endpoint."""
+        base = str(self._resolve_public_base_url() or "").rstrip("/")
+        if base:
+            return f"{base}/v1/videos/{task_id}/content"
+        return f"/v1/videos/{task_id}/content"
+
+    def _poll_gateway_video(
+        self,
+        *,
+        task_id: str,
+        prompt: str,
+        endpoint_id: str,
+        model_display_name: str,
+        resolution: str,
+        duration: int,
+        aspect_ratio: str,
+        content_url_override: str | None = None,
+        max_wait: int = 600,
+        poll_interval: int = 3,
+    ) -> Data:
+        """Shared polling loop for gateway video tasks."""
+        from langflow.gateway.client import videos_status
+
+        start = time.time()
+        self.status = f"Task created (ID: {task_id}), polling..."
+        last_status: str | None = None
+
+        while time.time() - start < max_wait:
+            poll = videos_status(video_id=task_id, user_id=str(getattr(self, "user_id", "") or "") or None)
+            status = str(poll.get("status") or "").lower()
+            if status and status != last_status:
+                last_status = status
+                self.status = f"Polling: {status}"
+
+            if status in {"failed", "failure", "error", "cancelled", "canceled"}:
+                return self._error(f"Video task failed: {poll.get('provider_response')}")
+
+            video_url = None
+            if content_url_override:
+                video_url = content_url_override
+            else:
+                data = poll.get("data") if isinstance(poll.get("data"), dict) else None
+                if data and isinstance(data.get("url"), str):
+                    video_url = data.get("url")
+                if not video_url:
+                    video_url = self._first_url_from_payload(poll.get("provider_response"))
+
+            done = status in {"completed", "succeeded", "success", "done", "partial_succeeded"}
+            if video_url and (done or not status):
+                generated_at = datetime.now(timezone.utc).isoformat()
+                result_payload = {
+                    "provider": "gateway",
+                    "task_id": task_id,
+                    "task_status": status or "completed",
+                    "model": {"name": model_display_name, "model_id": endpoint_id},
+                    "prompt": prompt,
+                    "resolution": resolution,
+                    "duration": duration,
+                    "aspect_ratio": aspect_ratio,
+                    "generation_time": int(time.time() - start),
+                    "video_url": video_url,
+                    "videos": [{"video_url": video_url}],
+                    "provider_response": poll.get("provider_response"),
+                    "doubao_preview": {
+                        "token": task_id,
+                        "kind": "video",
+                        "available": True,
+                        "generated_at": generated_at,
+                        "payload": {"video_url": video_url, "videos": [{"video_url": video_url}], "task_id": task_id},
+                    },
+                }
+                self.status = "Video generated"
+                return Data(data=result_payload, type="video")
+
+            time.sleep(poll_interval)
+
+        return self._error(f"Video generation timed out ({max_wait}s), task_id={task_id}")
+
+    def _build_video_wan_gateway(self, *, prompt: str, model_name: str) -> Data:
+        """WAN (DashScope) video generation via hosted gateway."""
+        try:
+            from langflow.gateway.client import videos_create
+
+            resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
+            duration = int(getattr(self, "duration", 5) or 5)
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+
+            media = self._collect_wan_media_from_first_frame()
+            reference_urls = media["videos"]
+            img_url = media["images"][0] if media["images"] else None
+
+            if reference_urls and model_name != "wan2.6":
+                return self._error("wan2.5 does not support reference-video (r2v). Use wan2.6 or remove reference video.")
+
+            if reference_urls:
+                dashscope_model = "wan2.6-r2v"
+                mode = "r2v"
+            elif img_url:
+                dashscope_model = "wan2.6-i2v" if model_name == "wan2.6" else "wan2.5-i2v-preview"
+                mode = "i2v"
+            else:
+                dashscope_model = "wan2.6-t2v" if model_name == "wan2.6" else "wan2.5-t2v-preview"
+                mode = "t2v"
+
+            duration = self._enforce_wan_duration(model=dashscope_model, duration=duration)
+
+            extra_body: dict[str, Any] = {"watermark": False, "prompt_extend": True}
+            if mode in ("t2v", "r2v"):
+                extra_body["size"] = self._map_wan_size(resolution=resolution, aspect_ratio=aspect_ratio)
+            else:
+                extra_body["resolution"] = self._map_wan_resolution(resolution=resolution, model=dashscope_model)
+
+            if mode == "i2v" and img_url:
+                extra_body["img_url"] = img_url
+            if mode == "r2v" and reference_urls:
+                extra_body["reference_video_urls"] = reference_urls[:3]
+
+            # Optional audio_input: pass url directly; if bytes are provided, let the gateway upload to temporary OSS.
+            candidate = self._extract_audio_candidate_from_upstream()
+            if candidate and candidate.get("kind") == "http":
+                extra_body["audio_url"] = str(candidate.get("url"))
+            elif candidate and candidate.get("kind") == "bytes":
+                extra_body["audio_file_name"] = str(candidate.get("file_name") or "audio.wav")
+                extra_body["audio_bytes"] = bytes(candidate.get("content") or b"")
+
+            create = videos_create(
+                model=dashscope_model,
+                prompt=prompt,
+                duration=duration,
+                extra_body=extra_body,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+            task_id = str(create.get("id") or "").strip()
+            if not task_id:
+                return self._error(f"Gateway did not return task id: {create}")
+
+            return self._poll_gateway_video(
+                task_id=task_id,
+                prompt=prompt,
+                endpoint_id=dashscope_model,
+                model_display_name=model_name,
+                resolution=resolution,
+                duration=duration,
+                aspect_ratio=aspect_ratio,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway wan video failed: {exc}")
+
+    def _build_video_veo_gateway(self, *, prompt: str, endpoint_id: str) -> Data:
+        """Veo video generation via hosted gateway."""
+        try:
+            from langflow.gateway.client import videos_create
+
+            resolution = str(getattr(self, "resolution", "720p") or "720p").strip()
+            duration = int(getattr(self, "duration", 8) or 8)
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+
+            if resolution not in self.VEO_SUPPORTED_RESOLUTIONS:
+                resolution = "720p"
+            if duration not in self.VEO_SUPPORTED_DURATIONS:
+                duration = 8
+            if aspect_ratio not in self.VEO_SUPPORTED_RATIOS:
+                aspect_ratio = "16:9"
+
+            # Collect inputs (first/last/reference) from first_frame_image role annotations.
+            first_frame_url = None
+            last_frame_url = None
+            reference_images: list[str] = []
+            first_frame_raw = getattr(self, "first_frame_image", None)
+            if first_frame_raw:
+                entries = self._collect_veo_entries_from_first_frame(first_frame_raw)
+                for entry in entries:
+                    role = entry.get("role", "first")
+                    url = entry.get("url")
+                    if not url:
+                        continue
+                    if role == "first" and not first_frame_url:
+                        first_frame_url = url
+                    elif role == "last" and not last_frame_url:
+                        last_frame_url = url
+                    elif role == "reference":
+                        reference_images.append(url)
+
+            if not last_frame_url:
+                last_frame_raw = getattr(self, "last_frame_image", None)
+                if last_frame_raw:
+                    last_frame_url = self._extract_image_url(last_frame_raw)
+
+            has_first = bool(first_frame_url)
+            has_last = bool(last_frame_url)
+            has_reference = bool(reference_images)
+
+            if has_reference and (has_first or has_last):
+                reference_images = []
+                has_reference = False
+            if has_last and not has_first:
+                return self._error("Veo requires first+last frame together for interpolation mode.")
+
+            is_reference_mode = has_reference
+            is_interpolation_mode = has_first and has_last
+
+            # Reference-images require the standard model.
+            if is_reference_mode and endpoint_id == "veo-3.1-fast-generate-preview":
+                endpoint_id = "veo-3.1-generate-preview"
+
+            is_fast_model = endpoint_id == "veo-3.1-fast-generate-preview"
+            if is_reference_mode:
+                if is_fast_model:
+                    return self._error("Reference images are only supported on veo-3.1-generate-preview (not fast).")
+                if aspect_ratio != "16:9":
+                    return self._error("Veo reference-image mode only supports 16:9.")
+                if duration != 8:
+                    duration = 8
+            if is_interpolation_mode and duration != 8:
+                duration = 8
+
+            # Veo 3.1: 1080p only supports 8s. Downgrade to 720p to keep the requested duration.
+            if resolution == "1080p" and duration != 8:
+                resolution = "720p"
+
+            request_payload: dict[str, Any] = {"model": endpoint_id, "prompt": prompt}
+            images_list: list[str] = []
+            if first_frame_url:
+                images_list.append(first_frame_url)
+            if last_frame_url:
+                images_list.append(last_frame_url)
+            if images_list:
+                request_payload["images"] = images_list
+
+            metadata: dict[str, Any] | None = None
+            if is_reference_mode and not is_fast_model:
+                ref_images_payload: list[dict[str, Any]] = []
+                for ref_url in reference_images[:3]:
+                    ref_images_payload.append({"image": {"bytesBase64Encoded": ref_url}, "referenceType": "asset"})
+                if ref_images_payload:
+                    metadata = {
+                        "aspectRatio": aspect_ratio,
+                        "durationSeconds": duration,
+                        "resolution": resolution,
+                        "referenceImages": ref_images_payload,
+                    }
+            elif is_interpolation_mode or images_list:
+                metadata = {"durationSeconds": duration, "resolution": resolution}
+                if aspect_ratio != "16:9":
+                    metadata["aspectRatio"] = aspect_ratio
+            else:
+                if duration != 8 or aspect_ratio != "16:9" or resolution != "720p":
+                    metadata = {"durationSeconds": duration, "resolution": resolution}
+                    if aspect_ratio != "16:9":
+                        metadata["aspectRatio"] = aspect_ratio
+
+            if metadata:
+                request_payload["metadata"] = metadata
+
+            from langflow.gateway.client import videos_content, videos_status
+
+            create = videos_create(
+                model=endpoint_id,
+                prompt=prompt,
+                duration=duration,
+                ratio=aspect_ratio,
+                extra_body={"veo_payload": request_payload},
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+            task_id = str(create.get("id") or "").strip()
+            if not task_id:
+                return self._error(f"Gateway did not return task id: {create}")
+
+            start = time.time()
+            max_wait = 600
+            poll_interval = 3
+            last_status: str | None = None
+            poll: dict[str, Any] = {}
+
+            while time.time() - start < max_wait:
+                poll = videos_status(video_id=task_id, user_id=str(getattr(self, "user_id", "") or "") or None)
+                status = str(poll.get("status") or "").lower()
+                if status and status != last_status:
+                    last_status = status
+                    self.status = f"Polling: {status}"
+
+                if status in {"failed", "failure", "error", "cancelled", "canceled"}:
+                    return self._error(f"Veo task failed: {poll.get('provider_response')}")
+                if status in {"completed", "succeeded", "success", "done"}:
+                    break
+
+                time.sleep(poll_interval)
+
+            if not poll:
+                return self._error(f"Veo status missing, task_id={task_id}")
+
+            data = poll.get("data") if isinstance(poll.get("data"), dict) else None
+            video_url = data.get("url") if data and isinstance(data.get("url"), str) else None
+            if not video_url:
+                video_url = self._first_url_from_payload(poll.get("provider_response"))
+
+            # Fetch bytes server-side (best-effort) so the UI does not need upstream credentials.
+            video_base64: str | None = None
+            try:
+                content_bytes, content_type = videos_content(
+                    video_id=task_id, user_id=str(getattr(self, "user_id", "") or "") or None
+                )
+                if isinstance(content_bytes, (bytes, bytearray)) and content_bytes:
+                    max_inline = 30 * 1024 * 1024  # keep node output bounded
+                    if len(content_bytes) <= max_inline:
+                        b64 = base64.b64encode(bytes(content_bytes)).decode("utf-8")
+                        ctype = str(content_type or "video/mp4")
+                        video_base64 = f"data:{ctype};base64,{b64}"
+            except Exception:
+                video_base64 = None
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            result_payload = {
+                "provider": "gateway",
+                "task_id": task_id,
+                "task_status": str(poll.get("status") or "completed"),
+                "video_url": video_url,
+                "video_base64": video_base64,
+                "model": {"name": str(self.model_name or endpoint_id), "model_id": endpoint_id},
+                "prompt": prompt,
+                "resolution": resolution,
+                "duration": duration,
+                "aspect_ratio": aspect_ratio,
+                "mode": "reference" if is_reference_mode else "interpolation" if is_interpolation_mode else "text/image",
+                "generation_time": int(time.time() - start),
+                "first_frame_used": bool(first_frame_url),
+                "last_frame_used": bool(last_frame_url),
+                "reference_count": len(reference_images),
+                "provider_response": poll.get("provider_response"),
+                "doubao_preview": {
+                    "token": task_id,
+                    "kind": "video",
+                    "available": True,
+                    "generated_at": generated_at,
+                    "payload": {"video_url": video_url, "video_base64": video_base64, "task_id": task_id},
+                },
+            }
+            self.status = "Veo video generated"
+            return Data(data=result_payload, type="video")
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway veo video failed: {exc}")
+
+    def _build_video_sora_gateway(self, *, prompt: str, endpoint_id: str) -> Data:
+        """Sora video generation via hosted gateway."""
+        try:
+            from langflow.gateway.client import videos_create
+
+            duration = int(getattr(self, "duration", 10) or 10)
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+
+            # Sora uses size (e.g. 1280x720 / 720x1280).
+            normalized_ratio = aspect_ratio.strip()
+            if normalized_ratio not in {"16:9", "9:16"}:
+                normalized_ratio = "16:9"
+            use_high_res = str(getattr(self, "resolution", "1080p") or "1080p").strip() == "1080p"
+            if normalized_ratio == "16:9":
+                size = "1792x1024" if use_high_res else "1280x720"
+            else:
+                size = "1024x1792" if use_high_res else "720x1280"
+
+            group = str(getattr(self, "sora_group", "") or "").strip()
+            if group == "auto":
+                group = ""
+            distributor = str(getattr(self, "sora_distributor", "") or "").strip()
+
+            input_reference = None
+            first_frame_raw = getattr(self, "first_frame_image", None)
+            if first_frame_raw:
+                # Encode the first available image as a data URL for SoraProvider multipart support.
+                url_or_data = self._extract_image_url(first_frame_raw)
+                if isinstance(url_or_data, str) and url_or_data.startswith("data:image/"):
+                    input_reference = url_or_data
+                elif isinstance(url_or_data, str) and url_or_data.startswith(("http://", "https://")):
+                    try:
+                        resp = requests.get(url_or_data, timeout=30)
+                        resp.raise_for_status()
+                        if len(resp.content) <= 10 * 1024 * 1024:
+                            ctype = resp.headers.get("Content-Type") or "image/jpeg"
+                            b64 = base64.b64encode(resp.content).decode("utf-8")
+                            input_reference = f"data:{ctype};base64,{b64}"
+                    except Exception:
+                        input_reference = None
+
+            extra_body: dict[str, Any] = {"size": size}
+            if group:
+                extra_body["group"] = group
+            if distributor:
+                extra_body["distributor"] = distributor
+            if input_reference:
+                extra_body["input_reference"] = input_reference
+
+            create = videos_create(
+                model=endpoint_id,
+                prompt=prompt,
+                duration=duration,
+                ratio=normalized_ratio,
+                extra_body=extra_body,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+            task_id = str(create.get("id") or "").strip()
+            if not task_id:
+                return self._error(f"Gateway did not return task id: {create}")
+
+            return self._poll_gateway_video(
+                task_id=task_id,
+                prompt=prompt,
+                endpoint_id=endpoint_id,
+                model_display_name=str(self.model_name or endpoint_id),
+                resolution=str(getattr(self, "resolution", "1080p") or "1080p").strip(),
+                duration=duration,
+                aspect_ratio=aspect_ratio,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway sora video failed: {exc}")
+
+    def _build_video_gateway(self, *, prompt: str, endpoint_id: str, model_display_name: str) -> Data:
+        """Fallback path: generate video via Hosted Gateway for Ark/Doubao models."""
+        try:
+            from langflow.gateway.client import videos_create, videos_status
+
+            resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
+            duration = int(getattr(self, "duration", 5) or 5)
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+
+            # Build an Ark-compatible content payload (text + optional frames).
+            text_params = f"{prompt} --ratio {aspect_ratio} --dur {duration} --resolution {resolution}"
+            content: list[dict[str, Any]] = [{"type": "text", "text": text_params}]
+
+            first_frame_url = self._extract_image_url(getattr(self, "first_frame_image", None))
+            if first_frame_url:
+                content.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
+            last_frame_url = self._extract_image_url(getattr(self, "last_frame_image", None))
+            if last_frame_url:
+                content.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
+
+            create = videos_create(
+                model=endpoint_id,
+                prompt=prompt,
+                extra_body={"content": content},
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+            task_id = str(create.get("id") or "").strip()
+            if not task_id:
+                return self._error(f"网关未返回任务 ID: {create}")
+
+            start = time.time()
+            max_wait = 600
+            poll_interval = 3
+            self.status = f"⏳ 任务已创建 (ID: {task_id})，开始轮询..."
+            last_status: str | None = None
+
+            while time.time() - start < max_wait:
+                poll = videos_status(video_id=task_id, user_id=str(getattr(self, "user_id", "") or "") or None)
+                status = str(poll.get("status") or "").lower()
+                if status and status != last_status:
+                    last_status = status
+                    self.status = f"⏳ 轮询中: {status}"
+
+                video_url = None
+                data = poll.get("data") if isinstance(poll.get("data"), dict) else None
+                if data and isinstance(data.get("url"), str):
+                    video_url = data.get("url")
+                if not video_url:
+                    video_url = self._first_url_from_payload(poll.get("provider_response"))
+
+                if video_url:
+                    generated_at = datetime.now(timezone.utc).isoformat()
+                    result_payload = {
+                        "provider": "gateway",
+                        "task_id": task_id,
+                        "task_status": status or "completed",
+                        "model": {"name": model_display_name, "model_id": endpoint_id},
+                        "prompt": prompt,
+                        "resolution": resolution,
+                        "duration": duration,
+                        "aspect_ratio": aspect_ratio,
+                        "generation_time": int(time.time() - start),
+                        "video_url": video_url,
+                        "videos": [{"video_url": video_url}],
+                        "doubao_preview": {
+                            "token": task_id,
+                            "kind": "video",
+                            "available": True,
+                            "generated_at": generated_at,
+                            "payload": {"video_url": video_url, "videos": [{"video_url": video_url}], "task_id": task_id},
+                        },
+                    }
+                    self.status = "✅ 视频生成成功"
+                    return Data(data=result_payload, type="video")
+
+                time.sleep(poll_interval)
+
+            return self._error(f"视频生成超时（{max_wait}s），task_id={task_id}")
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"网关调用失败: {exc}")
 
 
 def _contains_oss_resource(payload: Any) -> bool:

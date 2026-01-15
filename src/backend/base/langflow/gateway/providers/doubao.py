@@ -25,13 +25,16 @@ class DoubaoProvider(ProviderAdapter):
         }
         
         # Map fields to Ark API
-        payload = {
+        payload: dict[str, Any] = {
             "model": request.model,
             "prompt": request.prompt,
             "size": request.size,
             "n": request.n,
             "response_format": request.response_format,
         }
+        # Allow provider-specific passthrough fields (e.g. sequential options, reference images).
+        if isinstance(request.extra_body, dict) and request.extra_body:
+            payload.update(request.extra_body)
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -48,9 +51,9 @@ class DoubaoProvider(ProviderAdapter):
     async def video_generation(self, request: VideoGenerationRequest) -> Dict[str, Any]:
         """
         Creates a video generation task.
-        Note: Doubao Video (Ark) uses /content_generation/tasks
+        Note: Ark content generation uses /contents/generations/tasks
         """
-        url = f"{self.base_url}/content_generation/tasks"
+        url = f"{self.base_url}/contents/generations/tasks"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -78,10 +81,13 @@ class DoubaoProvider(ProviderAdapter):
         # Let's clean this up: The adapter should probably send structured data if the API supports it.
         # Ark API spec for video usually expects `content` list.
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": request.model,
             "content": [content_item]
         }
+        if isinstance(request.extra_body, dict) and request.extra_body:
+            # Ark's content_generation API supports a rich shape; allow passthrough.
+            payload.update(request.extra_body)
         
         # Pass extra body (for unique params like ratio/duration if Ark supports sending them outside text)
         # Actually Ark `content_generation` API is complex.
@@ -109,7 +115,7 @@ class DoubaoProvider(ProviderAdapter):
             raise UpstreamError(f"Request failed: {exc}", provider="doubao")
 
     async def video_status(self, video_id: str) -> Dict[str, Any]:
-        url = f"{self.base_url}/content_generation/tasks/{video_id}"
+        url = f"{self.base_url}/contents/generations/tasks/{video_id}"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
         }
@@ -133,8 +139,13 @@ class DoubaoProvider(ProviderAdapter):
         except Exception:
             message = response.text
         
+        msg = (str(message or "")).strip()
+        if not msg:
+            body = (response.text or "").strip()
+            msg = f"上游服务返回 HTTP {response.status_code}" + (f": {body[:500]}" if body else "（响应为空）")
+        
         raise UpstreamError(
-            message=message,
+            message=msg,
             provider="doubao",
             code=f"UPSTREAM_{response.status_code}"
         )
