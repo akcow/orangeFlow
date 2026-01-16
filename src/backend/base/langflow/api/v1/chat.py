@@ -94,6 +94,22 @@ async def retrieve_vertices_order(
                 flow_id=flow_id, graph_data=data.model_dump(), chat_service=chat_service
             )
         graph = graph.prepare(stop_component_id, start_component_id)
+        anchor_id = start_component_id or stop_component_id
+        if anchor_id:
+            try:
+                anchor_vertex = graph.get_vertex(anchor_id)
+            except ValueError:
+                anchor_vertex = None
+            if anchor_vertex:
+                predecessors = graph.get_all_predecessors(anchor_vertex, recursive=True)
+                for vertex in predecessors:
+                    if vertex.frozen:
+                        continue
+                    vertex.frozen = True
+                    if isinstance(vertex.data, dict):
+                        node = vertex.data.get("node")
+                        if isinstance(node, dict):
+                            node["frozen"] = True
         graph.set_run_id(run_id)
 
         # Now vertices is a list of lists

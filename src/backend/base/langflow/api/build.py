@@ -212,6 +212,7 @@ async def generate_flow_events(
                 graph = await create_graph(fresh_session, flow_id_str, flow_name)
 
             graph.set_run_id(run_id)
+            freeze_upstream_vertices(graph)
             first_layer = sort_vertices(graph)
 
             for vertex_id in first_layer:
@@ -234,6 +235,27 @@ async def generate_flow_events(
             await logger.aexception("Error checking build status")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return first_layer, vertices_to_run, graph
+
+    def freeze_upstream_vertices(graph: Graph) -> None:
+        anchor_id = start_component_id or stop_component_id
+        if not anchor_id:
+            return
+        try:
+            anchor_vertex = graph.get_vertex(anchor_id)
+        except ValueError:
+            return
+
+        predecessors = graph.get_all_predecessors(anchor_vertex, recursive=True)
+        if not predecessors:
+            return
+        for vertex in predecessors:
+            if vertex.frozen:
+                continue
+            vertex.frozen = True
+            if isinstance(vertex.data, dict):
+                node = vertex.data.get("node")
+                if isinstance(node, dict):
+                    node["frozen"] = True
 
     async def log_telemetry(
         start_time: float,

@@ -595,6 +595,7 @@ class DoubaoTTSVolcengineV3(Component):
             generated_at = datetime.now(timezone.utc).isoformat()
             payload = {
                 **payload,
+                "text": payload.get("text", ""),
                 "bridge_mode": True,
                 "doubao_preview": {
                     "token": f"{self.name}-bridge",
@@ -625,7 +626,7 @@ class DoubaoTTSVolcengineV3(Component):
             else:
                 payload = {}
 
-            payload = {**payload, "bridge_mode": True}
+            payload = {**payload, "text": payload.get("text", ""), "bridge_mode": True}
             self.status = "🔁 桥梁模式：合成文本为空，直通预览输出"
             return Data(data=payload, type="audio")
 

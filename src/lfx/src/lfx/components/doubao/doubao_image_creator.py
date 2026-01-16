@@ -323,6 +323,27 @@ class DoubaoImageCreator(Component):
         if not model_meta:
             return self._error("未匹配到可用模型，请重新选择。")
 
+        vertex = getattr(self, "_vertex", None)
+        if getattr(vertex, "frozen", False):
+            draft = getattr(self, "draft_output", None)
+            if isinstance(draft, Data):
+                payload = draft.data
+            elif isinstance(draft, dict):
+                payload = draft
+            else:
+                payload = None
+            if isinstance(payload, dict) and payload:
+                if (
+                    "doubao_preview" in payload
+                    or "images" in payload
+                    or "generated_images" in payload
+                    or "image_url" in payload
+                    or "image_data_url" in payload
+                ):
+                    payload = {**payload, "text": payload.get("text", "")}
+                    self.status = "🔁 已冻结，使用缓存预览输出"
+                    return Data(data=payload, type="image")
+
         # Note: Gemini is handled after bridge-mode checks.
 
         is_dashscope = "t2i_model" in model_meta or "i2i_model" in model_meta
@@ -375,6 +396,7 @@ class DoubaoImageCreator(Component):
             generated_at = datetime.now(timezone.utc).isoformat()
             payload = {
                 **payload,
+                "text": payload.get("text", ""),
                 "bridge_mode": True,
                 "doubao_preview": {
                     "token": f"{self.name}-bridge",
@@ -864,19 +886,149 @@ class DoubaoImageCreator(Component):
         """Gemini image generation via hosted gateway (Nano Banana models)."""
         try:
             from langflow.gateway.client import images_generations
+            max_reference_images = int(model_meta.get("max_reference_images") or 0) or self.MAX_REFERENCE_IMAGES
+
+            def _env_truthy(name: str) -> bool:
+                value = str(os.getenv(name, "")).strip().lower()
+                return value in {"1", "true", "yes", "y", "on"}
+
+            supports_multi_turn = bool(model_meta.get("supports_multi_turn"))
+            enable_multi_turn = supports_multi_turn and (
+                bool(getattr(self, "enable_multi_turn", False)) or _env_truthy(self.GEMINI_ENV_ENABLE_MULTI_TURN)
+            )
+            supports_google_search = bool(model_meta.get("supports_google_search"))
+            enable_google_search = supports_google_search and (
+                bool(getattr(self, "enable_google_search", False)) or _env_truthy(self.GEMINI_ENV_ENABLE_GOOGLE_SEARCH)
+            )
+            try:
+                max_turns = int(str(os.getenv(self.GEMINI_ENV_MAX_TURNS, "4")).strip() or "4")
+            except Exception:
+                max_turns = 4
+            max_turns = max(1, min(max_turns, 12))
+
+            draft_payload = getattr(self, "draft_output", None)
+            if isinstance(draft_payload, Data):
+                draft_payload = draft_payload.data
+
+            def _extract_gemini_history(value: Any) -> list[dict[str, Any]]:
+                if not value or not isinstance(value, dict):
+                    return []
+                direct = value.get("gemini_history")
+                if isinstance(direct, list) and all(isinstance(item, dict) for item in direct):
+                    return direct  # type: ignore[return-value]
+                preview = value.get("doubao_preview")
+                if isinstance(preview, dict):
+                    payload = preview.get("payload")
+                    if isinstance(payload, dict):
+                        history = payload.get("gemini_history")
+                        if isinstance(history, list) and all(isinstance(item, dict) for item in history):
+                            return history  # type: ignore[return-value]
+                return []
+
+            def _extract_prompt(value: Any) -> str:
+                if not value or not isinstance(value, dict):
+                    return ""
+                direct = value.get("prompt")
+                if isinstance(direct, str) and direct.strip():
+                    return direct.strip()
+                preview = value.get("doubao_preview")
+                if isinstance(preview, dict):
+                    payload = preview.get("payload")
+                    if isinstance(payload, dict):
+                        prompt_value = payload.get("prompt")
+                        if isinstance(prompt_value, str) and prompt_value.strip():
+                            return prompt_value.strip()
+                return ""
+
+            def _extract_cached_gallery(value: Any) -> list[dict[str, Any]]:
+                if not value or not isinstance(value, dict):
+                    return []
+
+                preview = value.get("doubao_preview")
+                if isinstance(preview, dict):
+                    preview_payload = preview.get("payload")
+                    if isinstance(preview_payload, dict):
+                        images = preview_payload.get("images")
+                        if isinstance(images, list) and all(isinstance(item, dict) for item in images):
+                            return [item for item in images if item.get("image_data_url") or item.get("image_url") or item.get("url")]
+
+                direct_images = value.get("images")
+                if isinstance(direct_images, list) and all(isinstance(item, dict) for item in direct_images):
+                    return [item for item in direct_images if item.get("image_data_url") or item.get("image_url") or item.get("url")]
+
+                generated_images = value.get("generated_images")
+                if isinstance(generated_images, list) and all(isinstance(item, dict) for item in generated_images):
+                    gallery: list[dict[str, Any]] = []
+                    for item in generated_images:
+                        inline = item.get("image_data_url") or item.get("preview_data_url") or item.get("preview_base64")
+                        remote = item.get("image_url") or item.get("url")
+                        if inline or remote:
+                            gallery.append(
+                                {
+                                    "index": item.get("index", len(gallery)),
+                                    "image_data_url": inline,
+                                    "image_url": remote,
+                                    "label": item.get("label"),
+                                }
+                            )
+                    return gallery
+
+                return []
+
+            def _inline_part_from_data_url(data_url: str) -> dict[str, Any] | None:
+                if not isinstance(data_url, str) or not data_url.strip():
+                    return None
+                try:
+                    return self._gemini_inline_part_from_data_url(data_url)
+                except Exception:
+                    return None
+
+            history: list[dict[str, Any]] = _extract_gemini_history(draft_payload) if enable_multi_turn else []
+            if enable_multi_turn and not history:
+                draft_prompt = _extract_prompt(draft_payload)
+                draft_gallery = _extract_cached_gallery(draft_payload)
+                draft_payloads: list[str] = []
+                if draft_gallery:
+                    try:
+                        draft_payloads, _ = self._prepare_reference_images_from_items(
+                            draft_gallery,
+                            limit=max_reference_images,
+                        )
+                    except Exception:
+                        draft_payloads = []
+                if draft_prompt and draft_payloads:
+                    user_parts = [{"text": draft_prompt}]
+                    model_parts = []
+                    for data_url in draft_payloads:
+                        inline = _inline_part_from_data_url(data_url)
+                        if inline:
+                            model_parts.append(inline)
+                    if model_parts:
+                        history = [{"role": "user", "parts": user_parts}, {"role": "model", "parts": model_parts}]
+
+            if history:
+                max_messages = max_turns * 2
+                if len(history) > max_messages:
+                    history = history[-max_messages:]
 
             parts: list[dict[str, Any]] = [{"text": prompt}]
             for data_url in reference_payloads:
-                if not isinstance(data_url, str) or not data_url.startswith("data:image/") or ";base64," not in data_url:
-                    continue
-                header, b64 = data_url.split(";base64,", 1)
-                mime_type = header.split(":", 1)[1] if ":" in header else "image/jpeg"
-                parts.append({"inline_data": {"mime_type": mime_type, "data": b64}})
+                inline = _inline_part_from_data_url(data_url)
+                if inline:
+                    parts.append(inline)
+
+            user_content = {"role": "user", "parts": parts}
+            contents = [*history, user_content] if history else [user_content]
 
             gemini_payload: dict[str, Any] = {
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {"imageConfig": {"aspectRatio": aspect_ratio}, "responseModalities": ["IMAGE"]},
+                "contents": contents,
+                "generationConfig": {
+                    "imageConfig": {"aspectRatio": aspect_ratio},
+                    "responseModalities": ["TEXT", "IMAGE"] if enable_google_search else ["IMAGE"],
+                },
             }
+            if enable_google_search:
+                gemini_payload["tools"] = [{"google_search": {}}]
 
             response = images_generations(
                 model=str(model_meta["model_id"]),
@@ -930,8 +1082,33 @@ class DoubaoImageCreator(Component):
                     "aspect_ratio": aspect_ratio,
                     "count": image_count,
                     "reference_images": reference_meta,
+                    "gemini_history": None,
                 },
             }
+
+            next_history: list[dict[str, Any]] = history[:] if history else []
+            if enable_multi_turn:
+                model_parts: list[dict[str, Any]] = []
+                for entry in preview_gallery:
+                    inline = None
+                    if isinstance(entry, dict):
+                        data_url = entry.get("image_data_url")
+                        if isinstance(data_url, str) and data_url.strip():
+                            inline = _inline_part_from_data_url(data_url)
+                        if not inline:
+                            url_value = entry.get("image_url") or entry.get("url")
+                            if isinstance(url_value, str) and url_value.strip():
+                                inline_data, _ = self._download_reference_from_url(url_value)
+                                if inline_data:
+                                    inline = _inline_part_from_data_url(inline_data)
+                    if inline:
+                        model_parts.append(inline)
+                if model_parts:
+                    next_history.extend([user_content, {"role": "model", "parts": model_parts}])
+                    max_messages = max_turns * 2
+                    if len(next_history) > max_messages:
+                        next_history = next_history[-max_messages:]
+                doubao_preview["payload"]["gemini_history"] = next_history
 
             return Data(
                 data={
@@ -944,6 +1121,7 @@ class DoubaoImageCreator(Component):
                     "count": image_count,
                     "reference_images": reference_meta,
                     "provider_response": (response or {}).get("provider_response"),
+                    "gemini_history": next_history if enable_multi_turn else None,
                     "doubao_preview": doubao_preview,
                 },
                 type="image",
@@ -1087,6 +1265,7 @@ class DoubaoImageCreator(Component):
                     preview_gallery = cached
             base_payload = {
                 "bridge_mode": True,
+                "text": "",
                 "images": preview_gallery,
                 "model": {"name": self.model_name, "model_id": model_id},
                 "warnings": warnings or None,

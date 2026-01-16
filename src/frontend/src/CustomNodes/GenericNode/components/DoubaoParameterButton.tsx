@@ -5,6 +5,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useEffect, useMemo } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
@@ -47,14 +48,60 @@ export function DoubaoParameterButton({
     name,
   });
 
-  const displayValue = formatControlValue(name, value);
+  const disabledOptionSet = useMemo(() => {
+    return new Set((disabledOptions ?? []).map((option) => String(option)));
+  }, [disabledOptions]);
+  const optionsMeta = useMemo(() => {
+    return Array.isArray(template?.options_metadata) ? template.options_metadata : [];
+  }, [template?.options_metadata]);
+  const visibleOptions = useMemo(() => {
+    return options
+      .map((option, index) => ({
+        option,
+        meta: optionsMeta[index],
+      }))
+      .filter(({ option }) => !disabledOptionSet.has(String(option)));
+  }, [options, optionsMeta, disabledOptionSet]);
+  const enabledOptionStrings = useMemo(() => {
+    return new Set(visibleOptions.map(({ option }) => String(option)));
+  }, [visibleOptions]);
+  const displayBaseValue = value ?? template?.value;
+  const storedValue = template?.value ?? value;
+  const displayValueString =
+    displayBaseValue === undefined || displayBaseValue === null
+      ? ""
+      : String(displayBaseValue);
+  const storedValueString =
+    storedValue === undefined || storedValue === null ? "" : String(storedValue);
+  const hasDisabledOptions = Boolean(disabledOptions?.length);
+  const effectiveValue =
+    hasDisabledOptions && !enabledOptionStrings.has(displayValueString)
+      ? visibleOptions[0]?.option ?? displayBaseValue
+      : displayBaseValue;
+  const displayValue = formatControlValue(name, effectiveValue);
 
   const handleSelect = (nextValue: string) => {
-    if (disabledOptions?.map(String).includes(nextValue)) return;
+    if (disabledOptionSet.has(nextValue)) return;
     const parsed =
       typeof template.value === "number" ? Number(nextValue) : nextValue;
     handleOnNewValue({ value: parsed });
   };
+
+  useEffect(() => {
+    if (!hasDisabledOptions) return;
+    if (!visibleOptions.length) return;
+    if (enabledOptionStrings.has(storedValueString)) return;
+    const nextValue = visibleOptions[0]?.option;
+    if (nextValue === undefined) return;
+    if (String(nextValue) === storedValueString) return;
+    handleOnNewValue({ value: nextValue }, { skipSnapshot: true });
+  }, [
+    storedValueString,
+    enabledOptionStrings,
+    handleOnNewValue,
+    hasDisabledOptions,
+    visibleOptions,
+  ]);
 
   const buildOptionTooltip = (meta: any, optionLabel: string) => {
     if (!meta || typeof meta !== "object") return null;
@@ -80,7 +127,7 @@ export function DoubaoParameterButton({
     return lines.length > 1 ? lines.join("\n") : null;
   };
 
-  if (!options?.length) return null;
+  if (!visibleOptions.length) return null;
 
   return (
     <DropdownMenu>
@@ -118,14 +165,11 @@ export function DoubaoParameterButton({
         className="max-h-72 w-56 overflow-auto"
       >
         <DropdownMenuRadioGroup
-          value={String(value ?? "")}
+          value={String(effectiveValue ?? "")}
           onValueChange={handleSelect}
         >
-          {options.map((option, index) => {
+          {visibleOptions.map(({ option, meta }) => {
             const optionLabel = formatControlValue(name, option);
-            const meta = Array.isArray(template?.options_metadata)
-              ? template.options_metadata[index]
-              : null;
             const tooltipContent = buildOptionTooltip(meta, optionLabel);
             return (
               <ShadTooltip
@@ -137,7 +181,6 @@ export function DoubaoParameterButton({
                 <DropdownMenuRadioItem
                   value={String(option)}
                   className="text-sm"
-                  disabled={disabledOptions?.map(String).includes(String(option))}
                 >
                   {optionLabel}
                 </DropdownMenuRadioItem>

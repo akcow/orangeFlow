@@ -622,6 +622,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       edge.data = {
         sourceHandle: sourceHandleObject,
         targetHandle: targetHandleObject,
+        imageRole: edge.data?.imageRole,
       };
 
       const id = getHandleId(source, sourceHandle, target, targetHandle);
@@ -716,12 +717,32 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
 
     let newEdges: EdgeType[] = [];
     get().setEdges((oldEdges) => {
+      const targetHandle = scapeJSONParse(connection.targetHandle!);
+      const sourceHandle = scapeJSONParse(connection.sourceHandle!);
+      const targetNode = get().nodes.find(
+        (node) => node.id === connection.target,
+      );
+      const isRoleEdge =
+        targetHandle?.fieldName === "first_frame_image" &&
+        targetNode?.data?.type === "DoubaoVideoGenerator";
+      let imageRole: "first" | "reference" | "last" | undefined;
+
+      if (isRoleEdge) {
+        const hasExistingEdge = oldEdges.some(
+          (edge) =>
+            edge.target === connection.target &&
+            edge.data?.targetHandle?.fieldName === "first_frame_image",
+        );
+        imageRole = hasExistingEdge ? "reference" : "first";
+      }
+
       newEdges = addEdge(
         {
           ...connection,
           data: {
-            targetHandle: scapeJSONParse(connection.targetHandle!),
-            sourceHandle: scapeJSONParse(connection.sourceHandle!),
+            targetHandle,
+            sourceHandle,
+            ...(imageRole ? { imageRole } : {}),
           },
         },
         oldEdges,

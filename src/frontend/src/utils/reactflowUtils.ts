@@ -971,7 +971,10 @@ export function updateEdgesHandleIds({
       sourceHandle: scapeJSONParse(edge.sourceHandle),
       targetHandle: scapeJSONParse(edge.targetHandle),
     };
-    edge.data = newData;
+    edge.data = {
+      ...newData,
+      imageRole: edge.data?.imageRole,
+    };
   });
   return newEdges;
 }
@@ -1345,6 +1348,7 @@ export function reconnectEdges(
       edge.data = {
         sourceHandle: newSourceHandle,
         targetHandle: newTargetHandle,
+        imageRole: edge.data?.imageRole,
       };
     }
   });

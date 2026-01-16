@@ -76,6 +76,7 @@ export type EdgeType = Edge<EdgeDataType, "default">;
 export type EdgeDataType = {
   sourceHandle: sourceHandleType;
   targetHandle: targetHandleType;
+  imageRole?: "first" | "reference" | "last";
 };
 
 // FlowStyleType is the type of the style object that is used to style the

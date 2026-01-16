@@ -246,6 +246,7 @@ class DoubaoTTS(Component):
             generated_at = datetime.now(timezone.utc).isoformat()
             payload = {
                 **passthrough,
+                "text": passthrough.get("text", ""),
                 "bridge_mode": True,
                 "doubao_preview": {
                     "token": f"{self.name}-bridge",

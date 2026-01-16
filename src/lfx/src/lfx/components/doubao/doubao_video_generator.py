@@ -325,6 +325,7 @@ class DoubaoVideoGenerator(Component):
             generated_at = datetime.now(timezone.utc).isoformat()
             payload = {
                 **payload,
+                "text": payload.get("text", ""),
                 "bridge_mode": True,
                 "doubao_preview": {
                     "token": f"{self.name}-bridge",
@@ -2765,9 +2766,18 @@ class DoubaoVideoGenerator(Component):
 
             first_frame_url = self._extract_image_url(getattr(self, "first_frame_image", None))
             if first_frame_url:
+                self.status = f"🖼️ 使用首帧图片: {first_frame_url[:50]}..."
                 content.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
+
+            model_limits = self.MODEL_LIMITS.get(model_display_name, {})
+            supports_last_frame = model_limits.get("supports_last_frame", True)
             last_frame_url = self._extract_image_url(getattr(self, "last_frame_image", None))
+            if last_frame_url and not supports_last_frame:
+                return self._error("当前模型不支持尾帧输入，请切换模型或清空尾帧。")
+            if first_frame_url and last_frame_url:
+                return self._error("豆包模型不支持首尾帧同时输入，请只保留首帧或尾帧。")
             if last_frame_url:
+                self.status = f"🖼️ 使用尾帧图片: {last_frame_url[:50]}..."
                 content.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
 
             create = videos_create(

@@ -391,6 +391,11 @@ export default function DoubaoVideoGeneratorLayout({
       (!!firstFrameField?.file_path && !Array.isArray(firstFrameField?.file_path))
     );
   }, [firstFrameField]);
+  const hasFirstFrame = Boolean(hasFirstFrameEdge || hasFirstFrameValue);
+  const hasLastFrame = Boolean(hasLastFrameEdge || hasLastFrameValue);
+  const shouldBlockFirstLastMix = Boolean(
+    !isWanModel && !isVeoModel && !isSoraModel && hasFirstFrame && hasLastFrame,
+  );
 
   const hasReferenceVideosValue = useMemo(() => {
     if (!(isWanModel && normalizedModelName === "wan2.6")) return false;
@@ -468,13 +473,20 @@ export default function DoubaoVideoGeneratorLayout({
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
 
   const handleRun = () => {
-    clearFlowPoolForNodes([nodeIdForRun]);
     if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
       stopBuilding();
       return;
     }
     if (disableRun) return;
     if (isBusy) return;
+    if (shouldBlockFirstLastMix) {
+      setErrorData({
+        title: "首尾帧冲突",
+        list: ["豆包模型不支持首尾帧同时输入，请清空尾帧或移除首帧后再运行。"],
+      });
+      return;
+    }
+    clearFlowPoolForNodes([nodeIdForRun]);
     buildFlow({
       stopNodeId: data.id,
       eventDelivery: eventDeliveryConfig,
