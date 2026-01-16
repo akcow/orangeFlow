@@ -130,6 +130,7 @@ class DoubaoVideoGenerator(Component):
     VEO_SUPPORTED_RATIOS = ["16:9", "9:16"]
     VEO_SUPPORTED_DURATIONS = [4, 6, 8]
     VEO_SUPPORTED_RESOLUTIONS = ["720p", "1080p"]
+    DEFAULT_VIDEO_INLINE_MAX_BYTES = 30 * 1024 * 1024
 
     DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
@@ -1279,6 +1280,16 @@ class DoubaoVideoGenerator(Component):
             allowed = [5]
         return duration if duration in allowed else allowed[0]
 
+    @classmethod
+    def _normalize_veo_duration(cls, duration: int) -> int:
+        try:
+            value = int(duration)
+        except (TypeError, ValueError):
+            value = cls.VEO_SUPPORTED_DURATIONS[0]
+        if value in cls.VEO_SUPPORTED_DURATIONS:
+            return value
+        return cls.VEO_SUPPORTED_DURATIONS[0]
+
     @staticmethod
     def _map_wan_size(*, resolution: str, aspect_ratio: str) -> str:
         res = resolution.lower().strip()
@@ -1689,14 +1700,12 @@ class DoubaoVideoGenerator(Component):
 
             # 获取参数并验证
             resolution = str(getattr(self, "resolution", "720p") or "720p").strip()
-            duration = int(getattr(self, "duration", 8) or 8)
+            duration = self._normalize_veo_duration(getattr(self, "duration", 8) or 8)
             aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
 
             # 强制参数验证
             if resolution not in self.VEO_SUPPORTED_RESOLUTIONS:
                 resolution = "720p"
-            if duration not in self.VEO_SUPPORTED_DURATIONS:
-                duration = 8
             if aspect_ratio not in self.VEO_SUPPORTED_RATIOS:
                 aspect_ratio = "16:9"
 
@@ -1951,22 +1960,28 @@ class DoubaoVideoGenerator(Component):
 
             # 尝试下载视频并转换为 base64，以便前端可以直接播放
             video_base64 = None
-            try:
-                self.status = "📥 正在下载视频..."
-                video_response = requests.get(video_url, headers=headers, timeout=60)
-                video_response.raise_for_status()
+            inline_limit = self._resolve_inline_video_limit()
+            if inline_limit > 0:
+                try:
+                    self.status = "📥 正在下载视频..."
+                    video_response = requests.get(video_url, headers=headers, timeout=60)
+                    video_response.raise_for_status()
 
-                # 检查内容类型
-                content_type = video_response.headers.get("Content-Type", "video/mp4")
+                    # 检查内容类型
+                    content_type = video_response.headers.get("Content-Type", "video/mp4")
 
-                # 转换为 base64
-                import base64
-                video_data = base64.b64encode(video_response.content).decode("utf-8")
-                video_base64 = f"data:{content_type};base64,{video_data}"
-                self.status = "✅ 视频下载成功"
-            except Exception as e:
-                self.status = f"⚠️ 视频下载失败，将使用 URL: {str(e)}"
-                video_base64 = None
+                    if len(video_response.content) <= inline_limit:
+                        # 转换为 base64
+                        import base64
+
+                        video_data = base64.b64encode(video_response.content).decode("utf-8")
+                        video_base64 = f"data:{content_type};base64,{video_data}"
+                        self.status = "✅ 视频下载成功"
+                    else:
+                        self.status = "✅ 视频已生成（内容过大，跳过 base64 内联）"
+                except Exception as e:
+                    self.status = f"⚠️ 视频下载失败，将使用 URL: {str(e)}"
+                    video_base64 = None
 
             # 构建返回数据
             result_data = {
@@ -1997,6 +2012,9 @@ class DoubaoVideoGenerator(Component):
                         "video_url": video_url,
                         "video_base64": video_base64,  # 添加 base64 编码的视频
                         "task_id": task_id,
+                        "duration": duration,
+                        "resolution": resolution,
+                        "aspect_ratio": aspect_ratio,
                     },
                 },
             }
@@ -2291,6 +2309,17 @@ class DoubaoVideoGenerator(Component):
                     return found
         return None
 
+    @staticmethod
+    def _resolve_inline_video_limit() -> int:
+        raw = str(os.getenv("LANGFLOW_VIDEO_INLINE_MAX_BYTES", "")).strip()
+        if not raw:
+            return DoubaoVideoGenerator.DEFAULT_VIDEO_INLINE_MAX_BYTES
+        try:
+            value = int(raw)
+        except ValueError:
+            return DoubaoVideoGenerator.DEFAULT_VIDEO_INLINE_MAX_BYTES
+        return max(value, 0)
+
     def _gateway_content_url(self, *, task_id: str) -> str:
         """Best-effort URL for fetching video bytes through our own gateway endpoint."""
         base = str(self._resolve_public_base_url() or "").rstrip("/")
@@ -2360,7 +2389,14 @@ class DoubaoVideoGenerator(Component):
                         "kind": "video",
                         "available": True,
                         "generated_at": generated_at,
-                        "payload": {"video_url": video_url, "videos": [{"video_url": video_url}], "task_id": task_id},
+                        "payload": {
+                            "video_url": video_url,
+                            "videos": [{"video_url": video_url}],
+                            "task_id": task_id,
+                            "duration": duration,
+                            "resolution": resolution,
+                            "aspect_ratio": aspect_ratio,
+                        },
                     },
                 }
                 self.status = "Video generated"
@@ -2446,13 +2482,11 @@ class DoubaoVideoGenerator(Component):
             from langflow.gateway.client import videos_create
 
             resolution = str(getattr(self, "resolution", "720p") or "720p").strip()
-            duration = int(getattr(self, "duration", 8) or 8)
+            duration = self._normalize_veo_duration(getattr(self, "duration", 8) or 8)
             aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
 
             if resolution not in self.VEO_SUPPORTED_RESOLUTIONS:
                 resolution = "720p"
-            if duration not in self.VEO_SUPPORTED_DURATIONS:
-                duration = 8
             if aspect_ratio not in self.VEO_SUPPORTED_RATIOS:
                 aspect_ratio = "16:9"
 
@@ -2590,18 +2624,19 @@ class DoubaoVideoGenerator(Component):
 
             # Fetch bytes server-side (best-effort) so the UI does not need upstream credentials.
             video_base64: str | None = None
-            try:
-                content_bytes, content_type = videos_content(
-                    video_id=task_id, user_id=str(getattr(self, "user_id", "") or "") or None
-                )
-                if isinstance(content_bytes, (bytes, bytearray)) and content_bytes:
-                    max_inline = 30 * 1024 * 1024  # keep node output bounded
-                    if len(content_bytes) <= max_inline:
-                        b64 = base64.b64encode(bytes(content_bytes)).decode("utf-8")
-                        ctype = str(content_type or "video/mp4")
-                        video_base64 = f"data:{ctype};base64,{b64}"
-            except Exception:
-                video_base64 = None
+            inline_limit = self._resolve_inline_video_limit()
+            if inline_limit > 0:
+                try:
+                    content_bytes, content_type = videos_content(
+                        video_id=task_id, user_id=str(getattr(self, "user_id", "") or "") or None
+                    )
+                    if isinstance(content_bytes, (bytes, bytearray)) and content_bytes:
+                        if len(content_bytes) <= inline_limit:
+                            b64 = base64.b64encode(bytes(content_bytes)).decode("utf-8")
+                            ctype = str(content_type or "video/mp4")
+                            video_base64 = f"data:{ctype};base64,{b64}"
+                except Exception:
+                    video_base64 = None
 
             generated_at = datetime.now(timezone.utc).isoformat()
             result_payload = {
@@ -2626,7 +2661,15 @@ class DoubaoVideoGenerator(Component):
                     "kind": "video",
                     "available": True,
                     "generated_at": generated_at,
-                    "payload": {"video_url": video_url, "video_base64": video_base64, "task_id": task_id},
+                    "payload": {
+                        "video_url": video_url,
+                        "video_base64": video_base64,
+                        "task_id": task_id,
+                        "duration": duration,
+                        "resolution": resolution,
+                        "aspect_ratio": aspect_ratio,
+                        "mode": "reference" if is_reference_mode else "interpolation" if is_interpolation_mode else "text/image",
+                    },
                 },
             }
             self.status = "Veo video generated"

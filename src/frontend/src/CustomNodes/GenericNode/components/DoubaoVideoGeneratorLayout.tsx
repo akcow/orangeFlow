@@ -134,6 +134,17 @@ function getWanAllowedDurations(modelName: string, mode: string | null) {
   }
   return null;
 }
+
+function pickClosestDuration(value: number, options: number[]) {
+  if (!options.length) return value;
+  return options.reduce((closest, option) => {
+    const delta = Math.abs(option - value);
+    const closestDelta = Math.abs(closest - value);
+    if (delta < closestDelta) return option;
+    if (delta === closestDelta) return Math.min(closest, option);
+    return closest;
+  }, options[0]);
+}
 const DEFAULT_FIRST_FRAME_EXTENSIONS = [
   "png",
   "jpg",
@@ -227,6 +238,7 @@ export default function DoubaoVideoGeneratorLayout({
     (field) => !customFields.has(field),
   );
   const promptField = template[PROMPT_NAME];
+  const aspectRatioField = template[ASPECT_RATIO_FIELD];
   const firstFrameFieldRaw = template[FIRST_FRAME_FIELD];
   const firstFrameField = useMemo<InputFieldType>(() => {
     if (!firstFrameFieldRaw) return FIRST_FRAME_FIELD_FALLBACK;
@@ -294,6 +306,21 @@ export default function DoubaoVideoGeneratorLayout({
     node: data.node!,
     nodeId: data.id,
     name: "model_name",
+  });
+  const { handleOnNewValue: handleDurationChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "duration",
+  });
+  const { handleOnNewValue: handleResolutionChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "resolution",
+  });
+  const { handleOnNewValue: handleAspectRatioChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: ASPECT_RATIO_FIELD,
   });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -829,6 +856,93 @@ export default function DoubaoVideoGeneratorLayout({
       { skipSnapshot: true },
     );
   }, [buildFirstFrameFieldUpdate, firstFrameEntries, handleFirstFrameChange, isVeoModel]);
+
+  const durationRaw =
+    template.duration?.value ?? template.duration?.default ?? template.duration?.options?.[0];
+  const currentDurationValue =
+    typeof durationRaw === "number"
+      ? durationRaw
+      : typeof durationRaw === "string"
+        ? Number(durationRaw)
+        : null;
+
+  const resolutionRaw =
+    template.resolution?.value ?? template.resolution?.default ?? template.resolution?.options?.[0];
+  const currentResolutionValue =
+    resolutionRaw === undefined || resolutionRaw === null
+      ? null
+      : String(resolutionRaw).trim();
+
+  const aspectRatioRaw =
+    aspectRatioField?.value ?? aspectRatioField?.default ?? aspectRatioField?.options?.[0];
+  const currentAspectRatioValue =
+    aspectRatioRaw === undefined || aspectRatioRaw === null
+      ? null
+      : String(aspectRatioRaw).trim();
+
+  const veoMode = useMemo(() => {
+    if (!isVeoModel) return null;
+    const hasFirst =
+      firstFrameEntries.some((entry) => entry.role === "first") || firstFrameEntries.length === 1;
+    const hasReference = firstFrameEntries.some((entry) => entry.role === "reference");
+    const hasLast = Boolean(hasLastFrameEdge || hasLastFrameValue);
+    const isReferenceMode = Boolean(hasReference && !hasFirst && !hasLast);
+    const isInterpolationMode = Boolean(hasFirst && hasLast);
+    return { isReferenceMode, isInterpolationMode };
+  }, [firstFrameEntries, hasLastFrameEdge, hasLastFrameValue, isVeoModel]);
+
+  useEffect(() => {
+    if (!isVeoModel || !template.duration) return;
+    const durationValue =
+      typeof currentDurationValue === "number" && Number.isFinite(currentDurationValue)
+        ? currentDurationValue
+        : null;
+    if (durationValue === null) return;
+
+    const mustBeEight = Boolean(veoMode?.isReferenceMode || veoMode?.isInterpolationMode);
+    const allowedDurations = mustBeEight ? [8] : [4, 6, 8];
+    if (!allowedDurations.includes(durationValue)) {
+      const fallback = mustBeEight ? 8 : pickClosestDuration(durationValue, allowedDurations);
+      handleDurationChange({ value: fallback }, { skipSnapshot: true });
+    }
+  }, [currentDurationValue, handleDurationChange, isVeoModel, template.duration, veoMode]);
+
+  useEffect(() => {
+    if (!isVeoModel || !template.resolution) return;
+    const durationValue =
+      typeof currentDurationValue === "number" && Number.isFinite(currentDurationValue)
+        ? currentDurationValue
+        : null;
+    if (durationValue === null) return;
+
+    const mustBeEight = Boolean(veoMode?.isReferenceMode || veoMode?.isInterpolationMode);
+    const allowedDurations = mustBeEight ? [8] : [4, 6, 8];
+    const normalizedDuration = allowedDurations.includes(durationValue)
+      ? durationValue
+      : mustBeEight
+        ? 8
+        : pickClosestDuration(durationValue, allowedDurations);
+
+    if (normalizedDuration !== 8 && currentResolutionValue === "1080p") {
+      handleResolutionChange({ value: "720p" }, { skipSnapshot: true });
+    }
+  }, [
+    currentDurationValue,
+    currentResolutionValue,
+    handleResolutionChange,
+    isVeoModel,
+    template.resolution,
+    veoMode,
+  ]);
+
+  useEffect(() => {
+    if (!isVeoModel || !aspectRatioField) return;
+    if (!currentAspectRatioValue) return;
+    const allowed = veoMode?.isReferenceMode ? ["16:9"] : ["16:9", "9:16"];
+    if (!allowed.includes(currentAspectRatioValue)) {
+      handleAspectRatioChange({ value: "16:9" }, { skipSnapshot: true });
+    }
+  }, [aspectRatioField, currentAspectRatioValue, handleAspectRatioChange, isVeoModel, veoMode]);
 
   const selectedFirstFrameIndex = useMemo(() => {
     if (!isVeoModel) return 0;
