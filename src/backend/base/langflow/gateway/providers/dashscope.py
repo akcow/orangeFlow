@@ -18,7 +18,9 @@ class DashScopeProvider(ProviderAdapter):
     def __init__(self, api_key: str, base_url: str | None = None):
         super().__init__(api_key, base_url)
         # base_url is expected to be a host root (no /api/v1 suffix).
-        self.base_url = (base_url or "https://dashscope.aliyuncs.com").rstrip("/")
+        import os
+
+        self.base_url = (base_url or os.getenv("DASHSCOPE_API_BASE") or "https://dashscope.aliyuncs.com").rstrip("/")
 
     @staticmethod
     def _dashscope_api(path: str) -> str:
@@ -341,4 +343,3 @@ async def _sleep(seconds: float) -> None:
     import asyncio
 
     await asyncio.sleep(seconds)
-

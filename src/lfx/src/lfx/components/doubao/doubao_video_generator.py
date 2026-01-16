@@ -1440,11 +1440,32 @@ class DoubaoVideoGenerator(Component):
         generated_at = datetime.now(timezone.utc).isoformat()
         suggestion = ""
         lowered = message.lower()
-        if "connection error" in lowered or "connect" in lowered:
-            suggestion = (
-                "（网络连接错误：请检查是否能访问 DashScope 地址，或是否需要设置代理 HTTP_PROXY/HTTPS_PROXY，"
-                "以及防火墙/证书拦截等）"
-            )
+        if "connection error" in lowered or "connect" in lowered or "getaddrinfo" in lowered:
+            if "veo" in lowered:
+                suggestion = (
+                    "（网络连接错误：请检查是否能访问 Veo 地址，或配置 VEO_API_BASE/HTTP_PROXY/HTTPS_PROXY，"
+                    "以及防火墙/证书拦截等）"
+                )
+            elif "sora" in lowered:
+                suggestion = (
+                    "（网络连接错误：请检查是否能访问 Sora 地址，或配置 SORA_API_BASE/HTTP_PROXY/HTTPS_PROXY，"
+                    "以及防火墙/证书拦截等）"
+                )
+            elif "dashscope" in lowered or "wan" in lowered:
+                suggestion = (
+                    "（网络连接错误：请检查是否能访问 DashScope 地址，或配置 DASHSCOPE_API_BASE/HTTP_PROXY/HTTPS_PROXY，"
+                    "以及防火墙/证书拦截等）"
+                )
+            elif "doubao" in lowered or "ark" in lowered:
+                suggestion = (
+                    "（网络连接错误：请检查是否能访问 Ark 地址，或配置 ARK_API_BASE/HTTP_PROXY/HTTPS_PROXY，"
+                    "以及防火墙/证书拦截等）"
+                )
+            else:
+                suggestion = (
+                    "（网络连接错误：请检查网络/DNS，或是否需要设置 HTTP_PROXY/HTTPS_PROXY，"
+                    "以及防火墙/证书拦截等）"
+                )
         return Data(
             data={
                 "error": f"{message}{suggestion}",
@@ -2689,7 +2710,7 @@ class DoubaoVideoGenerator(Component):
     def _build_video_gateway(self, *, prompt: str, endpoint_id: str, model_display_name: str) -> Data:
         """Fallback path: generate video via Hosted Gateway for Ark/Doubao models."""
         try:
-            from langflow.gateway.client import videos_create, videos_status
+            from langflow.gateway.client import videos_create
 
             resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
             duration = int(getattr(self, "duration", 5) or 5)
@@ -2715,55 +2736,17 @@ class DoubaoVideoGenerator(Component):
             task_id = str(create.get("id") or "").strip()
             if not task_id:
                 return self._error(f"网关未返回任务 ID: {create}")
-
-            start = time.time()
-            max_wait = 600
-            poll_interval = 3
-            self.status = f"⏳ 任务已创建 (ID: {task_id})，开始轮询..."
-            last_status: str | None = None
-
-            while time.time() - start < max_wait:
-                poll = videos_status(video_id=task_id, user_id=str(getattr(self, "user_id", "") or "") or None)
-                status = str(poll.get("status") or "").lower()
-                if status and status != last_status:
-                    last_status = status
-                    self.status = f"⏳ 轮询中: {status}"
-
-                video_url = None
-                data = poll.get("data") if isinstance(poll.get("data"), dict) else None
-                if data and isinstance(data.get("url"), str):
-                    video_url = data.get("url")
-                if not video_url:
-                    video_url = self._first_url_from_payload(poll.get("provider_response"))
-
-                if video_url:
-                    generated_at = datetime.now(timezone.utc).isoformat()
-                    result_payload = {
-                        "provider": "gateway",
-                        "task_id": task_id,
-                        "task_status": status or "completed",
-                        "model": {"name": model_display_name, "model_id": endpoint_id},
-                        "prompt": prompt,
-                        "resolution": resolution,
-                        "duration": duration,
-                        "aspect_ratio": aspect_ratio,
-                        "generation_time": int(time.time() - start),
-                        "video_url": video_url,
-                        "videos": [{"video_url": video_url}],
-                        "doubao_preview": {
-                            "token": task_id,
-                            "kind": "video",
-                            "available": True,
-                            "generated_at": generated_at,
-                            "payload": {"video_url": video_url, "videos": [{"video_url": video_url}], "task_id": task_id},
-                        },
-                    }
-                    self.status = "✅ 视频生成成功"
-                    return Data(data=result_payload, type="video")
-
-                time.sleep(poll_interval)
-
-            return self._error(f"视频生成超时（{max_wait}s），task_id={task_id}")
+            max_wait = 1200 if "1-5-pro" in endpoint_id or "1.5-pro" in model_display_name else 600
+            return self._poll_gateway_video(
+                task_id=task_id,
+                prompt=prompt,
+                endpoint_id=endpoint_id,
+                model_display_name=model_display_name,
+                resolution=resolution,
+                duration=duration,
+                aspect_ratio=aspect_ratio,
+                max_wait=max_wait,
+            )
         except Exception as exc:  # noqa: BLE001
             return self._error(f"网关调用失败: {exc}")
 

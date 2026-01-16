@@ -13,7 +13,16 @@ class QwenProvider(ProviderAdapter):
 
     def __init__(self, api_key: str, base_url: str | None = None):
         super().__init__(api_key, base_url)
-        self.base_url = (base_url or "https://dashscope.aliyuncs.com/api/v1").rstrip("/")
+        import os
+
+        resolved = base_url or os.getenv("DASHSCOPE_TTS_API_BASE") or os.getenv("DASHSCOPE_API_BASE")
+        if resolved:
+            normalized = resolved.rstrip("/")
+            if not normalized.endswith("/api/v1"):
+                normalized = f"{normalized}/api/v1"
+            self.base_url = normalized
+        else:
+            self.base_url = "https://dashscope.aliyuncs.com/api/v1"
 
     async def audio_speech(self, request: AudioSpeechRequest) -> bytes:
         # Adapt OpenAI /v1/audio/speech to DashScope MultiModal or TTS

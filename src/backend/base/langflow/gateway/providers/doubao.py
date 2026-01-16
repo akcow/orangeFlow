@@ -15,7 +15,9 @@ class DoubaoProvider(ProviderAdapter):
     def __init__(self, api_key: str, base_url: str | None = None):
         super().__init__(api_key, base_url)
         # Default to official Ark endpoint if not provided
-        self.base_url = (base_url or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
+        import os
+
+        self.base_url = (base_url or os.getenv("ARK_API_BASE") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
 
     async def image_generation(self, request: ImageGenerationRequest) -> Dict[str, Any]:
         url = f"{self.base_url}/images/generations"
