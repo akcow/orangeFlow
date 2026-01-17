@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 from collections.abc import AsyncIterator, Generator, Iterator
 from typing import TYPE_CHECKING, Any, cast
@@ -122,6 +123,7 @@ class ComponentVertex(Vertex):
 
         edges = self.get_edge_with_target(requester.id)
         result = UNDEFINED
+        selected_edge = None
         for edge in edges:
             if (
                 edge is not None
@@ -138,6 +140,7 @@ class ComponentVertex(Vertex):
                         result = cast("Any", output.value)
                 except NoComponentInstanceError:
                     result = self.results[edge.source_handle.name]
+                selected_edge = edge
                 break
         if result is UNDEFINED:
             if edge is None:
@@ -150,7 +153,31 @@ class ComponentVertex(Vertex):
             raise ValueError(msg)
         if flow_id:
             await self._log_transaction_async(source=self, target=requester, flow_id=str(flow_id), status="success")
-        return result
+        return self._apply_edge_image_role(result, selected_edge)
+
+    def _apply_edge_image_role(self, result: Any, edge: Any | None) -> Any:
+        if edge is None:
+            return result
+        edge_data = edge.to_data() if hasattr(edge, "to_data") else {}
+        role = edge_data.get("data", {}).get("imageRole")
+        if role not in {"first", "reference", "last"}:
+            return result
+        return self._attach_role_to_result(result, role)
+
+    @staticmethod
+    def _attach_role_to_result(value: Any, role: str) -> Any:
+        if isinstance(value, Data):
+            cloned = value.model_copy(deep=True) if hasattr(value, "model_copy") else copy.deepcopy(value)
+            if isinstance(cloned.data, dict):
+                cloned.data["role"] = role
+            return cloned
+        if isinstance(value, dict):
+            cloned = copy.deepcopy(value)
+            cloned["role"] = role
+            return cloned
+        if isinstance(value, list):
+            return [ComponentVertex._attach_role_to_result(item, role) for item in value]
+        return value
 
     def extract_messages_from_artifacts(self, artifacts: dict[str, Any]) -> list[dict]:
         """Extracts messages from the artifacts.

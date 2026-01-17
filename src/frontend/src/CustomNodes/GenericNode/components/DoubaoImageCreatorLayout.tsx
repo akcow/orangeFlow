@@ -16,16 +16,22 @@ import useHandleOnNewValue, {
   type handleOnNewValueType,
 } from "../../hooks/use-handle-new-value";
 import type { InputFieldType } from "@/types/api";
-import type { GenericNodeType, NodeDataType } from "@/types/flow";
+import type { EdgeType, GenericNodeType, NodeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
 import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
 import { track } from "@/customization/utils/analytics";
 import {
   findLastNode,
+  getDoubaoVideoModelName,
+  getImageRoleLimits,
   getNodeId,
+  IMAGE_ROLE_FIELD,
+  IMAGE_ROLE_TARGET,
+  resolveEdgeImageRole,
   scapeJSONParse,
   scapedJSONStringfy,
+  type EdgeImageRole,
 } from "@/utils/reactflowUtils";
 import HandleRenderComponent from "./handleRenderComponent";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
@@ -58,6 +64,7 @@ const CONTROL_FIELDS = [
 
 const PROMPT_NAME = "prompt";
 const REFERENCE_FIELD = "reference_images";
+const LAST_FRAME_FIELD = "last_frame_image";
 const MULTI_TURN_FIELD = "enable_multi_turn";
 const ONLINE_SEARCH_FIELD = "enable_google_search";
 const MAX_REFERENCE_IMAGES = 14;
@@ -122,6 +129,72 @@ export default function DoubaoImageCreatorLayout({
 
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
+  const edgeImageCountLimit = useMemo(() => {
+    if (!edges.length) return null;
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+    const roleEdgesByTarget = new Map<string, EdgeType[]>();
+    const getTargetFieldName = (edge: EdgeType) => {
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      return targetHandle?.fieldName ?? targetHandle?.name;
+    };
+
+    edges.forEach((edge) => {
+      const targetId = edge.target ?? "";
+      if (!targetId) return;
+      const targetNode = nodeMap.get(targetId);
+      if (targetNode?.data?.type !== IMAGE_ROLE_TARGET) return;
+      if (getTargetFieldName(edge) !== IMAGE_ROLE_FIELD) return;
+      const bucket = roleEdgesByTarget.get(targetId);
+      if (bucket) {
+        bucket.push(edge as EdgeType);
+      } else {
+        roleEdgesByTarget.set(targetId, [edge as EdgeType]);
+      }
+    });
+
+    const limits: number[] = [];
+    edges.forEach((edge) => {
+      if (edge.source !== data.id) return;
+      const targetId = edge.target ?? "";
+      if (!targetId) return;
+      const targetNode = nodeMap.get(targetId);
+      if (targetNode?.data?.type !== IMAGE_ROLE_TARGET) return;
+      const fieldName = getTargetFieldName(edge);
+      if (fieldName !== IMAGE_ROLE_FIELD && fieldName !== LAST_FRAME_FIELD) return;
+
+      let role: EdgeImageRole | null = null;
+      if (fieldName === LAST_FRAME_FIELD) {
+        role = "last";
+      } else if (
+        edge.data?.imageRole === "first" ||
+        edge.data?.imageRole === "reference" ||
+        edge.data?.imageRole === "last"
+      ) {
+        role = edge.data.imageRole;
+      } else {
+        const totalRoleEdges = roleEdgesByTarget.get(targetId)?.length ?? 0;
+        role = resolveEdgeImageRole(edge, totalRoleEdges);
+      }
+
+      const modelName = getDoubaoVideoModelName(targetNode);
+      const roleLimits = getImageRoleLimits(modelName);
+      if (role === "reference" && !roleLimits.allowedRoles.includes("reference")) {
+        role = "first";
+      }
+      let limit = 1;
+      if (role === "reference") {
+        const referenceLimit =
+          roleLimits.maxReference ?? Math.max(roleLimits.maxTotal - 1, 1);
+        limit = referenceLimit > 0 ? referenceLimit : 1;
+      }
+      limits.push(limit);
+    });
+
+    if (!limits.length) return null;
+    return Math.min(...limits);
+  }, [edges, nodes, data.id]);
   const hasAnyConnection = useMemo(
     () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
     [edges, data.id],
@@ -139,6 +212,7 @@ export default function DoubaoImageCreatorLayout({
   const supportsGeminiFeatureButtons = isNanoBananaPro;
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
+  const setEdges = useFlowStore((state) => state.setEdges);
   const onConnect = useFlowStore((state) => state.onConnect);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const templates = useTypesStore((state) => state.templates);
@@ -368,6 +442,14 @@ export default function DoubaoImageCreatorLayout({
   }, [isGeminiImageModel, template.image_count?.value, handleImageCountChange]);
 
   useEffect(() => {
+    if (!edgeImageCountLimit) return;
+    const current = Number(template.image_count?.value ?? 1);
+    if (!Number.isFinite(current)) return;
+    if (current <= edgeImageCountLimit) return;
+    handleImageCountChange({ value: edgeImageCountLimit }, { skipSnapshot: true });
+  }, [edgeImageCountLimit, template.image_count?.value, handleImageCountChange]);
+
+  useEffect(() => {
     // Nano Banana 模型不支持 image_size 参数，自动设置为 "Auto"
     // 其他模型不支持 Auto 选项，切换到默认值 "2K（推荐）"
     const current = String(template.resolution?.value ?? "");
@@ -493,16 +575,36 @@ export default function DoubaoImageCreatorLayout({
         return undefined;
       })();
 
+      const edgeDisabledOptions =
+        field.name === "image_count" && edgeImageCountLimit
+          ? options.filter((opt) => Number(opt) > edgeImageCountLimit)
+          : [];
+      const mergedDisabledOptions = [
+        ...(disabledOptions ?? []),
+        ...(geminiDisabledOptions ?? []),
+        ...edgeDisabledOptions,
+      ];
+      const normalizedDisabledOptions = mergedDisabledOptions.length
+        ? Array.from(new Set(mergedDisabledOptions))
+        : undefined;
+
       return {
         ...field,
         template: templateField,
         options,
         value: templateField.value,
         tooltip: tooltipText,
-        disabledOptions: geminiDisabledOptions ?? disabledOptions,
+        disabledOptions: normalizedDisabledOptions,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [template, isWanModel, hasAnyReferenceSelected, isGeminiImageModel, isNanoBanana]);
+  }, [
+    template,
+    isWanModel,
+    hasAnyReferenceSelected,
+    isGeminiImageModel,
+    isNanoBanana,
+    edgeImageCountLimit,
+  ]);
 
   const multiTurnEnabled = Boolean(template?.[MULTI_TURN_FIELD]?.value);
   const onlineSearchEnabled = Boolean(template?.[ONLINE_SEARCH_FIELD]?.value);
@@ -522,10 +624,10 @@ export default function DoubaoImageCreatorLayout({
       (typeof referenceField?.max_files === "number" && referenceField?.max_files) ||
       (typeof referenceField?.list_max === "number" && referenceField?.list_max);
     if (typeof explicitLimit === "number" && explicitLimit > 0) {
-      return explicitLimit;
+      return edgeImageCountLimit ? Math.min(explicitLimit, edgeImageCountLimit) : explicitLimit;
     }
-    return defaultLimit;
-  }, [referenceField, isWanModel, isNanoBanana]);
+    return edgeImageCountLimit ? Math.min(defaultLimit, edgeImageCountLimit) : defaultLimit;
+  }, [referenceField, isWanModel, isNanoBanana, edgeImageCountLimit]);
   const maxLocalEntries = Math.max(
     maxReferenceEntries - upstreamReferencePreviews.length,
     0,
@@ -534,6 +636,29 @@ export default function DoubaoImageCreatorLayout({
   const canAddMoreReferences =
     localReferenceCount < maxLocalEntries &&
     selectedReferenceCount < maxReferenceEntries;
+
+  useEffect(() => {
+    if (!edgeImageCountLimit) return;
+    if (localReferenceCount <= maxReferenceEntries) return;
+    const entries = collectReferenceEntries(referenceField);
+    if (!entries.length) return;
+    const trimmed = entries.slice(0, maxReferenceEntries);
+    setErrorData({
+      title: "上游角色限制",
+      list: [`当前连接角色最多允许 ${maxReferenceEntries} 张图片，已自动保留前 ${maxReferenceEntries} 张。`],
+    });
+    handleReferenceChange({
+      value: trimmed.map((entry) => entry.name),
+      file_path: trimmed.map((entry) => entry.path),
+    });
+  }, [
+    edgeImageCountLimit,
+    localReferenceCount,
+    maxReferenceEntries,
+    referenceField,
+    handleReferenceChange,
+    setErrorData,
+  ]);
 
   const allowedExtensions = useMemo(() => {
     if (isWanModel) {
@@ -681,12 +806,13 @@ export default function DoubaoImageCreatorLayout({
     nodes,
     onConnect,
     setNodes,
+    setEdges,
     takeSnapshot,
     templates,
     openUploadDialog,
   ]);
 
-  const handleCreateReferenceVideoDownstreamNode = useCallback(() => {
+  const handleCreateReferenceVideoDownstreamNode = useCallback((imageRole?: EdgeImageRole) => {
     const currentNode = nodes.find((node) => node.id === data.id);
     if (!currentNode) return;
 
@@ -719,6 +845,26 @@ export default function DoubaoImageCreatorLayout({
       .find(Boolean) as string | undefined;
 
     if (existingDownstreamVideoNodeId) {
+      if (imageRole) {
+        setEdges((currentEdges) =>
+          currentEdges.map((edge) => {
+            if (edge.source !== data.id || edge.target !== existingDownstreamVideoNodeId) {
+              return edge;
+            }
+            const targetHandle =
+              edge.data?.targetHandle ??
+              (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+            if (targetHandle?.fieldName !== "first_frame_image") return edge;
+            return {
+              ...edge,
+              data: {
+                ...edge.data,
+                imageRole,
+              },
+            };
+          }),
+        );
+      }
       setNodes((currentNodes) =>
         currentNodes.map((node) => ({
           ...node,
@@ -786,7 +932,8 @@ export default function DoubaoImageCreatorLayout({
       target: newVideoNodeId,
       sourceHandle: scapedJSONStringfy(sourceHandle),
       targetHandle: scapedJSONStringfy(targetHandle),
-    });
+      ...(imageRole ? { imageRole } : {}),
+    } as any);
 
     openUploadDialog();
 
@@ -940,7 +1087,8 @@ export default function DoubaoImageCreatorLayout({
         return;
       }
       if (label === REFERENCE_VIDEO_LABEL || label === FIRST_FRAME_VIDEO_LABEL) {
-        handleCreateReferenceVideoDownstreamNode();
+        const role = label === FIRST_FRAME_VIDEO_LABEL ? "first" : undefined;
+        handleCreateReferenceVideoDownstreamNode(role);
         return;
       }
       if (label === BACKGROUND_LABEL) {

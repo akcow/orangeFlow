@@ -222,10 +222,16 @@ class Data(CrossModuleModel):
         else:
             del self.data[key]
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo=None):
         """Custom deepcopy implementation to handle copying of the Data object."""
+        if memo is None:
+            memo = {}
         # Create a new Data object with a deep copy of the data dictionary
         return Data(data=copy.deepcopy(self.data, memo), text_key=self.text_key, default_value=self.default_value)
+
+    def deepcopy(self, memo=None) -> "Data":
+        """Compatibility helper for callers that invoke deepcopy on the instance."""
+        return self.__deepcopy__(memo)
 
     # check which attributes the Data has by checking the keys in the data dictionary
     def __dir__(self):

@@ -41,8 +41,15 @@ import {
   cleanEdges,
   detectBrokenEdgesEdges,
   getConnectedSubgraph,
+  getDoubaoVideoModelName,
   getHandleId,
+  canAddImageRole,
+  getImageRoleCounts,
+  getImageRoleLimits,
   getNodeId,
+  IMAGE_ROLE_FIELD,
+  IMAGE_ROLE_TARGET,
+  pickImageRoleForNewEdge,
   scapedJSONStringfy,
   scapeJSONParse,
   unselectAllNodesEdges,
@@ -691,6 +698,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
   },
   onConnect: (connection) => {
     const _dark = useDarkStore.getState().dark;
+    const setErrorData = useAlertStore.getState().setErrorData;
     // const commonMarkerProps = {
     //   type: MarkerType.ArrowClosed,
     //   width: 20,
@@ -722,18 +730,46 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       const targetNode = get().nodes.find(
         (node) => node.id === connection.target,
       );
+      const targetFieldName = targetHandle?.fieldName ?? targetHandle?.name;
       const isRoleEdge =
-        targetHandle?.fieldName === "first_frame_image" &&
-        targetNode?.data?.type === "DoubaoVideoGenerator";
+        targetFieldName === IMAGE_ROLE_FIELD &&
+        targetNode?.data?.type === IMAGE_ROLE_TARGET;
+      const isLastFrameEdge =
+        targetFieldName === "last_frame_image" &&
+        targetNode?.data?.type === IMAGE_ROLE_TARGET;
       let imageRole: "first" | "reference" | "last" | undefined;
+      const requestedRoleRaw =
+        (connection as { imageRole?: unknown; data?: { imageRole?: unknown } })
+          ?.imageRole ??
+        (connection as { data?: { imageRole?: unknown } })?.data?.imageRole;
+      const requestedRole =
+        requestedRoleRaw === "first" ||
+        requestedRoleRaw === "reference" ||
+        requestedRoleRaw === "last"
+          ? requestedRoleRaw
+          : undefined;
 
-      if (isRoleEdge) {
-        const hasExistingEdge = oldEdges.some(
-          (edge) =>
-            edge.target === connection.target &&
-            edge.data?.targetHandle?.fieldName === "first_frame_image",
-        );
-        imageRole = hasExistingEdge ? "reference" : "first";
+      if (isLastFrameEdge) {
+        imageRole = requestedRole === "last" ? requestedRole : "last";
+      } else if (isRoleEdge) {
+        const modelName = getDoubaoVideoModelName(targetNode);
+        const limits = getImageRoleLimits(modelName);
+        const counts = getImageRoleCounts(oldEdges, connection.target!, targetNode);
+        if (requestedRole && canAddImageRole(requestedRole, counts, limits)) {
+          imageRole = requestedRole;
+        } else {
+          const nextRole = pickImageRoleForNewEdge(limits, counts);
+          if (!nextRole) {
+            setErrorData({
+              title: "Connection limit reached",
+              list: [
+                "The selected model has reached its image limit for this input. Adjust edge roles or remove a connection.",
+              ],
+            });
+            return oldEdges;
+          }
+          imageRole = nextRole;
+        }
       }
 
       newEdges = addEdge(

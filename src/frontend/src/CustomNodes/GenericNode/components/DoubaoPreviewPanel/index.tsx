@@ -55,6 +55,7 @@ export type DoubaoReferenceImage = {
   height?: number;
   label?: string;
   fileName?: string;
+  role?: "first" | "reference" | "last";
 };
 
 type Props = {

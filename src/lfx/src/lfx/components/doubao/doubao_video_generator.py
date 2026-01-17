@@ -60,7 +60,7 @@ class DoubaoVideoGenerator(Component):
 
     MODEL_LIMITS = {
         "Doubao-Seedance-1.5-pro｜251215": {
-            "resolutions": ["480p", "720p"],
+            "resolutions": ["480p", "720p", "1080p"],
             "min_duration": 4,
             "max_duration": 12,
             "supports_last_frame": True,
@@ -2150,17 +2150,31 @@ class DoubaoVideoGenerator(Component):
                 reference_image_raw = getattr(self, "first_frame_image", None)
                 if reference_image_raw:
                     reference_image_url = self._extract_image_url(reference_image_raw)
-                    if reference_image_url and reference_image_url.startswith("data:image/"):
-                        # base64 图片，需要转换为二进制上传
+                    if reference_image_url:
                         try:
                             import io
-                            mime_and_data = reference_image_url.split(",", 1)
-                            mime_type = mime_and_data[0].split(":")[1].split(";")[0]
-                            base64_data = mime_and_data[1]
-                            image_bytes = base64.b64decode(base64_data)
-                            files = {"input_reference": ("reference.jpg", io.BytesIO(image_bytes), mime_type)}
-                        except Exception:
-                            files = None
+                            if reference_image_url.startswith("data:image/"):
+                                mime_and_data = reference_image_url.split(",", 1)
+                                mime_type = mime_and_data[0].split(":")[1].split(";")[0]
+                                base64_data = mime_and_data[1]
+                                image_bytes = base64.b64decode(base64_data)
+                            elif reference_image_url.startswith(("http://", "https://")):
+                                ref_response = requests.get(reference_image_url, timeout=60)
+                                ref_response.raise_for_status()
+                                mime_type = ref_response.headers.get("Content-Type", "image/jpeg")
+                                mime_type = mime_type.split(";")[0].strip()
+                                if not mime_type.startswith("image/"):
+                                    mime_type = "image/jpeg"
+                                image_bytes = ref_response.content
+                            else:
+                                image_bytes = None
+                                mime_type = None
+                            if image_bytes and mime_type:
+                                ext = mimetypes.guess_extension(mime_type) or ".jpg"
+                                filename = f"reference{ext}"
+                                files = {"input_reference": (filename, io.BytesIO(image_bytes), mime_type)}
+                        except Exception as exc:
+                            return self._error(f"Sora 参考图处理失败: {exc}")
 
                 headers = {"Authorization": f"Bearer {api_key}"}
                 if files:

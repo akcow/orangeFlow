@@ -25,6 +25,9 @@ const VideoRenderer = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const retryTimeoutRef = useRef<number | null>(null);
 
   const isModal = variant === "modal";
 
@@ -38,17 +41,31 @@ const VideoRenderer = ({
       video.playbackRate = playbackRate;
     };
     const handleEnded = () => setIsPlaying(false);
+    const handleError = () => {
+      if (!videoUrl) return;
+      if (retryCount >= 2) return;
+      const nextCount = retryCount + 1;
+      setRetryCount(nextCount);
+      if (retryTimeoutRef.current) {
+        window.clearTimeout(retryTimeoutRef.current);
+      }
+      retryTimeoutRef.current = window.setTimeout(() => {
+        setReloadToken((token) => token + 1);
+      }, 800 * nextCount);
+    };
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("loadedmetadata", handleLoadedMetadata);
     video.addEventListener("ended", handleEnded);
+    video.addEventListener("error", handleError);
 
     return () => {
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("error", handleError);
     };
-  }, [playbackRate]);
+  }, [playbackRate, retryCount, videoUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -58,6 +75,15 @@ const VideoRenderer = ({
     setVideoDuration(video.duration || 0);
     video.pause();
     video.currentTime = 0;
+  }, [videoUrl]);
+
+  useEffect(() => {
+    setRetryCount(0);
+    setReloadToken(0);
+    if (retryTimeoutRef.current) {
+      window.clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
   }, [videoUrl]);
 
   const togglePlayback = useCallback(() => {
@@ -137,6 +163,7 @@ const VideoRenderer = ({
       }
     >
       <video
+        key={`${videoUrl}-${reloadToken}`}
         ref={videoRef}
         src={videoUrl}
         poster={poster}

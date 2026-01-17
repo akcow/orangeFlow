@@ -72,6 +72,14 @@ def copy_frontend_build() -> None:
     print(f"[copy] synced build to {BACKEND_FRONTEND_DIR.relative_to(REPO_ROOT)}")
 
 
+def _local_venv_python() -> Path | None:
+    venv_root = REPO_ROOT / ".venv"
+    candidate = venv_root / ("Scripts" if os.name == "nt" else "bin") / (
+        "python.exe" if os.name == "nt" else "python"
+    )
+    return candidate if candidate.exists() else None
+
+
 def _ensure_uv_environment() -> None:
     """Ensure we run inside the repo's uv environment when available."""
     if os.environ.get("LANGFLOW_START_SERVICE_REEXEC") == "1":
@@ -81,6 +89,15 @@ def _ensure_uv_environment() -> None:
     exe = Path(sys.executable).resolve()
     if ".venv" in exe.parts:
         return
+
+    # Prefer local .venv when it exists so the script uses the project's venv.
+    venv_python = _local_venv_python()
+    if venv_python is not None:
+        env = os.environ.copy()
+        env["LANGFLOW_START_SERVICE_REEXEC"] = "1"
+        cmd = [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]]
+        subprocess.run(cmd, cwd=REPO_ROOT, env=env, check=True)
+        raise SystemExit(0)
 
     # If uv is available, re-exec via uv so dependencies resolve consistently.
     if shutil.which("uv"):
@@ -96,6 +113,9 @@ def _ensure_frontend_built(env: dict[str, str]) -> None:
     package_json = FRONTEND_DIR / "package.json"
     if not package_json.exists():
         raise FileNotFoundError(f"Missing frontend package.json at {package_json}")
+
+    if "NODE_OPTIONS" not in env:
+        env["NODE_OPTIONS"] = "--max-old-space-size=8192"
 
     # Vite/Rollup native builds have been observed to crash on some Windows setups with very new Node.js versions.
     # Provide a helpful hint early so failures are actionable.

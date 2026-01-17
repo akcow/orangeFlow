@@ -5,12 +5,22 @@ import {
   getBezierPath,
   Position,
 } from "@xyflow/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "@/i18n/t";
+import useAlertStore from "@/stores/alertStore";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import type { EdgeDataType } from "@/types/flow";
-import { scapeJSONParse } from "@/utils/reactflowUtils";
+import {
+  canUpdateImageRole,
+  getDoubaoVideoModelName,
+  getImageRoleCounts,
+  getImageRoleLimits,
+  IMAGE_ROLE_FIELD,
+  IMAGE_ROLE_TARGET,
+  resolveEdgeImageRole,
+  scapeJSONParse,
+} from "@/utils/reactflowUtils";
 
 type EdgeImageRole = "first" | "reference" | "last";
 
@@ -19,9 +29,7 @@ const IMAGE_ROLE_OPTIONS: Array<{ label: string; value: EdgeImageRole }> = [
   { label: "参考", value: "reference" },
   { label: "尾帧", value: "last" },
 ];
-
-const IMAGE_ROLE_FIELD = "first_frame_image";
-const IMAGE_ROLE_TARGET = "DoubaoVideoGenerator";
+const LAST_FRAME_FIELD = "last_frame_image";
 
 export function DefaultEdge({
   sourceHandleId,
@@ -38,9 +46,11 @@ export function DefaultEdge({
   const [hovered, setHovered] = useState(false);
   const deleteEdge = useFlowStore((state) => state.deleteEdge);
   const setEdges = useFlowStore((state) => state.setEdges);
+  const edges = useFlowStore((state) => state.edges);
   const isLocked = useFlowStore((state) => state.currentFlow?.locked);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const getNode = useFlowStore((state) => state.getNode);
+  const setErrorData = useAlertStore((state) => state.setErrorData);
 
   const sourceNode = getNode(source);
   const targetNode = getNode(target);
@@ -51,10 +61,88 @@ export function DefaultEdge({
     (targetHandleId ? scapeJSONParse(targetHandleId) : undefined);
   const targetFieldName =
     targetHandleObject?.fieldName ?? targetHandleObject?.name;
+  const isFirstFrameField = targetFieldName === IMAGE_ROLE_FIELD;
+  const isLastFrameField = targetFieldName === LAST_FRAME_FIELD;
   const isRoleEdge =
-    targetFieldName === IMAGE_ROLE_FIELD &&
+    (isFirstFrameField || isLastFrameField) &&
     targetNode?.data?.type === IMAGE_ROLE_TARGET;
-  const currentRole: EdgeImageRole = edgeData?.imageRole ?? "reference";
+  const modelName = getDoubaoVideoModelName(targetNode);
+  const roleLimits = getImageRoleLimits(modelName);
+  const isSoraModel =
+    roleLimits.allowedRoles.length === 1 &&
+    roleLimits.allowedRoles[0] === "reference";
+  const isVeoModel = roleLimits.allowedRoles.includes("last");
+  const fixedRole: EdgeImageRole | null = isLastFrameField
+    ? "last"
+    : isSoraModel
+      ? "reference"
+      : null;
+  const roleEdges = edges.filter((edge) => {
+    if (edge.target !== target) return false;
+    const fieldName =
+      edge.data?.targetHandle?.fieldName ??
+      (edge.targetHandle ? scapeJSONParse(edge.targetHandle)?.fieldName : undefined);
+    return fieldName === IMAGE_ROLE_FIELD;
+  });
+  const totalRoleEdges = roleEdges.length;
+  const currentRole: EdgeImageRole = fixedRole
+    ? fixedRole
+    : resolveEdgeImageRole(props as any, totalRoleEdges);
+  const normalizedRole: EdgeImageRole = fixedRole
+    ? fixedRole
+    : roleLimits.allowedRoles.includes(currentRole)
+      ? currentRole
+      : roleLimits.allowedRoles[0] ?? "first";
+  const roleOptions = fixedRole
+    ? IMAGE_ROLE_OPTIONS.filter((option) => option.value === fixedRole)
+    : IMAGE_ROLE_OPTIONS.filter((option) => roleLimits.allowedRoles.includes(option.value));
+
+  useEffect(() => {
+    if (!isRoleEdge || !fixedRole) return;
+    if (edgeData?.imageRole === fixedRole) return;
+    takeSnapshot();
+    setEdges((edges) =>
+      edges.map((edge) => {
+        if (edge.id !== id) return edge;
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            imageRole: fixedRole,
+          },
+        };
+      }),
+    );
+  }, [edgeData?.imageRole, fixedRole, id, isRoleEdge, setEdges, takeSnapshot]);
+
+  useEffect(() => {
+    if (!isRoleEdge || fixedRole) return;
+    if (roleLimits.allowedRoles.includes(currentRole)) return;
+    const fallbackRole = roleLimits.allowedRoles[0] ?? "first";
+    if (edgeData?.imageRole === fallbackRole) return;
+    takeSnapshot();
+    setEdges((edges) =>
+      edges.map((edge) => {
+        if (edge.id !== id) return edge;
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            imageRole: fallbackRole,
+          },
+        };
+      }),
+    );
+  }, [
+    currentRole,
+    edgeData?.imageRole,
+    fixedRole,
+    id,
+    isRoleEdge,
+    roleLimits.allowedRoles,
+    setEdges,
+    takeSnapshot,
+  ]);
 
   const sourceXNew =
     (sourceNode?.position.x ?? 0) + (sourceNode?.measured?.width ?? 0) + 7;
@@ -96,7 +184,65 @@ export function DefaultEdge({
 
   const handleRoleChange = (nextRole: EdgeImageRole) => {
     if (isLocked) return;
+    if (fixedRole) {
+      if (edgeData?.imageRole === fixedRole) return;
+      takeSnapshot();
+      setEdges((edges) =>
+        edges.map((edge) => {
+          if (edge.id !== id) return edge;
+          return {
+            ...edge,
+            data: {
+              ...edge.data,
+              imageRole: fixedRole,
+            },
+          };
+        }),
+      );
+      return;
+    }
     if (nextRole === currentRole) return;
+    if (!roleLimits.allowedRoles.includes(nextRole)) {
+      setErrorData({
+        title: "Role not supported",
+        list: ["The selected model does not support this image role."],
+      });
+      return;
+    }
+
+    const otherEdges = edges.filter((edge) => edge.id !== id);
+    const counts = getImageRoleCounts(otherEdges, target, targetNode);
+    const hasSameRole = counts[nextRole] > 0;
+    const canDemoteToReference =
+      roleLimits.allowedRoles.includes("reference") &&
+      (roleLimits.maxReference == null ||
+        counts.reference + (hasSameRole ? 1 : 0) <= roleLimits.maxReference);
+
+    if (nextRole === "reference") {
+      if (!canUpdateImageRole(nextRole, counts, roleLimits)) {
+        setErrorData({
+          title: "Reference limit reached",
+          list: [
+            "No more reference images are allowed for the selected model.",
+          ],
+        });
+        return;
+      }
+    } else if (hasSameRole && !canDemoteToReference) {
+      setErrorData({
+        title: "Role limit reached",
+        list: [
+          "Another connection already uses this role, and no reference slots remain.",
+        ],
+      });
+      return;
+    } else if (!hasSameRole && !canUpdateImageRole(nextRole, counts, roleLimits)) {
+      setErrorData({
+        title: "Role limit reached",
+        list: ["Another connection already uses this role."],
+      });
+      return;
+    }
 
     takeSnapshot();
     setEdges((edges) =>
@@ -111,22 +257,24 @@ export function DefaultEdge({
           };
         }
 
-        if (
-          nextRole !== "reference" &&
-          edge.target === target &&
-          edge.id !== id &&
-          edge.data?.targetHandle?.fieldName === IMAGE_ROLE_FIELD &&
-          edge.data?.imageRole === nextRole
-        ) {
-          return {
-            ...edge,
-            data: {
-              ...edge.data,
-              imageRole: "reference",
-            },
-          };
+        if (nextRole !== "reference" && edge.target === target && edge.id !== id) {
+          const fieldName =
+            edge.data?.targetHandle?.fieldName ??
+            (edge.targetHandle ? scapeJSONParse(edge.targetHandle)?.fieldName : undefined);
+          const resolvedRole = resolveEdgeImageRole(edge, totalRoleEdges);
+          if (fieldName === IMAGE_ROLE_FIELD && resolvedRole === nextRole) {
+            if (!roleLimits.allowedRoles.includes("reference")) {
+              return edge;
+            }
+            return {
+              ...edge,
+              data: {
+                ...edge.data,
+                imageRole: "reference",
+              },
+            };
+          }
         }
-
         return edge;
       }),
     );
@@ -162,10 +310,9 @@ export function DefaultEdge({
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
               >
-                <span className="text-muted-foreground">角色</span>
                 <select
                   aria-label="Edge role selector"
-                  value={currentRole}
+                  value={normalizedRole}
                   disabled={isLocked}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
@@ -174,8 +321,14 @@ export function DefaultEdge({
                   }
                   className="cursor-pointer bg-transparent text-xs outline-none"
                 >
-                  {IMAGE_ROLE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
+                  {roleOptions.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={
+                        !fixedRole && !roleLimits.allowedRoles.includes(option.value)
+                      }
+                    >
                       {option.label}
                     </option>
                   ))}

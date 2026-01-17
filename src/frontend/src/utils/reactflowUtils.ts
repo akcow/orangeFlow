@@ -67,6 +67,293 @@ import { createRandomKey, toTitleCase } from "./utils";
 
 const uid = new ShortUniqueId();
 
+export type EdgeImageRole = "first" | "reference" | "last";
+
+export const IMAGE_ROLE_FIELD = "first_frame_image";
+export const IMAGE_ROLE_TARGET = "DoubaoVideoGenerator";
+
+const DEFAULT_FIRST_FRAME_MAX_UPLOADS = 6;
+const VEO_REFERENCE_IMAGE_LIMIT = 3;
+const VEO_MAX_UPLOADS = 5;
+const VEO_FAST_MAX_UPLOADS = 2;
+
+type ImageRoleCounts = {
+  total: number;
+  first: number;
+  reference: number;
+  last: number;
+};
+
+type ImageRoleLimits = {
+  allowedRoles: EdgeImageRole[];
+  maxTotal: number;
+  maxReference?: number;
+};
+
+export function getDoubaoVideoModelName(node?: AllNodeType): string {
+  const template = node?.data?.node?.template ?? {};
+  const modelField = template?.model_name;
+  const value =
+    modelField?.value ?? modelField?.default ?? modelField?.options?.[0] ?? "";
+  return String(value ?? "").trim();
+}
+
+export function getImageRoleLimits(modelName: string): ImageRoleLimits {
+  const normalized = String(modelName ?? "").trim();
+  const normalizedLower = normalized.toLowerCase();
+  const isVeoModel =
+    normalized === "VEO3.1" || normalized === "veo3.1-fast";
+  const isVeoFast = normalized === "veo3.1-fast";
+  const isSoraModel = normalized === "sora-2" || normalized === "sora-2-pro";
+  const isWanModel = normalizedLower.startsWith("wan2.");
+  const isSeedanceModel = normalizedLower.startsWith("doubao-seedance-");
+
+  if (isSoraModel) {
+    return {
+      allowedRoles: ["reference"],
+      maxTotal: 1,
+      maxReference: 1,
+    };
+  }
+
+  if (isVeoModel) {
+    return {
+      allowedRoles: isVeoFast ? ["first", "last"] : ["first", "reference", "last"],
+      maxTotal: isVeoFast ? VEO_FAST_MAX_UPLOADS : VEO_MAX_UPLOADS,
+      maxReference: isVeoFast ? 0 : VEO_REFERENCE_IMAGE_LIMIT,
+    };
+  }
+
+  if (isWanModel || isSeedanceModel) {
+    return {
+      allowedRoles: ["first"],
+      maxTotal: DEFAULT_FIRST_FRAME_MAX_UPLOADS,
+    };
+  }
+
+  return {
+    allowedRoles: ["first", "reference"],
+    maxTotal: DEFAULT_FIRST_FRAME_MAX_UPLOADS,
+    maxReference: Math.max(DEFAULT_FIRST_FRAME_MAX_UPLOADS - 1, 1),
+  };
+}
+
+function getEdgeTargetFieldName(edge: EdgeType): string | undefined {
+  const targetHandle = edge.data?.targetHandle;
+  if (targetHandle && typeof targetHandle === "object") {
+    return targetHandle.fieldName ?? targetHandle.name;
+  }
+  if (!edge.targetHandle) return undefined;
+  try {
+    const parsed = scapeJSONParse(edge.targetHandle);
+    return parsed?.fieldName ?? parsed?.name;
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveEdgeImageRole(
+  edge: EdgeType,
+  totalEdges: number,
+): EdgeImageRole {
+  const role = edge.data?.imageRole;
+  if (role === "first" || role === "reference" || role === "last") return role;
+  return totalEdges <= 1 ? "first" : "reference";
+}
+
+export function getImageRoleCounts(
+  edges: EdgeType[],
+  targetId: string,
+  targetNode?: AllNodeType,
+): ImageRoleCounts {
+  const roleEdges = edges.filter((edge) => {
+    if (edge.target !== targetId) return false;
+    const fieldName = getEdgeTargetFieldName(edge);
+    return fieldName === IMAGE_ROLE_FIELD;
+  });
+  const total = roleEdges.length;
+  const counts: ImageRoleCounts = {
+    total,
+    first: 0,
+    reference: 0,
+    last: 0,
+  };
+  roleEdges.forEach((edge) => {
+    const role = resolveEdgeImageRole(edge, total);
+    counts[role] += 1;
+  });
+  if (targetNode) {
+    const limits = getImageRoleLimits(getDoubaoVideoModelName(targetNode));
+    const localCounts = getLocalImageRoleCounts(targetNode, limits);
+    counts.total += localCounts.total;
+    counts.first += localCounts.first;
+    counts.reference += localCounts.reference;
+    counts.last += localCounts.last;
+  }
+  return counts;
+}
+
+function getLocalImageRoleCounts(
+  node: AllNodeType,
+  limits?: ImageRoleLimits,
+): ImageRoleCounts {
+  const counts: ImageRoleCounts = {
+    total: 0,
+    first: 0,
+    reference: 0,
+    last: 0,
+  };
+  const template = node?.data?.node?.template;
+  if (!template) return counts;
+  const field = template[IMAGE_ROLE_FIELD];
+  if (!field) return counts;
+
+  const values = Array.isArray(field.value)
+    ? field.value
+    : field.value !== undefined && field.value !== null
+      ? [field.value]
+      : [];
+  const paths = Array.isArray(field.file_path)
+    ? field.file_path
+    : field.file_path !== undefined && field.file_path !== null
+      ? [field.file_path]
+      : [];
+  const length = Math.max(values.length, paths.length);
+  if (!length) return counts;
+
+  const explicitRoles = values.map((value) => extractImageRole(value));
+  const allowedRoles = limits?.allowedRoles;
+  const supportsFirst = !allowedRoles || allowedRoles.includes("first");
+  const supportsReference = !allowedRoles || allowedRoles.includes("reference");
+  const supportsLast = Boolean(allowedRoles?.includes("last"));
+  const fallbackForIndex = (index: number) => {
+    if (supportsReference && supportsFirst) {
+      return index === 0 ? "first" : "reference";
+    }
+    if (supportsReference && !supportsFirst) {
+      return "reference";
+    }
+    if (supportsFirst) {
+      return index === 0 ? "first" : supportsLast ? "last" : "first";
+    }
+    if (supportsLast) {
+      return "last";
+    }
+    return "first";
+  };
+  const fallbackForExplicit = (index: number) => {
+    if (supportsReference) return "reference";
+    if (supportsFirst) return index === 0 ? "first" : supportsLast ? "last" : "first";
+    if (supportsLast) return "last";
+    return "first";
+  };
+  const entries: Array<{ role?: EdgeImageRole }> = [];
+  for (let index = 0; index < length; index += 1) {
+    const valueEntry = values[index];
+    const pathEntry = paths[index];
+    const valueEmpty = isEmptyImageEntry(valueEntry);
+    const pathEmpty = isEmptyImageEntry(pathEntry);
+    if (valueEmpty && pathEmpty) continue;
+    entries.push({ role: explicitRoles[index] });
+  }
+  const hasExplicitRole = entries.some((entry) => Boolean(entry.role));
+  counts.total += entries.length;
+  entries.forEach((entry, index) => {
+    const role = entry.role
+      ? entry.role
+      : !hasExplicitRole
+        ? fallbackForIndex(index)
+        : fallbackForExplicit(index);
+    counts[role] += 1;
+  });
+  return counts;
+}
+
+function isEmptyImageEntry(entry: unknown): boolean {
+  if (entry === null || entry === undefined) return true;
+  if (typeof entry === "string") return entry.trim().length === 0;
+  if (typeof entry === "object") {
+    const record = entry as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (!keys.length) return true;
+    return keys.every((key) => isEmptyImageEntry(record[key]));
+  }
+  return false;
+}
+
+function extractImageRole(value: unknown): EdgeImageRole | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as any;
+  const direct = record.role;
+  if (typeof direct === "string") {
+    const normalized = direct.trim();
+    if (normalized === "first" || normalized === "reference" || normalized === "last") {
+      return normalized;
+    }
+  }
+  const nested = record.value;
+  if (nested && typeof nested === "object") {
+    const nestedRole = (nested as any).role;
+    if (typeof nestedRole === "string") {
+      const normalized = nestedRole.trim();
+      if (normalized === "first" || normalized === "reference" || normalized === "last") {
+        return normalized;
+      }
+    }
+  }
+  return undefined;
+}
+
+export function canAddImageRole(
+  role: EdgeImageRole,
+  counts: ImageRoleCounts,
+  limits: ImageRoleLimits,
+): boolean {
+  if (!limits.allowedRoles.includes(role)) return false;
+  if (counts.total + 1 > limits.maxTotal) return false;
+  if (role === "first" && counts.first >= 1) return false;
+  if (role === "last" && counts.last >= 1) return false;
+  if (
+    role === "reference" &&
+    limits.maxReference != null &&
+    counts.reference >= limits.maxReference
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function canUpdateImageRole(
+  role: EdgeImageRole,
+  counts: ImageRoleCounts,
+  limits: ImageRoleLimits,
+): boolean {
+  if (!limits.allowedRoles.includes(role)) return false;
+  if (role === "first" && counts.first >= 1) return false;
+  if (role === "last" && counts.last >= 1) return false;
+  if (
+    role === "reference" &&
+    limits.maxReference != null &&
+    counts.reference >= limits.maxReference
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function pickImageRoleForNewEdge(
+  limits: ImageRoleLimits,
+  counts: ImageRoleCounts,
+): EdgeImageRole | null {
+  const preferredOrder: EdgeImageRole[] = ["first", "reference", "last"];
+  for (const role of preferredOrder) {
+    if (canAddImageRole(role, counts, limits)) {
+      return role;
+    }
+  }
+  return null;
+}
+
 export function checkChatInput(nodes: Node[]) {
   return nodes.some((node) => node.data.type === "ChatInput");
 }
@@ -576,6 +863,17 @@ export function isValidConnection(
           }
         });
         if (!hasLoopComponent) {
+          return false;
+        }
+      }
+      if (
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        targetHandleObject?.fieldName === IMAGE_ROLE_FIELD
+      ) {
+        const modelName = getDoubaoVideoModelName(targetNode);
+        const limits = getImageRoleLimits(modelName);
+        const counts = getImageRoleCounts(edgesArray, target!, targetNode);
+        if (!pickImageRoleForNewEdge(limits, counts)) {
           return false;
         }
       }
