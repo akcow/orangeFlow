@@ -925,7 +925,6 @@ export const DEFAULT_PLACEHOLDER = "请输入…";
 export const DEFAULT_TOOLSET_PLACEHOLDER = "作为工具使用";
 
 export const SAVE_API_KEY_ALERT = "API Key 保存成功";
-export const PLAYGROUND_BUTTON_NAME = "演练场";
 export const POLLING_MESSAGES = {
   ENDPOINT_NOT_AVAILABLE: "端点不可用",
   STREAMING_NOT_SUPPORTED: "不支持流式输出",

@@ -4,7 +4,6 @@ import { useShallow } from "zustand/react/shallow";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import CanvasControlButton from "@/components/core/canvasControlsComponent/CanvasControlButton";
 import CanvasControls from "@/components/core/canvasControlsComponent/CanvasControls";
-import LogCanvasControls from "@/components/core/logCanvasControlsComponent";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
@@ -23,8 +22,6 @@ interface MemoizedCanvasControlsProps {
   shadowBoxWidth: number;
   shadowBoxHeight: number;
 }
-
-export const MemoizedLogCanvasControls = memo(() => <LogCanvasControls />);
 
 export const MemoizedCanvasControls = memo(
   ({
