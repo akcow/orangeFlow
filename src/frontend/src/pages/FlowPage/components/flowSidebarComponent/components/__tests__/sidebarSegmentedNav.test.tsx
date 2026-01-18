@@ -374,7 +374,7 @@ describe("SidebarSegmentedNav", () => {
   });
 
   it("exports NAV_ITEMS correctly", () => {
-    expect(NAV_ITEMS).toHaveLength(3);
+    expect(NAV_ITEMS).toHaveLength(4);
     expect(NAV_ITEMS[0]).toEqual({
       id: "search",
       icon: "search",
@@ -382,6 +382,12 @@ describe("SidebarSegmentedNav", () => {
       tooltip: "Search",
     });
     expect(NAV_ITEMS[2]).toEqual({
+      id: "generation_history",
+      icon: "History",
+      label: "生成历史",
+      tooltip: "生成历史",
+    });
+    expect(NAV_ITEMS[3]).toEqual({
       id: "add_note",
       icon: "sticky-note",
       label: "Sticky Notes",
@@ -390,7 +396,7 @@ describe("SidebarSegmentedNav", () => {
   });
 
   describe("Add Note Functionality", () => {
-    it("renders separator before add_note item", () => {
+    it("renders separator before generation_history item", () => {
       render(<SidebarSegmentedNav />);
 
       expect(screen.getByTestId("separator")).toBeInTheDocument();

@@ -37,8 +37,20 @@ const VideoRenderer = ({
 
     const handleTimeUpdate = () => setCurrentTime(video.currentTime);
     const handleLoadedMetadata = () => {
-      setVideoDuration(video.duration || 0);
+      const durationValue = video.duration || 0;
+      setVideoDuration(durationValue);
       video.playbackRate = playbackRate;
+      if (!videoUrl) return;
+      if (durationValue > 0) return;
+      if (retryCount >= 2) return;
+      const nextCount = retryCount + 1;
+      setRetryCount(nextCount);
+      if (retryTimeoutRef.current) {
+        window.clearTimeout(retryTimeoutRef.current);
+      }
+      retryTimeoutRef.current = window.setTimeout(() => {
+        setReloadToken((token) => token + 1);
+      }, 800 * nextCount);
     };
     const handleEnded = () => setIsPlaying(false);
     const handleError = () => {

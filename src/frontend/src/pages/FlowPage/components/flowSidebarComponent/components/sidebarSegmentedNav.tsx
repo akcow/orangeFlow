@@ -36,6 +36,12 @@ export const NAV_ITEMS: NavItem[] = [
     tooltip: "Components",
   },
   {
+    id: "generation_history",
+    icon: "History",
+    label: "生成历史",
+    tooltip: "生成历史",
+  },
+  {
     id: "add_note",
     icon: "sticky-note",
     label: "Sticky Notes",
@@ -63,7 +69,9 @@ const SidebarSegmentedNav = () => {
       <SidebarMenu className="gap-2 py-1">
         {NAV_ITEMS.map((item) => (
           <div key={item.id}>
-            {item.id === "add_note" && <Separator className="w-full" />}
+            {item.id === "generation_history" && (
+              <Separator className="w-full" />
+            )}
             <SidebarMenuItem className="px-1">
               <ShadTooltip content={t(item.tooltip)} side="right">
                 <SidebarMenuButton

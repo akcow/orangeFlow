@@ -33,6 +33,7 @@ import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
 import NoResultsMessage from "./components/emptySearchComponent";
 import { SidebarHeaderComponent } from "./components/sidebarHeader";
 import SidebarSegmentedNav from "./components/sidebarSegmentedNav";
+import GenerationHistoryPanel from "./components/generationHistoryPanel";
 import { applyBetaFilter } from "./helpers/apply-beta-filter";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
@@ -182,6 +183,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   );
 
   const { activeSection, setOpen, setActiveSection } = useSidebar();
+  const isHistorySection = activeSection === "generation_history";
 
   // Get search state from context
   const context = useSearchContext();
@@ -462,29 +464,33 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
             ENABLE_NEW_SIDEBAR && "sidebar-segmented",
           )}
         >
-          <SidebarHeaderComponent
-            showConfig={showConfig}
-            setShowConfig={setShowConfig}
-            showBeta={showBeta}
-            setShowBeta={handleSetShowBeta}
-            showLegacy={showLegacy}
-            setShowLegacy={handleSetShowLegacy}
-            searchInputRef={searchInputRef}
-            isInputFocused={isSearchFocused}
-            search={search}
-            handleInputFocus={handleInputFocus}
-            handleInputBlur={handleInputBlur}
-            handleInputChange={handleInputChange}
-            filterName={filterName}
-            filterDescription={filterDescription}
-            resetFilters={resetFilters}
-          />
+          {!isHistorySection && (
+            <SidebarHeaderComponent
+              showConfig={showConfig}
+              setShowConfig={setShowConfig}
+              showBeta={showBeta}
+              setShowBeta={handleSetShowBeta}
+              showLegacy={showLegacy}
+              setShowLegacy={handleSetShowLegacy}
+              searchInputRef={searchInputRef}
+              isInputFocused={isSearchFocused}
+              search={search}
+              handleInputFocus={handleInputFocus}
+              handleInputBlur={handleInputBlur}
+              handleInputChange={handleInputChange}
+              filterName={filterName}
+              filterDescription={filterDescription}
+              resetFilters={resetFilters}
+            />
+          )}
 
           <SidebarContent
             segmentedSidebar={ENABLE_NEW_SIDEBAR}
             className="flex-1 group-data-[collapsible=icon]:hidden gutter-stable"
           >
-            {isLoading ? (
+            {isHistorySection ? (
+              <GenerationHistoryPanel />
+            ) : isLoading ? (
               <div className="flex flex-col gap-2">
                 <div className="flex flex-col gap-1 p-3">
                   <SkeletonGroup count={13} className="my-0.5 h-7" />
