@@ -77,6 +77,12 @@ export default function NodeInputField({
     return data.node?.template[name]?.refresh_button;
   }, [data.node?.template, name]);
 
+  const hideHandleForTextInput = useMemo(
+    () =>
+      new Set(["str", "SecretStr", "prompt", "code", "query"]).has(type ?? ""),
+    [type],
+  );
+
   const nodeInformationMetadata: NodeInfoType = useMemo(() => {
     return {
       flowId: currentFlowId ?? "",
@@ -102,6 +108,7 @@ export default function NodeInputField({
   }, [optionalHandle]);
 
   const displayHandle =
+    !hideHandleForTextInput &&
     (!LANGFLOW_SUPPORTED_TYPES.has(type ?? "") ||
       (optionalHandle && optionalHandle.length > 0)) &&
     !isToolMode &&
