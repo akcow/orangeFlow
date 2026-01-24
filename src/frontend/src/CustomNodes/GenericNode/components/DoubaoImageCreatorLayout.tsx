@@ -851,6 +851,7 @@ export default function DoubaoImageCreatorLayout({
             if (edge.source !== data.id || edge.target !== existingDownstreamVideoNodeId) {
               return edge;
             }
+            if (!edge.data) return edge;
             const targetHandle =
               edge.data?.targetHandle ??
               (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
@@ -1338,69 +1339,80 @@ export default function DoubaoImageCreatorLayout({
 
   return (
     <div className="space-y-4 px-4 pb-4">
-      <div className="rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]">
-        <div className="mt-5 flex flex-col gap-5">
-          <div className="relative flex flex-col gap-4 lg:flex-row">
-            {referenceHandleMeta && (
-              <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:block">
+      {/* Preview */}
+      <div className="relative flex flex-col gap-4 lg:flex-row">
+        {referenceHandleMeta && (
+          <div className="absolute left-0 top-1/2 hidden -translate-y-1/2 lg:block">
+            <HandleRenderComponent
+              left
+              tooltipTitle={referenceHandleMeta.tooltip}
+              id={referenceHandleMeta.id}
+              title={referenceHandleMeta.title}
+              nodeId={data.id}
+              myData={typeData}
+              colors={referenceHandleMeta.colors}
+              colorName={referenceHandleMeta.colorName}
+              setFilterEdge={setFilterEdge}
+              showNode={true}
+              testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
+              proxy={referenceHandleMeta.proxy}
+              uiVariant="plus"
+              // Keep the handle anchored on the preview edge (ghost origin),
+              // while rendering the visible "+" with the required gap.
+              // Requirement: gap (preview edge -> "+" outer edge) = 70px.
+              // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
+              visualOffset={{ x: -106, y: 0 }}
+            />
+          </div>
+        )}
+        <div className="flex-1">
+          <DoubaoPreviewPanel
+            nodeId={data.id}
+            componentName={data.type}
+            appearance="imageCreator"
+            referenceImages={combinedReferencePreviews}
+            onRequestUpload={openUploadDialog}
+            onSuggestionClick={handlePreviewSuggestionClickWithVideo}
+          />
+        </div>
+        {previewOutputHandles.length > 0 && (
+          <div
+            className={cn(
+              "absolute right-0 top-1/2 hidden -translate-y-1/2 lg:flex lg:flex-col lg:items-start",
+            )}
+          >
+            {previewOutputHandles.map((handle, index) => (
+              <div
+                key={`${handle.id.name ?? "output"}-${index}`}
+                className="mb-3 last:mb-0"
+              >
                 <HandleRenderComponent
-                  left
-                  tooltipTitle={referenceHandleMeta.tooltip}
-                  id={referenceHandleMeta.id}
-                  title={referenceHandleMeta.title}
+                  left={false}
+                  tooltipTitle={handle.tooltip}
+                  id={handle.id}
+                  title={handle.title}
                   nodeId={data.id}
                   myData={typeData}
-                  colors={referenceHandleMeta.colors}
-                  colorName={referenceHandleMeta.colorName}
+                  colors={handle.colors}
                   setFilterEdge={setFilterEdge}
                   showNode={true}
-                  testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
-                  proxy={referenceHandleMeta.proxy}
+                  testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
+                  proxy={handle.proxy}
+                  colorName={handle.colorName}
+                  uiVariant="plus"
+                  // Requirement: gap (preview edge -> "+" outer edge) = 70px.
+                  // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
+                  visualOffset={{ x: 106, y: 0 }}
                 />
               </div>
-            )}
-            <div className="flex-1">
-              <DoubaoPreviewPanel
-                nodeId={data.id}
-                componentName={data.type}
-                appearance="imageCreator"
-                referenceImages={combinedReferencePreviews}
-                onRequestUpload={openUploadDialog}
-                onSuggestionClick={handlePreviewSuggestionClickWithVideo}
-              />
-            </div>
-            {previewOutputHandles.length > 0 && (
-              <div
-                className={cn(
-                  "absolute left-full top-1/2 hidden -translate-y-1/2 pl-6 lg:flex lg:flex-col lg:items-start",
-                )}
-              >
-                {previewOutputHandles.map((handle, index) => (
-                  <div
-                    key={`${handle.id.name ?? "output"}-${index}`}
-                    className="mb-3 last:mb-0"
-                  >
-                    <HandleRenderComponent
-                      left={false}
-                      tooltipTitle={handle.tooltip}
-                      id={handle.id}
-                      title={handle.title}
-                      nodeId={data.id}
-                      myData={typeData}
-                      colors={handle.colors}
-                      setFilterEdge={setFilterEdge}
-                      showNode={true}
-                      testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
-                      proxy={handle.proxy}
-                      colorName={handle.colorName}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+            ))}
           </div>
+        )}
+      </div>
 
-          {showExpanded && (
+      {/* Prompt/config container */}
+      {showExpanded && (
+        <div className="rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]">
           <div className="space-y-3">
             <div
               className={cn(
@@ -1503,22 +1515,21 @@ export default function DoubaoImageCreatorLayout({
               </button>
             </div>
           </div>
-          )}
-        </div>
-      </div>
 
-      {showExpanded && hasAdditionalFields && (
-        <div className="mt-5">
-          <RenderInputParameters
-            data={data}
-            types={types}
-            isToolMode={isToolMode}
-            showNode
-            shownOutputs={[]}
-            showHiddenOutputs={false}
-            filterFields={Array.from(customFields)}
-            filterMode="exclude"
-          />
+          {hasAdditionalFields && (
+            <div className="mt-5">
+              <RenderInputParameters
+                data={data}
+                types={types}
+                isToolMode={isToolMode}
+                showNode
+                shownOutputs={[]}
+                showHiddenOutputs={false}
+                filterFields={Array.from(customFields)}
+                filterMode="exclude"
+              />
+            </div>
+          )}
         </div>
       )}
 

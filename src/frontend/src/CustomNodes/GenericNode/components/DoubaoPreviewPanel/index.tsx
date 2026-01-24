@@ -219,11 +219,18 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const previewFrameClassName = cn(
       "relative flex",
       isMinimal
-        ? cn(
-            "w-full max-w-full",
-            minimalAspectClass,
-            "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
-          )
+        ? appearance === "imageCreator"
+          ? cn(
+              "w-full max-w-full",
+              minimalAspectClass,
+              // Single preview container for image creator (avoid nested frames inside the renderer).
+              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none dark:border-white/15 dark:bg-white/5",
+            )
+          : cn(
+              "w-full max-w-full",
+              minimalAspectClass,
+              "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
+            )
         : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10",
       panelClass,
     );
@@ -231,7 +238,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const previewSurfaceClassName = cn(
       "flex h-full w-full items-center justify-center",
       isMinimal
-        ? "rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
+        ? appearance === "imageCreator"
+          ? "bg-transparent"
+          : "rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
         : "min-h-[320px]",
     );
 
@@ -654,6 +663,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             onNavigate={handleNavigateImages}
             onSelect={handleSelectImage}
             onError={handleModalError}
+            appearance={appearance}
           />
         ) : (
           <EmptyPreview
@@ -1240,7 +1250,7 @@ function EmptyPreview({
       { label: "图片换背景", icon: "Eraser" },
     ];
     return (
-      <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
+      <div className="flex h-full w-full flex-col justify-center p-5 text-center text-sm text-[#646B81] dark:text-slate-300">
         <div className="flex w-full justify-center">
           {renderSuggestionButtons(suggestions)}
         </div>

@@ -16,6 +16,7 @@ type ImageRendererProps = {
   onSelect?: (index: number) => void;
   onError?: (error: Error) => void;
   onMeta?: (meta: any) => void;
+  appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
 };
 
 const ImageRenderer = ({
@@ -25,9 +26,11 @@ const ImageRenderer = ({
   onSelect,
   onError,
   onMeta,
+  appearance = "default",
 }: ImageRendererProps) => {
   const [imageError, setImageError] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const isImageCreatorMinimal = appearance === "imageCreator";
 
   const total = gallery?.length ?? 0;
   const safeIndex = total ? Math.min(Math.max(currentIndex, 0), total - 1) : 0;
@@ -88,7 +91,14 @@ const ImageRenderer = ({
 
   if (!total) {
     return (
-      <div className="flex h-full min-h-[240px] w-full items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-emerald-50/70 text-xs text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+      <div
+        className={cn(
+          "flex h-full w-full items-center justify-center text-xs",
+          isImageCreatorMinimal
+            ? "text-muted-foreground"
+            : "min-h-[240px] rounded-2xl border border-dashed border-emerald-200/70 bg-emerald-50/70 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200",
+        )}
+      >
         暂无图片可预览
       </div>
     );
@@ -96,7 +106,14 @@ const ImageRenderer = ({
 
   if (imageError || !current) {
     return (
-      <div className="flex h-full min-h-[240px] w-full items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-red-600 dark:border-red-800 dark:bg-red-950/40">
+      <div
+        className={cn(
+          "flex h-full w-full items-center justify-center text-red-600",
+          isImageCreatorMinimal
+            ? ""
+            : "min-h-[240px] rounded-2xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40",
+        )}
+      >
         <div className="text-center">
           <ForwardedIconComponent name="ImageOff" className="mx-auto h-7 w-7" />
           <p className="mt-2 text-xs">图片加载失败</p>
@@ -106,12 +123,22 @@ const ImageRenderer = ({
   }
 
   return (
-    <div className="relative flex h-full min-h-[320px] w-full flex-col overflow-hidden rounded-2xl border border-emerald-200/60 bg-white/95 shadow-inner dark:border-emerald-500/40 dark:bg-emerald-950/30">
+    <div
+      className={cn(
+        "relative flex h-full w-full flex-col overflow-hidden",
+        isImageCreatorMinimal
+          ? ""
+          : "min-h-[320px] rounded-2xl border border-emerald-200/60 bg-white/95 shadow-inner dark:border-emerald-500/40 dark:bg-emerald-950/30",
+      )}
+    >
       <img
         ref={imgRef}
         src={renderSource}
         alt={current.label ?? "生成结果预览"}
-        className="h-full w-full flex-1 rounded-2xl object-contain"
+        className={cn(
+          "h-full w-full flex-1 object-contain",
+          isImageCreatorMinimal ? "" : "rounded-2xl",
+        )}
         onError={handleImageError}
         onLoad={handleImageLoad}
         loading="lazy"

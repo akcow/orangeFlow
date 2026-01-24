@@ -1,16 +1,15 @@
 import { type Connection, Handle, Position } from "@xyflow/react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { useDarkStore } from "@/stores/darkStore";
 import useFlowStore from "@/stores/flowStore";
 import { nodeColorsName } from "@/utils/styleUtils";
-import ShadTooltip from "../../../../components/common/shadTooltipComponent";
 import {
   isValidConnection,
   scapedJSONStringfy,
 } from "../../../../utils/reactflowUtils";
 import { cn, groupByFamily } from "../../../../utils/utils";
-import HandleTooltipComponent from "../HandleTooltipComponent";
 
 const BASE_HANDLE_STYLES = {
   width: "32px",
@@ -28,6 +27,9 @@ const HandleContent = memo(function HandleContent({
   accentForegroundColorName,
   isHovered,
   openHandle,
+  uiVariant,
+  visible,
+  visualOffset,
   testIdComplement,
   title,
   showNode,
@@ -39,6 +41,9 @@ const HandleContent = memo(function HandleContent({
   accentForegroundColorName: string;
   isHovered: boolean;
   openHandle: boolean;
+  uiVariant: "dot" | "plus";
+  visible: boolean;
+  visualOffset?: { x: number; y: number };
   testIdComplement?: string;
   title: string;
   showNode: boolean;
@@ -139,6 +144,40 @@ const HandleContent = memo(function HandleContent({
     ],
   );
 
+  if (uiVariant === "plus") {
+    const scale = visible ? 1 : 0.72;
+    const size = 72;
+    const offsetX = visualOffset?.x ?? 0;
+    const offsetY = visualOffset?.y ?? 0;
+    return (
+      <div
+        data-testid={`div-handle-${testIdComplement}-${title.toLowerCase()}-${
+          !showNode ? (left ? "target" : "source") : left ? "left" : "right"
+        }`}
+        // Visual-only "+" bubble. The actual interactive hit area is implemented on the Handle element
+        // (via a ::before pseudo-element) so XYFlow sees the Handle as `event.target`.
+        className="noflow nowheel nopan noselect pointer-events-none absolute left-1/2 top-1/2 rounded-full transition-[transform,opacity] duration-200 ease-out"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          zIndex: 999,
+          opacity: visible ? 1 : 0,
+          transform: `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
+          background: "hsl(var(--background) / 0.78)",
+          border: "1px solid hsl(var(--border) / 0.55)",
+          boxShadow: visible
+            ? "0 10px 25px rgba(15,23,42,0.18)"
+            : "0 0 0 rgba(0,0,0,0)",
+          backdropFilter: "blur(8px)",
+        }}
+      >
+        <div className="pointer-events-none flex h-full w-full items-center justify-center">
+          <ForwardedIconComponent name="Plus" className="pointer-events-none h-7 w-7" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid={`div-handle-${testIdComplement}-${title.toLowerCase()}-${
@@ -163,6 +202,12 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   testIdComplement,
   nodeId,
   colorName,
+  uiVariant = "dot",
+  visible,
+  visualOffset,
+  handleStyle,
+  wrapperStyle,
+  wrapperClassName,
 }: {
   left: boolean;
   tooltipTitle?: string;
@@ -176,9 +221,14 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   testIdComplement?: string;
   nodeId: string;
   colorName?: string[];
+  uiVariant?: "dot" | "plus";
+  visible?: boolean;
+  visualOffset?: { x: number; y: number };
+  handleStyle?: React.CSSProperties;
+  wrapperStyle?: React.CSSProperties;
+  wrapperClassName?: string;
 }) {
   const [isHovered, setIsHovered] = useState(false);
-  const [openTooltip, setOpenTooltip] = useState(false);
 
   const isLocked = useFlowStore(
     useShallow((state) => state.currentFlow?.locked),
@@ -349,6 +399,10 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
     edges,
   ]);
 
+  const resolvedVisible = visible ?? true;
+  const hasAnyInteraction = Boolean(filterPresent) || openHandle || ownHandle || isHovered;
+  const shouldAllowPointerEvents = !isLocked && (resolvedVisible || hasAnyInteraction);
+
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
       if (event.button === 0) {
@@ -389,70 +443,66 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
 
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
   const handleMouseLeave = useCallback(() => setIsHovered(false), []);
-  const handleMouseUp = useCallback(() => setOpenTooltip(false), []);
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => e.preventDefault(),
     [],
   );
 
   return (
-    <div>
-      <ShadTooltip
-        open={openTooltip && !isLocked}
-        setOpen={setOpenTooltip}
-        styleClasses={cn("tooltip-fixed-width custom-scroll nowheel bottom-2")}
-        delayDuration={1000}
-        content={
-          <HandleTooltipComponent
-            isInput={left}
-            tooltipTitle={tooltipTitle}
-            isConnecting={!!filterPresent && !ownHandle}
-            isCompatible={openHandle}
-            isSameNode={sameNode && !ownHandle}
-            left={left}
-          />
+    <div className={wrapperClassName} style={wrapperStyle}>
+      <Handle
+        type={left ? "target" : "source"}
+        position={left ? Position.Left : Position.Right}
+        id={myId}
+        isValidConnection={(connection) =>
+          isLocked ? false : isValidConnection(connection as Connection)
         }
-        side={left ? "left" : "right"}
+        className={cn(
+          "group/handle z-50 transition-all",
+          uiVariant === "plus" &&
+            // Expand the interactive area to match the visible "+" bubble offset,
+            // while keeping the handle itself anchored for connection origin.
+            "cursor-crosshair lf-plus-handle",
+          !showNode && "no-show",
+        )}
+        style={{
+          ...BASE_HANDLE_STYLES,
+          ...(handleStyle ?? {}),
+          // Preview "+" handles need to sit above the node body so the canvas can detect them via elementFromPoint.
+          zIndex: uiVariant === "plus" ? 999 : BASE_HANDLE_STYLES.zIndex,
+          pointerEvents: shouldAllowPointerEvents ? "auto" : "none",
+          ...(uiVariant === "plus"
+            ? ({
+                ["--lf-plus-offset-x" as any]: `${visualOffset?.x ?? 0}px`,
+                ["--lf-plus-offset-y" as any]: `${visualOffset?.y ?? 0}px`,
+              } as React.CSSProperties)
+            : {}),
+        }}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onMouseDown={handleMouseDown}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        data-testid={`handle-${testIdComplement}-${title.toLowerCase()}-${
+          !showNode ? (left ? "target" : "source") : left ? "left" : "right"
+        }`}
       >
-        <Handle
-          type={left ? "target" : "source"}
-          position={left ? Position.Left : Position.Right}
-          id={myId}
-          isValidConnection={(connection) =>
-            isLocked ? false : isValidConnection(connection as Connection)
-          }
-          className={cn(
-            `group/handle z-50 transition-all`,
-            !showNode && "no-show",
-          )}
-          style={{
-            ...BASE_HANDLE_STYLES,
-            pointerEvents: isLocked ? "none" : "auto",
-          }}
-          onClick={handleClick}
-          onMouseUp={handleMouseUp}
-          onContextMenu={handleContextMenu}
-          onMouseDown={handleMouseDown}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          data-testid={`handle-${testIdComplement}-${title.toLowerCase()}-${
-            !showNode ? (left ? "target" : "source") : left ? "left" : "right"
-          }`}
-        >
-          <HandleContent
-            isNullHandle={isNullHandle ?? false}
-            handleColor={handleColor}
-            accentForegroundColorName={accentForegroundColorName}
-            isHovered={isHovered}
-            openHandle={openHandle}
-            testIdComplement={testIdComplement}
-            title={title}
-            showNode={showNode}
-            left={left}
-            nodeId={nodeId}
-          />
-        </Handle>
-      </ShadTooltip>
+        <HandleContent
+          isNullHandle={isNullHandle ?? false}
+          handleColor={handleColor}
+          accentForegroundColorName={accentForegroundColorName}
+          isHovered={isHovered}
+          openHandle={openHandle}
+          uiVariant={uiVariant}
+          visible={resolvedVisible || hasAnyInteraction}
+          visualOffset={visualOffset}
+          testIdComplement={testIdComplement}
+          title={title}
+          showNode={showNode}
+          left={left}
+          nodeId={nodeId}
+        />
+      </Handle>
     </div>
   );
 });

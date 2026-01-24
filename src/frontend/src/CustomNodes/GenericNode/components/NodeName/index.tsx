@@ -33,10 +33,11 @@ export default function NodeName({
   const setNode = useFlowStore((state) => state.setNode);
 
   useEffect(() => {
-    if (selected && editNameDescription) {
+    // Snapshot when entering edit mode (for undo/redo), regardless of selection state.
+    if (editNameDescription) {
       takeSnapshot();
     }
-  }, [editNameDescription]);
+  }, [editNameDescription, takeSnapshot]);
 
   useEffect(() => {
     setNodeName(display_name ?? "");
@@ -76,6 +77,21 @@ export default function NodeName({
     setHasChangedNodeDescription(true);
   };
 
+  const startEditing = (e: React.MouseEvent) => {
+    if (!showNode || editNameDescription) return;
+    // `useChangeOnUnfocus` will immediately close the editor while the node is unselected.
+    // When the title is clicked on an unselected node, selection updates may land *after*
+    // we toggle edit mode. Ensure the node is selected first, then enter edit mode.
+    if (!selected) {
+      useFlowStore.getState().setNodes((nodes) =>
+        nodes.map((node) => ({ ...node, selected: node.id === nodeId })),
+      );
+      window.requestAnimationFrame(() => toggleEditNameDescription());
+      return;
+    }
+    toggleEditNameDescription();
+  };
+
   return editNameDescription ? (
     <div className="w-full">
       <Input
@@ -93,12 +109,13 @@ export default function NodeName({
       <div
         data-testid={"title-" + display_name}
         className={cn(
-          "nodoubleclick truncate font-medium text-primary",
+          "nodoubleclick nodrag truncate font-medium text-primary",
           showNode ? "cursor-text" : "cursor-default",
         )}
+        onClick={startEditing}
       >
-        <div className="flex cursor-grab items-center gap-2">
-          <span className={cn("cursor-grab truncate text-sm")}>
+        <div className="flex items-center gap-2">
+          <span className={cn("truncate text-sm")}>
             {display_name}
           </span>
           {legacy && (

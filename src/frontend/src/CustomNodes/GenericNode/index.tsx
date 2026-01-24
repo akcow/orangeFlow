@@ -460,46 +460,48 @@ function GenericNode({
             openDropdownOnRightClick={isRightClicked}
           />
         </div>
-        <div>
-          <Button
-            unstyled
-            onClick={() => {
-              toggleEditNameDescription();
-              setHasChangedNodeDescription(false);
-            }}
-            className={cn(
-              "nodrag absolute z-50 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md",
-              !usesWideDoubaoLayout && "left-1/2",
-              "transform transition-all duration-300 ease-out",
-              showNode
-                ? usesWideDoubaoLayout
-                  ? "top-2 right-6"
-                  : "top-2 left-1/2 translate-x-[10.4rem]"
-                : usesWideDoubaoLayout
-                  ? "top-0 right-6"
-                  : "top-0 left-1/2 translate-x-[6.4rem]",
-              editedNameDescription
-                ? "bg-accent-emerald"
-                : "bg-zinc-foreground",
-            )}
-            data-testid={
-              editedNameDescription
-                ? "save-name-description-button"
-                : "edit-name-description-button"
-            }
-          >
-            <ForwardedIconComponent
-              name={editedNameDescription ? "Check" : "PencilLine"}
-              strokeWidth={ICON_STROKE_WIDTH}
+        {!isDoubaoImageCreator && (
+          <div>
+            <Button
+              unstyled
+              onClick={() => {
+                toggleEditNameDescription();
+                setHasChangedNodeDescription(false);
+              }}
               className={cn(
+                "nodrag absolute z-50 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md",
+                !usesWideDoubaoLayout && "left-1/2",
+                "transform transition-all duration-300 ease-out",
+                showNode
+                  ? usesWideDoubaoLayout
+                    ? "top-2 right-6"
+                    : "top-2 left-1/2 translate-x-[10.4rem]"
+                  : usesWideDoubaoLayout
+                    ? "top-0 right-6"
+                    : "top-0 left-1/2 translate-x-[6.4rem]",
                 editedNameDescription
-                  ? "text-accent-emerald-foreground"
-                  : "text-muted-foreground",
-                "icon-size",
+                  ? "bg-accent-emerald"
+                  : "bg-zinc-foreground",
               )}
-            />
-          </Button>
-        </div>
+              data-testid={
+                editedNameDescription
+                  ? "save-name-description-button"
+                  : "edit-name-description-button"
+              }
+            >
+              <ForwardedIconComponent
+                name={editedNameDescription ? "Check" : "PencilLine"}
+                strokeWidth={ICON_STROKE_WIDTH}
+                className={cn(
+                  editedNameDescription
+                    ? "text-accent-emerald-foreground"
+                    : "text-muted-foreground",
+                  "icon-size",
+                )}
+              />
+            </Button>
+          </div>
+        )}
       </>
     ) : (
       <></>
@@ -546,9 +548,12 @@ function GenericNode({
     <div className={cn(shouldShowUpdateComponent ? "relative -mt-10" : "")}>
       <div
         className={cn(
-          borderColor,
+          !(isDoubaoImageCreator && showNode) && borderColor,
           nodeWidthClass,
-          "generic-node-div group/node relative rounded-xl border shadow-sm hover:shadow-md",
+          "generic-node-div group/node relative",
+          isDoubaoImageCreator && showNode
+            ? "rounded-none border-0 bg-transparent shadow-none"
+            : "rounded-xl border shadow-sm hover:shadow-md",
           !hasOutputs && "pb-4",
           usesWideDoubaoLayout && "overflow-visible",
         )}
@@ -584,7 +589,7 @@ function GenericNode({
           data-testid={`${data.id}-main-node`}
           className={cn(
             "grid text-wrap leading-5",
-            showNode ? "border-b" : "relative",
+            showNode ? (isDoubaoImageCreator ? "" : "border-b") : "relative",
           )}
         >
           <div
@@ -597,7 +602,7 @@ function GenericNode({
               className="flex-max-width items-center overflow-hidden"
               data-testid="generic-node-title-arrangement"
             >
-              {!isTextCreation && (
+              {!isTextCreation && !isDoubaoImageCreator && (
                 <MemoizedNodeIcon
                   dataType={data.type}
                   icon={data.node?.icon}
@@ -607,7 +612,7 @@ function GenericNode({
               <div
                 className={cn(
                   "ml-3 flex flex-1 overflow-hidden",
-                  isTextCreation && "ml-0",
+                  (isTextCreation || isDoubaoImageCreator) && "ml-0",
                 )}
               >
                 <MemoizedNodeName
