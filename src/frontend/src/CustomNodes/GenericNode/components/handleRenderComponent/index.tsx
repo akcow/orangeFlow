@@ -154,9 +154,13 @@ const HandleContent = memo(function HandleContent({
         data-testid={`div-handle-${testIdComplement}-${title.toLowerCase()}-${
           !showNode ? (left ? "target" : "source") : left ? "left" : "right"
         }`}
-        // Visual-only "+" bubble. The actual interactive hit area is implemented on the Handle element
-        // (via a ::before pseudo-element) so XYFlow sees the Handle as `event.target`.
-        className="noflow nowheel nopan noselect pointer-events-none absolute left-1/2 top-1/2 rounded-full transition-[transform,opacity] duration-200 ease-out"
+        // The "+" bubble itself is interactive and carries `source`/`target` so XYFlow's
+        // `elementFromPoint()` logic resolves to the correct handle type.
+        // The inner icon is `pointer-events: none` to avoid hitting the svg instead of the bubble.
+        className={cn(
+          "noflow nowheel nopan noselect absolute left-1/2 top-1/2 cursor-crosshair rounded-full transition-[transform,opacity] duration-200 ease-out",
+          left ? "target" : "source",
+        )}
         style={{
           width: `${size}px`,
           height: `${size}px`,
@@ -459,10 +463,6 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
         }
         className={cn(
           "group/handle z-50 transition-all",
-          uiVariant === "plus" &&
-            // Expand the interactive area to match the visible "+" bubble offset,
-            // while keeping the handle itself anchored for connection origin.
-            "cursor-crosshair lf-plus-handle",
           !showNode && "no-show",
         )}
         style={{
@@ -471,12 +471,6 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
           // Preview "+" handles need to sit above the node body so the canvas can detect them via elementFromPoint.
           zIndex: uiVariant === "plus" ? 999 : BASE_HANDLE_STYLES.zIndex,
           pointerEvents: shouldAllowPointerEvents ? "auto" : "none",
-          ...(uiVariant === "plus"
-            ? ({
-                ["--lf-plus-offset-x" as any]: `${visualOffset?.x ?? 0}px`,
-                ["--lf-plus-offset-y" as any]: `${visualOffset?.y ?? 0}px`,
-              } as React.CSSProperties)
-            : {}),
         }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}

@@ -157,18 +157,6 @@
     opacity: 0.2; /* Reduced opacity */
   }
 
-  /* Enlarged hitbox for the image creator "+" handles (keeps handle origin anchored). */
-  .lf-plus-handle::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 72px;
-    height: 72px;
-    border-radius: 9999px;
-    transform: translate(-50%, -50%)
-      translate(var(--lf-plus-offset-x, 0px), var(--lf-plus-offset-y, 0px));
-  }
   .extra-side-bar-buttons {
     @apply relative inline-flex w-full items-center justify-center rounded-md bg-background px-2 py-2 text-foreground transition-all duration-500 ease-in-out;
   }

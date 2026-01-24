@@ -17,6 +17,7 @@ export default function NodeName({
   editNameDescription,
   toggleEditNameDescription,
   setHasChangedNodeDescription,
+  textClassName,
 }: {
   display_name?: string;
   selected?: boolean;
@@ -27,6 +28,7 @@ export default function NodeName({
   editNameDescription: boolean;
   toggleEditNameDescription: () => void;
   setHasChangedNodeDescription: (hasChanged: boolean) => void;
+  textClassName?: string;
 }) {
   const [nodeName, setNodeName] = useState<string>(display_name ?? "");
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
@@ -101,7 +103,7 @@ export default function NodeName({
         onChange={onChange}
         data-testid={`input-title-${display_name}`}
         onKeyDown={handleKeyDown}
-        className="px-2 py-0"
+        className={cn("px-2 py-0", textClassName)}
       />
     </div>
   ) : (
@@ -115,7 +117,7 @@ export default function NodeName({
         onClick={startEditing}
       >
         <div className="flex items-center gap-2">
-          <span className={cn("truncate text-sm")}>
+          <span className={cn("truncate text-sm", textClassName)}>
             {display_name}
           </span>
           {legacy && (

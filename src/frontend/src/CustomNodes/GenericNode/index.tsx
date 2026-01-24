@@ -628,6 +628,8 @@ function GenericNode({
                   editNameDescription={editNameDescription}
                   toggleEditNameDescription={toggleEditNameDescription}
                   setHasChangedNodeDescription={setHasChangedNodeDescription}
+                  // Image creator title should feel more prominent.
+                  textClassName={isDoubaoImageCreator ? "text-xl" : undefined}
                 />
               </div>
             </div>
