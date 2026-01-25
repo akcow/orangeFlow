@@ -30,6 +30,7 @@ const HandleContent = memo(function HandleContent({
   uiVariant,
   visible,
   visualOffset,
+  isTracking,
   testIdComplement,
   title,
   showNode,
@@ -47,6 +48,7 @@ const HandleContent = memo(function HandleContent({
   uiVariant: "dot" | "plus";
   visible: boolean;
   visualOffset?: { x: number; y: number };
+  isTracking?: boolean;
   testIdComplement?: string;
   title: string;
   showNode: boolean;
@@ -164,7 +166,7 @@ const HandleContent = memo(function HandleContent({
         // `elementFromPoint()` logic resolves to the correct handle type.
         // The inner icon is `pointer-events: none` to avoid hitting the svg instead of the bubble.
         className={cn(
-          "noflow nowheel nopan noselect absolute left-1/2 top-1/2 cursor-crosshair rounded-full transition-[transform,opacity] duration-200 ease-out",
+          "noflow nowheel nopan noselect absolute left-1/2 top-1/2 cursor-crosshair rounded-full ease-out",
           left ? "target" : "source",
         )}
         style={{
@@ -174,6 +176,11 @@ const HandleContent = memo(function HandleContent({
           opacity: visible ? 1 : 0,
           // When hidden, don't steal pointer events from the capture zones.
           pointerEvents: visible ? "auto" : "none",
+          // Important: when tracking the cursor, don't animate transform; otherwise it lags behind
+          // and feels like the button is "dodging" the cursor.
+          transition: isTracking
+            ? "opacity 200ms ease-out"
+            : "transform 200ms ease-out, opacity 200ms ease-out",
           transform: `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
           background: "hsl(var(--background) / 0.78)",
           border: "1px solid hsl(var(--border) / 0.55)",
@@ -223,6 +230,7 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   handleStyle,
   wrapperStyle,
   wrapperClassName,
+  isTracking,
   onPlusPointerEnter,
   onPlusPointerMove,
   onPlusPointerLeave,
@@ -245,6 +253,7 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   handleStyle?: React.CSSProperties;
   wrapperStyle?: React.CSSProperties;
   wrapperClassName?: string;
+  isTracking?: boolean;
   onPlusPointerEnter?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPlusPointerMove?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPlusPointerLeave?: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -507,6 +516,7 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
           uiVariant={uiVariant}
           visible={resolvedVisible || hasAnyInteraction}
           visualOffset={visualOffset}
+          isTracking={isTracking}
           testIdComplement={testIdComplement}
           title={title}
           showNode={showNode}

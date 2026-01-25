@@ -1,5 +1,6 @@
 import { cloneDeep } from "lodash";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactFlowState, useStore } from "@xyflow/react";
 import {
   Dialog,
   DialogContent,
@@ -338,11 +339,22 @@ export default function DoubaoImageCreatorLayout({
   const previewWrapRef = useRef<HTMLDivElement>(null);
   const leaveGraceTimerRef = useRef<number | null>(null);
   const fadeOutTimerRef = useRef<number | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const [activePlusSide, setActivePlusSide] = useState<PlusSide | null>(null);
   const [visiblePlusSide, setVisiblePlusSide] = useState<PlusSide | null>(null);
-  const [plusYOffsetBySide, setPlusYOffsetBySide] = useState<
-    Record<PlusSide, number>
-  >({ left: 0, right: 0 });
+  const DEFAULT_PLUS_OFFSET: Record<PlusSide, { x: number; y: number }> =
+    useMemo(
+      () => ({
+        left: { x: -106, y: 0 },
+        right: { x: 106, y: 0 },
+      }),
+      [],
+    );
+  const [plusOffsetBySide, setPlusOffsetBySide] = useState<
+    Record<PlusSide, { x: number; y: number }>
+  >(DEFAULT_PLUS_OFFSET);
+
+  const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
 
   const clearPlusTimers = useCallback(() => {
     if (leaveGraceTimerRef.current) {
@@ -355,50 +367,121 @@ export default function DoubaoImageCreatorLayout({
     }
   }, []);
 
-  const computePlusYOffset = useCallback((clientY: number) => {
+  const isPointerInCaptureZone = useCallback(
+    (
+      side: PlusSide,
+      clientX: number,
+      clientY: number,
+      slopNodeSpace = 0,
+    ) => {
+      const rect = previewWrapRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+
+      const zoom = canvasZoom || 1;
+      const edgeX = side === "left" ? rect.left : rect.right;
+      const centerY = rect.top + rect.height / 2;
+
+      const rawX = (clientX - edgeX) / zoom;
+      const rawY = (clientY - centerY) / zoom;
+
+      const withinX =
+        side === "left"
+          ? rawX >= -212 - slopNodeSpace && rawX <= 0 + slopNodeSpace
+          : rawX >= 0 - slopNodeSpace && rawX <= 212 + slopNodeSpace;
+      const withinY = rawY >= -106 - slopNodeSpace && rawY <= 106 + slopNodeSpace;
+
+      return withinX && withinY;
+    },
+    [canvasZoom],
+  );
+
+  const computePlusOffset = useCallback((
+    side: PlusSide,
+    clientX: number,
+    clientY: number,
+  ) => {
     const rect = previewWrapRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
+    if (!rect) return DEFAULT_PLUS_OFFSET[side];
+
+    // Bubble/zone transforms are inside the ReactFlow viewport and therefore scale with zoom.
+    // Convert screen-space pointer delta -> node-space delta so the "+" can truly track the cursor.
+    const zoom = canvasZoom || 1;
+
+    // Convert screen-space pointer position -> node-space offset relative to the preview edge,
+    // so the bubble center can precisely match the cursor across different zoom levels.
+    const edgeX = side === "left" ? rect.left : rect.right;
     const centerY = rect.top + rect.height / 2;
-    const delta = clientY - centerY;
-    // Capture zone edge length is 212px (half = 106px).
-    return Math.max(-106, Math.min(106, delta));
-  }, []);
+
+    // Capture zone: 212x212 square centered at the default "+" center point (±106 from center).
+    // Left side x-range in node-space is [-212, 0]; right side is [0, 212].
+    const rawX = (clientX - edgeX) / zoom;
+    const clampedX =
+      side === "left"
+        ? Math.max(-212, Math.min(0, rawX))
+        : Math.max(0, Math.min(212, rawX));
+    const clampedY = Math.max(-106, Math.min(106, (clientY - centerY) / zoom));
+
+    return { x: clampedX, y: clampedY };
+  }, [DEFAULT_PLUS_OFFSET, canvasZoom]);
 
   const showPlusForSide = useCallback(
-    (side: PlusSide, clientY?: number) => {
+    (side: PlusSide, clientX?: number, clientY?: number) => {
       clearPlusTimers();
       setActivePlusSide(side);
       setVisiblePlusSide(side);
-      if (typeof clientY === "number") {
-        setPlusYOffsetBySide((current) => ({
+      if (typeof clientX === "number" && typeof clientY === "number") {
+        lastPointerRef.current = { x: clientX, y: clientY };
+        setPlusOffsetBySide((current) => ({
           ...current,
-          [side]: computePlusYOffset(clientY),
+          [side]: computePlusOffset(side, clientX, clientY),
         }));
       }
     },
-    [clearPlusTimers, computePlusYOffset],
+    [clearPlusTimers, computePlusOffset],
   );
 
   const updatePlusOffset = useCallback(
-    (side: PlusSide, clientY: number) => {
+    (side: PlusSide, clientX: number, clientY: number) => {
+      // If we moved from the bubble to the capture zone (or we jittered on the edge),
+      // cancel any pending rebound/fade so we don't "twitch".
+      clearPlusTimers();
       setActivePlusSide(side);
-      setPlusYOffsetBySide((current) => ({
+      setVisiblePlusSide(side);
+      lastPointerRef.current = { x: clientX, y: clientY };
+      setPlusOffsetBySide((current) => ({
         ...current,
-        [side]: computePlusYOffset(clientY),
+        [side]: computePlusOffset(side, clientX, clientY),
       }));
     },
-    [computePlusYOffset],
+    [clearPlusTimers, computePlusOffset],
   );
 
   const startHidePlus = useCallback(
-    (side: PlusSide) => {
+    (side: PlusSide, clientX?: number, clientY?: number) => {
+      if (typeof clientX === "number" && typeof clientY === "number") {
+        lastPointerRef.current = { x: clientX, y: clientY };
+      }
+
       // When moving between adjacent capture zones (edge square -> bubble square),
       // a short grace period prevents flicker/rebound.
       clearPlusTimers();
       leaveGraceTimerRef.current = window.setTimeout(() => {
+        const lastPointer = lastPointerRef.current;
+        // PointerLeave can fire on the zone edge even if the pointer is still inside due to DOM
+        // target changes; re-check with a small slop to avoid boundary "twitching".
+        if (
+          lastPointer &&
+          isPointerInCaptureZone(side, lastPointer.x, lastPointer.y, 6)
+        ) {
+          return;
+        }
+
         // Rebound to the default position first...
         setActivePlusSide((current) => (current === side ? null : current));
-        setPlusYOffsetBySide((current) => ({ ...current, [side]: 0 }));
+        setPlusOffsetBySide((current) => ({
+          ...current,
+          [side]: DEFAULT_PLUS_OFFSET[side],
+        }));
 
         // ...then fade out after the rebound animation ends.
         fadeOutTimerRef.current = window.setTimeout(() => {
@@ -408,27 +491,24 @@ export default function DoubaoImageCreatorLayout({
         }, 200);
       }, 30);
     },
-    [clearPlusTimers, selected],
+    [clearPlusTimers, isPointerInCaptureZone, selected],
   );
 
   useEffect(() => {
-    // Selection drives the default visibility:
-    // - selected: always show both "+" (visibility controlled by `selected` prop)
-    // - unselected: show only when the cursor is in a capture zone (or while rebound+fade runs)
+    // Selection drives baseline state:
+    // - selected: show both "+" and reset to default positions
+    // - unselected: hide both until the cursor enters a capture zone
     clearPlusTimers();
     if (selected) {
       setActivePlusSide(null);
-      setPlusYOffsetBySide({ left: 0, right: 0 });
-      return;
-    }
-
-    if (!activePlusSide) {
       setVisiblePlusSide(null);
-      setPlusYOffsetBySide({ left: 0, right: 0 });
+      setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
     } else {
-      setVisiblePlusSide(activePlusSide);
+      setActivePlusSide(null);
+      setVisiblePlusSide(null);
+      setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
     }
-  }, [activePlusSide, clearPlusTimers, selected]);
+  }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, selected]);
 
   useEffect(() => () => clearPlusTimers(), [clearPlusTimers]);
   const buildFlow = useFlowStore((state) => state.buildFlow);
@@ -1458,20 +1538,23 @@ export default function DoubaoImageCreatorLayout({
               proxy={referenceHandleMeta.proxy}
               uiVariant="plus"
               visible={selected || visiblePlusSide === "left"}
+              isTracking={activePlusSide === "left"}
               onPlusPointerEnter={(event) =>
-                showPlusForSide("left", event.clientY)
+                showPlusForSide("left", event.clientX, event.clientY)
               }
               onPlusPointerMove={(event) =>
-                updatePlusOffset("left", event.clientY)
+                updatePlusOffset("left", event.clientX, event.clientY)
               }
-              onPlusPointerLeave={() => startHidePlus("left")}
+              onPlusPointerLeave={(event) =>
+                startHidePlus("left", event.clientX, event.clientY)
+              }
               // Keep the handle anchored on the preview edge (ghost origin),
               // while rendering the visible "+" with the required gap.
               // Requirement: gap (preview edge -> "+" outer edge) = 70px.
               // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
               visualOffset={{
-                x: -106,
-                y: activePlusSide === "left" ? plusYOffsetBySide.left : 0,
+                x: plusOffsetBySide.left.x,
+                y: plusOffsetBySide.left.y,
               }}
             />
           </div>
@@ -1480,15 +1563,27 @@ export default function DoubaoImageCreatorLayout({
           {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
-            onPointerEnter={(event) => showPlusForSide("left", event.clientY)}
-            onPointerMove={(event) => updatePlusOffset("left", event.clientY)}
-            onPointerLeave={() => startHidePlus("left")}
+            onPointerEnter={(event) =>
+              showPlusForSide("left", event.clientX, event.clientY)
+            }
+            onPointerMove={(event) =>
+              updatePlusOffset("left", event.clientX, event.clientY)
+            }
+            onPointerLeave={(event) =>
+              startHidePlus("left", event.clientX, event.clientY)
+            }
           />
           <div
             className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
-            onPointerEnter={(event) => showPlusForSide("right", event.clientY)}
-            onPointerMove={(event) => updatePlusOffset("right", event.clientY)}
-            onPointerLeave={() => startHidePlus("right")}
+            onPointerEnter={(event) =>
+              showPlusForSide("right", event.clientX, event.clientY)
+            }
+            onPointerMove={(event) =>
+              updatePlusOffset("right", event.clientX, event.clientY)
+            }
+            onPointerLeave={(event) =>
+              startHidePlus("right", event.clientX, event.clientY)
+            }
           />
           <DoubaoPreviewPanel
             nodeId={data.id}
@@ -1525,18 +1620,21 @@ export default function DoubaoImageCreatorLayout({
                   colorName={handle.colorName}
                   uiVariant="plus"
                   visible={selected || visiblePlusSide === "right"}
+                  isTracking={activePlusSide === "right"}
                   onPlusPointerEnter={(event) =>
-                    showPlusForSide("right", event.clientY)
+                    showPlusForSide("right", event.clientX, event.clientY)
                   }
                   onPlusPointerMove={(event) =>
-                    updatePlusOffset("right", event.clientY)
+                    updatePlusOffset("right", event.clientX, event.clientY)
                   }
-                  onPlusPointerLeave={() => startHidePlus("right")}
+                  onPlusPointerLeave={(event) =>
+                    startHidePlus("right", event.clientX, event.clientY)
+                  }
                   // Requirement: gap (preview edge -> "+" outer edge) = 70px.
                   // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
                   visualOffset={{
-                    x: 106,
-                    y: activePlusSide === "right" ? plusYOffsetBySide.right : 0,
+                    x: plusOffsetBySide.right.x,
+                    y: plusOffsetBySide.right.y,
                   }}
                 />
               </div>
