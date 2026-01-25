@@ -35,6 +35,9 @@ const HandleContent = memo(function HandleContent({
   showNode,
   left,
   nodeId,
+  onPlusPointerEnter,
+  onPlusPointerMove,
+  onPlusPointerLeave,
 }: {
   isNullHandle: boolean;
   handleColor: string;
@@ -49,6 +52,9 @@ const HandleContent = memo(function HandleContent({
   showNode: boolean;
   left: boolean;
   nodeId: string;
+  onPlusPointerEnter?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPlusPointerMove?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPlusPointerLeave?: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   // Restore animation effect
   useEffect(() => {
@@ -166,6 +172,8 @@ const HandleContent = memo(function HandleContent({
           height: `${size}px`,
           zIndex: 999,
           opacity: visible ? 1 : 0,
+          // When hidden, don't steal pointer events from the capture zones.
+          pointerEvents: visible ? "auto" : "none",
           transform: `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
           background: "hsl(var(--background) / 0.78)",
           border: "1px solid hsl(var(--border) / 0.55)",
@@ -174,6 +182,9 @@ const HandleContent = memo(function HandleContent({
             : "0 0 0 rgba(0,0,0,0)",
           backdropFilter: "blur(8px)",
         }}
+        onPointerEnter={onPlusPointerEnter}
+        onPointerMove={onPlusPointerMove}
+        onPointerLeave={onPlusPointerLeave}
       >
         <div className="pointer-events-none flex h-full w-full items-center justify-center">
           <ForwardedIconComponent name="Plus" className="pointer-events-none h-7 w-7" />
@@ -212,6 +223,9 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   handleStyle,
   wrapperStyle,
   wrapperClassName,
+  onPlusPointerEnter,
+  onPlusPointerMove,
+  onPlusPointerLeave,
 }: {
   left: boolean;
   tooltipTitle?: string;
@@ -231,6 +245,9 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   handleStyle?: React.CSSProperties;
   wrapperStyle?: React.CSSProperties;
   wrapperClassName?: string;
+  onPlusPointerEnter?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPlusPointerMove?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPlusPointerLeave?: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -495,6 +512,9 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
           showNode={showNode}
           left={left}
           nodeId={nodeId}
+          onPlusPointerEnter={onPlusPointerEnter}
+          onPlusPointerMove={onPlusPointerMove}
+          onPlusPointerLeave={onPlusPointerLeave}
         />
       </Handle>
     </div>
