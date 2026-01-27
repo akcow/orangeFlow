@@ -74,6 +74,7 @@ import ConnectionLineComponent from "../ConnectionLineComponent";
 import FlowBuildingComponent from "../flowBuildingComponent";
 import SelectionMenu from "../SelectionMenuComponent";
 import UpdateAllComponents from "../UpdateAllComponents";
+import DoubaoImageCreatorMoreActionsMenu from "./components/doubao-image-creator-more-actions-menu";
 import HelperLines from "./components/helper-lines";
 import {
   getHelperLines,
@@ -83,7 +84,6 @@ import {
 import {
   MemoizedBackground,
   MemoizedCanvasControls,
-  MemoizedSidebarTrigger,
 } from "./MemoizedComponents";
 import getRandomName from "./utils/get-random-name";
 import isWrappedWithClass from "./utils/is-wrapped-with-class";
@@ -752,6 +752,11 @@ export default function Page({
   }, []);
 
   const [selectionEnded, setSelectionEnded] = useState(true);
+  const [imageCreatorMoreActionsMenu, setImageCreatorMoreActionsMenu] = useState<{
+    nodeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const onSelectionEnd = useCallback(() => {
     setSelectionEnded(true);
@@ -780,17 +785,31 @@ export default function Page({
   const onSelectionChange = useCallback(
     (flow: OnSelectionChangeParams): void => {
       setLastSelection(flow);
+      setImageCreatorMoreActionsMenu(null);
       if (flow.nodes && (flow.nodes.length === 0 || flow.nodes.length > 1)) {
         setRightClickedNodeId(null);
       }
     },
-    [setRightClickedNodeId],
+    [setRightClickedNodeId, setImageCreatorMoreActionsMenu],
   );
 
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: AllNodeType) => {
       event.preventDefault();
       if (isLocked) return;
+
+      // Doubao image creator: show menu at cursor, and do NOT change selection.
+      if (node.type === "genericNode" && node.data?.type === "DoubaoImageCreator") {
+        setRightClickedNodeId(null);
+        setImageCreatorMoreActionsMenu({
+          nodeId: node.id,
+          x: event.clientX,
+          y: event.clientY,
+        });
+        return;
+      }
+
+      setImageCreatorMoreActionsMenu(null);
 
       // Set the right-clicked node ID to show its dropdown menu
       setRightClickedNodeId(node.id);
@@ -803,7 +822,7 @@ export default function Page({
         }));
       });
     },
-    [isLocked, setRightClickedNodeId, setNodes],
+    [isLocked, setRightClickedNodeId, setNodes, setImageCreatorMoreActionsMenu],
   );
 
   const onPaneClick = useCallback(
@@ -812,6 +831,7 @@ export default function Page({
       setFilterComponent("");
       // Hide right-click dropdown when clicking on the pane
       setRightClickedNodeId(null);
+      setImageCreatorMoreActionsMenu(null);
       if (isAddingNote) {
         const shadowBox = document.getElementById("shadow-box");
         if (shadowBox) {
@@ -854,6 +874,8 @@ export default function Page({
       getNodeId,
       setFilterEdge,
       setFilterComponent,
+      setImageCreatorMoreActionsMenu,
+      setRightClickedNodeId,
     ],
   );
 
@@ -936,7 +958,6 @@ export default function Page({
                 <FlowToolbar />
               </>
             )}
-            <MemoizedSidebarTrigger />
             <SelectionMenu
               lastSelection={lastSelection}
               isVisible={selectionMenuVisible}
@@ -944,6 +965,20 @@ export default function Page({
               onGroup={handleCreateOrMergeGroup}
               onUngroup={handleDissolveGroup}
             />
+            {imageCreatorMoreActionsMenu && (
+              <DoubaoImageCreatorMoreActionsMenu
+                key={`${imageCreatorMoreActionsMenu.nodeId}:${imageCreatorMoreActionsMenu.x}:${imageCreatorMoreActionsMenu.y}`}
+                open={true}
+                nodeId={imageCreatorMoreActionsMenu.nodeId}
+                position={{
+                  x: imageCreatorMoreActionsMenu.x,
+                  y: imageCreatorMoreActionsMenu.y,
+                }}
+                onOpenChange={(open) => {
+                  if (!open) setImageCreatorMoreActionsMenu(null);
+                }}
+              />
+            )}
             <ReactFlow<AllNodeType, EdgeType>
               nodes={nodes}
               edges={edges}

@@ -1,5 +1,5 @@
 import { cloneDeep } from "lodash";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ReactFlowState, useStore } from "@xyflow/react";
 import {
   Dialog,
@@ -363,6 +363,12 @@ export default function DoubaoImageCreatorLayout({
   >(DEFAULT_PLUS_OFFSET);
 
   const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
+  // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
+  const inverseZoom = useMemo(() => {
+    const MIN_FIXED_UI_ZOOM = 0.57;
+    const zoom = canvasZoom || 1;
+    return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
+  }, [canvasZoom]);
 
   const clearPlusTimers = useCallback(() => {
     if (leaveGraceTimerRef.current) {
@@ -1654,7 +1660,15 @@ export default function DoubaoImageCreatorLayout({
 
       {/* Prompt/config container */}
       {showExpanded && (
-        <div className="rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]">
+        <div
+          className={cn(
+            "rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+            "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+            // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+            "transform-gpu origin-top scale-[var(--inv-zoom)]",
+          )}
+          style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+        >
           <div className="space-y-3">
             <div
               className={cn(

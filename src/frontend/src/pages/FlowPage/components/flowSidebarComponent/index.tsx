@@ -1,48 +1,33 @@
-import Fuse from "fuse.js";
 import { cloneDeep } from "lodash";
-import {
-  createContext,
-  memo,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useHotkeys } from "react-hotkeys-hook";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
+import ShadTooltip from "@/components/common/shadTooltipComponent";
+import { Button } from "@/components/ui/button";
 import {
-  Sidebar,
-  SidebarContent,
-  useSidebar,
-} from "@/components/ui/sidebar";
+  Disclosure,
+  DisclosureContent,
+  DisclosureTrigger,
+} from "@/components/ui/disclosure";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import SkeletonGroup from "@/components/ui/skeletonGroup";
-import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
-import { useShortcutsStore } from "@/stores/shortcuts";
+import { t } from "@/i18n/t";
 import { setLocalStorage } from "@/utils/local-storage-util";
 import { nodeColors } from "@/utils/styleUtils";
-import { cn, getBooleanFromStorage, removeCountFromString } from "@/utils/utils";
+import { getBooleanFromStorage, removeCountFromString } from "@/utils/utils";
 import useFlowStore from "../../../../stores/flowStore";
 import { useTypesStore } from "../../../../stores/typesStore";
 import type { APIClassType } from "../../../../types/api";
-import isWrappedWithClass from "../PageComponent/utils/is-wrapped-with-class";
-import ShadTooltip from "@/components/common/shadTooltipComponent";
 import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
-import NoResultsMessage from "./components/emptySearchComponent";
-import { SidebarHeaderComponent } from "./components/sidebarHeader";
-import SidebarSegmentedNav from "./components/sidebarSegmentedNav";
 import GenerationHistoryPanel from "./components/generationHistoryPanel";
+import FeatureToggles from "./components/featureTogglesComponent";
+import { SidebarFilterComponent } from "./components/sidebarFilterComponent";
 import { applyBetaFilter } from "./helpers/apply-beta-filter";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
 import { applyLegacyFilter } from "./helpers/apply-legacy-filter";
-import { combinedResultsFn } from "./helpers/combined-results";
-import { filteredDataFn } from "./helpers/filtered-data";
-import { normalizeString } from "./helpers/normalize-string";
 import sensitiveSort from "./helpers/sensitive-sort";
-import { traditionalSearchMetadata } from "./helpers/traditional-search-metadata";
 
 const CUSTOM_COMPONENT_KEYS = [
   "DoubaoImageCreator",
@@ -56,7 +41,6 @@ const CUSTOM_CATEGORY_META = {
   name: CUSTOM_CATEGORY_NAME,
   icon: "ToyBrick",
 };
-const CATEGORIES = [CUSTOM_CATEGORY_META];
 const customNodeColors = { ...nodeColors, [CUSTOM_CATEGORY_NAME]: "#2563eb" };
 
 function extractCustomComponents(data: Record<string, any>) {
@@ -72,89 +56,6 @@ function extractCustomComponents(data: Record<string, any>) {
     });
   });
   return result;
-}
-
-// Search context for the sidebar
-export type SearchContextType = {
-  focusSearch: () => void;
-  isSearchFocused: boolean;
-  // Additional properties for the sidebar to use
-  search?: string;
-  setSearch?: (value: string) => void;
-  searchInputRef?: React.RefObject<HTMLInputElement>;
-  handleInputFocus?: () => void;
-  handleInputBlur?: () => void;
-  handleInputChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
-};
-
-export const SearchContext = createContext<SearchContextType | null>(null);
-
-export function useSearchContext() {
-  const context = useContext(SearchContext);
-  if (!context) {
-    throw new Error("useSearchContext must be used within SearchProvider");
-  }
-  return context;
-}
-
-// Create a provider that can be used at the FlowPage level
-export function FlowSearchProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [search, setSearch] = useState("");
-  const [isInputFocused, setIsInputFocused] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-
-  const focusSearchInput = useCallback(() => {
-    if (searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
-  }, []);
-
-  const handleInputFocus = useCallback(() => {
-    setIsInputFocused(true);
-  }, []);
-
-  const handleInputBlur = useCallback(() => {
-    setIsInputFocused(false);
-  }, []);
-
-  const handleInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      setSearch(event.target.value);
-    },
-    [],
-  );
-
-  const searchContextValue = useMemo(
-    () => ({
-      focusSearch: focusSearchInput,
-      isSearchFocused: isInputFocused,
-      // Also expose the search state and handlers for the sidebar to use
-      search,
-      setSearch,
-      searchInputRef,
-      handleInputFocus,
-      handleInputBlur,
-      handleInputChange,
-    }),
-    [
-      focusSearchInput,
-      isInputFocused,
-      search,
-      handleInputFocus,
-      handleInputBlur,
-      handleInputChange,
-    ],
-  );
-
-  return (
-    <SearchContext.Provider value={searchContextValue}>
-      {children}
-    </SearchContext.Provider>
-  );
 }
 
 interface FlowSidebarComponentProps {
@@ -182,39 +83,10 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
     })),
   );
 
-  const { activeSection, setOpen, setActiveSection } = useSidebar();
-  const isHistorySection = activeSection === "generation_history";
-
-  // Get search state from context
-  const context = useSearchContext();
-  // Unconditional fallback ref to satisfy Rules of Hooks
-  const fallbackSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const {
-    search = "",
-    setSearch = () => {},
-    searchInputRef = fallbackSearchInputRef,
-    isSearchFocused = false,
-    handleInputFocus = () => {},
-    handleInputBlur = () => {},
-    handleInputChange: originalHandleInputChange = () => {},
-  } = context;
-
-  const handleInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      originalHandleInputChange(event);
-      // Set active section to search when user first enters text
-      if (event.target.value.length > 0 && search.length === 0) {
-        setActiveSection("search");
-      }
-    },
-    [originalHandleInputChange, search, setActiveSection],
-  );
-
   const showBetaStorage = getBooleanFromStorage("showBeta", true);
   const showLegacyStorage = getBooleanFromStorage("showLegacy", false);
 
   // State
-  const [fuse, setFuse] = useState<Fuse<any> | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [showBeta, setShowBeta] = useState(showBetaStorage);
   const [showLegacy, setShowLegacy] = useState(showLegacyStorage);
@@ -235,152 +107,35 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
     [data],
   );
 
-  const [dataFilter, setFilterData] = useState(baseData);
-  const customItems = dataFilter[CUSTOM_CATEGORY_NAME] ?? {};
-
-  const searchResults = useMemo(() => {
-    if (!search || !fuse) return null;
-
-    const searchTerm = normalizeString(search);
-    const fuseResults = fuse.search(search).map((result) => ({
-      ...result,
-      item: { ...result.item, score: result.score },
-    }));
-
-    const fuseCategories = fuseResults.map((result) => result.item.category);
-    const combinedResults = combinedResultsFn(fuseResults, baseData);
-    const traditionalResults = traditionalSearchMetadata(baseData, searchTerm);
-
-    return {
-      fuseResults,
-      fuseCategories,
-      combinedResults,
-      traditionalResults,
-    };
-  }, [search, fuse, baseData]);
-
-  const searchFilteredData = useMemo(() => {
-    if (!search || !searchResults) return cloneDeep(baseData);
-
-    const filteredData = filteredDataFn(
-      baseData,
-      searchResults.combinedResults,
-      searchResults.traditionalResults,
-    );
-
-    return filteredData;
-  }, [baseData, search, searchResults]);
-
-  const finalFilteredData = useMemo(() => {
-    let filteredData = searchFilteredData;
+  const filteredData = useMemo(() => {
+    let nextData = cloneDeep(baseData);
 
     if (getFilterEdge?.length > 0) {
-      filteredData = applyEdgeFilter(filteredData, getFilterEdge);
+      nextData = applyEdgeFilter(nextData, getFilterEdge);
     }
 
     if (getFilterComponent !== "") {
-      filteredData = applyComponentFilter(filteredData, getFilterComponent);
+      nextData = applyComponentFilter(nextData, getFilterComponent);
     }
 
     if (!showBeta) {
-      filteredData = applyBetaFilter(filteredData);
+      nextData = applyBetaFilter(nextData);
     }
 
     if (!showLegacy) {
-      filteredData = applyLegacyFilter(filteredData);
+      nextData = applyLegacyFilter(nextData);
     }
 
-    return filteredData;
+    return nextData;
   }, [
-    searchFilteredData,
+    baseData,
     getFilterEdge,
     getFilterComponent,
     showBeta,
     showLegacy,
   ]);
 
-  const hasResults = useMemo(() => {
-    return Object.entries(dataFilter).some(
-      ([category, items]) =>
-        Object.keys(items).length > 0 &&
-        CATEGORIES.some((c) => c.name === category),
-    );
-  }, [dataFilter]);
-
-  const handleClearSearch = useCallback(() => {
-    setSearch("");
-    setFilterData(baseData);
-  }, [baseData, setSearch]);
-
-  useEffect(() => {
-    if (filterType || getFilterComponent !== "") {
-      setOpen(true);
-      setActiveSection("search");
-    }
-  }, [filterType, getFilterComponent, setOpen]);
-
-  useEffect(() => {
-    setFilterData(finalFilteredData);
-  }, [
-    finalFilteredData,
-    search,
-    filterType,
-    getFilterEdge,
-    getFilterComponent,
-  ]);
-
-  useEffect(() => {
-    const options = {
-      keys: ["display_name", "description", "type", "category"],
-      threshold: 0.2,
-      includeScore: true,
-    };
-
-    const fuseData = Object.entries(baseData).flatMap(([category, items]) =>
-      Object.entries(items).map(([key, value]) => ({
-        ...value,
-        category,
-        key,
-      })),
-    );
-
-    setFuse(new Fuse(fuseData, options));
-  }, [baseData]);
-
-  useEffect(() => {
-    if (getFilterEdge.length !== 0 || getFilterComponent !== "") {
-      setSearch("");
-    }
-  }, [getFilterEdge, getFilterComponent, baseData]);
-
-  const searchComponentsSidebar = useShortcutsStore(
-    (state) => state.searchComponentsSidebar,
-  );
-
-  useHotkeys(
-    searchComponentsSidebar,
-    (e: KeyboardEvent) => {
-      if (isWrappedWithClass(e, "noflow")) return;
-      e.preventDefault();
-      searchInputRef.current?.focus();
-      setOpen(true);
-    },
-    {
-      preventDefault: true,
-    },
-  );
-
-  useHotkeys(
-    "esc",
-    (event) => {
-      event.preventDefault();
-      searchInputRef.current?.blur();
-    },
-    {
-      enableOnFormTags: true,
-      enabled: isSearchFocused,
-    },
-  );
+  const customItems = filteredData[CUSTOM_CATEGORY_NAME] ?? {};
 
   const onDragStart = useCallback(
     (
@@ -399,25 +154,6 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
     },
     [],
   );
-
-  const hasCoreComponents = useMemo(() => {
-    const categoriesWithItems = CATEGORIES.filter(
-      (item) =>
-        dataFilter[item.name] && Object.keys(dataFilter[item.name]).length > 0,
-    );
-    const result = categoriesWithItems.length > 0;
-    return result;
-  }, [dataFilter]);
-
-  const hasSearchInput =
-    search !== "" || filterType !== undefined || getFilterComponent !== "";
-
-  const showComponents =
-    (ENABLE_NEW_SIDEBAR &&
-      hasCoreComponents &&
-      (activeSection === "components" || activeSection === "search")) ||
-    (hasSearchInput && hasCoreComponents && ENABLE_NEW_SIDEBAR) ||
-    !ENABLE_NEW_SIDEBAR;
 
   const [category, component] = getFilterComponent?.split(".") ?? ["", ""];
 
@@ -438,143 +174,197 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const resetFilters = useCallback(() => {
     setFilterEdge([]);
     setFilterComponent("");
-    setFilterData(baseData);
-  }, [setFilterEdge, setFilterComponent, setFilterData, baseData]);
+  }, [setFilterEdge, setFilterComponent]);
 
-  useEffect(() => {
-    if (
-      ENABLE_NEW_SIDEBAR &&
-      (activeSection === "mcp" || activeSection === "bundles")
-    ) {
-      setActiveSection("components");
-    }
-  }, [activeSection, setActiveSection, ENABLE_NEW_SIDEBAR]);
+  const [componentsOpen, setComponentsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const handleAddNote = useCallback(() => {
+    window.dispatchEvent(new Event("lf:start-add-note"));
+  }, []);
 
   return (
-    <Sidebar
-      collapsible="offcanvas"
-      data-testid="shad-sidebar"
-      className="noflow select-none"
-    >
-      <div className="flex h-full">
-        {ENABLE_NEW_SIDEBAR && <SidebarSegmentedNav />}
-        <div
-          className={cn(
-            "flex flex-col h-full w-full group-data-[collapsible=icon]:hidden",
-            ENABLE_NEW_SIDEBAR && "sidebar-segmented",
-          )}
-        >
-          {!isHistorySection && (
-            <SidebarHeaderComponent
-              showConfig={showConfig}
-              setShowConfig={setShowConfig}
-              showBeta={showBeta}
-              setShowBeta={handleSetShowBeta}
-              showLegacy={showLegacy}
-              setShowLegacy={handleSetShowLegacy}
-              searchInputRef={searchInputRef}
-              isInputFocused={isSearchFocused}
-              search={search}
-              handleInputFocus={handleInputFocus}
-              handleInputBlur={handleInputBlur}
-              handleInputChange={handleInputChange}
-              filterName={filterName}
-              filterDescription={filterDescription}
-              resetFilters={resetFilters}
-            />
-          )}
-
-          <SidebarContent
-            segmentedSidebar={ENABLE_NEW_SIDEBAR}
-            className="flex-1 group-data-[collapsible=icon]:hidden gutter-stable"
+    <div className="noflow select-none pointer-events-none">
+      <div className="fixed left-4 top-1/2 z-50 -translate-y-1/2 pointer-events-auto">
+        <div className="flex flex-col items-center gap-2 rounded-3xl border border-border bg-background/80 p-2 shadow-lg backdrop-blur">
+          <Popover
+            open={componentsOpen}
+            onOpenChange={(open) => {
+              setComponentsOpen(open);
+              if (open) setHistoryOpen(false);
+            }}
           >
-            {isHistorySection ? (
-              <GenerationHistoryPanel />
-            ) : isLoading ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-col gap-1 p-3">
-                  <SkeletonGroup count={13} className="my-0.5 h-7" />
-                </div>
-                <div className="h-8" />
-                <div className="flex flex-col gap-1 px-3 pt-2">
-                  <SkeletonGroup count={21} className="my-0.5 h-7" />
-                </div>
-              </div>
-            ) : (
-              <>
-                {hasResults ? (
-                  <>
-                    {showComponents && (
-                      <div className="p-3 pr-2">
-                        <div className="flex flex-col gap-1 py-1">
-                          {Object.keys(customItems).length === 0 ? (
-                            <NoResultsMessage
-                              onClearSearch={handleClearSearch}
-                              showConfig={showConfig}
-                              setShowConfig={setShowConfig}
-                            />
-                          ) : (
-                            Object.keys(customItems)
-                              .sort((a, b) =>
-                                sensitiveSort(
-                                  customItems[a].display_name,
-                                  customItems[b].display_name,
-                                ),
-                              )
-                              .map((itemName) => {
-                                const currentItem = customItems[itemName];
-                                return (
-                                  <ShadTooltip
-                                    content={currentItem.display_name}
-                                    side="right"
-                                    key={itemName}
-                                  >
-                                    <SidebarDraggableComponent
-                                      sectionName={CUSTOM_CATEGORY_NAME}
-                                      apiClass={currentItem}
-                                      icon={
-                                        currentItem.icon ??
-                                        CUSTOM_CATEGORY_META.icon
-                                      }
-                                      onDragStart={(event) =>
-                                        onDragStart(event, {
-                                          type: removeCountFromString(
-                                            itemName,
-                                          ),
-                                          node: currentItem,
-                                        })
-                                      }
-                                      color={customNodeColors[CUSTOM_CATEGORY_NAME]}
-                                      itemName={itemName}
-                                      error={!!currentItem.error}
-                                      display_name={currentItem.display_name}
-                                      official={currentItem.official !== false}
-                                      beta={currentItem.beta ?? false}
-                                      legacy={currentItem.legacy ?? false}
-                                      disabled={false}
-                                      disabledTooltip=""
-                                    />
-                                  </ShadTooltip>
-                                );
-                              })
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <NoResultsMessage
-                    onClearSearch={handleClearSearch}
-                    showConfig={showConfig}
-                    setShowConfig={setShowConfig}
+            <ShadTooltip content={t("Components")} side="right">
+              <PopoverTrigger asChild>
+                <Button
+                  variant={componentsOpen ? "secondary" : "ghost"}
+                  size="iconMd"
+                  className="h-12 w-12 rounded-full p-0"
+                  aria-label={t("Components")}
+                  data-testid="flow-toolbar-components"
+                >
+                  <ForwardedIconComponent
+                    name="component"
+                    className="h-6 w-6"
                   />
+                </Button>
+              </PopoverTrigger>
+            </ShadTooltip>
+            <PopoverContent
+              align="center"
+              side="right"
+              sideOffset={8}
+              className="flex w-[420px] max-h-[75vh] flex-col overflow-hidden p-0"
+            >
+              <Disclosure open={showConfig} onOpenChange={setShowConfig}>
+                <div className="flex items-center justify-between gap-2 px-3 py-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <ForwardedIconComponent
+                      name="component"
+                      className="h-4 w-4"
+                    />
+                    <span>{t("Components")}</span>
+                  </div>
+                  <DisclosureTrigger>
+                    <Button
+                      variant={showConfig ? "secondary" : "ghost"}
+                      size="iconMd"
+                      aria-label={t("Component settings")}
+                      data-testid="flow-toolbar-components-settings"
+                    >
+                      <ForwardedIconComponent
+                        name="SlidersHorizontal"
+                        className="h-4 w-4"
+                      />
+                    </Button>
+                  </DisclosureTrigger>
+                </div>
+                <DisclosureContent className="px-3 pb-2">
+                  <FeatureToggles
+                    showBeta={showBeta}
+                    setShowBeta={handleSetShowBeta}
+                    showLegacy={showLegacy}
+                    setShowLegacy={handleSetShowLegacy}
+                  />
+                </DisclosureContent>
+              </Disclosure>
+              <Separator />
+              <div className="flex-1 overflow-auto p-3 pr-2">
+                {filterName !== "" && filterDescription !== "" && (
+                  <div className="mb-2">
+                    <SidebarFilterComponent
+                      name={filterName}
+                      description={filterDescription}
+                      resetFilters={resetFilters}
+                    />
+                  </div>
                 )}
-              </>
-            )}
-          </SidebarContent>
+
+                {isLoading ? (
+                  <div className="flex flex-col gap-1">
+                    <SkeletonGroup count={10} className="my-0.5 h-7" />
+                  </div>
+                ) : Object.keys(customItems).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-sm text-muted-foreground">
+                    <div>{t("No components found.")}</div>
+                    {(getFilterEdge?.length ?? 0) > 0 ||
+                    getFilterComponent !== "" ? (
+                      <Button variant="secondary" size="sm" onClick={resetFilters}>
+                        {t("Remove filter")}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1 py-1">
+                    {Object.keys(customItems)
+                      .sort((a, b) =>
+                        sensitiveSort(
+                          customItems[a].display_name,
+                          customItems[b].display_name,
+                        ),
+                      )
+                      .map((itemName) => {
+                        const currentItem = customItems[itemName];
+                        return (
+                          <ShadTooltip
+                            content={currentItem.display_name}
+                            side="right"
+                            key={itemName}
+                          >
+                            <SidebarDraggableComponent
+                              sectionName={CUSTOM_CATEGORY_NAME}
+                              apiClass={currentItem}
+                              icon={currentItem.icon ?? CUSTOM_CATEGORY_META.icon}
+                              onDragStart={(event) =>
+                                onDragStart(event, {
+                                  type: removeCountFromString(itemName),
+                                  node: currentItem,
+                                })
+                              }
+                              color={customNodeColors[CUSTOM_CATEGORY_NAME]}
+                              itemName={itemName}
+                              error={!!currentItem.error}
+                              display_name={currentItem.display_name}
+                              official={currentItem.official !== false}
+                              beta={currentItem.beta ?? false}
+                              legacy={currentItem.legacy ?? false}
+                              disabled={false}
+                              disabledTooltip=""
+                            />
+                          </ShadTooltip>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={historyOpen}
+            onOpenChange={(open) => {
+              setHistoryOpen(open);
+              if (open) setComponentsOpen(false);
+            }}
+          >
+            <ShadTooltip content={t("生成历史")} side="right">
+              <PopoverTrigger asChild>
+                <Button
+                  variant={historyOpen ? "secondary" : "ghost"}
+                  size="iconMd"
+                  className="h-12 w-12 rounded-full p-0"
+                  aria-label={t("生成历史")}
+                  data-testid="flow-toolbar-history"
+                >
+                  <ForwardedIconComponent name="History" className="h-6 w-6" />
+                </Button>
+              </PopoverTrigger>
+            </ShadTooltip>
+            <PopoverContent
+              align="center"
+              side="right"
+              sideOffset={8}
+              className="h-[75vh] w-[560px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+            >
+              <GenerationHistoryPanel />
+            </PopoverContent>
+          </Popover>
+
+          <ShadTooltip content={t("Add Sticky Notes")} side="right">
+            <Button
+              variant="ghost"
+              size="iconMd"
+              className="h-12 w-12 rounded-full p-0"
+              onClick={handleAddNote}
+              aria-label={t("Add Sticky Notes")}
+              data-testid="flow-toolbar-add-note"
+            >
+              <ForwardedIconComponent name="sticky-note" className="h-6 w-6" />
+            </Button>
+          </ShadTooltip>
         </div>
       </div>
-    </Sidebar>
+    </div>
   );
 }
 
