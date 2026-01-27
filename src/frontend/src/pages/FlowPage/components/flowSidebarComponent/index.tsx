@@ -4,29 +4,20 @@ import { useShallow } from "zustand/react/shallow";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
-import {
-  Disclosure,
-  DisclosureContent,
-  DisclosureTrigger,
-} from "@/components/ui/disclosure";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import SkeletonGroup from "@/components/ui/skeletonGroup";
 import { t } from "@/i18n/t";
-import { setLocalStorage } from "@/utils/local-storage-util";
 import { nodeColors } from "@/utils/styleUtils";
-import { getBooleanFromStorage, removeCountFromString } from "@/utils/utils";
+import { removeCountFromString } from "@/utils/utils";
 import useFlowStore from "../../../../stores/flowStore";
 import { useTypesStore } from "../../../../stores/typesStore";
 import type { APIClassType } from "../../../../types/api";
 import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
 import GenerationHistoryPanel from "./components/generationHistoryPanel";
-import FeatureToggles from "./components/featureTogglesComponent";
 import { SidebarFilterComponent } from "./components/sidebarFilterComponent";
-import { applyBetaFilter } from "./helpers/apply-beta-filter";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
-import { applyLegacyFilter } from "./helpers/apply-legacy-filter";
 import sensitiveSort from "./helpers/sensitive-sort";
 
 const CUSTOM_COMPONENT_KEYS = [
@@ -42,6 +33,12 @@ const CUSTOM_CATEGORY_META = {
   icon: "ToyBrick",
 };
 const customNodeColors = { ...nodeColors, [CUSTOM_CATEGORY_NAME]: "#2563eb" };
+
+const COMPONENT_ICON_OVERRIDES: Record<string, string> = {
+  TextCreation: "Type",
+  DoubaoTTS: "Music",
+  DoubaoVideoGenerator: "Video",
+};
 
 function extractCustomComponents(data: Record<string, any>) {
   const result: Record<string, Record<string, any>> = {
@@ -83,24 +80,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
     })),
   );
 
-  const showBetaStorage = getBooleanFromStorage("showBeta", true);
-  const showLegacyStorage = getBooleanFromStorage("showLegacy", false);
-
-  // State
-  const [showConfig, setShowConfig] = useState(false);
-  const [showBeta, setShowBeta] = useState(showBetaStorage);
-  const [showLegacy, setShowLegacy] = useState(showLegacyStorage);
-
-  // Functions to handle state changes with localStorage persistence
-  const handleSetShowBeta = useCallback((value: boolean) => {
-    setShowBeta(value);
-    setLocalStorage("showBeta", value.toString());
-  }, []);
-
-  const handleSetShowLegacy = useCallback((value: boolean) => {
-    setShowLegacy(value);
-    setLocalStorage("showLegacy", value.toString());
-  }, []);
+  // No beta/legacy toggles: always show all components.
 
   const baseData = useMemo(
     () => extractCustomComponents(data),
@@ -118,21 +98,11 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
       nextData = applyComponentFilter(nextData, getFilterComponent);
     }
 
-    if (!showBeta) {
-      nextData = applyBetaFilter(nextData);
-    }
-
-    if (!showLegacy) {
-      nextData = applyLegacyFilter(nextData);
-    }
-
     return nextData;
   }, [
     baseData,
     getFilterEdge,
     getFilterComponent,
-    showBeta,
-    showLegacy,
   ]);
 
   const customItems = filteredData[CUSTOM_CATEGORY_NAME] ?? {};
@@ -214,40 +184,14 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
               align="center"
               side="right"
               sideOffset={8}
-              className="flex w-[420px] max-h-[75vh] flex-col overflow-hidden p-0"
+              className="flex w-[500px] max-h-[50vh] max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0"
             >
-              <Disclosure open={showConfig} onOpenChange={setShowConfig}>
-                <div className="flex items-center justify-between gap-2 px-3 py-2">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <ForwardedIconComponent
-                      name="component"
-                      className="h-4 w-4"
-                    />
-                    <span>{t("Components")}</span>
-                  </div>
-                  <DisclosureTrigger>
-                    <Button
-                      variant={showConfig ? "secondary" : "ghost"}
-                      size="iconMd"
-                      aria-label={t("Component settings")}
-                      data-testid="flow-toolbar-components-settings"
-                    >
-                      <ForwardedIconComponent
-                        name="SlidersHorizontal"
-                        className="h-4 w-4"
-                      />
-                    </Button>
-                  </DisclosureTrigger>
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <ForwardedIconComponent name="component" className="h-4 w-4" />
+                  <span>添加节点</span>
                 </div>
-                <DisclosureContent className="px-3 pb-2">
-                  <FeatureToggles
-                    showBeta={showBeta}
-                    setShowBeta={handleSetShowBeta}
-                    showLegacy={showLegacy}
-                    setShowLegacy={handleSetShowLegacy}
-                  />
-                </DisclosureContent>
-              </Disclosure>
+              </div>
               <Separator />
               <div className="flex-1 overflow-auto p-3 pr-2">
                 {filterName !== "" && filterDescription !== "" && (
@@ -285,6 +229,13 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                       )
                       .map((itemName) => {
                         const currentItem = customItems[itemName];
+                        const typeName =
+                          (currentItem?.type as string | undefined) ??
+                          removeCountFromString(itemName);
+                        const iconName =
+                          COMPONENT_ICON_OVERRIDES[typeName] ??
+                          currentItem.icon ??
+                          CUSTOM_CATEGORY_META.icon;
                         return (
                           <ShadTooltip
                             content={currentItem.display_name}
@@ -294,7 +245,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                             <SidebarDraggableComponent
                               sectionName={CUSTOM_CATEGORY_NAME}
                               apiClass={currentItem}
-                              icon={currentItem.icon ?? CUSTOM_CATEGORY_META.icon}
+                              icon={iconName}
                               onDragStart={(event) =>
                                 onDragStart(event, {
                                   type: removeCountFromString(itemName),

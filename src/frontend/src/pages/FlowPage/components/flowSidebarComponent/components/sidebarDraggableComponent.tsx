@@ -1,11 +1,15 @@
-import { type DragEventHandler, forwardRef, useRef, useState } from "react";
+import {
+  type DragEventHandler,
+  forwardRef,
+  useCallback,
+  useRef,
+  useState,
+} from "react";
 import IconComponent, {
   ForwardedIconComponent,
 } from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
-import { convertTestName } from "@/components/common/storeCardComponent/utils/convert-test-name";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/t";
 import {
   Select,
@@ -64,6 +68,7 @@ export const SidebarDraggableComponent = forwardRef(
     const { deleteFlow } = useDeleteFlow();
     const flows = useFlowsManagerStore((state) => state.flows);
     const addComponent = useAddComponent();
+    const suppressClickRef = useRef(false);
 
     const version = useDarkStore((state) => state.version);
     const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
@@ -111,6 +116,11 @@ export const SidebarDraggableComponent = forwardRef(
       }
     };
 
+    const handleAddComponent = useCallback(() => {
+      if (disabled || error) return;
+      addComponent(apiClass, itemName);
+    }, [addComponent, apiClass, itemName, disabled, error]);
+
     return (
       <Select
         onValueChange={handleSelectChange}
@@ -139,21 +149,27 @@ export const SidebarDraggableComponent = forwardRef(
               data-testid={sectionName + display_name}
               id={sectionName + display_name}
               className={cn(
-                "group/draggable flex cursor-grab items-center gap-2 rounded-md bg-muted p-1 px-2 hover:bg-secondary-hover/75",
+                "group/draggable flex w-full cursor-pointer items-center gap-4 rounded-xl bg-muted px-4 py-2.5 hover:bg-secondary-hover/75",
                 error && "cursor-not-allowed select-none",
                 disabled
-                  ? "pointer-events-none bg-accent text-placeholder-foreground h-8"
+                  ? "pointer-events-none bg-accent text-placeholder-foreground h-12"
                   : "bg-muted text-foreground",
               )}
               draggable={!error}
               style={{
                 borderLeftColor: color,
               }}
-              onDragStart={onDragStart}
-              onDoubleClick={() => {
-                if (!disabled) {
-                  addComponent(apiClass, itemName);
-                }
+              onDragStart={(event) => {
+                suppressClickRef.current = true;
+                onDragStart(event);
+              }}
+              onClick={(e) => {
+                const target = e.target as HTMLElement | null;
+                if (!target) return;
+                if (open) return;
+                if (suppressClickRef.current) return;
+                if (target.closest('[data-stop-add="true"]')) return;
+                handleAddComponent();
               }}
               onDragEnd={() => {
                 if (
@@ -163,17 +179,20 @@ export const SidebarDraggableComponent = forwardRef(
                     document.getElementsByClassName("cursor-grabbing")[0],
                   );
                 }
+                // A drag gesture often ends with a click; suppress it briefly.
+                setTimeout(() => {
+                  suppressClickRef.current = false;
+                }, 150);
               }}
             >
-              <ForwardedIconComponent
-                name={icon}
-                className="h-[18px] w-[18px] shrink-0"
-              />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background/60 ring-1 ring-border/60">
+                <ForwardedIconComponent name={icon} className="h-5 w-5" />
+              </div>
               <div className="flex flex-1 items-center overflow-hidden">
                 <ShadTooltip content={display_name} styleClasses="z-50">
                   <span
                     data-testid="display-name"
-                    className="truncate text-sm font-normal"
+                    className="truncate text-base font-normal"
                   >
                     {display_name}
                   </span>
@@ -198,27 +217,14 @@ export const SidebarDraggableComponent = forwardRef(
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                {!disabled && (
-                  <Button
-                    data-testid={`add-component-button-${convertTestName(
-                      display_name,
-                    )}`}
-                    variant="ghost"
-                    size="icon"
-                    tabIndex={-1}
-                    className="text-primary"
-                    onClick={() => addComponent(apiClass, itemName)}
-                  >
-                    <ForwardedIconComponent
-                      name="Plus"
-                      className="h-4 w-4 shrink-0 transition-all group-hover/draggable:opacity-100 group-focus/draggable:opacity-100 sm:opacity-0"
-                    />
-                  </Button>
-                )}
-                <div ref={popoverRef}>
+                <div
+                  ref={popoverRef}
+                  data-stop-add="true"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <ForwardedIconComponent
                     name="GripVertical"
-                    className="h-4 w-4 shrink-0 text-muted-foreground group-hover/draggable:text-primary"
+                    className="h-5 w-5 shrink-0 text-muted-foreground group-hover/draggable:text-primary"
                   />
                   <SelectTrigger tabIndex={-1}></SelectTrigger>
                   <SelectContent
