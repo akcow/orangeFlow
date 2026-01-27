@@ -896,6 +896,24 @@ export const COLOR_OPTIONS = {
   transparent: null,
 };
 
+// Palette for group container backgrounds.
+// Use datatype colors because they are already tuned for both light/dark themes.
+// Store only the CSS variable name (without `var(...)`) so callers can decide alpha.
+export const GROUP_COLOR_OPTIONS: Record<string, string> = {
+  cyan: "--datatype-cyan",
+  blue: "--datatype-blue",
+  indigo: "--datatype-indigo",
+  violet: "--datatype-violet",
+  fuchsia: "--datatype-fuchsia",
+  rose: "--datatype-rose",
+  pink: "--datatype-pink",
+  orange: "--datatype-orange",
+  yellow: "--datatype-yellow",
+  lime: "--datatype-lime",
+  emerald: "--datatype-emerald",
+  red: "--datatype-red",
+};
+
 export const maxSizeFilesInBytes = 10 * 1024 * 1024; // 10MB in bytes
 export const MAX_TEXT_LENGTH = 99999;
 

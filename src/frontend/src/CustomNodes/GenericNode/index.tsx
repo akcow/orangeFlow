@@ -32,11 +32,14 @@ import NodeOutputs from "./components/NodeOutputParameter/NodeOutputs";
 import NodeUpdateComponent from "./components/NodeUpdateComponent";
 import { NodeIcon } from "./components/nodeIcon";
 import RenderInputParameters from "./components/RenderInputParameters";
-import DoubaoPreviewPanel from "./components/DoubaoPreviewPanel";
+import DoubaoPreviewPanel, {
+  type DoubaoPreviewPanelActions,
+} from "./components/DoubaoPreviewPanel";
 import DoubaoImageCreatorLayout from "./components/DoubaoImageCreatorLayout";
 import DoubaoVideoGeneratorLayout from "./components/DoubaoVideoGeneratorLayout";
 import DoubaoAudioLayout from "./components/DoubaoAudioLayout";
 import TextCreationLayout from "./components/TextCreationLayout";
+import OutputModal from "./components/outputModal";
 import { isDoubaoComponent } from "../hooks/use-doubao-preview";
 import { useBuildStatus } from "./hooks/use-get-build-status";
 
@@ -95,6 +98,9 @@ function GenericNode({
   const [_validationStatus, setValidationStatus] =
     useState<VertexBuildTypeAPI | null>(null);
   const [openUpdateModal, setOpenUpdateModal] = useState(false);
+  const [isImageCreatorLogsOpen, setImageCreatorLogsOpen] = useState(false);
+  const [imageCreatorPreviewActions, setImageCreatorPreviewActions] =
+    useState<DoubaoPreviewPanelActions | null>(null);
 
   const types = useTypesStore((state) => state.types);
   const templates = useTypesStore((state) => state.templates);
@@ -588,10 +594,58 @@ function GenericNode({
         <div
           data-testid={`${data.id}-main-node`}
           className={cn(
-            "grid text-wrap leading-5",
+            "relative grid text-wrap leading-5",
             showNode ? (isDoubaoImageCreator ? "" : "border-b") : "relative",
           )}
         >
+          {showNode && usesWideDoubaoLayout && isDoubaoImageCreator && selected && (
+            <div className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full -translate-y-full items-center justify-center px-4">
+              <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-[#E3E8F5] bg-white/95 px-5 py-3 shadow-[0_12px_30px_rgba(15,23,42,0.12)] dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]">
+                <OutputModal
+                  open={isImageCreatorLogsOpen}
+                  setOpen={setImageCreatorLogsOpen}
+                  disabled={false}
+                  nodeId={data.id}
+                  outputName={"image"}
+                >
+                  <button
+                    type="button"
+                    title="Logs"
+                    aria-label="Logs"
+                    className="flex h-12 w-12 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+                  >
+                    <ForwardedIconComponent name="FileText" className="h-6 w-6" />
+                  </button>
+                </OutputModal>
+
+                <button
+                  type="button"
+                  title="放大"
+                  aria-label="放大"
+                  onClick={() => imageCreatorPreviewActions?.openPreview()}
+                  className="flex h-12 w-12 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+                >
+                  <ForwardedIconComponent name="Maximize2" className="h-6 w-6" />
+                </button>
+
+                <button
+                  type="button"
+                  title="下载"
+                  aria-label="下载"
+                  disabled={!imageCreatorPreviewActions?.canDownload}
+                  onClick={() => imageCreatorPreviewActions?.download()}
+                  className={cn(
+                    "flex h-12 w-12 items-center justify-center rounded-full transition",
+                    imageCreatorPreviewActions?.canDownload
+                      ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+                      : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+                  )}
+                >
+                  <ForwardedIconComponent name="Download" className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+          )}
           <div
             data-testid={"div-generic-node"}
             className={cn(
@@ -709,6 +763,7 @@ function GenericNode({
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
                   selected={selected ?? false}
+                  onPreviewActionsChange={setImageCreatorPreviewActions}
                 />
               ) : isDoubaoVideoGenerator ? (
                 <DoubaoVideoGeneratorLayout

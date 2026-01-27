@@ -23,6 +23,7 @@ import {
 } from "@/utils/reactflowUtils";
 
 type EdgeImageRole = "first" | "reference" | "last";
+type VideoReferType = "base" | "feature";
 
 const IMAGE_ROLE_OPTIONS: Array<{ label: string; value: EdgeImageRole }> = [
   { label: "首帧", value: "first" },
@@ -30,6 +31,11 @@ const IMAGE_ROLE_OPTIONS: Array<{ label: string; value: EdgeImageRole }> = [
   { label: "尾帧", value: "last" },
 ];
 const LAST_FRAME_FIELD = "last_frame_image";
+
+const VIDEO_ROLE_OPTIONS: Array<{ label: string; value: VideoReferType }> = [
+  { label: "特征参考", value: "feature" },
+  { label: "视频编辑", value: "base" },
+];
 
 export function DefaultEdge({
   sourceHandleId,
@@ -46,6 +52,7 @@ export function DefaultEdge({
   const [hovered, setHovered] = useState(false);
   const deleteEdge = useFlowStore((state) => state.deleteEdge);
   const setEdges = useFlowStore((state) => state.setEdges);
+  const setNodes = useFlowStore((state) => state.setNodes);
   const edges = useFlowStore((state) => state.edges);
   const isLocked = useFlowStore((state) => state.currentFlow?.locked);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
@@ -63,10 +70,17 @@ export function DefaultEdge({
     targetHandleObject?.fieldName ?? targetHandleObject?.name;
   const isFirstFrameField = targetFieldName === IMAGE_ROLE_FIELD;
   const isLastFrameField = targetFieldName === LAST_FRAME_FIELD;
+  const isVideoBridgeEdge =
+    isFirstFrameField &&
+    sourceNode?.data?.type === IMAGE_ROLE_TARGET &&
+    targetNode?.data?.type === IMAGE_ROLE_TARGET;
   const isRoleEdge =
+    !isVideoBridgeEdge &&
     (isFirstFrameField || isLastFrameField) &&
     targetNode?.data?.type === IMAGE_ROLE_TARGET;
   const modelName = getDoubaoVideoModelName(targetNode);
+  const isKlingModel = modelName.toLowerCase().startsWith("kling");
+  const isWanModel = modelName.toLowerCase().startsWith("wan2.");
   const roleLimits = getImageRoleLimits(modelName);
   const isSoraModel =
     roleLimits.allowedRoles.length === 1 &&
@@ -97,6 +111,17 @@ export function DefaultEdge({
     ? IMAGE_ROLE_OPTIONS.filter((option) => option.value === fixedRole)
     : IMAGE_ROLE_OPTIONS.filter((option) => roleLimits.allowedRoles.includes(option.value));
 
+  const fixedVideoReferType: VideoReferType | null = isVideoBridgeEdge && isWanModel ? "feature" : null;
+  const currentVideoReferType: VideoReferType =
+    edgeData?.videoReferType === "base" || edgeData?.videoReferType === "feature"
+      ? edgeData.videoReferType
+      : "feature";
+  const videoRoleOptions = fixedVideoReferType
+    ? VIDEO_ROLE_OPTIONS.filter((option) => option.value === fixedVideoReferType)
+    : isKlingModel
+      ? VIDEO_ROLE_OPTIONS
+      : VIDEO_ROLE_OPTIONS.filter((option) => option.value === "feature");
+
   useEffect(() => {
     if (!isRoleEdge || !fixedRole) return;
     if (edgeData?.imageRole === fixedRole) return;
@@ -114,6 +139,25 @@ export function DefaultEdge({
       }),
     );
   }, [edgeData?.imageRole, fixedRole, id, isRoleEdge, setEdges, takeSnapshot]);
+
+  useEffect(() => {
+    if (!isVideoBridgeEdge) return;
+    if (!fixedVideoReferType) return;
+    if (edgeData?.videoReferType === fixedVideoReferType) return;
+    takeSnapshot();
+    setEdges((edges) =>
+      edges.map((edge) => {
+        if (edge.id !== id) return edge;
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            videoReferType: fixedVideoReferType,
+          },
+        };
+      }),
+    );
+  }, [edgeData?.videoReferType, fixedVideoReferType, id, isVideoBridgeEdge, setEdges, takeSnapshot]);
 
   useEffect(() => {
     if (!isRoleEdge || fixedRole) return;
@@ -144,9 +188,10 @@ export function DefaultEdge({
     takeSnapshot,
   ]);
 
-  const sourceXNew =
-    (sourceNode?.position.x ?? 0) + (sourceNode?.measured?.width ?? 0) + 7;
-  const targetXNew = (targetNode?.position.x ?? 0) - 7;
+  // IMPORTANT: use XYFlow-provided coordinates (already absolute, even for nested nodes).
+  // Node `position` is parent-relative when grouped, which will misplace edges.
+  const sourceXNew = sourceX + 7;
+  const targetXNew = targetX - 7;
 
   const distance = 200 + 0.1 * ((sourceXNew - targetXNew) / 2);
 
@@ -280,6 +325,43 @@ export function DefaultEdge({
     );
   };
 
+  const handleVideoReferTypeChange = (next: VideoReferType) => {
+    if (!isVideoBridgeEdge) return;
+    const nextValue: VideoReferType =
+      fixedVideoReferType ?? (next === "base" ? "base" : "feature");
+
+    takeSnapshot();
+    setEdges((edges) =>
+      edges.map((edge) => {
+        if (edge.id !== id) return edge;
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            videoReferType: nextValue,
+          },
+        };
+      }),
+    );
+
+    // Persist into the target node template so the backend component can read it reliably.
+    if (isKlingModel && targetNode?.data?.node?.template?.kling_video_refer_type) {
+      setNodes((nodes) =>
+        nodes.map((node) => {
+          if (node.id !== target) return node;
+          if (node.data?.type !== IMAGE_ROLE_TARGET) return node;
+          const template = node.data.node?.template ?? {};
+          const field = template.kling_video_refer_type;
+          if (!field) return node;
+          const nextNode = { ...node };
+          nextNode.data = { ...node.data, node: { ...node.data.node } };
+          nextNode.data.node.template = { ...template, kling_video_refer_type: { ...field, value: nextValue } };
+          return nextNode;
+        }),
+      );
+    }
+  };
+
   return (
     <g
       onMouseEnter={() => setHovered(true)}
@@ -294,7 +376,7 @@ export function DefaultEdge({
         data-deletable={deletable ? "true" : "false"}
         data-selected={selected ? "true" : "false"}
       />
-      {selected || hovered ? (
+      {selected || hovered || isVideoBridgeEdge ? (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -334,8 +416,32 @@ export function DefaultEdge({
                   ))}
                 </select>
               </label>
+            ) : isVideoBridgeEdge ? (
+              <label
+                className="flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs text-foreground shadow-sm"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <select
+                  aria-label="Video refer type selector"
+                  value={fixedVideoReferType ?? currentVideoReferType}
+                  disabled={isLocked || Boolean(fixedVideoReferType) || !isKlingModel}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) =>
+                    handleVideoReferTypeChange(event.target.value as VideoReferType)
+                  }
+                  className="cursor-pointer bg-transparent text-xs outline-none"
+                >
+                  {videoRoleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             ) : null}
-            {!isLocked ? (
+            {!isLocked && (selected || hovered) ? (
               <button
                 type="button"
                 aria-label={t("Remove connection")}

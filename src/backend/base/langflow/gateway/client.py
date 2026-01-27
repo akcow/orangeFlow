@@ -182,6 +182,8 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
         _n, provider = resolve_provider("sora-2")
     elif provider_name == "veo":
         _n, provider = resolve_provider("veo-3.1-generate-preview")
+    elif provider_name == "kling":
+        _n, provider = resolve_provider("kling-video-o1")
     else:
         raise ValueError(f"Unknown provider in task id: {provider_name!r}")
 
@@ -191,6 +193,8 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
         status_value = result.get("status")
         if not status_value and isinstance(result.get("output"), dict):
             status_value = (result["output"].get("task_status") or result["output"].get("taskStatus") or "").lower()
+        if not status_value and isinstance(result.get("data"), dict):
+            status_value = (result["data"].get("task_status") or result["data"].get("taskStatus") or "").lower()
         if isinstance(status_value, str) and status_value:
             normalized["status"] = status_value
 
@@ -202,6 +206,13 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
             video_url = result.get("video_url") if isinstance(result.get("video_url"), str) else None
         elif provider_name == "veo":
             video_url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
+        elif provider_name == "kling":
+            data = result.get("data") if isinstance(result.get("data"), dict) else None
+            task_result = data.get("task_result") if isinstance(data, dict) else None
+            videos = task_result.get("videos") if isinstance(task_result, dict) else None
+            if isinstance(videos, list) and videos:
+                first = videos[0] if isinstance(videos[0], dict) else {}
+                video_url = first.get("url") if isinstance(first.get("url"), str) else None
         if isinstance(video_url, str) and video_url.strip():
             normalized["data"] = {"url": video_url.strip()}
 

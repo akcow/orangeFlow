@@ -1,4 +1,5 @@
 import { cloneDeep } from "lodash";
+import { useStore } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
@@ -76,7 +77,10 @@ export default function TextCreationLayout({
   const templates = useTypesStore((state) => state.templates);
 
   const template = data.node?.template ?? {};
-  const showExpanded = Boolean(selected);
+  // Avoid resizing the node while the user is box-selecting; resizing can cause the
+  // selection set to oscillate and look like "twitching".
+  const userSelectionActive = useStore((s) => s.userSelectionActive);
+  const showExpanded = Boolean(selected) && !userSelectionActive;
   const customFields = useMemo(
     () => new Set<string>([
       PROMPT_FIELD,

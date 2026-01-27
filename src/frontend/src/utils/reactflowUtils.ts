@@ -73,6 +73,7 @@ export const IMAGE_ROLE_FIELD = "first_frame_image";
 export const IMAGE_ROLE_TARGET = "DoubaoVideoGenerator";
 
 const DEFAULT_FIRST_FRAME_MAX_UPLOADS = 6;
+const KLING_MAX_UPLOADS = 7;
 const VEO_REFERENCE_IMAGE_LIMIT = 3;
 const VEO_MAX_UPLOADS = 5;
 const VEO_FAST_MAX_UPLOADS = 2;
@@ -107,6 +108,7 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
   const isSoraModel = normalized === "sora-2" || normalized === "sora-2-pro";
   const isWanModel = normalizedLower.startsWith("wan2.");
   const isSeedanceModel = normalizedLower.startsWith("doubao-seedance-");
+  const isKlingModel = normalizedLower.startsWith("kling");
 
   if (isSoraModel) {
     return {
@@ -128,6 +130,14 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
     return {
       allowedRoles: ["first"],
       maxTotal: DEFAULT_FIRST_FRAME_MAX_UPLOADS,
+    };
+  }
+
+  if (isKlingModel) {
+    return {
+      allowedRoles: ["first", "reference"],
+      maxTotal: KLING_MAX_UPLOADS,
+      maxReference: Math.max(KLING_MAX_UPLOADS - 1, 1),
     };
   }
 
@@ -1233,6 +1243,7 @@ export function updateEdgesHandleIds({
 }: updateEdgesHandleIdsType): EdgeType[] {
   const newEdges = cloneDeep(edges);
   newEdges.forEach((edge) => {
+    const previousData = edge.data ?? {};
     const sourceNodeId = edge.source;
     const targetNodeId = edge.target;
     const sourceNode = nodes.find((node) => node.id === sourceNodeId);
@@ -1270,8 +1281,10 @@ export function updateEdgesHandleIds({
       targetHandle: scapeJSONParse(edge.targetHandle),
     };
     edge.data = {
+      // Preserve any custom metadata (e.g. videoReferType) across migrations.
+      ...previousData,
       ...newData,
-      imageRole: edge.data?.imageRole,
+      imageRole: previousData?.imageRole,
     };
   });
   return newEdges;
@@ -1724,15 +1737,9 @@ export function validateSelection(
 
   const errorsArray: Array<string> = [];
 
-  // Some custom nodes use wide/specialized layouts that don't render well inside Group nodes.
-  const nonGroupableTypes = new Set(["TextCreation", "DoubaoVideoGenerator"]);
-  if (
-    clonedSelection.nodes.some(
-      (node) => node?.data && nonGroupableTypes.has((node.data as any).type),
-    )
-  ) {
-    errorsArray.push(t("This selection contains components that cannot be grouped"));
-  }
+  // Note: we intentionally don't block grouping for any specific component types here.
+  // Group nodes are primarily an organizational tool and users may still want to group
+  // wide/special-layout nodes even if the grouped UI isn't perfect.
   // check if there is more than one node
   if (clonedSelection.nodes.length < 2) {
     errorsArray.push(t("Please select more than one component"));

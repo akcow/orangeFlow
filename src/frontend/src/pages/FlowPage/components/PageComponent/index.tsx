@@ -6,6 +6,7 @@ import {
   type OnSelectionChangeParams,
   ReactFlow,
   reconnectEdge,
+  SelectionMode,
   type SelectionDragHandler,
 } from "@xyflow/react";
 import _, { cloneDeep } from "lodash";
@@ -20,6 +21,7 @@ import {
 import { useHotkeys } from "react-hotkeys-hook";
 import { useShallow } from "zustand/react/shallow";
 import { DefaultEdge } from "@/CustomEdges";
+import GroupContainerNode from "@/CustomNodes/GroupContainerNode";
 import NoteNode from "@/CustomNodes/NoteNode";
 import FlowToolbar from "@/components/core/flowToolbarComponent";
 import {
@@ -37,7 +39,6 @@ import { nodeColorsName } from "@/utils/styleUtils";
 import { isSupportedNodeTypes } from "@/utils/utils";
 import GenericNode from "../../../../CustomNodes/GenericNode";
 import {
-  INVALID_SELECTION_ERROR_ALERT,
   UPLOAD_ALERT_LIST,
   UPLOAD_ERROR_ALERT,
   WRONG_FILE_ERROR_ALERT,
@@ -55,13 +56,19 @@ import type {
   NoteNodeType,
 } from "../../../../types/flow";
 import {
-  generateFlow,
-  generateNodeFromFlow,
+  dissolveSmallGroups,
+  fitGroupToChildren,
+  getAbsolutePosition,
+  getNextGroupName,
+  getNodeDimensions,
+  GROUP_HEADER_HEIGHT,
+  GROUP_PADDING,
+  isGroupContainerNode,
+} from "../../../../utils/groupingUtils";
+import {
   getNodeId,
   isValidConnection,
   scapeJSONParse,
-  updateIds,
-  validateSelection,
 } from "../../../../utils/reactflowUtils";
 import ConnectionLineComponent from "../ConnectionLineComponent";
 import FlowBuildingComponent from "../flowBuildingComponent";
@@ -84,6 +91,7 @@ import isWrappedWithClass from "./utils/is-wrapped-with-class";
 const nodeTypes = {
   genericNode: GenericNode,
   noteNode: NoteNode,
+  groupNode: GroupContainerNode,
 };
 
 const edgeTypes = {
@@ -164,39 +172,198 @@ export default function Page({
   const shadowBoxHeight = NOTE_NODE_MIN_HEIGHT * (zoomLevel || 1);
   const shadowBoxBackgroundColor = COLOR_OPTIONS[Object.keys(COLOR_OPTIONS)[0]];
 
-  const handleGroupNode = useCallback(() => {
+  const handleCreateOrMergeGroup = useCallback(() => {
+    if (isLocked) return;
+    if (!lastSelection?.nodes || lastSelection.nodes.length < 2) return;
+
     takeSnapshot();
-    const edgesState = useFlowStore.getState().edges;
-    if (validateSelection(lastSelection!, edgesState).length === 0) {
-      const clonedNodes = cloneDeep(useFlowStore.getState().nodes);
-      const clonedEdges = cloneDeep(edgesState);
-      const clonedSelection = cloneDeep(lastSelection);
-      updateIds({ nodes: clonedNodes, edges: clonedEdges }, clonedSelection!);
-      const { newFlow } = generateFlow(
-        clonedSelection!,
-        clonedNodes,
-        clonedEdges,
-        getRandomName(),
-      );
 
-      const newGroupNode = generateNodeFromFlow(newFlow, getNodeId);
+    const currentNodes = cloneDeep(useFlowStore.getState().nodes);
+    const nodeById = new Map(currentNodes.map((n) => [n.id, n]));
 
-      setNodes([
-        ...clonedNodes.filter(
-          (oldNodes) =>
-            !clonedSelection?.nodes.some(
-              (selectionNode) => selectionNode.id === oldNodes.id,
-            ),
-        ),
-        newGroupNode,
-      ]);
-    } else {
-      setErrorData({
-        title: INVALID_SELECTION_ERROR_ALERT,
-        list: validateSelection(lastSelection!, edgesState),
-      });
+    const initialSelectedIds = new Set(lastSelection.nodes.map((n) => n.id));
+    const selectedGroupIds = new Set(
+      currentNodes
+        .filter((n) => initialSelectedIds.has(n.id))
+        .filter(isGroupContainerNode)
+        .map((n) => n.id),
+    );
+
+    // If a group container is selected, treat it as a single unit and ignore its descendants.
+    const isDescendantOfSelectedGroup = (node: AllNodeType) => {
+      let parentId = node.parentId;
+      while (parentId) {
+        if (selectedGroupIds.has(parentId)) return true;
+        const parent = nodeById.get(parentId);
+        parentId = parent?.parentId;
+      }
+      return false;
+    };
+
+    const effectiveSelectedNodes = currentNodes.filter(
+      (n) => initialSelectedIds.has(n.id) && !isDescendantOfSelectedGroup(n),
+    );
+    if (effectiveSelectedNodes.length < 2) return;
+
+    const effectiveSelectedIds = new Set(effectiveSelectedNodes.map((n) => n.id));
+
+    // Prefer grouping into an explicitly selected group container.
+    const explicitTarget = effectiveSelectedNodes.find(isGroupContainerNode);
+    const parentTarget = effectiveSelectedNodes.find((n) => {
+      if (!n.parentId) return false;
+      const parent = nodeById.get(n.parentId);
+      return !!parent && isGroupContainerNode(parent);
+    });
+
+    let targetGroupId: string | null =
+      explicitTarget?.id ?? parentTarget?.parentId ?? null;
+
+    // Snapshot absolute positions before we change parent relationships.
+    const absPosById = new Map<string, { x: number; y: number }>();
+    for (const n of currentNodes) {
+      absPosById.set(n.id, getAbsolutePosition(n, nodeById));
     }
-  }, [lastSelection, setNodes, setErrorData, takeSnapshot]);
+
+    // Create a new group if we're not merging into an existing one.
+    if (!targetGroupId) {
+      const parentIds = new Set(effectiveSelectedNodes.map((n) => n.parentId ?? ""));
+      const commonParentId =
+        parentIds.size === 1 ? effectiveSelectedNodes[0]!.parentId ?? undefined : undefined;
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      for (const n of effectiveSelectedNodes) {
+        const abs = absPosById.get(n.id)!;
+        const { width, height } = getNodeDimensions(n);
+        minX = Math.min(minX, abs.x);
+        minY = Math.min(minY, abs.y);
+        maxX = Math.max(maxX, abs.x + width);
+        maxY = Math.max(maxY, abs.y + height);
+      }
+
+      const groupAbs = {
+        x: minX - GROUP_PADDING,
+        y: minY - (GROUP_PADDING + GROUP_HEADER_HEIGHT),
+      };
+      const groupWidth = Math.max(240, maxX - minX + GROUP_PADDING * 2);
+      const groupHeight = Math.max(120, maxY - minY + GROUP_PADDING * 2 + GROUP_HEADER_HEIGHT);
+
+      const parentAbs =
+        commonParentId && nodeById.get(commonParentId)
+          ? absPosById.get(commonParentId)!
+          : { x: 0, y: 0 };
+
+      const groupId = getNodeId("group");
+      const label = getNextGroupName(currentNodes);
+
+      const groupNode: any = {
+        id: groupId,
+        type: "groupNode",
+        position: { x: groupAbs.x - parentAbs.x, y: groupAbs.y - parentAbs.y },
+        data: { id: groupId, type: "GroupContainer", label, backgroundColor: "blue" },
+        parentId: commonParentId,
+        width: groupWidth,
+        height: groupHeight,
+        draggable: true,
+        selectable: true,
+        zIndex: -100,
+        style: { zIndex: -100 },
+      };
+
+      currentNodes.push(groupNode);
+      nodeById.set(groupId, groupNode);
+      absPosById.set(groupId, groupAbs);
+      targetGroupId = groupId;
+    }
+
+    const targetAbs = absPosById.get(targetGroupId)!;
+
+    let nextNodes = currentNodes.map((n) => {
+      if (n.id === targetGroupId) {
+        return { ...n, selected: true };
+      }
+      if (!effectiveSelectedIds.has(n.id)) {
+        return { ...n, selected: false };
+      }
+
+      const abs = absPosById.get(n.id)!;
+      const rel = { x: abs.x - targetAbs.x, y: abs.y - targetAbs.y };
+      const moved: any = {
+        ...n,
+        selected: false,
+        parentId: targetGroupId,
+        position: rel,
+      };
+      delete moved.extent;
+      delete moved.expandParent;
+      return moved;
+    });
+
+    // Make sure the target container fits the (possibly expanded) set of children.
+    nextNodes = fitGroupToChildren(targetGroupId, nextNodes);
+
+    // Auto-dissolve groups with <= 1 member (per requirements).
+    nextNodes = dissolveSmallGroups(nextNodes);
+
+    setNodes(nextNodes);
+    setRightClickedNodeId(null);
+  }, [isLocked, lastSelection, setNodes, setRightClickedNodeId, takeSnapshot]);
+
+  const handleDissolveGroup = useCallback(
+    (groupId?: string) => {
+      if (isLocked) return;
+      const targetId =
+        groupId ??
+        (lastSelection?.nodes?.length === 1 ? lastSelection.nodes[0]!.id : undefined);
+      if (!targetId) return;
+
+      takeSnapshot();
+
+      const currentNodes = cloneDeep(useFlowStore.getState().nodes);
+      const nodeById = new Map(currentNodes.map((n) => [n.id, n]));
+      const group = nodeById.get(targetId);
+      if (!group || !isGroupContainerNode(group)) return;
+
+      const children = currentNodes.filter((n) => n.parentId === targetId);
+      const parent =
+        group.parentId && nodeById.get(group.parentId) ? nodeById.get(group.parentId)! : null;
+      const parentAbs = parent ? getAbsolutePosition(parent, nodeById) : { x: 0, y: 0 };
+
+      const absPosById = new Map<string, { x: number; y: number }>();
+      for (const n of currentNodes) {
+        absPosById.set(n.id, getAbsolutePosition(n, nodeById));
+      }
+
+      let nextNodes = currentNodes
+        .filter((n) => n.id !== targetId)
+        .map((n) => ({ ...n, selected: false }));
+
+      nextNodes = nextNodes.map((n) => {
+        if (!children.some((c) => c.id === n.id)) return n;
+        const abs = absPosById.get(n.id)!;
+        const moved: any = {
+          ...n,
+          parentId: group.parentId,
+          position: { x: abs.x - parentAbs.x, y: abs.y - parentAbs.y },
+        };
+        delete moved.extent;
+        delete moved.expandParent;
+        return moved;
+      });
+
+      if (group.parentId) {
+        nextNodes = fitGroupToChildren(group.parentId, nextNodes);
+      }
+      nextNodes = dissolveSmallGroups(nextNodes);
+
+      setNodes(nextNodes);
+      setRightClickedNodeId(null);
+    },
+    [isLocked, lastSelection, setNodes, setRightClickedNodeId, takeSnapshot],
+  );
 
   useEffect(() => {
     const handleMouseMove = (event) => {
@@ -242,10 +409,10 @@ export default function Page({
   }
 
   function handleGroup(e: KeyboardEvent) {
-    if (selectionMenuVisible) {
+    if (selectionMenuVisible && lastSelection?.nodes?.length > 1) {
       e.preventDefault();
       (e as unknown as Event).stopImmediatePropagation();
-      handleGroupNode();
+      handleCreateOrMergeGroup();
     }
   }
 
@@ -395,6 +562,9 @@ export default function Page({
 
   const onNodeDrag: OnNodeDrag = useCallback(
     (_, node) => {
+      // Helper-lines use pane-space coordinates; nested nodes use parent-relative coordinates.
+      // Mixing the two causes snapping/selection jitter while dragging inside groups.
+      if ((node as any).parentId) return;
       if (helperLineEnabled) {
         const currentHelperLines = getHelperLines(node, nodes);
         setHelperLines(currentHelperLines);
@@ -423,12 +593,10 @@ export default function Page({
       setHelperLines({});
     },
     [
-      takeSnapshot,
       autoSaveFlow,
       nodes,
-      edges,
-      reactFlowInstance,
       setPositionDictionary,
+      updateCurrentFlow,
     ],
   );
 
@@ -452,6 +620,10 @@ export default function Page({
           const draggedNode = nodes.find((n) => n.id === nodeId);
 
           if (draggedNode && change.position) {
+            // Don't snap nested nodes; their coordinates are parent-relative.
+            if ((draggedNode as any).parentId) {
+              return change;
+            }
             const updatedNode = {
               ...draggedNode,
               position: change.position,
@@ -560,7 +732,9 @@ export default function Page({
     (oldEdge: EdgeType, newConnection: Connection) => {
       if (isValidConnection(newConnection, nodes, edges)) {
         edgeUpdateSuccessful.current = true;
+        // Preserve custom edge metadata (e.g. imageRole / videoReferType) while updating handles.
         oldEdge.data = {
+          ...(oldEdge.data ?? {}),
           targetHandle: scapeJSONParse(newConnection.targetHandle!),
           sourceHandle: scapeJSONParse(newConnection.sourceHandle!),
         };
@@ -589,11 +763,18 @@ export default function Page({
 
   // Workaround to show the menu only after the selection has ended.
   useEffect(() => {
-    if (selectionEnded && lastSelection && lastSelection.nodes.length > 1) {
+    const hasSelection = !!lastSelection && (lastSelection.nodes?.length ?? 0) > 0;
+    const isGroupOnly =
+      !!lastSelection &&
+      lastSelection.nodes.length === 1 &&
+      lastSelection.nodes[0]?.type === "groupNode";
+
+    if (selectionEnded && hasSelection && (isGroupOnly || lastSelection!.nodes.length > 1)) {
       setSelectionMenuVisible(true);
-    } else {
-      setSelectionMenuVisible(false);
+      return;
     }
+
+    setSelectionMenuVisible(false);
   }, [selectionEnded, lastSelection]);
 
   const onSelectionChange = useCallback(
@@ -760,7 +941,8 @@ export default function Page({
               lastSelection={lastSelection}
               isVisible={selectionMenuVisible}
               nodes={lastSelection?.nodes}
-              onClick={handleGroupNode}
+              onGroup={handleCreateOrMergeGroup}
+              onUngroup={handleDissolveGroup}
             />
             <ReactFlow<AllNodeType, EdgeType>
               nodes={nodes}
@@ -782,6 +964,7 @@ export default function Page({
               elevateEdgesOnSelect={false}
               onSelectionEnd={onSelectionEnd}
               onSelectionStart={onSelectionStart}
+              selectionMode={SelectionMode.Partial}
               connectionRadius={30}
               edgeTypes={edgeTypes}
               connectionLineComponent={ConnectionLineComponent}
@@ -790,6 +973,7 @@ export default function Page({
               onDrop={onDrop}
               onSelectionChange={onSelectionChange}
               deleteKeyCode={[]}
+              nodeOrigin={[0, 0]}
               fitView={isEmptyFlow.current ? false : true}
               fitViewOptions={fitViewOptions}
               className="theme-attribution"

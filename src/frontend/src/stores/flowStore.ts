@@ -57,6 +57,12 @@ import {
   validateEdge,
   validateNodes,
 } from "../utils/reactflowUtils";
+import {
+  dissolveSmallGroups,
+  getAbsolutePosition,
+  isGroupContainerNode,
+  sortNodesByParentDepth,
+} from "../utils/groupingUtils";
 import { getInputsAndOutputs } from "../utils/storeUtils";
 import useAlertStore from "./alertStore";
 import { useDarkStore } from "./darkStore";
@@ -367,9 +373,91 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     set({ reactFlowInstance: newState });
   },
   onNodesChange: (changes: NodeChange<AllNodeType>[]) => {
-    set({
-      nodes: applyNodeChanges(changes, get().nodes),
+    const updated = applyNodeChanges(changes, get().nodes);
+
+    // Normalize: we don't constrain group children with `extent: 'parent'` / `expandParent`.
+    // Important: avoid cloning every nested node on every drag tick; only touch nodes that
+    // actually carry these props to keep XYFlow dragging stable.
+    const normalized = updated.map((n) => {
+      // Keep group containers behind edges/nodes.
+      const shouldFixZ = (n as any).type === "groupNode" && (n as any).zIndex !== -100;
+
+      if (!n.parentId) {
+        if (!shouldFixZ) return n;
+        const style: any = { ...((n as any).style ?? {}), zIndex: -100 };
+        return { ...(n as any), zIndex: -100, style };
+      }
+
+      const hasExtent = Object.prototype.hasOwnProperty.call(n as any, "extent");
+      const hasExpand = Object.prototype.hasOwnProperty.call(n as any, "expandParent");
+      if (!hasExtent && !hasExpand && !shouldFixZ) return n;
+
+      const nn: any = { ...n };
+      delete nn.extent;
+      delete nn.expandParent;
+      if (shouldFixZ) {
+        nn.zIndex = -100;
+        nn.style = { ...(nn.style ?? {}), zIndex: -100 };
+      }
+      return nn;
     });
+
+    // XYFlow derives child absolute positions from parent internals, but it may skip recomputing
+    // unchanged child nodes when only the parent object changes. If a group container moves,
+    // we "touch" its descendants (shallow clone) so they re-render and follow the parent.
+    const nodeById = new Map(normalized.map((n) => [n.id, n]));
+    const movedGroupIds = new Set(
+      changes
+        .filter((c) => c.type === "position" && !!(nodeById.get(c.id as string) as any))
+        .map((c) => c.id as string)
+        .filter((id) => nodeById.get(id)?.type === "groupNode"),
+    );
+
+    if (movedGroupIds.size > 0) {
+      const childrenByParent = new Map<string, string[]>();
+      for (const n of normalized) {
+        if (!n.parentId) continue;
+        const arr = childrenByParent.get(n.parentId) ?? [];
+        arr.push(n.id);
+        childrenByParent.set(n.parentId, arr);
+      }
+
+      const descendantIds = new Set<string>();
+      const queue = Array.from(movedGroupIds);
+      while (queue.length) {
+        const gid = queue.pop()!;
+        const kids = childrenByParent.get(gid) ?? [];
+        for (const kid of kids) {
+          if (descendantIds.has(kid)) continue;
+          descendantIds.add(kid);
+          if (nodeById.get(kid)?.type === "groupNode") queue.push(kid);
+        }
+      }
+
+      const touched = normalized.map((n) => (descendantIds.has(n.id) ? { ...n } : n));
+
+      // Keep parent-before-child ordering if it ever becomes invalid (older flows or edge cases).
+      const indexById = new Map(touched.map((n, idx) => [n.id, idx]));
+      const needsSort = touched.some((n) => {
+        if (!n.parentId) return false;
+        const p = indexById.get(n.parentId);
+        const c = indexById.get(n.id);
+        return typeof p === "number" && typeof c === "number" ? p > c : false;
+      });
+
+      set({ nodes: needsSort ? sortNodesByParentDepth(touched) : touched });
+      return;
+    }
+
+    const indexById = new Map(normalized.map((n, idx) => [n.id, idx]));
+    const needsSort = normalized.some((n) => {
+      if (!n.parentId) return false;
+      const p = indexById.get(n.parentId);
+      const c = indexById.get(n.id);
+      return typeof p === "number" && typeof c === "number" ? p > c : false;
+    });
+
+    set({ nodes: needsSort ? sortNodesByParentDepth(normalized) : normalized });
   },
   onEdgesChange: (changes: EdgeChange<EdgeType>[]) => {
     set({
@@ -377,8 +465,26 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     });
   },
   setNodes: (change) => {
-    const newChange =
+    const newChangeRaw =
       typeof change === "function" ? change(get().nodes) : change;
+
+    // Normalize group containers: auto-dissolve groups with <= 1 member.
+    const withoutExtent = (newChangeRaw as AllNodeType[]).map((n) => {
+      if (!n.parentId) return n;
+      const nn: any = { ...n };
+      delete nn.extent;
+      delete nn.expandParent;
+      return nn;
+    });
+
+    const newChange = sortNodesByParentDepth(
+      dissolveSmallGroups(withoutExtent).map((n) => {
+        if (n.type !== "groupNode") return n;
+        const style: any = { ...((n as any).style ?? {}), zIndex: -100 };
+        return { ...(n as any), zIndex: -100, style };
+      }),
+    );
+
     const newEdges = cleanEdges(newChange, get().edges);
     const { inputs, outputs } = getInputsAndOutputs(newChange);
     get().updateComponentsToUpdate(newChange);
@@ -542,17 +648,23 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
 
     let minimumX = Infinity;
     let minimumY = Infinity;
-    const idsMap = {};
+    const idsMap: Record<string, string> = {};
+    const absPosById = new Map<string, { x: number; y: number }>();
+
+    // `selection.nodes[*].position` is treated as absolute position (see setLastCopiedSelection).
+    selection.nodes.forEach((node: AllNodeType) => {
+      absPosById.set(node.id, { x: node.position.x, y: node.position.y });
+      minimumX = Math.min(minimumX, node.position.x);
+      minimumY = Math.min(minimumY, node.position.y);
+    });
+
+    // Build the old->new id map first so parentId remapping works regardless of node order.
+    selection.nodes.forEach((node: AllNodeType) => {
+      idsMap[node.id] = getNodeId((node.data as any)?.type ?? node.type ?? "node");
+    });
+
     let newNodes: AllNodeType[] = get().nodes;
     let newEdges = get().edges;
-    selection.nodes.forEach((node: Node) => {
-      if (node.position.y < minimumY) {
-        minimumY = node.position.y;
-      }
-      if (node.position.x < minimumX) {
-        minimumX = node.position.x;
-      }
-    });
 
     const insidePosition = position.paneX
       ? { x: position.paneX + position.x, y: position.paneY! + position.y }
@@ -573,23 +685,34 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     get().setPositionDictionary(internalPostionDictionary);
 
     selection.nodes.forEach((node: AllNodeType) => {
-      // Generate a unique node ID
-      const newId = getNodeId(node.data.type);
-      idsMap[node.id] = newId;
+      const newId = idsMap[node.id]!;
+      const oldAbs = absPosById.get(node.id)!;
 
-      // Create a new node object with the correct type
-      const newNode = {
+      const oldParentId = (node as any).parentId as string | undefined;
+      const newParentId = oldParentId && idsMap[oldParentId] ? idsMap[oldParentId] : undefined;
+
+      const newNode: any = {
+        ...cloneDeep(node),
         id: newId,
-        type: node.type as "genericNode" | "noteNode",
-        position: {
-          x: insidePosition.x + node.position!.x - minimumX,
-          y: insidePosition.y + node.position!.y - minimumY,
-        },
-        data: {
-          ...cloneDeep(node.data),
-          id: newId,
-        },
-      } as AllNodeType;
+        data: { ...cloneDeep(node.data), id: newId },
+        selected: true,
+      };
+
+      if (newParentId) {
+        const parentAbs = absPosById.get(oldParentId!) ?? { x: 0, y: 0 };
+        newNode.parentId = newParentId;
+        newNode.position = { x: oldAbs.x - parentAbs.x, y: oldAbs.y - parentAbs.y };
+        delete newNode.extent;
+        delete newNode.expandParent;
+      } else {
+        newNode.parentId = undefined;
+        newNode.position = {
+          x: insidePosition.x + oldAbs.x - minimumX,
+          y: insidePosition.y + oldAbs.y - minimumY,
+        };
+        delete newNode.extent;
+        delete newNode.expandParent;
+      }
 
       updateGroupRecursion(
         newNode,
@@ -630,6 +753,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         sourceHandle: sourceHandleObject,
         targetHandle: targetHandleObject,
         imageRole: edge.data?.imageRole,
+        videoReferType: edge.data?.videoReferType,
       };
 
       const id = getHandleId(source, sourceHandle, target, targetHandle);
@@ -649,9 +773,53 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     get().setEdges(newEdges);
   },
   setLastCopiedSelection: (newSelection, isCrop = false) => {
+    if (!newSelection) {
+      set({ lastCopiedSelection: newSelection });
+      return;
+    }
+
+    // Expand group container selection: copying a group should include all descendants.
+    const storeNodes = get().nodes;
+    const storeEdges = get().edges;
+    const nodeById = new Map(storeNodes.map((n) => [n.id, n]));
+
+    const initialIds = new Set(newSelection.nodes.map((n) => n.id));
+    const expandedIds = new Set(initialIds);
+    const queue = Array.from(initialIds);
+
+    while (queue.length) {
+      const currentId = queue.pop()!;
+      const current = nodeById.get(currentId);
+      if (!current || !isGroupContainerNode(current)) continue;
+      for (const child of storeNodes) {
+        if (child.parentId !== currentId) continue;
+        if (expandedIds.has(child.id)) continue;
+        expandedIds.add(child.id);
+        queue.push(child.id);
+      }
+    }
+
+    const expandedNodes = Array.from(expandedIds)
+      .map((id) => nodeById.get(id))
+      .filter(Boolean)
+      .map((n) => {
+        const abs = getAbsolutePosition(n!, nodeById);
+        return { ...cloneDeep(n!), position: abs };
+      });
+
+    const expandedEdges = storeEdges
+      .filter((e) => expandedIds.has(e.source) && expandedIds.has(e.target))
+      .map((e) => ({ ...cloneDeep(e), selected: false }));
+
+    const selection = {
+      ...newSelection,
+      nodes: expandedNodes,
+      edges: expandedEdges,
+    };
+
     if (isCrop) {
-      const nodesIdsSelected = newSelection!.nodes.map((node) => node.id);
-      const edgesIdsSelected = newSelection!.edges.map((edge) => edge.id);
+      const nodesIdsSelected = selection.nodes.map((node) => node.id);
+      const edgesIdsSelected = selection.edges.map((edge) => edge.id);
 
       nodesIdsSelected.forEach((id) => {
         get().deleteNode(id);
@@ -671,7 +839,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       set({ nodes: newNodes, edges: newEdges });
     }
 
-    set({ lastCopiedSelection: newSelection });
+    set({ lastCopiedSelection: selection });
   },
   cleanFlow: () => {
     set({
@@ -727,17 +895,166 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     get().setEdges((oldEdges) => {
       const targetHandle = scapeJSONParse(connection.targetHandle!);
       const sourceHandle = scapeJSONParse(connection.sourceHandle!);
+      const sourceNode = get().nodes.find((node) => node.id === connection.source);
       const targetNode = get().nodes.find(
         (node) => node.id === connection.target,
       );
       const targetFieldName = targetHandle?.fieldName ?? targetHandle?.name;
+
+      const modelName = getDoubaoVideoModelName(targetNode);
+      const isTargetKling = modelName.toLowerCase().startsWith("kling");
+
+      const isVideoBridgeEdge =
+        targetFieldName === IMAGE_ROLE_FIELD &&
+        sourceNode?.data?.type === IMAGE_ROLE_TARGET &&
+        targetNode?.data?.type === IMAGE_ROLE_TARGET;
+
+      // Kling O1 has combined media limits on its image_list/video_list. Enforce early so
+      // the UI can't create invalid edges that later fail at runtime.
+      if (targetNode?.data?.type === IMAGE_ROLE_TARGET && isTargetKling) {
+        const safeGetTargetFieldName = (edge: EdgeType): string | undefined => {
+          const th = edge.data?.targetHandle;
+          if (th && typeof th === "object") return th.fieldName ?? th.name;
+          if (!edge.targetHandle) return undefined;
+          try {
+            const parsed = scapeJSONParse(edge.targetHandle);
+            return parsed?.fieldName ?? parsed?.name;
+          } catch {
+            return undefined;
+          }
+        };
+
+        const isVideoRefString = (raw: unknown): boolean => {
+          if (!raw) return false;
+          const s =
+            typeof raw === "string"
+              ? raw
+              : typeof raw === "object"
+                ? // common shapes
+                  String((raw as any).path ?? (raw as any).file_path ?? (raw as any).value ?? "")
+                : String(raw);
+          const normalized = s.trim().toLowerCase();
+          if (!normalized) return false;
+          const path = normalized.split("?", 1)[0].split("#", 1)[0];
+          return path.endsWith(".mp4") || path.endsWith(".mov");
+        };
+
+        const countLocalFirstFrameMedia = () => {
+          const template = targetNode?.data?.node?.template ?? {};
+          const field = template?.[IMAGE_ROLE_FIELD];
+          if (!field) return { images: 0, videos: 0 };
+          const values = Array.isArray(field.value)
+            ? field.value
+            : field.value !== undefined && field.value !== null
+              ? [field.value]
+              : [];
+          const paths = Array.isArray(field.file_path)
+            ? field.file_path
+            : field.file_path !== undefined && field.file_path !== null
+              ? [field.file_path]
+              : [];
+          const length = Math.max(values.length, paths.length);
+          let images = 0;
+          let videos = 0;
+          for (let i = 0; i < length; i += 1) {
+            const candidate = paths[i] ?? values[i];
+            if (!candidate) continue;
+            if (isVideoRefString(candidate)) videos += 1;
+            else images += 1;
+          }
+          return { images, videos };
+        };
+
+        const hasLocalLastFrame = () => {
+          const template = targetNode?.data?.node?.template ?? {};
+          const field = template?.["last_frame_image"];
+          if (!field) return false;
+          const value = field.value ?? field.file_path;
+          if (Array.isArray(value)) return value.some((v) => Boolean(v));
+          return Boolean(value);
+        };
+
+        const local = countLocalFirstFrameMedia();
+        const existingFirstFrameEdges = oldEdges.filter((edge) => {
+          if (edge.target !== connection.target) return false;
+          const fieldName = safeGetTargetFieldName(edge);
+          return fieldName === IMAGE_ROLE_FIELD;
+        });
+        const existingVideoEdges = existingFirstFrameEdges.filter((edge) => {
+          const src = get().nodes.find((node) => node.id === edge.source);
+          return src?.data?.type === IMAGE_ROLE_TARGET;
+        }).length;
+        const existingImageEdges = Math.max(existingFirstFrameEdges.length - existingVideoEdges, 0);
+
+        const hasExistingLastFrameEdge = oldEdges.some((edge) => {
+          if (edge.target !== connection.target) return false;
+          const fieldName = safeGetTargetFieldName(edge);
+          return fieldName === "last_frame_image";
+        });
+        const hasExistingLastFrame = Boolean(hasExistingLastFrameEdge || hasLocalLastFrame());
+
+        const connectingToFirstFrame = targetFieldName === IMAGE_ROLE_FIELD;
+        const connectingToLastFrame = targetFieldName === "last_frame_image";
+        const addingVideo = Boolean(connectingToFirstFrame && isVideoBridgeEdge);
+        const addingImage =
+          Boolean(connectingToFirstFrame && !isVideoBridgeEdge) || Boolean(connectingToLastFrame);
+
+        if (connectingToLastFrame && hasExistingLastFrame) {
+          setErrorData({
+            title: "尾帧输入已存在",
+            list: ["kling O1：尾帧输入只能设置 1 个。请先清空/移除现有尾帧后再连接。"],
+          });
+          return oldEdges;
+        }
+
+        const videosAfter = existingVideoEdges + local.videos + (addingVideo ? 1 : 0);
+        if (videosAfter > 1) {
+          setErrorData({
+            title: "参考视频数量超限",
+            list: ["kling O1：最多仅支持 1 段参考视频（MP4/MOV）。请移除多余连接或删除本地视频后再试。"],
+          });
+          return oldEdges;
+        }
+
+        const hasVideoAfter = videosAfter > 0;
+        const maxImagesTotal = hasVideoAfter ? 4 : 7;
+        const imagesAfter =
+          existingImageEdges +
+          local.images +
+          (hasExistingLastFrame ? 1 : 0) +
+          (addingImage ? 1 : 0);
+
+        if (hasVideoAfter && imagesAfter > 4) {
+          setErrorData({
+            title: "参考图片数量超限",
+            list: [
+              "kling O1：有参考视频时图片最多 4 张（首/尾帧也计入图片数量）。",
+              "请先删除多余图片/尾帧或移除参考视频后再连接。",
+            ],
+          });
+          return oldEdges;
+        }
+
+        if (imagesAfter > maxImagesTotal) {
+          setErrorData({
+            title: "参考图片数量超限",
+            list: [
+              "kling O1：无参考视频时图片最多 7 张；有参考视频时图片最多 4 张（首/尾帧也计入图片数量）。",
+              "请先删除多余图片/尾帧后再连接。",
+            ],
+          });
+          return oldEdges;
+        }
+      }
       const isRoleEdge =
         targetFieldName === IMAGE_ROLE_FIELD &&
-        targetNode?.data?.type === IMAGE_ROLE_TARGET;
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        !isVideoBridgeEdge;
       const isLastFrameEdge =
         targetFieldName === "last_frame_image" &&
         targetNode?.data?.type === IMAGE_ROLE_TARGET;
       let imageRole: "first" | "reference" | "last" | undefined;
+      let videoReferType: "base" | "feature" | undefined;
       const requestedRoleRaw =
         (connection as { imageRole?: unknown; data?: { imageRole?: unknown } })
           ?.imageRole ??
@@ -751,6 +1068,9 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
 
       if (isLastFrameEdge) {
         imageRole = requestedRole === "last" ? requestedRole : "last";
+      } else if (isVideoBridgeEdge) {
+        // Default to feature reference for video-to-video connections.
+        videoReferType = "feature";
       } else if (isRoleEdge) {
         const modelName = getDoubaoVideoModelName(targetNode);
         const limits = getImageRoleLimits(modelName);
@@ -779,6 +1099,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
             targetHandle,
             sourceHandle,
             ...(imageRole ? { imageRole } : {}),
+            ...(videoReferType ? { videoReferType } : {}),
           },
         },
         oldEdges,

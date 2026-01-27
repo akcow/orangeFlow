@@ -56,6 +56,7 @@ class DoubaoVideoGenerator(Component):
         "veo3.1-fast": "veo-3.1-fast-generate-preview",
         "sora-2": "sora-2",
         "sora-2-pro": "sora-2-pro",
+        "kling O1": "kling-video-o1",
     }
 
     MODEL_LIMITS = {
@@ -124,6 +125,15 @@ class DoubaoVideoGenerator(Component):
             "available_sizes": ["720x1280", "1280x720", "1024x1792", "1792x1024"],
             "channel_type": "reverse",  # 逆向渠道
         },
+        "kling O1": {
+            "resolutions": ["720p", "1080p"],
+            "min_duration": 3,
+            "max_duration": 10,
+            "supports_last_frame": True,
+            "supports_reference_images": True,
+            "supports_reference_videos": True,
+            "supported_ratios": ["16:9", "9:16", "1:1"],
+        },
     }
 
     SUPPORTED_RATIOS = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"]
@@ -131,6 +141,7 @@ class DoubaoVideoGenerator(Component):
     VEO_SUPPORTED_DURATIONS = [4, 6, 8]
     VEO_SUPPORTED_RESOLUTIONS = ["720p", "1080p"]
     DEFAULT_VIDEO_INLINE_MAX_BYTES = 30 * 1024 * 1024
+    KLING_SUPPORTED_RATIOS = ["16:9", "9:16", "1:1"]
 
     DASHSCOPE_API_BASE = "https://dashscope.aliyuncs.com"
     DASHSCOPE_POLL_INTERVAL_SECONDS = 2.0
@@ -147,6 +158,7 @@ class DoubaoVideoGenerator(Component):
             options=list(MODEL_MAPPING.keys()),
             value="Doubao-Seedance-1.0-pro-fast｜251015",  # 使用UI显示的模型名称作为默认值
             required=True,
+            real_time_refresh=True,
             info="选择视频创作模型，UI显示模型名称，API调用使用对应的端点ID。",
         ),
         MultilineInput(
@@ -300,6 +312,58 @@ class DoubaoVideoGenerator(Component):
             required=False,
             info="可选：指定国内代理侧的 distributor（渠道）。留空则由服务端自动选择。",
         ),
+        DropdownInput(
+            name="kling_mode",
+            display_name="Kling 模式",
+            options=["std", "pro"],
+            value="pro",
+            advanced=True,
+            required=False,
+            info="仅 kling O1：生成视频的模式（std=标准，pro=高品质）。",
+        ),
+        DropdownInput(
+            name="kling_video_refer_type",
+            display_name="Kling 参考视频类型",
+            options=["feature", "base"],
+            value="feature",
+            advanced=True,
+            required=False,
+            real_time_refresh=True,
+            info="仅 kling O1：feature=特征参考视频；base=待编辑视频（视频编辑）。",
+        ),
+        DropdownInput(
+            name="kling_keep_original_sound",
+            display_name="Kling 保留原声",
+            options=["yes", "no"],
+            value="yes",
+            advanced=True,
+            required=False,
+            info="仅 kling O1：参考视频/编辑视频是否保留视频原声。",
+        ),
+        StrInput(
+            name="kling_element_ids",
+            display_name="Kling 主体ID列表",
+            value="",
+            advanced=True,
+            required=False,
+            info="仅 kling O1：主体库 element_id 列表（逗号分隔），用于 element_list，并可在 prompt 中用 <<<element_1>>> 引用。",
+        ),
+        StrInput(
+            name="kling_callback_url",
+            display_name="Kling Callback URL",
+            value="",
+            advanced=True,
+            required=False,
+            info="仅 kling O1：任务状态回调地址（可选）。",
+        ),
+        StrInput(
+            name="kling_external_task_id",
+            display_name="Kling External Task ID",
+            value="",
+            advanced=True,
+            required=False,
+            info="仅 kling O1：自定义任务 ID（可选，单用户需唯一）。",
+        ),
     ]
 
     outputs = [
@@ -348,8 +412,89 @@ class DoubaoVideoGenerator(Component):
             return self._build_video_veo_gateway(prompt=merged_prompt, endpoint_id=endpoint_id)
         if self._is_sora_model(model_name):
             return self._build_video_sora_gateway(prompt=merged_prompt, endpoint_id=endpoint_id)
+        if self._is_kling_model(model_name):
+            return self._build_video_kling_gateway(prompt=merged_prompt, endpoint_id=endpoint_id)
 
         return self._build_video_gateway(prompt=merged_prompt, endpoint_id=endpoint_id, model_display_name=model_name)
+
+    def update_build_config(self, build_config, field_value: Any, field_name: str | None = None):
+        """Dynamically adjust UI controls based on the selected model.
+
+        For kling O1, we must:
+        - limit aspect ratio to 16:9 / 9:16 / 1:1
+        - clamp duration to 3-10 seconds (with doc caveats shown in tooltip)
+        - hide unsupported fields like resolution
+        """
+        # Keep default behavior (update the current field value).
+        if field_name and field_name in build_config:
+            build_config[field_name]["value"] = field_value
+
+        try:
+            model_value = str((build_config.get("model_name") or {}).get("value") or "").strip()
+        except Exception:
+            model_value = ""
+
+        is_kling = model_value.lower().startswith("kling")
+        refer_type = str((build_config.get("kling_video_refer_type") or {}).get("value") or "feature").strip().lower()
+
+        # Helper to restore a field back to its static definition (keeps current value).
+        def _restore_field_defaults(field: str) -> None:
+            current_value = (build_config.get(field) or {}).get("value")
+            for inp in getattr(type(self), "inputs", []) or []:
+                if getattr(inp, "name", None) == field and hasattr(inp, "to_dict"):
+                    build_config[field] = inp.to_dict()
+                    if current_value is not None:
+                        build_config[field]["value"] = current_value
+                    return
+
+        if is_kling:
+            # Resolution is not a Kling parameter.
+            if "resolution" in build_config:
+                build_config["resolution"]["show"] = False
+
+            # Aspect ratio: only 16:9 / 9:16 / 1:1.
+            if "aspect_ratio" in build_config:
+                # Video editing mode outputs with the input video's aspect; this knob is irrelevant.
+                build_config["aspect_ratio"]["show"] = refer_type != "base"
+                build_config["aspect_ratio"]["options"] = list(self.KLING_SUPPORTED_RATIOS)
+                # Clear metadata to avoid stale icons/labels.
+                build_config["aspect_ratio"]["options_metadata"] = []
+                ratio_value = str(build_config["aspect_ratio"].get("value") or "16:9").strip()
+                if ratio_value not in self.KLING_SUPPORTED_RATIOS:
+                    build_config["aspect_ratio"]["value"] = "16:9"
+                build_config["aspect_ratio"]["info"] = (
+                    "kling O1：仅支持 16:9 / 9:16 / 1:1。未使用首帧参考或视频编辑功能时必填。"
+                )
+
+            # Duration: 3-10 seconds (with doc constraints for some modes).
+            if "duration" in build_config:
+                # If user selected video editing (base), duration is ignored by upstream.
+                build_config["duration"]["show"] = refer_type != "base"
+                # Frontend expects `range_spec` (snake_case).
+                build_config["duration"]["range_spec"] = {"min": 3, "max": 10, "step": 1, "step_type": "int"}
+                try:
+                    dur = int(build_config["duration"].get("value") or 5)
+                except Exception:
+                    dur = 5
+                if dur < 3:
+                    dur = 3
+                if dur > 10:
+                    dur = 10
+                build_config["duration"]["value"] = dur
+                build_config["duration"]["info"] = (
+                    "kling O1：时长仅支持 3-10 秒。"
+                    "文生视频/首帧图生视频仅支持 5 或 10 秒；"
+                    "视频编辑（refer_type=base）时输出与输入视频时长一致，此参数无效。"
+                )
+
+        else:
+            # Restore defaults when switching away from Kling.
+            if "resolution" in build_config:
+                build_config["resolution"]["show"] = True
+            _restore_field_defaults("aspect_ratio")
+            _restore_field_defaults("duration")
+
+        return build_config
 
         creds = resolve_credentials(
             component_app_id=None,
@@ -986,9 +1131,22 @@ class DoubaoVideoGenerator(Component):
             # Otherwise, fall back to embedded/base64/http image data.
             image_url = self._extract_image_url(entry)
             if image_url:
-                images.append(image_url)
+                # Upstream nodes may pass http(s) video URLs here (e.g. video->video edges).
+                # Classify by file extension so wan2.6 can enter r2v mode.
+                if self._is_video_url(image_url):
+                    videos.append(image_url)
+                else:
+                    images.append(image_url)
 
         return {"images": images, "videos": videos}
+
+    @staticmethod
+    def _is_video_url(url: str) -> bool:
+        normalized = (url or "").strip()
+        if not normalized:
+            return False
+        path = normalized.split("?", 1)[0].split("#", 1)[0].lower()
+        return path.endswith(".mp4") or path.endswith(".mov")
 
     @staticmethod
     def _extract_file_path(value: Any) -> str | None:
@@ -999,9 +1157,17 @@ class DoubaoVideoGenerator(Component):
         if isinstance(value, dict):
             candidate = value.get("file_path") or value.get("path") or value.get("value")
             if isinstance(candidate, str) and candidate.strip():
-                return candidate.strip()
-        if isinstance(value, str) and value.strip() and "/" in value:
-            return value.strip()
+                trimmed = candidate.strip()
+                # Avoid treating remote URLs as flow file paths.
+                if trimmed.startswith(("http://", "https://", "data:", "oss://")):
+                    return None
+                return trimmed
+        if isinstance(value, str) and value.strip():
+            trimmed = value.strip()
+            if trimmed.startswith(("http://", "https://", "data:", "oss://")):
+                return None
+            if "/" in trimmed or "\\" in trimmed:
+                return trimmed
         return None
 
     def _resolve_wan_audio_url(self, *, api_key: str, model: str) -> str | None:
@@ -2383,7 +2549,7 @@ class DoubaoVideoGenerator(Component):
                 if not video_url:
                     video_url = self._first_url_from_payload(poll.get("provider_response"))
 
-            done = status in {"completed", "succeeded", "success", "done", "partial_succeeded"}
+            done = status in {"completed", "succeeded", "success", "succeed", "done", "partial_succeeded"}
             if video_url and (done or not status):
                 generated_at = datetime.now(timezone.utc).isoformat()
                 result_payload = {
@@ -2420,6 +2586,295 @@ class DoubaoVideoGenerator(Component):
             time.sleep(poll_interval)
 
         return self._error(f"Video generation timed out ({max_wait}s), task_id={task_id}")
+
+    @staticmethod
+    def _is_kling_model(model_name: str) -> bool:
+        return str(model_name or "").strip().lower().startswith("kling")
+
+    @staticmethod
+    def _parse_int_list(value: Any) -> list[int]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple)):
+            items = list(value)
+        else:
+            items = [value]
+
+        out: list[int] = []
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, int):
+                out.append(item)
+                continue
+            s = str(item).strip()
+            if not s:
+                continue
+            # Split "1,2 3" style.
+            for part in s.replace("，", ",").replace(" ", ",").split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    out.append(int(part))
+                except ValueError:
+                    continue
+        return out
+
+    def _collect_kling_media(self) -> dict[str, Any]:
+        """Collect Kling image_list/video_list inputs from FileInput(s).
+
+        - Images: from first_frame_image (role-aware) + last_frame_image (optional end_frame).
+        - Videos: from first_frame_image (mp4/mov).
+        """
+
+        # 1) Collect images/videos from first_frame_image (supports upload + role annotations).
+        images: list[dict[str, Any]] = []
+        videos: list[dict[str, Any]] = []
+
+        raw = getattr(self, "first_frame_image", None)
+
+        # UI stores FileInput as { value: [...], file_path: [...] } (value may include role).
+        container: dict[str, Any] | None = None
+        if isinstance(raw, Data) and isinstance(raw.data, dict):
+            container = raw.data
+        elif isinstance(raw, dict):
+            container = raw
+
+        values: list[Any] = []
+        paths: list[Any] = []
+        if container is not None and ("value" in container or "file_path" in container):
+            values = container.get("value") if isinstance(container.get("value"), list) else [container.get("value")]
+            paths = container.get("file_path") if isinstance(container.get("file_path"), list) else [container.get("file_path")]
+            values = [v for v in values if v is not None]
+            paths = [p for p in paths if p is not None]
+        else:
+            if isinstance(raw, (list, tuple)):
+                values = list(raw)
+            elif raw is not None:
+                values = [raw]
+
+        def _normalize_role(value: Any | None) -> str | None:
+            if not isinstance(value, str):
+                return None
+            normalized = value.strip().lower()
+            if not normalized:
+                return None
+            alias_map = {
+                "start": "first",
+                "first_frame": "first",
+                "end_frame": "last",
+                "last_frame": "last",
+                "ref": "reference",
+            }
+            normalized = alias_map.get(normalized, normalized)
+            if normalized in {"first", "reference", "last"}:
+                return normalized
+            return None
+
+        default_role = "first" if max(len(values), len(paths)) <= 1 else "reference"
+        length = max(len(values), len(paths))
+
+        for idx in range(length):
+            value_entry = values[idx] if idx < len(values) else None
+            path_entry = paths[idx] if idx < len(paths) else None
+
+            role = default_role
+            role_source: dict[str, Any] | None = None
+            if isinstance(value_entry, Data) and isinstance(value_entry.data, dict):
+                role_source = value_entry.data
+            elif isinstance(value_entry, dict):
+                role_source = value_entry
+            if role_source is not None:
+                direct = _normalize_role(role_source.get("role"))
+                if direct:
+                    role = direct
+                else:
+                    nested = role_source.get("value")
+                    if isinstance(nested, dict):
+                        nested_role = _normalize_role(nested.get("role"))
+                        if nested_role:
+                            role = nested_role
+
+            file_path = self._extract_file_path(path_entry) or self._extract_file_path(value_entry)
+            if file_path:
+                ext = (Path(str(file_path)).suffix or "").lower().lstrip(".")
+                public_url = self._build_public_file_url(str(file_path), ttl_seconds=3600)
+                if public_url:
+                    if ext in {"mp4", "mov"}:
+                        videos.append({"video_url": public_url, "role": role, "source": "upload"})
+                        continue
+                    images.append({"image_url": public_url, "role": role, "source": "upload"})
+                    continue
+
+            # Fallback: embedded/base64/http(s) values.
+            url = self._extract_image_url(path_entry) or self._extract_image_url(value_entry)
+            if not url:
+                continue
+            if self._is_video_url(url):
+                videos.append({"video_url": url, "role": role, "source": "url"})
+            else:
+                images.append({"image_url": url, "role": role, "source": "url"})
+
+        # 2) Optional end frame (separate input) if not already present.
+        last_frame_raw = getattr(self, "last_frame_image", None)
+        if last_frame_raw:
+            last_url = self._extract_image_url(last_frame_raw)
+            if last_url and not any(i.get("role") == "last" for i in images):
+                images.append({"image_url": last_url, "role": "last", "source": "last_frame_image"})
+
+        # 3) Build Kling structures (image_list/video_list).
+        image_list: list[dict[str, Any]] = []
+        has_first = False
+        has_last = False
+        for entry in images:
+            image_url = entry.get("image_url")
+            if not isinstance(image_url, str) or not image_url.strip():
+                continue
+            role = str(entry.get("role") or "reference")
+            item: dict[str, Any] = {"image_url": image_url}
+            if role == "first":
+                item["type"] = "first_frame"
+                has_first = True
+            elif role == "last":
+                item["type"] = "end_frame"
+                has_last = True
+            image_list.append(item)
+
+        # Kling requires first_frame when end_frame is provided.
+        if has_last and not has_first:
+            # Best-effort: promote the first non-end_frame image to first_frame.
+            promoted = False
+            for item in image_list:
+                if item.get("type") != "end_frame":
+                    item["type"] = "first_frame"
+                    promoted = True
+                    break
+            if not promoted:
+                raise ValueError("kling O1: 使用尾帧(end_frame)时必须同时提供首帧(first_frame)。")
+
+        # Kling: if more than 2 images, end_frame is not supported. Best-effort: drop end_frame.
+        if len(image_list) > 2 and any(i.get("type") == "end_frame" for i in image_list):
+            image_list = [i for i in image_list if i.get("type") != "end_frame"]
+
+        # Docs limits:
+        # - with reference video: <= 4 images
+        # - without reference video: <= 7 images
+        if videos and len(image_list) > 4:
+            raise ValueError("kling O1：有参考视频时，参考图片数量不得超过 4。请减少图片数量或移除参考视频。")
+        if not videos and len(image_list) > 7:
+            raise ValueError("kling O1：无参考视频时，参考图片数量不得超过 7。请减少图片数量。")
+
+        video_list: list[dict[str, Any]] = []
+        if videos:
+            # Kling currently supports up to 1 video.
+            first_video = videos[0]
+            video_url = first_video.get("video_url")
+            if isinstance(video_url, str) and video_url.strip():
+                refer_type = str(getattr(self, "kling_video_refer_type", "") or "").strip() or "feature"
+                keep_original_sound = str(getattr(self, "kling_keep_original_sound", "") or "").strip() or "yes"
+                video_list.append(
+                    {
+                        "video_url": video_url,
+                        "refer_type": refer_type,
+                        "keep_original_sound": keep_original_sound,
+                    }
+                )
+
+        return {"image_list": image_list, "video_list": video_list}
+
+    def _build_video_kling_gateway(self, *, prompt: str, endpoint_id: str) -> Data:
+        """Kling Omni-Video (kling-video-o1) via hosted gateway."""
+        try:
+            from langflow.gateway.client import videos_create
+
+            # Kling uses aspect_ratio (16:9, 9:16, 1:1) and duration (3-10, scenario-dependent).
+            resolution = str(getattr(self, "resolution", "") or "").strip()
+            raw_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+            ratio = raw_ratio if raw_ratio in {"16:9", "9:16", "1:1"} else "16:9"
+
+            raw_duration = int(getattr(self, "duration", 5) or 5)
+            duration = max(3, min(raw_duration, 10))
+
+            mode = str(getattr(self, "kling_mode", "pro") or "pro").strip() or "pro"
+            if mode not in {"std", "pro"}:
+                mode = "pro"
+
+            refer_type = str(getattr(self, "kling_video_refer_type", "") or "feature").strip() or "feature"
+            if refer_type not in {"feature", "base"}:
+                refer_type = "feature"
+
+            media = self._collect_kling_media()
+            image_list = media["image_list"]
+            video_list = media["video_list"]
+
+            if refer_type == "base" and not video_list:
+                return self._error("kling O1：选择视频编辑（refer_type=base）时必须提供一段参考视频（mp4/mov）。")
+
+            # Video editing cannot define first/end frame; downgrade to plain reference images.
+            if refer_type == "base" and image_list:
+                for item in image_list:
+                    if isinstance(item, dict) and "type" in item:
+                        item.pop("type", None)
+
+            # For pure t2v / first-frame generation, Kling often only supports 5 or 10 seconds.
+            if not video_list and (not image_list or any(i.get("type") == "first_frame" for i in image_list)):
+                if duration not in {5, 10}:
+                    duration = 5 if duration < 8 else 10
+
+            element_ids = self._parse_int_list(getattr(self, "kling_element_ids", None))
+            element_list = [{"element_id": eid} for eid in element_ids]
+
+            callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
+            external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
+
+            kling_payload: dict[str, Any] = {
+                "model_name": "kling-video-o1",
+                "prompt": prompt,
+                "mode": mode,
+            }
+            # Kling docs: duration is ignored for video-editing (refer_type=base); aspect_ratio is also irrelevant there.
+            if refer_type != "base":
+                if ratio:
+                    kling_payload["aspect_ratio"] = ratio
+                if duration:
+                    kling_payload["duration"] = str(duration)
+            if image_list:
+                kling_payload["image_list"] = image_list
+            if video_list:
+                kling_payload["video_list"] = video_list
+            if element_list:
+                kling_payload["element_list"] = element_list
+            if callback_url:
+                kling_payload["callback_url"] = callback_url
+            if external_task_id:
+                kling_payload["external_task_id"] = external_task_id
+
+            create = videos_create(
+                model=endpoint_id,
+                prompt=prompt,
+                duration=duration,
+                ratio=ratio,
+                extra_body={"kling_payload": kling_payload},
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+            task_id = str(create.get("id") or "").strip()
+            if not task_id:
+                return self._error(f"Gateway did not return task id: {create}")
+
+            return self._poll_gateway_video(
+                task_id=task_id,
+                prompt=prompt,
+                endpoint_id=endpoint_id,
+                model_display_name=str(self.model_name or endpoint_id),
+                resolution=resolution,
+                duration=duration,
+                aspect_ratio=ratio,
+                max_wait=900,
+                poll_interval=3,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway kling video failed: {exc}")
 
     def _build_video_wan_gateway(self, *, prompt: str, model_name: str) -> Data:
         """WAN (DashScope) video generation via hosted gateway."""

@@ -25,6 +25,7 @@ from langflow.gateway.providers.dashscope import DashScopeProvider
 from langflow.gateway.providers.sora import SoraProvider
 from langflow.gateway.providers.veo import VeoProvider
 from langflow.gateway.providers.qwen import QwenProvider
+from langflow.gateway.providers.kling import KlingProvider
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
@@ -184,6 +185,21 @@ def resolve_provider(model: str) -> tuple[str, Any]:
             )
         return "sora", SoraProvider(api_key=api_key)
 
+    # Kling models (video).
+    if model.startswith("kling"):
+        api_key = _resolve_api_key(
+            env_vars=["KLING_API_KEY"],
+            provider_cred_keys=["kling", "klingai"],
+        )
+        base_url = os.getenv("KLING_API_BASE", "https://api-beijing.klingai.com")
+        if not api_key:
+            raise GatewayError(
+                401,
+                "PROVIDER_KEY_MISSING",
+                f"Key for model {model} not configured. Set KLING_API_KEY, or save provider credentials 'kling'.",
+            )
+        return "kling", KlingProvider(api_key=api_key, base_url=base_url)
+
     # Audio/Qwen.
     if "qwen3-tts" in model:
         api_key = _resolve_api_key(
@@ -217,6 +233,7 @@ async def list_models(
         {"id": "gemini-3-pro-preview", "object": "model", "owned_by": "google"},
         {"id": "doubao-seedream-4-5-251128", "object": "model", "owned_by": "doubao"},
         {"id": "sora-2", "object": "model", "owned_by": "sora"},
+        {"id": "kling-video-o1", "object": "model", "owned_by": "kling"},
         # ... add others from doc ...
     ]
 
@@ -247,6 +264,7 @@ async def list_model_page(
         {"id": "doubao-seedance-1-5-pro-251215", "fullName": "Doubao Seedance 1.5", "type": "video"},
         {"id": "wan2.6", "fullName": "Wan 2.6 Video", "type": "video"},
         {"id": "veo-3.1-generate-preview", "fullName": "Google Veo 3.1", "type": "video"},
+        {"id": "kling-video-o1", "fullName": "kling O1", "type": "video"},
         
         {"id": "qwen3-tts-flash-2025-11-27", "fullName": "Qwen TTS", "type": "audio"},
     ]
@@ -293,6 +311,7 @@ async def get_model_by_full_name(
         {"id": "wan2.6-i2v", "fullName": "Wan 2.6 I2V", "type": "video"},
         {"id": "veo-3.1-generate-preview", "fullName": "Veo 3.1", "type": "video"},
         {"id": "veo-3.1-fast-generate-preview", "fullName": "Veo 3.1 Fast", "type": "video"},
+        {"id": "kling-video-o1", "fullName": "kling O1", "type": "video"},
 
         {"id": "qwen3-tts-flash-2025-11-27", "fullName": "Qwen TTS", "type": "audio"},
     ]
@@ -388,6 +407,8 @@ async def get_video_status(
         _n, provider = resolve_provider("sora-2")
     elif provider_name == "veo":
         _n, provider = resolve_provider("veo-3.1-generate-preview")
+    elif provider_name == "kling":
+        _n, provider = resolve_provider("kling-video-o1")
     else:
         raise ModelNotFoundError(provider_name)
 
@@ -397,6 +418,8 @@ async def get_video_status(
         status_value = result.get("status")
         if not status_value and isinstance(result.get("output"), dict):
             status_value = (result["output"].get("task_status") or result["output"].get("taskStatus") or "").lower()
+        if not status_value and isinstance(result.get("data"), dict):
+            status_value = (result["data"].get("task_status") or result["data"].get("taskStatus") or "").lower()
         normalized: dict[str, Any] = {"id": video_id, "provider": provider_name, "provider_response": result}
         if isinstance(status_value, str) and status_value:
             normalized["status"] = status_value
@@ -411,6 +434,13 @@ async def get_video_status(
         elif provider_name == "veo":
             # Veo content is always served from /content.
             video_url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
+        elif provider_name == "kling":
+            data = result.get("data") if isinstance(result.get("data"), dict) else None
+            task_result = data.get("task_result") if isinstance(data, dict) else None
+            videos = task_result.get("videos") if isinstance(task_result, dict) else None
+            if isinstance(videos, list) and videos:
+                first = videos[0] if isinstance(videos[0], dict) else {}
+                video_url = first.get("url") if isinstance(first.get("url"), str) else None
         if isinstance(video_url, str) and video_url.strip():
             normalized["data"] = {"url": video_url.strip()}
 

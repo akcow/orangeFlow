@@ -1,0 +1,325 @@
+# Omni-Video
+## 1. 创建任务
+### 1.1 接口基本信息
+| 网络协议 | 请求地址 | 请求方法 | 请求格式 | 响应格式 |
+| ---- | ---- | ---- | ---- | ---- |
+| https | /v1/videos/omni-video | POST | application/json | application/json |
+
+### 1.2 请求头
+| 字段 | 值 | 描述 |
+| ---- | ---- | ---- |
+| Content-Type | application/json | 数据交换格式 |
+| Authorization | 鉴权信息，参考接口鉴权 | 鉴权信息，参考接口鉴权 |
+
+### 1.3 请求体
+| 字段 | 类型 | 必填 | 默认值 | 描述 |
+| ---- | ---- | ---- | ---- | ---- |
+| model_name | string | 可选 | kling-v1 | 模型名称<br/><br/>枚举值：kling-video-o1 |
+| prompt | string | 必须 | 无 | 文本提示词，可包含正向描述和负向描述<br/><br/>- 可将提示词模板化来满足不同的视频生成需求<br/>- 不能超过2500个字符<br/>- Omni模型可通过Prompt与主体、图片、视频等内容实现多种能力<br/>- 通过`<<<>>>}`的格式来指定某个主体、图片或视频，如：`<<<element_1>>>`、`<<<image_1>>>`、`<<<video_1>>>`<br/>- 能力范围详见使用手册：可灵Omni模型使用指南 |
+| image_list | array | 可选 | 空 | 参考图列表<br/><br/>- 包括主体、场景、风格等参考图片，也可作为首帧或尾帧生成视频；当作为首帧或尾帧生成视频时：<br/>  - 通过type参数来定义图片是否为首尾帧：first_frame为首帧，end_frame为尾帧<br/>  - 暂时不支持仅尾帧，即有尾帧图时必须有首帧图<br/>  - 首帧或首尾帧生视频时，不能使用视频编辑功能<br/>- 用key:value承载，示例如下：<br/>```json<br>"image_list":[<br>  {<br>    "image_url":"image_url",<br>    "type":"first_frame"<br>  },<br>  {<br>    "image_url":"image_url",<br>    "type":"end_frame"<br>  }<br>]<br>```<br/>- 支持传入图片Base64编码或图片URL（确保可访问）<br/>- 图片格式支持.jpg / .jpeg / .png<br/>- 图片文件大小不能超过10MB，图片宽高尺寸不小于300px，图片宽高比要在1:2.5 ~ 2.5:1之间<br/>- 有参考视频时，参考图片数量不得超过4；无参考视频时，参考图片数量不得超过7<br/>- 数组中超过2张图片时，不支持设置尾帧<br/>- image_url参数值不得为空 |
+| element_list | array | 可选 | 空 | 主体参考列表<br/><br/>- 基于主体库中主体的ID配置，用key:value承载，示例如下：<br/>```json<br>"element_list":[<br>  {<br>    "element_id":long<br>  }<br>]<br>```<br/>- 参考主体数量与有无参考视频、参考图片数量有关，其中：<br/>  - 有参考视频时，参考图片数量和参考主体数量之和不得超过4；<br/>  - 无参考视频时，参考图片数量和参考主体数量之和不得超过7 |
+| video_list | array | 可选 | 空 | 参考视频，通过URL方式获取<br/><br/>- 可作为特征参考视频，也可作为待编辑视频，默认为待编辑视频；可选择性保留视频原声<br/>- 通过refer_type参数区分参考视频类型：feature为特征参考视频，base为待编辑视频<br/>- 参考视频为待编辑视频时，不能定义视频首尾帧<br/>- 通过keep_original_sound参数选择是否保留视频原声，yes为保留，no为不保留；当前参数对特征参考视频（feature）也生效<br/>- 用key:value承载，示例如下：<br/>```json<br>"video_list":[<br>  {<br>    "video_url":"video_url",<br>    "refer_type":"base",<br>    "keep_original_sound":"yes"<br>  }<br>]<br>```<br/>- 视频格式仅支持MP4/MOV<br/>- 仅支持时长≥3秒且≤10秒的视频<br/>- 视频宽高尺寸需介于720px（含）和2160px（含）之间<br/>- 视频帧率基于24fps～60fps，生成视频时会输出为24fps<br/>- 至多仅支持上传1段视频，视频大小不超过200MB<br/>- video_url参数值不得为空 |
+| mode | string | 可选 | pro | 生成视频的模式<br/><br/>- 枚举值：std，pro<br/>- 其中std：标准模式（标准），基础模式，性价比高<br/>- 其中pro：专家模式（高品质），高表现模式，生成视频质量更佳<br/>- 不同模型版本、视频模式支持范围不同，详见当前文档3-0能力地图 |
+| aspect_ratio | string | 可选 | 空 | 生成视频的画面纵横比（宽:高）<br/><br/>- 枚举值：16:9, 9:16, 1:1<br/>- 未使用首帧参考或视频编辑功能时，当前参数必填 |
+| duration | string | 可选 | 5 | 生成视频时长，单位s<br/><br/>- 枚举值：3，4，5，6，7，8，9，10，其中：<br/>  - 使用文生视频、首帧图生视频时，仅支持5和10s<br/>  - 使用视频编辑功能（"refer_type":"base"）时，输出结果与传入视频时长相同，此时当前参数无效；此时，按输入视频时长四舍五入取整计量计费 |
+| callback_url | string | 可选 | 空 | 本次任务结果回调通知地址，如果配置，服务端会在任务状态发生变更时主动通知<br/><br/>具体通知的消息schema见“Callback协议” |
+| external_task_id | string | 可选 | 空 | 自定义任务ID<br/><br/>- 用户自定义任务ID，传入不会覆盖系统生成的任务ID，但支持通过该ID进行任务查询<br/>- 请注意，单用户下需要保证唯一性 |
+
+### 1.4 响应体
+```json
+{
+  "code": 0, //错误码；具体定义见错误码
+  "message": "string", //错误信息
+  "request_id": "string", //请求ID，系统生成，用于跟踪请求、排查问题
+  "data":{
+  	"task_id": "string", //任务ID，系统生成
+    "task_info":{ //任务创建时的参数信息
+       "external_task_id": "string"//客户自定义任务ID
+    }, 
+    "task_status": "string", //任务状态，枚举值：submitted（已提交）、processing（处理中）、succeed（成功）、failed（失败）
+    "created_at": 1722769557708, //任务创建时间，Unix时间戳、单位ms
+    "updated_at": 1722769557708 //任务更新时间，Unix时间戳、单位ms
+  }
+}
+```
+
+## 2. 更多场景调用示例
+以下为场景代码示例，更多效果与提示词详见：可灵Omni模型示例
+
+### 2.1 图片/主体参考
+参考图片/主体里的角色/道具/场景等多种元素，灵活生成视频
+```bash
+curl --location 'https://api-beijing.klingai.com/v1/videos/omni-video' \
+--header 'Authorization: Bearer xxx' \
+--header 'Content-Type: application/json' \
+--data '{
+    "model_name": "kling-video-o1",
+    "prompt": "<<<image_1>>>在东京的街头漫步，偶遇<<<element_1>>>和<<<element_2>>>，并跳到<<<element_2>>>的怀里。视频画面风格与<<<image_2>>>相同",
+    "image_list": [
+        {
+        	"image_url": "xxxxx"
+        },
+        {
+        	"image_url": "xxxxx"
+        }
+    ],
+    "element_list": [
+        {
+        	"element_id": long
+        },
+        {
+        	"element_id": long
+        }
+    ],
+    "mode": "pro",
+    "aspect_ratio": "1:1",
+    "duration": "7"
+}'
+```
+
+### 2.2 指令变换
+视频编辑，例如视频增加内容/删除内容/修改内容（主体/背景/局部/视频风格/物体颜色/天气/…）/切换景别/切换视角
+```bash
+curl --location 'https://api-beijing.klingai.com/v1/videos/omni-video' \
+--header 'Authorization: Bearer xxx' \
+--header 'Content-Type: application/json' \
+--data '{
+    "model_name": "kling-video-o1",
+    "prompt": "给<<<video_1>>>中的穿蓝衣服的女孩，戴上<<<image_1>>>中的王冠",
+    "image_list": [
+      {
+      	"image_url": "xxx"
+      }
+    ],
+    "video_list": [
+      {
+        "video_url":"xxxxxxxx",
+        "refer_type":"base",
+        "keep_original_sound":"yes"
+      }
+    ],
+    "mode": "pro"
+}'
+```
+
+### 2.3 视频参考
+参考视频内容生成下一个镜头/上一个镜头，或者参考视频的风格/运镜方式进行视频生成
+```bash
+curl --location 'https://api-beijing.klingai.com/v1/videos/omni-video' \
+--header 'Authorization: Bearer xxx' \
+--header 'Content-Type: application/json' \
+--data '{
+    "model_name": "kling-video-o1",
+    "prompt": "参考<<<video_1>>>的运镜方式，生成一段视频：<<<element_1>>>和<<<element_2>>>在东京街头漫步，偶遇<<<image_1>>>",
+    "image_list": [
+      {
+      	"image_url": "xxx"
+      }
+    ],
+    "element_list": [
+      {
+        "element_id": "xxx"
+      },
+      {
+        "element_id": "xxx"
+      }
+    ],
+    "video_list": [
+      {
+        "video_url":"xxxxxxxx",
+        "refer_type":"feature",
+        "keep_original_sound":"yes"
+      }
+    ],
+    "mode": "pro",
+    "aspect_ratio": "1:1",
+    "duration": "7"
+}'
+```
+
+```bash
+curl --location 'https://api-beijing.klingai.com/v1/videos/omni-video' \
+--header 'Authorization: Bearer xxx' \
+--header 'Content-Type: application/json' \
+--data '{
+    "model_name": "kling-video-o1",
+    "prompt": "基于<<<video_1>>>，生成下一个镜头",
+    "video_list": [
+      {
+        "video_url":"xxxxxxxx",
+        "refer_type":"feature",
+        "keep_original_sound":"yes"
+      }
+    ],
+    "mode": "pro"
+}'
+```
+
+### 2.4 首尾帧（图生视频首尾帧）
+```bash
+curl --location 'https://api-beijing.klingai.com/v1/videos/omni-video' \
+--header 'Authorization: Bearer xxx' \
+--header 'Content-Type: application/json' \
+--data '{
+    "model_name": "kling-video-o1",
+    "prompt": "视频中的人跳舞",
+    "image_list": [
+      {
+      	"image_url": "xxx",
+        "type": "first_frame"
+      },
+      {
+      	"image_url": "xxx",
+        "type": "end_frame"
+      }
+    ],
+    "mode": "pro"
+}'
+```
+
+### 2.5 文生视频
+```bash
+curl --location 'https://api-beijing.klingai.com/v1/videos/omni-video' \
+--header 'Authorization: Bearer xxx' \
+--header 'Content-Type: application/json' \
+--data '{
+    "model_name": "kling-video-o1",
+    "prompt": "视频中的人跳舞",
+    "mode": "pro",
+    "aspect_ratio": "1:1",
+    "duration": "7"
+}'
+```
+
+## 3. FAQ
+1. 生成视频时长（duration）什么情况支持、什么情况不支持？
+   - 文生，图生（不含首尾帧）：可选5s/10s
+   - 有视频输入（video_list不为空）且 使用视频编辑功能（类型=base）时：不可指定时长，跟视频对齐
+   - 其他情况（不传视频+传图片+主体进行生视频，或者 传视频+视频类型=feature时），可选3-10s
+2. 怎么进行视频延长？
+   - 可以通过“视频参考”来实现，传入一段视频，通过prompt驱动模型“生成下一个镜头”或者“生成上一个镜头”
+   ```bash
+   curl --location 'https://api-beijing.klingai.com/v1/videos/omni-video' \
+   --header 'Authorization: Bearer xxx' \
+   --header 'Content-Type: application/json' \
+   --data '{
+       "model_name": "kling-video-o1",
+       "prompt": "基于<<<video_1>>>，生成下一个镜头",
+       "video_list": [
+         {
+           "video_url":"xxxxxxxx",
+           "refer_type":"feature",
+           "keep_original_sound":"yes"
+         }
+       ],
+       "mode": "pro"
+   }'
+   ```
+3. 生成视频宽高比（aspect_ratio）什么情况支持、什么情况不支持？
+   - 不支持：指令变换（视频编辑），图生视频（包括首尾帧）
+   - 支持：文生视频，图片/主体参考，视频参考-其他，视频参考-生成下一个/上一个镜头
+
+## 4. 查询任务（单个）
+### 4.1 接口基本信息
+| 网络协议 | 请求地址 | 请求方法 | 请求格式 | 响应格式 |
+| ---- | ---- | ---- | ---- | ---- |
+| https | /v1/videos/omni-video/{id} | GET | application/json | application/json |
+
+### 4.2 请求头
+| 字段 | 值 | 描述 |
+| ---- | ---- | ---- |
+| Content-Type | application/json | 数据交换格式 |
+| Authorization | 鉴权信息，参考接口鉴权 | 鉴权信息，参考接口鉴权 |
+
+### 4.3 请求路径参数
+| 字段 | 类型 | 必填 | 默认值 | 描述 |
+| ---- | ---- | ---- | ---- | ---- |
+| task_id | string | 可选 | 无 | 文生视频的任务ID<br/><br/>请求路径参数，直接将值填写在请求路径中，与external_task_id两种查询方式二选一 |
+| external_task_id | string | 可选 | 无 | 文生视频的自定义任务ID<br/><br/>创建任务时填写的external_task_id，与task_id两种查询方式二选一 |
+
+### 4.4 请求体
+无
+
+### 4.5 响应体
+```json
+{
+  "code": 0, //错误码；具体定义见错误码
+  "message": "string", //错误信息
+  "request_id": "string", //请求ID，系统生成，用于跟踪请求、排查问题
+  "data":{
+  	"task_id": "string", //任务ID，系统生成 
+    "task_status": "string", //任务状态，枚举值：submitted（已提交）、processing（处理中）、succeed（成功）、failed（失败）
+    "task_status_msg": "string", //任务状态信息，当任务失败时展示失败原因（如触发平台的内容风控等）
+    "task_info": { //任务创建时的参数信息
+      "external_task_id": "string"//客户自定义任务ID
+    },
+    "task_result":{
+      "videos":[
+        {
+        	"id": "string", //生成的视频ID；全局唯一
+      		"url": "string", //生成视频的URL，防盗链格式（请注意，为保障信息安全，生成的图片/视频会在30天后被清理，请及时转存）
+      		"duration": "string" //视频总时长，单位s
+        }
+      ]
+    },
+    "created_at": 1722769557708, //任务创建时间，Unix时间戳、单位ms
+    "updated_at": 1722769557708 //任务更新时间，Unix时间戳、单位ms
+  }
+}
+```
+
+## 5. 查询任务（列表）
+### 5.1 接口基本信息
+| 网络协议 | 请求地址 | 请求方法 | 请求格式 | 响应格式 |
+| ---- | ---- | ---- | ---- | ---- |
+| https | /v1/videos/omni-video | GET | application/json | application/json |
+
+### 5.2 请求头
+| 字段 | 值 | 描述 |
+| ---- | ---- | ---- |
+| Content-Type | application/json | 数据交换格式 |
+| Authorization | 鉴权信息，参考接口鉴权 | 鉴权信息，参考接口鉴权 |
+
+### 5.3 查询参数
+| 字段 | 类型 | 必填 | 默认值 | 描述 |
+| ---- | ---- | ---- | ---- | ---- |
+| pageNum | int | 可选 | 1 | 页码<br/><br/>取值范围：[1,1000] |
+| pageSize | int | 可选 | 30 | 每页数据量<br/><br/>取值范围：[1,500] |
+
+### 5.4 请求体
+无
+
+### 5.5 响应体
+```json
+{
+  "code": 0, //错误码；具体定义见错误码
+  "message": "string", //错误信息
+  "request_id": "string", //请求ID，系统生成，用于跟踪请求、排查问题
+  "data":[
+    {
+      "task_id": "string", //任务ID，系统生成
+      "task_status": "string", //任务状态，枚举值：submitted（已提交）、processing（处理中）、succeed（成功）、failed（失败）
+      "task_status_msg": "string", //任务状态信息，当任务失败时展示失败原因（如触发平台的内容风控等）
+      "task_info": { //任务创建时的参数信息
+        "external_task_id": "string"//任务ID，客户自定义生成，与task_id两种查询方式二选一
+      },
+      "task_result":{
+        "videos":[
+          {
+            "id": "string", //生成的视频ID；全局唯一
+            "url": "string", //生成视频的URL，防盗链格式（请注意，为保障信息安全，生成的图片/视频会在30天后被清理，请及时转存）
+            "duration": "string" //视频总时长，单位s
+          }
+        ]
+      },
+      "created_at": 1722769557708, //任务创建时间，Unix时间戳、单位ms
+      "updated_at": 1722769557708 //任务更新时间，Unix时间戳、单位ms
+    }
+  ]
+}
+```
+
+### 总结
+1. Omni-Video接口主要包含**创建任务**、**查询单个任务**、**查询任务列表**三大核心能力，创建任务支持图片/主体参考、指令变换、视频参考、首尾帧、文生视频等多场景；
+2. 请求参数中`prompt`为必填项，`aspect_ratio`在未使用首帧参考/视频编辑时必填，`duration`的可选值受生成场景影响；
+3. 查询任务支持通过`task_id`（系统生成）或`external_task_id`（自定义）单个查询，也可通过分页参数批量查询任务列表。

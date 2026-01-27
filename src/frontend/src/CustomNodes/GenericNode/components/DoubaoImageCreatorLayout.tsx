@@ -9,7 +9,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
+import DoubaoPreviewPanel, {
+  type DoubaoPreviewPanelActions,
+  type DoubaoReferenceImage,
+} from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
 import { cn } from "@/utils/utils";
@@ -100,6 +103,7 @@ type DoubaoImageCreatorLayoutProps = {
   isToolMode: boolean;
   buildStatus: BuildStatus;
   selected?: boolean;
+  onPreviewActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
 };
 
 export default function DoubaoImageCreatorLayout({
@@ -108,6 +112,7 @@ export default function DoubaoImageCreatorLayout({
   isToolMode,
   buildStatus,
   selected = false,
+  onPreviewActionsChange,
 }: DoubaoImageCreatorLayoutProps) {
   const NODE_OFFSET_X = 950;
   const IMAGE_OUTPUT_NAME = "image";
@@ -115,7 +120,10 @@ export default function DoubaoImageCreatorLayout({
   const BACKGROUND_LABEL = "图片换背景";
   const FIRST_FRAME_VIDEO_LABEL = "首帧图生视频";
   const template = data.node?.template ?? {};
-  const showExpanded = Boolean(selected);
+  // Avoid resizing the node while the user is box-selecting; resizing can cause the
+  // selection set to oscillate and look like "twitching".
+  const userSelectionActive = useStore((s: ReactFlowState) => s.userSelectionActive);
+  const showExpanded = Boolean(selected) && !userSelectionActive;
   const customFields = new Set<string>([
     PROMPT_NAME,
     REFERENCE_FIELD,
@@ -412,7 +420,7 @@ export default function DoubaoImageCreatorLayout({
     const edgeX = side === "left" ? rect.left : rect.right;
     const centerY = rect.top + rect.height / 2;
 
-    // Capture zone: 212x212 square centered at the default "+" center point (±106 from center).
+    // Capture zone: 212x212 square centered at the default "+" center point (?106 from center).
     // Left side x-range in node-space is [-212, 0]; right side is [0, 212].
     const rawX = (clientX - edgeX) / zoom;
     const clampedX =
@@ -1592,6 +1600,7 @@ export default function DoubaoImageCreatorLayout({
             referenceImages={combinedReferencePreviews}
             onRequestUpload={openUploadDialog}
             onSuggestionClick={handlePreviewSuggestionClickWithVideo}
+            onActionsChange={onPreviewActionsChange}
           />
         </div>
         {previewOutputHandles.length > 0 && (

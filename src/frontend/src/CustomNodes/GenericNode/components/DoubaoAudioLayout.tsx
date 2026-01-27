@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useStore } from "@xyflow/react";
 import DoubaoPreviewPanel from "./DoubaoPreviewPanel";
 import RenderInputParameters from "./RenderInputParameters";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
@@ -50,7 +51,10 @@ export default function DoubaoAudioLayout({
   selected = false,
 }: Props) {
   const template = data.node?.template ?? {};
-  const showExpanded = Boolean(selected);
+  // Avoid resizing the node while the user is box-selecting; resizing can cause the
+  // selection set to oscillate and look like "twitching".
+  const userSelectionActive = useStore((s) => s.userSelectionActive);
+  const showExpanded = Boolean(selected) && !userSelectionActive;
 
   const [isRunHovering, setRunHovering] = useState(false);
   const buildFlow = useFlowStore((state) => state.buildFlow);

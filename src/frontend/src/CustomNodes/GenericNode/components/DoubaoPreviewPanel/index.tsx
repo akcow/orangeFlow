@@ -58,6 +58,12 @@ export type DoubaoReferenceImage = {
   role?: "first" | "reference" | "last";
 };
 
+export type DoubaoPreviewPanelActions = {
+  openPreview: () => void;
+  download: () => void;
+  canDownload: boolean;
+};
+
 type Props = {
   nodeId: string;
   componentName?: string;
@@ -65,6 +71,7 @@ type Props = {
   referenceImages?: DoubaoReferenceImage[];
   onRequestUpload?: () => void;
   onSuggestionClick?: (label: string) => void;
+  onActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
 };
 
 type GalleryItem = {
@@ -96,6 +103,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       referenceImages = [],
       onRequestUpload,
       onSuggestionClick,
+      onActionsChange,
     },
     forwardedRef,
   ) => {
@@ -619,6 +627,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [downloadInfo, showTransientBadge]);
 
+    useEffect(() => {
+      onActionsChange?.({
+        openPreview: openModal,
+        download: handleDownload,
+        canDownload: Boolean(downloadInfo),
+      });
+    }, [downloadInfo, handleDownload, onActionsChange, openModal]);
+
     const hasError = resolvedPreview?.error;
     const shouldShowImageUploadOverlay =
       appearance === "imageCreator" &&
@@ -831,27 +847,29 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           )}
 
           <div className={previewFrameClassName}>
-            <div className="absolute bottom-4 left-4 z-10">
-              <OutputModal
-                open={isLogsOpen}
-                setOpen={setLogsOpen}
-                disabled={false}
-                nodeId={nodeId}
-                outputName={outputName}
-              >
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 rounded-full px-2 text-[11px]"
+            {appearance !== "imageCreator" && (
+              <div className="absolute bottom-4 left-4 z-10">
+                <OutputModal
+                  open={isLogsOpen}
+                  setOpen={setLogsOpen}
+                  disabled={false}
+                  nodeId={nodeId}
+                  outputName={outputName}
                 >
-                  <ForwardedIconComponent
-                    name="FileText"
-                    className="mr-1 h-3 w-3"
-                  />
-                  Logs
-                </Button>
-              </OutputModal>
-            </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 rounded-full px-2 text-[11px]"
+                  >
+                    <ForwardedIconComponent
+                      name="FileText"
+                      className="mr-1 h-3 w-3"
+                    />
+                    Logs
+                  </Button>
+                </OutputModal>
+              </div>
+            )}
             <div className={previewSurfaceClassName}>
               {inlinePreview}
             </div>
@@ -903,7 +921,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                       <span>保存</span>
                     </button>
                   )}
-                  {hasRenderablePreview && (
+                  {appearance !== "imageCreator" && hasRenderablePreview && (
                     <button
                   type="button"
                   aria-label="放大预览"
@@ -935,7 +953,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               )
             )}
 
-            {downloadInfo && !isAudioMinimal && (
+            {appearance !== "imageCreator" && downloadInfo && !isAudioMinimal && (
               <button
                 onClick={handleDownload}
                 className={cn(

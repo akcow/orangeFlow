@@ -39,9 +39,21 @@ export type FlowType = {
 export type GenericNodeType = Node<NodeDataType, "genericNode">;
 export type NoteNodeType = Node<NoteDataType, "noteNode">;
 
-export type AllNodeType = GenericNodeType | NoteNodeType;
-export type SetNodeType<T = "genericNode" | "noteNode"> =
-  T extends "genericNode" ? GenericNodeType : NoteNodeType;
+export type GroupContainerDataType = {
+  id: string;
+  type: "GroupContainer";
+  label: string;
+  backgroundColor?: string;
+};
+export type GroupContainerNodeType = Node<GroupContainerDataType, "groupNode">;
+
+export type AllNodeType = GenericNodeType | NoteNodeType | GroupContainerNodeType;
+export type SetNodeType<T = "genericNode" | "noteNode" | "groupNode"> =
+  T extends "genericNode"
+    ? GenericNodeType
+    : T extends "noteNode"
+      ? NoteNodeType
+      : GroupContainerNodeType;
 
 export type noteClassType = Pick<
   APIClassType,
@@ -77,6 +89,9 @@ export type EdgeDataType = {
   sourceHandle: sourceHandleType;
   targetHandle: targetHandleType;
   imageRole?: "first" | "reference" | "last";
+  // Video-to-video upstream hint for DoubaoVideoGenerator -> DoubaoVideoGenerator edges.
+  // Used to drive Kling O1 video_list.refer_type ("base"=edit, "feature"=feature reference).
+  videoReferType?: "base" | "feature";
 };
 
 // FlowStyleType is the type of the style object that is used to style the

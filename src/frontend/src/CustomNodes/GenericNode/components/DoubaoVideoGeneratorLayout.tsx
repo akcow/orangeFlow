@@ -1,4 +1,5 @@
 import { cloneDeep } from "lodash";
+import { useStore } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
@@ -130,7 +131,37 @@ const MODEL_LIMITS: Record<
     maxDuration: 25,
     enableLastFrame: false,
   },
+  "kling O1": {
+    minDuration: 3,
+    maxDuration: 10,
+    enableLastFrame: true,
+  },
 };
+
+function hasVideoInFileInput(field: any): boolean {
+  if (!field) return false;
+  const candidates: any[] = [];
+  if (Array.isArray(field.file_path)) candidates.push(...field.file_path);
+  else if (field.file_path) candidates.push(field.file_path);
+  if (Array.isArray(field.value)) candidates.push(...field.value);
+  else if (field.value) candidates.push(field.value);
+
+  const hasVideoExt = (raw: any): boolean => {
+    if (!raw) return false;
+    if (typeof raw === "string") {
+      const s = raw.split("?", 1)[0].toLowerCase();
+      return s.endsWith(".mp4") || s.endsWith(".mov");
+    }
+    if (typeof raw === "object") {
+      // Common shapes from Data/file components
+      const nested = (raw as any).file_path ?? (raw as any).path ?? (raw as any).value;
+      return hasVideoExt(nested);
+    }
+    return false;
+  };
+
+  return candidates.some(hasVideoExt);
+}
 
 function getWanAllowedDurations(modelName: string, mode: string | null) {
   if (!modelName.startsWith("wan2.")) return null;
@@ -162,6 +193,7 @@ const DEFAULT_FIRST_FRAME_EXTENSIONS = [
   "tiff",
 ];
 const FIRST_FRAME_MAX_UPLOADS = 6;
+const KLING_MAX_UPLOADS = 7;
 const VEO_REFERENCE_IMAGE_LIMIT = 3;
 const VEO_MAX_UPLOADS = 5;
 const VEO_FAST_MAX_UPLOADS = 2;
@@ -221,7 +253,10 @@ export default function DoubaoVideoGeneratorLayout({
   const PRO_FAST_MODEL = "Doubao-Seedance-1.0-pro-fast｜251015";
   const DEFAULT_LAST_FRAME_MODEL = "Doubao-Seedance-1.0-pro｜250528";
   const template = data.node?.template ?? {};
-  const showExpanded = Boolean(selected);
+  // Avoid resizing the node while the user is box-selecting; resizing can cause the
+  // selection set to oscillate and look like "twitching".
+  const userSelectionActive = useStore((s) => s.userSelectionActive);
+  const showExpanded = Boolean(selected) && !userSelectionActive;
   const selectedModel =
     (template.model_name?.value as string | undefined) ??
     (template.model_name?.default as string | undefined) ??
@@ -232,13 +267,22 @@ export default function DoubaoVideoGeneratorLayout({
   const isVeoFast = normalizedModelName === "veo3.1-fast";
   const isVeoModel = normalizedModelName === "VEO3.1" || isVeoFast;
   const isSoraModel = normalizedModelName === "sora-2" || normalizedModelName === "sora-2-pro";
+  const isKlingModel = normalizedModelName.toLowerCase().startsWith("kling");
+  const klingReferType = String(
+    template.kling_video_refer_type?.value ??
+      template.kling_video_refer_type?.default ??
+      template.kling_video_refer_type?.options?.[0] ??
+      "feature",
+  )
+    .trim()
+    .toLowerCase();
   const roleLimits = useMemo(
     () => getImageRoleLimits(normalizedModelName),
     [normalizedModelName],
   );
   const supportsReferenceRole = roleLimits.allowedRoles.includes("reference");
   const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
-  const allowLastFrame = modelLimits?.enableLastFrame ?? true;
+  const allowLastFrame = (modelLimits?.enableLastFrame ?? true) && !(isKlingModel && klingReferType === "base");
   const veoReferenceLimit = isVeoFast ? 0 : VEO_REFERENCE_IMAGE_LIMIT;
   const firstFrameMaxUploads = isSoraModel
     ? 1
@@ -246,6 +290,8 @@ export default function DoubaoVideoGeneratorLayout({
       ? VEO_FAST_MAX_UPLOADS
       : isVeoModel
         ? VEO_MAX_UPLOADS
+        : isKlingModel
+          ? KLING_MAX_UPLOADS
         : FIRST_FRAME_MAX_UPLOADS;
   const customFields = new Set<string>([
     PROMPT_NAME,
@@ -376,6 +422,29 @@ export default function DoubaoVideoGeneratorLayout({
   }, [template]);
   const disableRun = !hasAnyConnection && isPromptEmpty;
 
+  const hasIncomingVideoBridge = useMemo(() => {
+    return edges.some((edge) => {
+      if (edge.target !== data.id) return false;
+      let parsedTargetHandle: any = null;
+      if (edge.data?.targetHandle) {
+        parsedTargetHandle = edge.data.targetHandle;
+      } else if (edge.targetHandle) {
+        try {
+          parsedTargetHandle = scapeJSONParse(edge.targetHandle);
+        } catch {
+          parsedTargetHandle = null;
+        }
+      }
+      const targetHandle = parsedTargetHandle;
+      const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      if (fieldName !== FIRST_FRAME_FIELD) return false;
+      const edgeVideoReferType = edge.data?.videoReferType;
+      if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      return sourceNode?.data?.type === "DoubaoVideoGenerator";
+    });
+  }, [edges, nodes, data.id]);
+
   const hasRoleLastEdge = useMemo(() => {
     if (!isVeoModel) return false;
     const roleEdges = edges.filter((edge) => {
@@ -438,13 +507,14 @@ export default function DoubaoVideoGeneratorLayout({
 
   const hasReferenceVideosValue = useMemo(() => {
     if (!(isWanModel && normalizedModelName === "wan2.6")) return false;
+    if (hasIncomingVideoBridge) return true;
     const entries = collectFirstFrameEntries(firstFrameField);
     return entries.some((entry) => {
       const path = (entry.path || "").toString();
       const suffix = path.split("?")[0]?.split("#")[0]?.split(".").pop()?.toLowerCase();
       return suffix === "mp4" || suffix === "mov";
     });
-  }, [firstFrameField, isWanModel, normalizedModelName]);
+  }, [firstFrameField, hasIncomingVideoBridge, isWanModel, normalizedModelName]);
 
   const wanMode = useMemo(() => {
     if (!isWanModel) return null;
@@ -553,9 +623,20 @@ export default function DoubaoVideoGeneratorLayout({
       template.duration?.value ?? template.duration?.default ?? template.duration?.options?.[0] ?? 8,
     );
     const veoEntries = isVeoModel ? collectFirstFrameEntries(firstFrameField) : [];
+    const klingHasVideoInput = isKlingModel
+      ? hasVideoInFileInput(firstFrameField) || hasIncomingVideoBridge
+      : false;
     return CONTROL_FIELDS.map((field) => {
       const templateField = template[field.name];
       if (!templateField) return null;
+      if (templateField.show === false) return null;
+
+      // Kling: resolution is not a supported knob in the upstream API.
+      if (isKlingModel && field.name === "resolution") return null;
+      // Kling: duration is ignored for video editing (refer_type=base).
+      if (isKlingModel && field.name === "duration" && klingReferType === "base") return null;
+      // Kling: aspect_ratio is irrelevant for video editing (refer_type=base).
+      if (isKlingModel && field.name === "aspect_ratio" && klingReferType === "base") return null;
 
       let options: Array<string | number> = Array.isArray(templateField.options)
         ? templateField.options
@@ -599,6 +680,69 @@ export default function DoubaoVideoGeneratorLayout({
             ) {
               value = allowedDurations[0];
             }
+          }
+        }
+
+        if (isKlingModel) {
+          // Follow docs:
+          // - if no video and (no images OR has first_frame): only 5/10
+          // - otherwise: 3..10
+          const localEntries = collectFirstFrameEntries(firstFrameField);
+          const localImageEntries = localEntries.filter((entry) => {
+            const suffix = (entry.path || "")
+              .toString()
+              .split("?", 1)[0]
+              .split("#", 1)[0]
+              .split(".")
+              .pop()
+              ?.toLowerCase();
+            return suffix !== "mp4" && suffix !== "mov";
+          });
+          const localHasFirstFrame = localImageEntries.some((entry) => entry.role === "first") ||
+            (localImageEntries.length === 1 && !localImageEntries[0]?.role);
+          const hasAnyLocalImage = localImageEntries.length > 0;
+          const hasAnyIncomingImageEdge = edges.some((edge) => {
+            if (edge.target !== data.id) return false;
+            const targetHandle =
+              edge.data?.targetHandle ??
+              (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+            const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+            if (fieldName !== FIRST_FRAME_FIELD) return false;
+            const isVideoBridge =
+              edge.data?.videoReferType === "base" || edge.data?.videoReferType === "feature";
+            return !isVideoBridge;
+          });
+          const incomingRoleEdges = edges.filter((edge) => {
+            if (edge.target !== data.id) return false;
+            const targetHandle =
+              edge.data?.targetHandle ??
+              (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+            const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+            if (fieldName !== FIRST_FRAME_FIELD) return false;
+            const isVideoBridge =
+              edge.data?.videoReferType === "base" || edge.data?.videoReferType === "feature";
+            return !isVideoBridge;
+          });
+          const totalIncomingRoles = incomingRoleEdges.length;
+          const incomingHasFirstFrame = incomingRoleEdges.some(
+            (edge) => resolveEdgeImageRole(edge as any, totalIncomingRoles) === "first",
+          ) && totalIncomingRoles > 0;
+          const hasAnyImageInput = hasAnyLocalImage || hasAnyIncomingImageEdge;
+          const hasFirstFrameLike = localHasFirstFrame || incomingHasFirstFrame || Boolean(hasLastFrameEdge || hasLastFrameValue);
+
+          const allowedDurations =
+            !klingHasVideoInput && (!hasAnyImageInput || hasFirstFrameLike)
+              ? [5, 10]
+              : [3, 4, 5, 6, 7, 8, 9, 10];
+          const allowedSet = new Set<number>(allowedDurations);
+          const extraDisabled = options.filter((option) => !allowedSet.has(Number(option)));
+          disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
+          if (
+            typeof numericValue === "number" &&
+            !Number.isNaN(numericValue) &&
+            !allowedSet.has(numericValue)
+          ) {
+            value = allowedDurations[0];
           }
         }
 
@@ -691,6 +835,12 @@ export default function DoubaoVideoGeneratorLayout({
           const allowed = new Set<string>(["16:9", "9:16"]);
           disabledOptions = options.filter((opt) => !allowed.has(String(opt)));
         }
+
+        if (isKlingModel) {
+          // Kling O1 only supports 16:9 / 9:16 / 1:1.
+          const allowed = new Set<string>(["16:9", "9:16", "1:1"]);
+          disabledOptions = options.filter((opt) => !allowed.has(String(opt)));
+        }
       }
 
       if (field.name === "model_name" && shouldDisableProFastModel) {
@@ -702,6 +852,17 @@ export default function DoubaoVideoGeneratorLayout({
       if (field.name === "model_name" && isFirstLastFrameMode) {
         const wanModels = options.filter((option) => String(option).trim().startsWith("wan2."));
         disabledOptions = [...(disabledOptions ?? []), ...wanModels];
+      }
+      if (field.name === "model_name" && hasIncomingVideoBridge) {
+        const allowed = new Set<string>(["kling o1", "kling-video-o1", "wan2.6"]);
+        const extraDisabled = options.filter((option) => !allowed.has(String(option).trim().toLowerCase()));
+        disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
+        const normalizedValue = String(value ?? "").trim().toLowerCase();
+        if (!allowed.has(normalizedValue)) {
+          const normalizedOptions = options.map((opt) => String(opt).trim());
+          if (normalizedOptions.some((opt) => opt.toLowerCase() === "kling o1")) value = "kling O1";
+          else if (normalizedOptions.some((opt) => opt.toLowerCase() === "wan2.6")) value = "wan2.6";
+        }
       }
 
        // 如果当前值被禁用，自动落到首个可用选项
@@ -734,8 +895,10 @@ export default function DoubaoVideoGeneratorLayout({
     disableSoraModelSelectionAfterFrameActions,
     PRO_FAST_MODEL,
     firstFrameField,
+    hasIncomingVideoBridge,
     hasLastFrameEdge,
     hasLastFrameValue,
+    isKlingModel,
     isFirstLastFrameMode,
     isSoraModel,
     isVeoModel,
@@ -745,6 +908,8 @@ export default function DoubaoVideoGeneratorLayout({
     shouldDisableProFastModel,
     template,
     wanMode,
+    data.id,
+    edges,
   ]);
 
   const upstreamFirstFrameFields = useMemo<InputFieldType[]>(() => {
@@ -1202,9 +1367,61 @@ export default function DoubaoVideoGeneratorLayout({
   );
   const firstFrameCount = combinedFirstFramePreviews.length;
   const localFirstFrameCount = firstFramePreviews.length;
+  const klingIncomingMediaCounts = useMemo(() => {
+    if (!isKlingModel) return { imageEdges: 0, videoEdges: 0 };
+    let imageEdges = 0;
+    let videoEdges = 0;
+    edges.forEach((edge) => {
+      if (edge.target !== data.id) return;
+      let targetHandle: any = null;
+      if (edge.data?.targetHandle) {
+        targetHandle = edge.data.targetHandle;
+      } else if (edge.targetHandle) {
+        try {
+          targetHandle = scapeJSONParse(edge.targetHandle);
+        } catch {
+          targetHandle = null;
+        }
+      }
+      const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      if (fieldName !== FIRST_FRAME_FIELD) return;
+
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      if (sourceNode?.data?.type === "DoubaoVideoGenerator") {
+        videoEdges += 1;
+      } else {
+        imageEdges += 1;
+      }
+    });
+    return { imageEdges, videoEdges };
+  }, [data.id, edges, isKlingModel, nodes]);
+  const klingLocalMediaCounts = useMemo(() => {
+    if (!isKlingModel) return { images: 0, videos: 0 };
+    let images = 0;
+    let videos = 0;
+    firstFrameEntries.forEach((entry) => {
+      if (isVideoCandidate(entry.path, entry.name)) videos += 1;
+      else images += 1;
+    });
+    return { images, videos };
+  }, [firstFrameEntries, isKlingModel]);
+  const klingHasLastFrameAny = Boolean(isKlingModel && (hasLastFrameEdge || hasLastFrameValue));
+  const klingTotalVideosNow = isKlingModel
+    ? klingIncomingMediaCounts.videoEdges + klingLocalMediaCounts.videos
+    : 0;
+  const klingHasReferenceVideoNow = Boolean(isKlingModel && klingTotalVideosNow > 0);
+  const klingMaxImagesTotal = isKlingModel ? (klingHasReferenceVideoNow ? 4 : 7) : 0;
+  const klingTotalImagesNow = isKlingModel
+    ? klingIncomingMediaCounts.imageEdges + klingLocalMediaCounts.images + (klingHasLastFrameAny ? 1 : 0)
+    : 0;
+  const klingCanUploadVideo = Boolean(isKlingModel && klingTotalVideosNow === 0 && klingTotalImagesNow <= 4);
+  const klingCanUploadImage = Boolean(isKlingModel && klingTotalImagesNow < klingMaxImagesTotal);
+  const klingCanUploadAny = Boolean(isKlingModel && (klingCanUploadImage || klingCanUploadVideo));
   const canUploadMoreFirstFrames = isSoraModel
     ? firstFrameCount < firstFrameMaxUploads
-    : localFirstFrameCount < firstFrameMaxUploads;
+    : isKlingModel
+      ? klingCanUploadAny
+      : localFirstFrameCount < firstFrameMaxUploads;
   const veoHasFirstOrLastLocally = useMemo(() => {
     if (!isVeoModel) return false;
     const localEntries = firstFrameEntries.slice(0, localFirstFrameCount);
@@ -1230,7 +1447,8 @@ export default function DoubaoVideoGeneratorLayout({
         : DEFAULT_FIRST_FRAME_EXTENSIONS;
     return source.map((ext) => ext.replace(/^\./, "").toLowerCase());
   }, [firstFrameFileTypes]);
-  const canUploadReferenceVideos = isWanModel && normalizedModelName === "wan2.6";
+  const canUploadReferenceVideos =
+    (isWanModel && normalizedModelName === "wan2.6") || isKlingModel;
   const firstFrameUploadAllowedExtensions = useMemo(() => {
     if (canUploadReferenceVideos) return firstFrameAllowedExtensions;
     return firstFrameAllowedExtensions.filter((ext) => ext !== "mp4" && ext !== "mov");
@@ -1776,6 +1994,17 @@ export default function DoubaoVideoGeneratorLayout({
     if (isFirstFrameUploadPending) {
       return;
     }
+    if (!canUploadMoreFirstFrames) {
+      setErrorData({
+        title: "无法继续上传",
+        list: [
+          isKlingModel
+            ? "kling O1：有参考视频时图片最多 4 张、无参考视频时图片最多 7 张（参考视频最多 1 段）。请删除多余素材后再上传。"
+            : "已达到候选素材上限，请删除不需要的图片后再上传。",
+        ],
+      });
+      return;
+    }
     void handleFirstFrameUpload({
       referenceField: firstFrameField,
       accept: firstFrameFilePickerAccept,
@@ -1789,10 +2018,22 @@ export default function DoubaoVideoGeneratorLayout({
       maxEntries: firstFrameMaxUploads,
       enableRoles: isVeoModel,
       maxReferenceImages: isVeoModel ? veoReferenceLimit : null,
+      klingLimits: isKlingModel
+        ? {
+            incomingImageEdges: klingIncomingMediaCounts.imageEdges,
+            incomingVideoEdges: klingIncomingMediaCounts.videoEdges,
+            hasLastFrame: klingHasLastFrameAny,
+          }
+        : null,
     });
   }, [
     firstFrameField,
     isFirstFrameUploadPending,
+    canUploadMoreFirstFrames,
+    isKlingModel,
+    klingIncomingMediaCounts.imageEdges,
+    klingIncomingMediaCounts.videoEdges,
+    klingHasLastFrameAny,
     firstFrameFilePickerAccept,
     firstFrameUploadAllowedExtensions,
     currentFlowId,
@@ -2121,6 +2362,7 @@ export default function DoubaoVideoGeneratorLayout({
                   colorName={firstFrameHandleMeta.colorName}
                   setFilterEdge={setFilterEdge}
                   showNode={true}
+                  disablePointerEvents={isKlingModel && !klingCanUploadAny}
                   testIdComplement={`${data.type?.toLowerCase()}-first-frame-handle`}
                   proxy={firstFrameHandleMeta.proxy}
                 />
@@ -2137,6 +2379,9 @@ export default function DoubaoVideoGeneratorLayout({
                     colorName={lastFrameHandleMeta.colorName}
                     setFilterEdge={setFilterEdge}
                     showNode={true}
+                    disablePointerEvents={
+                      isKlingModel && (!klingCanUploadImage || klingHasLastFrameAny)
+                    }
                     testIdComplement={`${data.type?.toLowerCase()}-last-frame-handle`}
                     proxy={lastFrameHandleMeta.proxy}
                   />
@@ -2271,11 +2516,11 @@ export default function DoubaoVideoGeneratorLayout({
                 <DialogDescription>
                   {isSoraModel
                     ? "Sora 系列仅支持参考图生视频（最多 1 张，将作为 input_reference）。不支持首尾帧插值，请上传 1 张图片并填写提示词。"
-                    : isVeoModel
+                      : isVeoModel
                       ? isVeoFast
                         ? "Veo 3.1 快速版仅支持首帧/尾帧（不支持参考图）。"
                         : "Veo 3.1 仅支持图片输入：可设置首帧/尾帧，或最多 3 张参考图。提示：如已设置首帧/尾帧，参考图会被自动忽略（首/尾帧优先）。"
-                      : "支持 JPG/PNG/WebP 等图片格式；wan2.6 还支持 MP4/MOV 参考视频。"}
+                      : "支持 JPG/PNG/WebP 等图片格式；wan2.6 / kling O1 还支持 MP4/MOV 参考视频。"}
                </DialogDescription>
             </DialogHeader>
           {firstFrameField ? (
@@ -2288,11 +2533,11 @@ export default function DoubaoVideoGeneratorLayout({
                   type="button"
                   className={cn(
                     "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#F4F5F9] text-sm font-medium text-[#13141A] dark:bg-white/5 dark:text-white",
-                    (isFirstFrameUploadPending || !canUploadMoreFirstFrames) &&
+                    (isFirstFrameUploadPending || (!isKlingModel && !canUploadMoreFirstFrames)) &&
                       "opacity-70",
                   )}
                   onClick={triggerFirstFrameUpload}
-                  disabled={isFirstFrameUploadPending || !canUploadMoreFirstFrames}
+                  disabled={isFirstFrameUploadPending || (!isKlingModel && !canUploadMoreFirstFrames)}
                 >
                   <ForwardedIconComponent
                     name={isFirstFrameUploadPending ? "Loader2" : "Upload"}
@@ -2310,7 +2555,17 @@ export default function DoubaoVideoGeneratorLayout({
                   </span>
                 </button>
                 <p className="text-xs text-muted-foreground">
-                  已保留 {firstFrameCount} / {firstFrameMaxUploads} {isSoraModel ? "张参考图" : "张候选素材"}
+                  {isKlingModel ? (
+                    <>
+                      已占用 图片 {klingTotalImagesNow} / {klingMaxImagesTotal}，参考视频{" "}
+                      {klingTotalVideosNow} / 1
+                    </>
+                  ) : (
+                    <>
+                      已保留 {firstFrameCount} / {firstFrameMaxUploads}{" "}
+                      {isSoraModel ? "张参考图" : "张候选素材"}
+                    </>
+                  )}
                 </p>
                 {isSoraModel && firstFrameCount > 1 && (
                   <p className="text-xs text-amber-600">
@@ -2321,7 +2576,9 @@ export default function DoubaoVideoGeneratorLayout({
                   <p className="text-xs text-amber-600">
                     {isSoraModel
                       ? "已达到参考图上限，请删除后再上传。"
-                      : "已达到候选图上限，请删除不需要的图片后再上传。"}
+                      : isKlingModel
+                        ? "已达到 kling O1 的素材上限：有参考视频时图片最多 4 张、无参考视频时图片最多 7 张（参考视频最多 1 段）。请删除多余素材后再上传。"
+                        : "已达到候选图上限，请删除不需要的图片后再上传。"}
                   </p>
                 )}
                 {selectedFirstFrame && (
@@ -2612,6 +2869,7 @@ async function handleFirstFrameUpload({
   maxEntries,
   enableRoles,
   maxReferenceImages,
+  klingLimits,
 }: {
   referenceField: InputFieldType;
   accept: string;
@@ -2627,6 +2885,7 @@ async function handleFirstFrameUpload({
   maxEntries: number;
   enableRoles: boolean;
   maxReferenceImages: number | null;
+  klingLimits: { incomingImageEdges: number; incomingVideoEdges: number; hasLastFrame: boolean } | null;
 }) {
   if (!currentFlowId) {
     setErrorData({
@@ -2665,7 +2924,58 @@ async function handleFirstFrameUpload({
   }
 
   const existingEntries = collectFirstFrameEntries(referenceField);
-  if (existingEntries.length + files.length > maxEntries) {
+  if (klingLimits) {
+    const incomingVideoEdges = Number(klingLimits.incomingVideoEdges || 0);
+    const incomingImageEdges = Number(klingLimits.incomingImageEdges || 0);
+    const hasLastFrame = Boolean(klingLimits.hasLastFrame);
+
+    const existingLocalVideos = existingEntries.filter((entry) =>
+      isVideoCandidate(entry.path, entry.name),
+    ).length;
+    const existingLocalImages = Math.max(existingEntries.length - existingLocalVideos, 0);
+
+    const newVideos = files.filter((file) => {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      return ext === "mp4" || ext === "mov";
+    }).length;
+    const newImages = Math.max(files.length - newVideos, 0);
+
+    if (incomingVideoEdges > 0 && newVideos > 0) {
+      setErrorData({
+        title: "参考视频数量超限",
+        list: ["kling O1 最多仅支持 1 段参考视频。当前已通过组件链接提供参考视频，请勿再上传视频文件。"],
+      });
+      return;
+    }
+
+    const totalVideosAfter = incomingVideoEdges + existingLocalVideos + newVideos;
+    if (totalVideosAfter > 1) {
+      setErrorData({
+        title: "参考视频数量超限",
+        list: ["kling O1 最多仅支持 1 段参考视频（MP4/MOV）。请删除多余视频后再试。"],
+      });
+      return;
+    }
+
+    const hasVideoAfter = totalVideosAfter > 0;
+    const maxImagesTotal = hasVideoAfter ? 4 : 7;
+    const totalImagesAfter =
+      incomingImageEdges + existingLocalImages + newImages + (hasLastFrame ? 1 : 0);
+
+    if (totalImagesAfter > maxImagesTotal) {
+      const hint = hasVideoAfter
+        ? "当前已包含参考视频：图片最多 4 张（首/尾帧也计入图片数量）。"
+        : "当前无参考视频：图片最多 7 张（首/尾帧也计入图片数量）。";
+      setErrorData({
+        title: "参考图片数量超限",
+        list: [
+          `kling O1 图片数量限制：有参考视频时最多 4 张、无参考视频时最多 7 张。${hint}`,
+          "请删除多余图片/尾帧后再上传。",
+        ],
+      });
+      return;
+    }
+  } else if (existingEntries.length + files.length > maxEntries) {
     setErrorData({
       title: "已达到候选素材上限",
       list: [`最多保留 ${maxEntries} 份素材，请先删除不需要的图片后再上传。`],
