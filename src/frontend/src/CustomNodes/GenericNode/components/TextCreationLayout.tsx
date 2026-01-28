@@ -96,6 +96,25 @@ export default function TextCreationLayout({
 
   const promptField = template[PROMPT_FIELD];
   const draftField = template[DRAFT_FIELD];
+
+  // Image context is delivered through the existing left handle (draft_text).
+  const hasImageContext = useMemo(() => {
+    return edges.some((edge) => {
+      if (edge.target !== data.id) return false;
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      if (targetHandle?.fieldName !== DRAFT_FIELD) return false;
+
+      const sourceHandle =
+        edge.data?.sourceHandle ??
+        (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+      if (sourceHandle?.name !== "image") return false;
+
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      return sourceNode?.data?.type === "DoubaoImageCreator";
+    });
+  }, [DRAFT_FIELD, data.id, edges, nodes]);
   const draftHandleMeta = useMemo(() => {
     if (!draftField) return null;
     const colors = getNodeInputColors(
@@ -597,6 +616,10 @@ export default function TextCreationLayout({
       const options: Array<string | number> = Array.isArray(templateField.options)
         ? templateField.options
         : [];
+      const disabledOptions =
+        field.name === "model_name" && hasImageContext
+          ? options.filter((opt) => !String(opt).startsWith("gemini-"))
+          : undefined;
       const tooltipText =
         DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
       return {
@@ -605,9 +628,10 @@ export default function TextCreationLayout({
         options,
         value: templateField.value,
         tooltip: tooltipText,
+        disabledOptions,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [template]);
+  }, [hasImageContext, template]);
 
   const previewOutputHandles = useMemo(() => {
     const outputs = data.node?.outputs ?? [];

@@ -1,5 +1,6 @@
 import { cloneDeep } from "lodash";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ShortUniqueId from "short-unique-id";
 import { type ReactFlowState, useStore } from "@xyflow/react";
 import {
   Dialog,
@@ -14,6 +15,7 @@ import DoubaoPreviewPanel, {
   type DoubaoReferenceImage,
 } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
+import DoubaoQuickAddMenu from "./DoubaoQuickAddMenu";
 import RenderInputParameters from "./RenderInputParameters";
 import { cn } from "@/utils/utils";
 import useHandleOnNewValue, {
@@ -114,8 +116,11 @@ export default function DoubaoImageCreatorLayout({
   selected = false,
   onPreviewActionsChange,
 }: DoubaoImageCreatorLayoutProps) {
-  const NODE_OFFSET_X = 950;
+  const NODE_OFFSET_X = 1100;
+  const uid = new ShortUniqueId({ length: 10 });
   const IMAGE_OUTPUT_NAME = "image";
+  const TEXT_COMPONENT_NAME = "TextCreation";
+  const TEXT_OUTPUT_NAME = "text_output";
   const REFERENCE_VIDEO_LABEL = "参考图生视频";
   const BACKGROUND_LABEL = "图片换背景";
   const FIRST_FRAME_VIDEO_LABEL = "首帧图生视频";
@@ -340,6 +345,14 @@ export default function DoubaoImageCreatorLayout({
   const { validateFileSize } = useFileSizeValidator();
 
   const [isRunHovering, setRunHovering] = useState(false);
+  const [quickAddMenu, setQuickAddMenu] = useState<{
+    x: number;
+    y: number;
+    kind: "input" | "output";
+  } | null>(null);
+  const lockedPlusSide = quickAddMenu?.kind
+    ? (quickAddMenu.kind === "input" ? "left" : "right")
+    : null;
 
   // Image creator "+" handles: hidden when node is not selected; shown when cursor enters
   // the 212x212 capture zone centered on the default "+" position; selected nodes keep them visible.
@@ -370,6 +383,7 @@ export default function DoubaoImageCreatorLayout({
     return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
   }, [canvasZoom]);
 
+
   const clearPlusTimers = useCallback(() => {
     if (leaveGraceTimerRef.current) {
       window.clearTimeout(leaveGraceTimerRef.current);
@@ -380,6 +394,8 @@ export default function DoubaoImageCreatorLayout({
       fadeOutTimerRef.current = null;
     }
   }, []);
+
+
 
   const isPointerInCaptureZone = useCallback(
     (
@@ -881,41 +897,43 @@ export default function DoubaoImageCreatorLayout({
     window.dispatchEvent(uploadEvent);
   }, []);
 
-  const handleCreateImg2ImgDownstreamNode = useCallback(() => {
+  const handleCreateImg2ImgDownstreamNode = useCallback((forceNew = false) => {
     const currentNode = nodes.find((node) => node.id === data.id);
     if (!currentNode) return;
 
-    const existingDownstreamNodeId = edges
-      .map((edge) => {
-        if (edge.source !== data.id) return null;
+    if (!forceNew) {
+      const existingDownstreamNodeId = edges
+        .map((edge) => {
+          if (edge.source !== data.id) return null;
 
-        const targetNode = nodes.find((node) => node.id === edge.target);
-        if (targetNode?.data?.type !== "DoubaoImageCreator") return null;
-        if (targetNode.position.x <= currentNode.position.x) return null;
+          const targetNode = nodes.find((node) => node.id === edge.target);
+          if (targetNode?.data?.type !== "DoubaoImageCreator") return null;
+          if (targetNode.position.x <= currentNode.position.x) return null;
 
-        const targetHandle =
-          edge.data?.targetHandle ??
-          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
-        if (targetHandle?.fieldName !== REFERENCE_FIELD) return null;
+          const targetHandle =
+            edge.data?.targetHandle ??
+            (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+          if (targetHandle?.fieldName !== REFERENCE_FIELD) return null;
 
-        const sourceHandle =
-          edge.data?.sourceHandle ??
-          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
-        if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+          const sourceHandle =
+            edge.data?.sourceHandle ??
+            (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+          if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
 
-        return targetNode.id;
-      })
-      .find(Boolean) as string | undefined;
+          return targetNode.id;
+        })
+        .find(Boolean) as string | undefined;
 
-    if (existingDownstreamNodeId) {
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-          selected: node.id === existingDownstreamNodeId,
-        })),
-      );
-      openUploadDialog();
-      return;
+      if (existingDownstreamNodeId) {
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => ({
+            ...node,
+            selected: node.id === existingDownstreamNodeId,
+          })),
+        );
+        requestUploadDialogForNode(existingDownstreamNodeId);
+        return;
+      }
     }
 
     const imageComponentTemplate = templates["DoubaoImageCreator"];
@@ -927,12 +945,19 @@ export default function DoubaoImageCreatorLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const downstreamIndex = forceNew
+      ? nodes.filter(
+        (node) =>
+          node.data?.type === "DoubaoImageCreator" &&
+          node.position.x > currentNode.position.x,
+      ).length
+      : 0;
     const newImageNode: GenericNodeType = {
       id: newImageNodeId,
       type: "genericNode",
       position: {
         x: currentNode.position.x + NODE_OFFSET_X,
-        y: currentNode.position.y,
+        y: currentNode.position.y + (forceNew ? 280 * (downstreamIndex + 1) : 0),
       },
       data: {
         node: cloneDeep(imageComponentTemplate),
@@ -976,14 +1001,22 @@ export default function DoubaoImageCreatorLayout({
       ...(referenceTemplateField.proxy ? { proxy: referenceTemplateField.proxy } : {}),
     };
 
-    onConnect({
+    const edge = {
+      id: `xy-edge__${data.id}-${sourceHandle.name}-${newImageNodeId}-${targetHandle.fieldName}`,
       source: data.id,
-      target: newImageNodeId,
       sourceHandle: scapedJSONStringfy(sourceHandle),
+      target: newImageNodeId,
       targetHandle: scapedJSONStringfy(targetHandle),
-    });
+      type: "default",
+      data: {
+        sourceHandle: sourceHandle,
+        targetHandle: targetHandle,
+      },
+    } as EdgeType;
 
-    openUploadDialog();
+    setEdges((prev) => [...prev, edge]);
+
+    queueMicrotask(() => requestUploadDialogForNode(newImageNodeId));
 
     track("DoubaoImageCreator - Create Img2Img Node", {
       sourceNodeId: data.id,
@@ -998,12 +1031,267 @@ export default function DoubaoImageCreatorLayout({
     data.type,
     edges,
     nodes,
-    onConnect,
+    // onConnect,
     setNodes,
     setEdges,
     takeSnapshot,
     templates,
-    openUploadDialog,
+    requestUploadDialogForNode,
+  ]);
+
+  const handleCreateTextUpstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const promptTemplateField = template[PROMPT_NAME];
+    if (!promptTemplateField) return;
+
+    const existingUpstreamNodeId = edges
+      .map((edge) => {
+        if (edge.target !== data.id) return null;
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        if (sourceNode?.data?.type !== TEXT_COMPONENT_NAME) return null;
+        if (sourceNode.position.x >= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== PROMPT_NAME) return null;
+
+        return sourceNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingUpstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingUpstreamNodeId,
+        })),
+      );
+      return;
+    }
+
+    const textTemplate = templates[TEXT_COMPONENT_NAME];
+    if (!textTemplate) return;
+
+    takeSnapshot();
+
+    const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newTextNode: GenericNodeType = {
+      id: newTextNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x - NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(textTemplate),
+        showNode: !textTemplate.minimized,
+        type: TEXT_COMPONENT_NAME,
+        id: newTextNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: false })),
+      newTextNode,
+    ]);
+
+    const outputDefinition =
+      textTemplate.outputs?.find((output) => output.name === TEXT_OUTPUT_NAME) ??
+      textTemplate.outputs?.find((output) => !output.hidden) ??
+      textTemplate.outputs?.[0];
+
+    const sourceHandle = {
+      output_types: outputDefinition?.types?.length ? outputDefinition.types : ["Data"],
+      id: newTextNodeId,
+      dataType: TEXT_COMPONENT_NAME,
+      name: outputDefinition?.name ?? TEXT_OUTPUT_NAME,
+    };
+
+    const targetHandle = {
+      inputTypes: promptTemplateField.input_types,
+      type: promptTemplateField.type,
+      id: data.id,
+      fieldName: PROMPT_NAME,
+      ...(promptTemplateField.proxy ? { proxy: promptTemplateField.proxy } : {}),
+    };
+
+    const edge = {
+      id: `xy-edge__${newTextNodeId}-${sourceHandle.name}-${data.id}-${targetHandle.fieldName}`,
+      source: newTextNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      target: data.id,
+      targetHandle: scapedJSONStringfy(targetHandle),
+      type: "default",
+      data: {
+        sourceHandle: sourceHandle,
+        targetHandle: targetHandle,
+      },
+    } as EdgeType;
+
+    setEdges((prev) => [...prev, edge]);
+
+    track("DoubaoImageCreator - Create Text Upstream Node", {
+      sourceNodeId: newTextNodeId,
+      targetNodeId: data.id,
+      sourceComponent: TEXT_COMPONENT_NAME,
+    });
+  }, [
+    NODE_OFFSET_X,
+    PROMPT_NAME,
+    TEXT_COMPONENT_NAME,
+    TEXT_OUTPUT_NAME,
+    data.id,
+    edges,
+    nodes,
+    // onConnect, // Removed as we use setEdges directly
+    setEdges,
+    setNodes,
+    takeSnapshot,
+    template,
+    templates,
+  ]);
+
+  const handleCreateTextDownstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const textTemplate = templates[TEXT_COMPONENT_NAME];
+    if (!textTemplate) return;
+
+    const draftTemplateField = textTemplate.template?.draft_text;
+    if (!draftTemplateField) return;
+
+    const existingDownstreamNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== TEXT_COMPONENT_NAME) return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== "draft_text") return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingDownstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingDownstreamNodeId,
+        })),
+      );
+      return;
+    }
+
+    takeSnapshot();
+
+    const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const seededTextTemplate = cloneDeep(textTemplate);
+    const geminiModel = seededTextTemplate.template?.model_name?.options?.find((opt) =>
+      String(opt).startsWith("gemini-"),
+    );
+    if (geminiModel && seededTextTemplate.template?.model_name) {
+      seededTextTemplate.template.model_name.value = geminiModel;
+    }
+
+    const newTextNode: GenericNodeType = {
+      id: newTextNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x + NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: seededTextTemplate,
+        showNode: !seededTextTemplate.minimized,
+        type: TEXT_COMPONENT_NAME,
+        id: newTextNodeId,
+      },
+      selected: true,
+    };
+
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: false })),
+      newTextNode,
+    ]);
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: draftTemplateField.input_types,
+      type: draftTemplateField.type,
+      id: newTextNodeId,
+      fieldName: "draft_text",
+      ...(draftTemplateField.proxy ? { proxy: draftTemplateField.proxy } : {}),
+    };
+
+    const edge = {
+      id: `xy-edge__${data.id}-${sourceHandle.name}-${newTextNodeId}-${targetHandle.fieldName}`,
+      source: data.id,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      target: newTextNodeId,
+      targetHandle: scapedJSONStringfy(targetHandle),
+      type: "default",
+      data: {
+        sourceHandle: sourceHandle,
+        targetHandle: targetHandle,
+      },
+    } as EdgeType;
+
+    setEdges((prev) => [...prev, edge]);
+
+    track("DoubaoImageCreator - Create Text Downstream Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newTextNodeId,
+      targetComponent: TEXT_COMPONENT_NAME,
+    });
+  }, [
+    IMAGE_OUTPUT_NAME,
+    NODE_OFFSET_X,
+    TEXT_COMPONENT_NAME,
+    data.id,
+    data.node?.outputs,
+    data.type,
+    edges,
+    nodes,
+    // onConnect,
+    setEdges,
+    setNodes,
+    takeSnapshot,
+    templates,
   ]);
 
   const handleCreateReferenceVideoDownstreamNode = useCallback((imageRole?: EdgeImageRole) => {
@@ -1122,13 +1410,21 @@ export default function DoubaoImageCreatorLayout({
       ...(firstFrameTemplateField.proxy ? { proxy: firstFrameTemplateField.proxy } : {}),
     };
 
-    onConnect({
+    const edge = {
+      id: `xy-edge__${data.id}-${sourceHandle.name}-${newVideoNodeId}-${targetHandle.fieldName}`,
       source: data.id,
-      target: newVideoNodeId,
       sourceHandle: scapedJSONStringfy(sourceHandle),
+      target: newVideoNodeId,
       targetHandle: scapedJSONStringfy(targetHandle),
-      ...(imageRole ? { imageRole } : {}),
-    } as any);
+      type: "default",
+      data: {
+        sourceHandle: sourceHandle,
+        targetHandle: targetHandle,
+        ...(imageRole ? { imageRole } : {}),
+      },
+    } as EdgeType;
+
+    setEdges((prev) => [...prev, edge]);
 
     openUploadDialog();
 
@@ -1145,51 +1441,54 @@ export default function DoubaoImageCreatorLayout({
     data.type,
     edges,
     nodes,
-    onConnect,
+    // onConnect,
+    setEdges,
     setNodes,
     takeSnapshot,
     templates,
     openUploadDialog,
   ]);
 
-  const handleCreateBackgroundUpstreamNode = useCallback(() => {
+  const handleCreateBackgroundUpstreamNode = useCallback((forceNew = false) => {
     const currentNode = nodes.find((node) => node.id === data.id);
     if (!currentNode) return;
 
     const referenceTemplateField = template[REFERENCE_FIELD];
     if (!referenceTemplateField) return;
 
-    const existingUpstreamNodeId = edges
-      .map((edge) => {
-        if (edge.target !== data.id) return null;
+    if (!forceNew) {
+      const existingUpstreamNodeId = edges
+        .map((edge) => {
+          if (edge.target !== data.id) return null;
 
-        const sourceNode = nodes.find((node) => node.id === edge.source);
-        if (sourceNode?.data?.type !== "DoubaoImageCreator") return null;
-        if (sourceNode.position.x >= currentNode.position.x) return null;
+          const sourceNode = nodes.find((node) => node.id === edge.source);
+          if (sourceNode?.data?.type !== "DoubaoImageCreator") return null;
+          if (sourceNode.position.x >= currentNode.position.x) return null;
 
-        const targetHandle =
-          edge.data?.targetHandle ??
-          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
-        if (targetHandle?.fieldName !== REFERENCE_FIELD) return null;
+          const targetHandle =
+            edge.data?.targetHandle ??
+            (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+          if (targetHandle?.fieldName !== REFERENCE_FIELD) return null;
 
-        const sourceHandle =
-          edge.data?.sourceHandle ??
-          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
-        if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
+          const sourceHandle =
+            edge.data?.sourceHandle ??
+            (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+          if (sourceHandle?.name !== IMAGE_OUTPUT_NAME) return null;
 
-        return sourceNode.id;
-      })
-      .find(Boolean) as string | undefined;
+          return sourceNode.id;
+        })
+        .find(Boolean) as string | undefined;
 
-    if (existingUpstreamNodeId) {
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-          selected: node.id === existingUpstreamNodeId || node.id === data.id,
-        })),
-      );
-      requestUploadDialogForNode(existingUpstreamNodeId);
-      return;
+      if (existingUpstreamNodeId) {
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => ({
+            ...node,
+            selected: node.id === existingUpstreamNodeId,
+          })),
+        );
+        requestUploadDialogForNode(existingUpstreamNodeId);
+        return;
+      }
     }
 
     const imageTemplate = templates["DoubaoImageCreator"];
@@ -1198,12 +1497,19 @@ export default function DoubaoImageCreatorLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const upstreamIndex = forceNew
+      ? nodes.filter(
+        (node) =>
+          node.data?.type === "DoubaoImageCreator" &&
+          node.position.x < currentNode.position.x,
+      ).length
+      : 0;
     const newImageNode: GenericNodeType = {
       id: newImageNodeId,
       type: "genericNode",
       position: {
         x: currentNode.position.x - NODE_OFFSET_X,
-        y: currentNode.position.y,
+        y: currentNode.position.y + (forceNew ? 280 * (upstreamIndex + 1) : 0),
       },
       data: {
         node: cloneDeep(imageTemplate),
@@ -1215,7 +1521,7 @@ export default function DoubaoImageCreatorLayout({
     };
 
     setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: node.id === data.id })),
+      ...currentNodes.map((node) => ({ ...node, selected: false })),
       newImageNode,
     ]);
 
@@ -1247,12 +1553,20 @@ export default function DoubaoImageCreatorLayout({
       ...(referenceTemplateField.proxy ? { proxy: referenceTemplateField.proxy } : {}),
     };
 
-    onConnect({
+    const edge = {
+      id: `xy-edge__${newImageNodeId}-${sourceHandle.name}-${data.id}-${targetHandle.fieldName}`,
       source: newImageNodeId,
-      target: data.id,
       sourceHandle: scapedJSONStringfy(sourceHandle),
+      target: data.id,
       targetHandle: scapedJSONStringfy(targetHandle),
-    });
+      type: "default",
+      data: {
+        sourceHandle: sourceHandle,
+        targetHandle: targetHandle,
+      },
+    } as EdgeType;
+
+    setEdges((prev) => [...prev, edge]);
 
     queueMicrotask(() => requestUploadDialogForNode(newImageNodeId));
 
@@ -1267,7 +1581,8 @@ export default function DoubaoImageCreatorLayout({
     data.id,
     edges,
     nodes,
-    onConnect,
+    // onConnect,
+    setEdges,
     setNodes,
     takeSnapshot,
     template,
@@ -1278,7 +1593,7 @@ export default function DoubaoImageCreatorLayout({
   const handlePreviewSuggestionClickWithVideo = useCallback(
     (label: string) => {
       if (label === "以图生图") {
-        handleCreateImg2ImgDownstreamNode();
+        handleCreateImg2ImgDownstreamNode(true);
         return;
       }
       if (label === REFERENCE_VIDEO_LABEL || label === FIRST_FRAME_VIDEO_LABEL) {
@@ -1287,7 +1602,7 @@ export default function DoubaoImageCreatorLayout({
         return;
       }
       if (label === BACKGROUND_LABEL) {
-        handleCreateBackgroundUpstreamNode();
+        handleCreateBackgroundUpstreamNode(true);
       }
     },
     [
@@ -1419,7 +1734,7 @@ export default function DoubaoImageCreatorLayout({
           title: "上传失败",
           list: [
             (error as any)?.response?.data?.detail ??
-              "网络异常，稍后再试或检查后端日志。",
+            "网络异常，稍后再试或检查后端日志。",
           ],
         });
       } finally {
@@ -1531,8 +1846,76 @@ export default function DoubaoImageCreatorLayout({
       });
   }, [data.id, data.node?.outputs, data.type, types]);
 
+  const quickAddTitle =
+    quickAddMenu?.kind === "input" ? "添加上下文：" : "下游组件链接：";
+  const quickAddItems = useMemo(() => {
+    if (!quickAddMenu) return [];
+
+    if (quickAddMenu.kind === "input") {
+      return [
+        {
+          key: "text-upstream",
+          label: "文本创作",
+          icon: "ToyBrick",
+          onSelect: handleCreateTextUpstreamNode,
+        },
+        {
+          key: "image-upstream",
+          label: "图片创作",
+          icon: "Image",
+          onSelect: () => handleCreateBackgroundUpstreamNode(true),
+        },
+      ];
+    }
+
+    return [
+      {
+        key: "video-downstream",
+        label: "视频创作",
+        icon: "Clapperboard",
+        onSelect: () => handleCreateReferenceVideoDownstreamNode(),
+      },
+      {
+        key: "image-downstream",
+        label: "图片创作",
+        icon: "Image",
+        // Always create a new downstream image creator (do not reuse existing one).
+        onSelect: () => handleCreateImg2ImgDownstreamNode(true),
+      },
+      {
+        key: "text-downstream",
+        label: "文本创作",
+        icon: "ToyBrick",
+        onSelect: handleCreateTextDownstreamNode,
+      },
+    ];
+  }, [
+    handleCreateBackgroundUpstreamNode,
+    handleCreateImg2ImgDownstreamNode,
+    handleCreateReferenceVideoDownstreamNode,
+    handleCreateTextDownstreamNode,
+    handleCreateTextUpstreamNode,
+    quickAddMenu,
+  ]);
+
   return (
     <div className="space-y-4 px-4 pb-4">
+
+      {quickAddMenu && (
+        <DoubaoQuickAddMenu
+          open={Boolean(quickAddMenu)}
+          position={{ x: quickAddMenu.x, y: quickAddMenu.y }}
+          title={quickAddTitle}
+          items={quickAddItems}
+          onOpenChange={(open) => {
+            if (!open) {
+              setQuickAddMenu(null);
+              // Release the lock so the "+" bubble can fade out normally.
+              setActivePlusSide(null);
+            }
+          }}
+        />
+      )}
       {/* Preview */}
       <div className="relative flex flex-col gap-4 lg:flex-row">
         {referenceHandleMeta && (
@@ -1551,16 +1934,29 @@ export default function DoubaoImageCreatorLayout({
               testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
               proxy={referenceHandleMeta.proxy}
               uiVariant="plus"
-              visible={selected || visiblePlusSide === "left"}
-              isTracking={activePlusSide === "left"}
+              visible={selected || visiblePlusSide === "left" || lockedPlusSide === "left"}
+              isTracking={activePlusSide === "left" || lockedPlusSide === "left"}
+              clickMode="menu"
+              onMenuRequest={({ x, y, kind }) => {
+                clearPlusTimers();
+                setVisiblePlusSide("left");
+                setActivePlusSide("left");
+                setQuickAddMenu({ x, y, kind });
+              }}
               onPlusPointerEnter={(event) =>
-                showPlusForSide("left", event.clientX, event.clientY)
+                lockedPlusSide
+                  ? undefined
+                  : showPlusForSide("left", event.clientX, event.clientY)
               }
               onPlusPointerMove={(event) =>
-                updatePlusOffset("left", event.clientX, event.clientY)
+                lockedPlusSide
+                  ? undefined
+                  : updatePlusOffset("left", event.clientX, event.clientY)
               }
               onPlusPointerLeave={(event) =>
-                startHidePlus("left", event.clientX, event.clientY)
+                lockedPlusSide
+                  ? undefined
+                  : startHidePlus("left", event.clientX, event.clientY)
               }
               // Keep the handle anchored on the preview edge (ghost origin),
               // while rendering the visible "+" with the required gap.
@@ -1578,25 +1974,37 @@ export default function DoubaoImageCreatorLayout({
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
             onPointerEnter={(event) =>
-              showPlusForSide("left", event.clientX, event.clientY)
+              quickAddMenu
+                ? undefined
+                : showPlusForSide("left", event.clientX, event.clientY)
             }
             onPointerMove={(event) =>
-              updatePlusOffset("left", event.clientX, event.clientY)
+              quickAddMenu
+                ? undefined
+                : updatePlusOffset("left", event.clientX, event.clientY)
             }
             onPointerLeave={(event) =>
-              startHidePlus("left", event.clientX, event.clientY)
+              quickAddMenu
+                ? undefined
+                : startHidePlus("left", event.clientX, event.clientY)
             }
           />
           <div
             className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
             onPointerEnter={(event) =>
-              showPlusForSide("right", event.clientX, event.clientY)
+              quickAddMenu
+                ? undefined
+                : showPlusForSide("right", event.clientX, event.clientY)
             }
             onPointerMove={(event) =>
-              updatePlusOffset("right", event.clientX, event.clientY)
+              quickAddMenu
+                ? undefined
+                : updatePlusOffset("right", event.clientX, event.clientY)
             }
             onPointerLeave={(event) =>
-              startHidePlus("right", event.clientX, event.clientY)
+              quickAddMenu
+                ? undefined
+                : startHidePlus("right", event.clientX, event.clientY)
             }
           />
           <DoubaoPreviewPanel
@@ -1634,16 +2042,28 @@ export default function DoubaoImageCreatorLayout({
                   proxy={handle.proxy}
                   colorName={handle.colorName}
                   uiVariant="plus"
-                  visible={selected || visiblePlusSide === "right"}
-                  isTracking={activePlusSide === "right"}
+                  visible={selected || visiblePlusSide === "right" || lockedPlusSide === "right"}
+                  isTracking={activePlusSide === "right" || lockedPlusSide === "right"}
+                  clickMode="menu"
+                  onMenuRequest={({ x, y, kind }) => {
+                    setVisiblePlusSide("right");
+                    setActivePlusSide("right");
+                    setQuickAddMenu({ x, y, kind });
+                  }}
                   onPlusPointerEnter={(event) =>
-                    showPlusForSide("right", event.clientX, event.clientY)
+                    lockedPlusSide
+                      ? undefined
+                      : showPlusForSide("right", event.clientX, event.clientY)
                   }
                   onPlusPointerMove={(event) =>
-                    updatePlusOffset("right", event.clientX, event.clientY)
+                    lockedPlusSide
+                      ? undefined
+                      : updatePlusOffset("right", event.clientX, event.clientY)
                   }
                   onPlusPointerLeave={(event) =>
-                    startHidePlus("right", event.clientX, event.clientY)
+                    lockedPlusSide
+                      ? undefined
+                      : startHidePlus("right", event.clientX, event.clientY)
                   }
                   // Requirement: gap (preview edge -> "+" outer edge) = 70px.
                   // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
@@ -1694,11 +2114,11 @@ export default function DoubaoImageCreatorLayout({
                 filterMode="include"
                 fieldOverrides={{
                   [PROMPT_NAME]:
-                    {
-                      placeholder:
-                        "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
-                      inputTypes: ["Message"],
-                    },
+                  {
+                    placeholder:
+                      "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
+                    inputTypes: ["Message"],
+                  },
                 }}
               />
             </div>
@@ -1808,7 +2228,7 @@ export default function DoubaoImageCreatorLayout({
                   className={cn(
                     "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#F4F5F9] text-sm font-medium text-[#13141A] dark:bg-white/5 dark:text-white",
                     (isReferenceUploadPending || !canAddMoreReferences) &&
-                      "opacity-70",
+                    "opacity-70",
                   )}
                   onClick={triggerReferenceUpload}
                   disabled={isReferenceUploadPending || !canAddMoreReferences}
@@ -2218,7 +2638,7 @@ async function handleReferenceUpload({
           title: "上传失败",
           list: [
             (error as any)?.response?.data?.detail ??
-              "网络异常，稍后再试或检查后端日志。",
+            "网络异常，稍后再试或检查后端日志。",
           ],
         });
         return;

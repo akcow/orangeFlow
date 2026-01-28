@@ -985,6 +985,8 @@ export default function Page({
               onNodesChange={onNodesChangeWithHelperLines}
               onEdgesChange={onEdgesChange}
               onConnect={isLocked ? undefined : onConnectMod}
+              // Disable click-to-connect globally; our "+" handles use click for menus.
+              connectOnClick={false}
               disableKeyboardA11y={true}
               nodesFocusable={!isLocked}
               edgesFocusable={!isLocked}

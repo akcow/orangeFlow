@@ -1,5 +1,5 @@
 import { type Connection, Handle, Position } from "@xyflow/react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { useDarkStore } from "@/stores/darkStore";
@@ -157,6 +157,9 @@ const HandleContent = memo(function HandleContent({
     const size = 72;
     const offsetX = visualOffset?.x ?? 0;
     const offsetY = visualOffset?.y ?? 0;
+    const tetherLength = Math.hypot(offsetX, offsetY);
+    const tetherAngle = Math.atan2(offsetY, offsetX) * (180 / Math.PI);
+    const showTether = Boolean(visible && isTracking && tetherLength > 1);
     return (
       <div
         data-testid={`div-handle-${testIdComplement}-${title.toLowerCase()}-${
@@ -165,10 +168,7 @@ const HandleContent = memo(function HandleContent({
         // The "+" bubble itself is interactive and carries `source`/`target` so XYFlow's
         // `elementFromPoint()` logic resolves to the correct handle type.
         // The inner icon is `pointer-events: none` to avoid hitting the svg instead of the bubble.
-        className={cn(
-          "noflow nowheel nopan noselect absolute left-1/2 top-1/2 cursor-crosshair rounded-full ease-out",
-          left ? "target" : "source",
-        )}
+        className={cn("noflow nowheel nopan noselect absolute left-1/2 top-1/2 ease-out")}
         style={{
           width: `${size}px`,
           height: `${size}px`,
@@ -181,20 +181,52 @@ const HandleContent = memo(function HandleContent({
           transition: isTracking
             ? "opacity 200ms ease-out"
             : "transform 200ms ease-out, opacity 200ms ease-out",
-          transform: `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
-          background: "hsl(var(--background) / 0.78)",
-          border: "1px solid hsl(var(--border) / 0.55)",
-          boxShadow: visible
-            ? "0 10px 25px rgba(15,23,42,0.18)"
-            : "0 0 0 rgba(0,0,0,0)",
-          backdropFilter: "blur(8px)",
+          transform: `translate(-50%, -50%)`,
         }}
         onPointerEnter={onPlusPointerEnter}
         onPointerMove={onPlusPointerMove}
         onPointerLeave={onPlusPointerLeave}
       >
-        <div className="pointer-events-none flex h-full w-full items-center justify-center">
-          <ForwardedIconComponent name="Plus" className="pointer-events-none h-7 w-7" />
+        {showTether && (
+          <div
+            aria-hidden
+            className={cn("absolute left-1/2 top-1/2", isTracking ? "" : "transition-transform duration-200")}
+            style={{
+              width: `${tetherLength}px`,
+              height: "1px",
+              transformOrigin: "0 50%",
+              transform: `translate(0, -50%) rotate(${tetherAngle}deg)`,
+              background: "linear-gradient(90deg, hsl(var(--border) / 0.15), hsl(var(--border) / 0.55))",
+              boxShadow: "0 0 0 1px rgba(255,255,255,0.04)",
+            }}
+          />
+        )}
+        <div
+          className={cn(
+            "absolute left-1/2 top-1/2 cursor-crosshair rounded-full",
+            left ? "target" : "source",
+          )}
+          style={{
+            width: `${size}px`,
+            height: `${size}px`,
+            transition: isTracking
+              ? "opacity 200ms ease-out"
+              : "transform 200ms ease-out, opacity 200ms ease-out",
+            transform: `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
+            background: "hsl(var(--background) / 0.78)",
+            border: "1px solid hsl(var(--border) / 0.55)",
+            boxShadow: visible
+              ? "0 10px 25px rgba(15,23,42,0.18)"
+              : "0 0 0 rgba(0,0,0,0)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <div className="pointer-events-none flex h-full w-full items-center justify-center">
+            <ForwardedIconComponent
+              name="Plus"
+              className="pointer-events-none h-7 w-7"
+            />
+          </div>
         </div>
       </div>
     );
@@ -234,6 +266,8 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   onPlusPointerEnter,
   onPlusPointerMove,
   onPlusPointerLeave,
+  clickMode = "filter",
+  onMenuRequest,
 }: {
   left: boolean;
   tooltipTitle?: string;
@@ -257,8 +291,19 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   onPlusPointerEnter?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPlusPointerMove?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPlusPointerLeave?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  clickMode?: "filter" | "menu" | "none";
+  onMenuRequest?: (payload: {
+    x: number;
+    y: number;
+    kind: "input" | "output";
+    nodeId: string;
+    handleId: string;
+    handlePayload: any;
+    title: string;
+  }) => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const clickStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const isLocked = useFlowStore(
     useShallow((state) => state.currentFlow?.locked),
@@ -436,6 +481,38 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
       if (event.button === 0) {
+        clickStartRef.current = { x: event.clientX, y: event.clientY };
+        // For menu-mode handles, only show the connection line when a real drag occurs.
+        // This prevents a "real" connection line from appearing while the menu is open.
+        if (clickMode === "menu") {
+          // Prevent node selection / multi-select grouping side-effects on mousedown.
+          event.stopPropagation();
+          const start = { x: event.clientX, y: event.clientY };
+          let draggingStarted = false;
+
+          const handleMouseMove = (moveEvent: MouseEvent) => {
+            if (draggingStarted) return;
+            const dx = moveEvent.clientX - start.x;
+            const dy = moveEvent.clientY - start.y;
+            if (dx * dx + dy * dy > 36) {
+              draggingStarted = true;
+              setHandleDragging(currentFilter);
+            }
+          };
+
+          const handleMouseUp = () => {
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+            if (draggingStarted) {
+              setHandleDragging(undefined);
+            }
+          };
+
+          document.addEventListener("mousemove", handleMouseMove);
+          document.addEventListener("mouseup", handleMouseUp);
+          return;
+        }
+
         setHandleDragging(currentFilter);
         const handleMouseUp = () => {
           setHandleDragging(undefined);
@@ -444,32 +521,69 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
         document.addEventListener("mouseup", handleMouseUp);
       }
     },
-    [currentFilter, setHandleDragging],
+    [clickMode, currentFilter, setHandleDragging],
   );
 
-  const handleClick = useCallback(() => {
-    const nodes = useFlowStore.getState().nodes;
-    setFilterEdge(groupByFamily(myData, tooltipTitle!, left, nodes!));
-    setFilterType(currentFilter);
-    setFilterComponent("");
-    if (filterOpenHandle && filterType) {
-      onConnect(getConnection(filterType));
-      setFilterType(undefined);
-      setFilterEdge([]);
+  const handleClick = useCallback(
+    (event: React.MouseEvent) => {
+      // Preserve drag-to-connect UX: don't treat a drag as a click.
+      const start = clickStartRef.current;
+      if (start) {
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (dx * dx + dy * dy > 36) {
+          return;
+        }
+      }
+
+      if (clickMode === "none") return;
+
+      if (clickMode === "menu") {
+        event.preventDefault();
+        event.stopPropagation();
+        onMenuRequest?.({
+          x: event.clientX,
+          y: event.clientY,
+          kind: left ? "input" : "output",
+          nodeId,
+          handleId: myId,
+          handlePayload: proxy ? { ...id, proxy } : id,
+          title,
+        });
+        return;
+      }
+
+      const nodes = useFlowStore.getState().nodes;
+      setFilterEdge(groupByFamily(myData, tooltipTitle!, left, nodes!));
+      setFilterType(currentFilter);
       setFilterComponent("");
-    }
-  }, [
-    myData,
-    tooltipTitle,
-    left,
-    setFilterEdge,
-    setFilterType,
-    setFilterComponent,
-    currentFilter,
-    filterOpenHandle,
-    filterType,
-    onConnect,
-  ]);
+      if (filterOpenHandle && filterType) {
+        onConnect(getConnection(filterType));
+        setFilterType(undefined);
+        setFilterEdge([]);
+        setFilterComponent("");
+      }
+    },
+    [
+      clickMode,
+      currentFilter,
+      filterOpenHandle,
+      filterType,
+      id,
+      left,
+      myData,
+      myId,
+      nodeId,
+      onConnect,
+      onMenuRequest,
+      proxy,
+      setFilterComponent,
+      setFilterEdge,
+      setFilterType,
+      title,
+      tooltipTitle,
+    ],
+  );
 
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
   const handleMouseLeave = useCallback(() => setIsHovered(false), []);

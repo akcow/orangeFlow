@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import base64
+import mimetypes
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -83,11 +86,12 @@ class TextCreation(Component):
     def generate_text(self) -> Data:
         prompt = self._merge_prompt(self.prompt)
         draft_text = self._merge_prompt(getattr(self, "draft_text", None))
+        has_images = self._has_media([self.prompt, getattr(self, "draft_text", None)])
 
         # Passthrough mode: allow using the preview/draft text without calling the model.
         # This enables downstream nodes (e.g., video generation) to consume the text even when
         # the prompt input is intentionally left empty.
-        if not prompt:
+        if not prompt and not has_images:
             generated_at = datetime.now(timezone.utc).isoformat()
 
             if not draft_text:
@@ -136,6 +140,13 @@ class TextCreation(Component):
             )
 
         model_name = self.model_name or "deepseek-chat"
+
+        # Multimodal: route image input through Gemini 3 generateContent.
+        if has_images:
+            if not self._is_gemini3(model_name):
+                return self._error("图片输入仅支持 Gemini 模型（gemini-3-*），请切换模型后重试。")
+            api_key = (self.api_key or "").strip() or self._resolve_gemini_api_key()
+            return self._generate_gemini3_text(prompt=prompt, model_name=model_name, api_key=api_key)
 
         try:
             # Route all model calls through the hosted gateway (server-managed credentials).
@@ -195,8 +206,8 @@ class TextCreation(Component):
             "Content-Type": "application/json",
         }
 
-        # 构建 parts，支持文本和多媒体
-        parts = self._build_gemini_parts(prompt)
+        # 构建 parts，支持文本和多媒体（prompt + draft_text）
+        parts = self._build_gemini_parts([prompt, getattr(self, "draft_text", None)])
 
         payload = {
             "contents": [
@@ -328,6 +339,12 @@ class TextCreation(Component):
                         for item in nested:
                             _add_from_value(item)
 
+                # FileInput payloads typically store paths in `file_path` (list or string).
+                file_paths = value.get("file_path") or value.get("path")
+                if isinstance(file_paths, list):
+                    for path in file_paths:
+                        _add_from_value({"file_path": path})
+
                 return
 
             # 处理列表
@@ -385,6 +402,21 @@ class TextCreation(Component):
                 except Exception:
                     continue
 
+        file_path_value = data.get("file_path") or data.get("path")
+        if isinstance(file_path_value, str) and file_path_value.strip():
+            try:
+                file_path = Path(file_path_value)
+                if file_path.exists() and file_path.is_file():
+                    # Keep the same per-image size guard as other media components.
+                    if file_path.stat().st_size > 10 * 1024 * 1024:
+                        return None
+                    mime_type, _ = mimetypes.guess_type(file_path.name)
+                    mime_type = mime_type or "image/png"
+                    encoded = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+                    return {"inline_data": {"mime_type": mime_type, "data": encoded}}
+            except Exception:
+                return None
+
         return None
 
     @staticmethod
@@ -432,6 +464,25 @@ class TextCreation(Component):
         return model_name.strip().startswith(GEMINI3_MODEL_PREFIXES)
 
     @staticmethod
+    def _looks_like_inline_media(value: str) -> bool:
+        text = value.strip()
+        if not text:
+            return False
+        if text.startswith("data:image") or text.startswith("data:video"):
+            return True
+        # Heuristic for raw base64: avoid treating normal prompts as "media".
+        if len(text) < 256:
+            return False
+        try:
+            import re
+
+            if re.fullmatch(r"[A-Za-z0-9+/=]+", text) and len(text) % 4 == 0:
+                return True
+        except Exception:
+            return False
+        return False
+
+    @staticmethod
     def _merge_prompt(prompt_source: Any | None) -> str:
         """合并多种提示词输入格式。"""
         if prompt_source is None:
@@ -441,6 +492,44 @@ class TextCreation(Component):
         if isinstance(prompt_source, dict):
             return "\n".join(f"{k}: {v}" for k, v in prompt_source.items() if v)
         return str(prompt_source).strip()
+
+    @staticmethod
+    def _has_media(value: Any | None) -> bool:
+        """Best-effort check for multimodal inputs (uploaded files or inline image data)."""
+        if value is None:
+            return False
+        if isinstance(value, Data):
+            return TextCreation._has_media(value.data)
+        if isinstance(value, dict):
+            file_paths = value.get("file_path") or value.get("path")
+            if isinstance(file_paths, str) and file_paths.strip():
+                return True
+            if isinstance(file_paths, list) and any(
+                isinstance(item, str) and item.strip() for item in file_paths
+            ):
+                return True
+            value_list = value.get("value")
+            if isinstance(value_list, list) and any(TextCreation._has_media(item) for item in value_list):
+                return True
+            for key in (
+                "images",
+                "generated_images",
+                "reference_images",
+                "image_data_url",
+                "data_url",
+                "preview_base64",
+                "image_base64",
+                "image",
+                "cover_preview_base64",
+            ):
+                if TextCreation._has_media(value.get(key)):
+                    return True
+            return False
+        if isinstance(value, (list, tuple)):
+            return any(TextCreation._has_media(item) for item in value)
+        if isinstance(value, str):
+            return TextCreation._looks_like_inline_media(value)
+        return True
 
     @staticmethod
     def _error(message: str) -> Data:
