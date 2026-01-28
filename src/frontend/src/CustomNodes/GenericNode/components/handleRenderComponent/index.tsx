@@ -478,6 +478,17 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   const hasAnyInteraction = Boolean(filterPresent) || openHandle || ownHandle || isHovered;
   const shouldAllowPointerEvents = !isLocked && (resolvedVisible || hasAnyInteraction);
 
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      // XYFlow starts "box select" / selection drag on `pointerdown` (before `mousedown`).
+      // For menu-mode handles (our preview "+" bubbles), prevent that side-effect.
+      if (clickMode !== "menu") return;
+      if (event.button !== 0) return;
+      event.stopPropagation();
+    },
+    [clickMode],
+  );
+
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
       if (event.button === 0) {
@@ -615,6 +626,7 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onMouseDown={handleMouseDown}
+        onPointerDown={handlePointerDown}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         data-testid={`handle-${testIdComplement}-${title.toLowerCase()}-${

@@ -1,7 +1,7 @@
 import { cloneDeep } from "lodash";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ShortUniqueId from "short-unique-id";
-import { type ReactFlowState, useStore } from "@xyflow/react";
+import { type ReactFlowState, useStore, addEdge } from "@xyflow/react";
 import {
   Dialog,
   DialogContent,
@@ -116,7 +116,7 @@ export default function DoubaoImageCreatorLayout({
   selected = false,
   onPreviewActionsChange,
 }: DoubaoImageCreatorLayoutProps) {
-  const NODE_OFFSET_X = 1100;
+  const NODE_OFFSET_X = 1300;
   const uid = new ShortUniqueId({ length: 10 });
   const IMAGE_OUTPUT_NAME = "image";
   const TEXT_COMPONENT_NAME = "TextCreation";
@@ -965,13 +965,10 @@ export default function DoubaoImageCreatorLayout({
         type: "DoubaoImageCreator",
         id: newImageNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: false })),
-      newImageNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newImageNode]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
@@ -1040,11 +1037,19 @@ export default function DoubaoImageCreatorLayout({
   ]);
 
   const handleCreateTextUpstreamNode = useCallback(() => {
+    console.log("[DEBUG] handleCreateTextUpstreamNode - START");
+
     const currentNode = nodes.find((node) => node.id === data.id);
-    if (!currentNode) return;
+    if (!currentNode) {
+      console.log("[DEBUG] Early return: currentNode not found");
+      return;
+    }
 
     const promptTemplateField = template[PROMPT_NAME];
-    if (!promptTemplateField) return;
+    if (!promptTemplateField) {
+      console.log("[DEBUG] Early return: promptTemplateField not found");
+      return;
+    }
 
     const existingUpstreamNodeId = edges
       .map((edge) => {
@@ -1064,6 +1069,7 @@ export default function DoubaoImageCreatorLayout({
       .find(Boolean) as string | undefined;
 
     if (existingUpstreamNodeId) {
+      console.log("[DEBUG] Early return: existingUpstreamNodeId found:", existingUpstreamNodeId);
       setNodes((currentNodes) =>
         currentNodes.map((node) => ({
           ...node,
@@ -1074,7 +1080,12 @@ export default function DoubaoImageCreatorLayout({
     }
 
     const textTemplate = templates[TEXT_COMPONENT_NAME];
-    if (!textTemplate) return;
+    if (!textTemplate) {
+      console.log("[DEBUG] Early return: textTemplate not found for", TEXT_COMPONENT_NAME);
+      return;
+    }
+
+    console.log("[DEBUG] Proceeding to create new TextCreation node");
 
     takeSnapshot();
 
@@ -1092,13 +1103,10 @@ export default function DoubaoImageCreatorLayout({
         type: TEXT_COMPONENT_NAME,
         id: newTextNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: false })),
-      newTextNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newTextNode]);
 
     const outputDefinition =
       textTemplate.outputs?.find((output) => output.name === TEXT_OUTPUT_NAME) ??
@@ -1120,20 +1128,16 @@ export default function DoubaoImageCreatorLayout({
       ...(promptTemplateField.proxy ? { proxy: promptTemplateField.proxy } : {}),
     };
 
-    const edge = {
-      id: `xy-edge__${newTextNodeId}-${sourceHandle.name}-${data.id}-${targetHandle.fieldName}`,
-      source: newTextNodeId,
-      sourceHandle: scapedJSONStringfy(sourceHandle),
-      target: data.id,
-      targetHandle: scapedJSONStringfy(targetHandle),
-      type: "default",
-      data: {
-        sourceHandle: sourceHandle,
-        targetHandle: targetHandle,
-      },
-    } as EdgeType;
-
-    setEdges((prev) => [...prev, edge]);
+    // Delay edge creation to ensure the new node is fully rendered
+    setTimeout(() => {
+      // Use onConnect - the standard ReactFlow method for creating edges
+      onConnect({
+        source: newTextNodeId,
+        target: data.id,
+        sourceHandle: scapedJSONStringfy(sourceHandle),
+        targetHandle: scapedJSONStringfy(targetHandle),
+      });
+    }, 200);
 
     track("DoubaoImageCreator - Create Text Upstream Node", {
       sourceNodeId: newTextNodeId,
@@ -1148,8 +1152,7 @@ export default function DoubaoImageCreatorLayout({
     data.id,
     edges,
     nodes,
-    // onConnect, // Removed as we use setEdges directly
-    setEdges,
+    onConnect,
     setNodes,
     takeSnapshot,
     template,
@@ -1222,13 +1225,10 @@ export default function DoubaoImageCreatorLayout({
         type: TEXT_COMPONENT_NAME,
         id: newTextNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: false })),
-      newTextNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newTextNode]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
@@ -1374,13 +1374,10 @@ export default function DoubaoImageCreatorLayout({
         type: "DoubaoVideoGenerator",
         id: newVideoNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: false })),
-      newVideoNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newVideoNode]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
@@ -1517,13 +1514,10 @@ export default function DoubaoImageCreatorLayout({
         type: "DoubaoImageCreator",
         id: newImageNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: false })),
-      newImageNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newImageNode]);
 
     const outputDefinition =
       imageTemplate.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
