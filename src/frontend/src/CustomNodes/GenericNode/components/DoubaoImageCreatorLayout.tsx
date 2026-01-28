@@ -223,6 +223,7 @@ export default function DoubaoImageCreatorLayout({
   const isNanoBanana = selectedModelName === "Nano Banana";
   const isNanoBananaPro = selectedModelName === "Nano Banana Pro";
   const isGeminiImageModel = isNanoBanana || isNanoBananaPro;
+  const isSeedreamImageModel = selectedModelName.toLowerCase().includes("seedream");
   const supportsGeminiFeatureButtons = isNanoBananaPro;
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
@@ -708,22 +709,34 @@ export default function DoubaoImageCreatorLayout({
         options = buildRangeOptions(templateField);
       }
       if (field.name === "aspect_ratio") {
-        // Nano Banana 系列模型支持额外的宽高比（4:5, 5:4, 21:9）
-        // 其他模型不支持这些宽高比，需要过滤掉
-        const geminiExclusiveRatios = new Set(["4:5", "5:4", "21:9"]);
+        // Ensure "21:9", "4:5", "5:4", and "Adaptive" are in the list if not present
+        const extraRatios = ["21:9", "4:5", "5:4", "Adaptive"];
+        options = Array.from(new Set([...options, ...extraRatios]));
+
+        // Nano Banana supports 4:5, 5:4.
+        // Wan, Nano Banana, Seedream support 21:9.
+        const bananaExclusiveRatios = new Set(["4:5", "5:4"]);
+        const wideRatios = new Set(["21:9"]);
 
         options = options.filter((opt) => {
           const optStr = String(opt);
-          // 非 Gemini 模型（Nano Banana 系列）隐藏这些宽高比
-          if (!isGeminiImageModel && geminiExclusiveRatios.has(optStr)) {
-            return false;
-          }
-          // 非 wan 模型且非（Nano Banana系列+有参考图）时移除 adaptive 选项
-          // 即：Wan模型支持；Nano Banana系列+有参考图时也支持（作为Image-to-Image/Copy保持原比）
-          const isAdaptiveAllowed =
-            isWanModel || (isGeminiImageModel && hasAnyReferenceSelected);
 
-          if (!isAdaptiveAllowed && optStr.toLowerCase() === "adaptive") {
+          // 4:5, 5:4 -> Only for Gemini (Nano Banana)
+          if (bananaExclusiveRatios.has(optStr)) {
+            return isGeminiImageModel;
+          }
+
+          // 21:9 -> Wan OR Gemini OR Seedream
+          if (wideRatios.has(optStr)) {
+            return isWanModel || isGeminiImageModel || isSeedreamImageModel;
+          }
+
+          // Adaptive -> (Wan OR Gemini OR Seedream) + Ref
+          const isAdaptiveAllowed =
+            (isWanModel || isGeminiImageModel || isSeedreamImageModel) &&
+            hasAnyReferenceSelected;
+
+          if (optStr.toLowerCase() === "adaptive" && !isAdaptiveAllowed) {
             return false;
           }
           return true;
@@ -1952,8 +1965,16 @@ export default function DoubaoImageCreatorLayout({
     };
   }, [setNodes, data.id]);
 
+  const isWideRatio = String(template.aspect_ratio?.value) === "21:9";
+  // Debug log to confirm value update
+  console.log("AspectRatio:", template.aspect_ratio?.value, "isWide:", isWideRatio);
+
   return (
-    <div ref={componentRef} className="space-y-4 px-4 pb-4">
+    <div
+      ref={componentRef}
+      className="space-y-4 px-4 pb-4 transition-all duration-300 ease-in-out"
+      style={{ minWidth: isWideRatio ? 500 : undefined }}
+    >
 
       {quickAddMenu && (
         <DoubaoQuickAddMenu
