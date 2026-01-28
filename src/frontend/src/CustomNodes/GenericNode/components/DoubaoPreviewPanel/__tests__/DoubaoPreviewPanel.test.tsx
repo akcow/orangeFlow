@@ -89,6 +89,27 @@ describe("DoubaoPreviewPanel", () => {
     expect(screen.getByText("暂无生成结果")).toBeInTheDocument();
   });
 
+  test("uses a larger persistent frame for 21:9 in image creator mode", () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const { container } = render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={mockComponentName}
+        appearance="imageCreator"
+        aspectRatio="21:9"
+      />,
+    );
+
+    // `min-h-[320px]` is applied only for 21:9 to avoid an overly short preview frame.
+    expect(container.querySelector('[class*="min-h-[320px]"]')).not.toBeNull();
+  });
+
   test("renders building state when isBuilding is true", () => {
     (useDoubaoPreview as jest.Mock).mockReturnValue({
       preview: null,

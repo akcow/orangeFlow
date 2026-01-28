@@ -264,6 +264,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         : "mt-3 rounded-3xl border border-muted-foreground/20 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-slate-900/60",
     );
 
+    const isUltraWide21x9 =
+      appearance === "imageCreator" && String(aspectRatio ?? "").trim() === "21:9";
+
     const previewFrameClassName = cn(
       "relative flex transition-[aspect-ratio] duration-300 ease-in-out", // Restore transition for animation
       isMinimal
@@ -271,6 +274,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           ? cn(
             "w-full max-w-full",
             minimalAspectClass,
+            // 21:9 looks too short in the persistent preview; increase minimum visible area only for this ratio.
+            isUltraWide21x9 && "min-h-[320px]",
             // Fallback to aspect-square if no style is applied and no specific ratio class? 
             // Actually, if we remove aspect-square, it might collapse if empty. 
             // We should ensure a default aspect ratio exists if the computed one is missing.

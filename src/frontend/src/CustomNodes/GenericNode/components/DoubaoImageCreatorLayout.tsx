@@ -1965,15 +1965,10 @@ export default function DoubaoImageCreatorLayout({
     };
   }, [setNodes, data.id]);
 
-  const isWideRatio = String(template.aspect_ratio?.value) === "21:9";
-  // Debug log to confirm value update
-  console.log("AspectRatio:", template.aspect_ratio?.value, "isWide:", isWideRatio);
-
   return (
     <div
       ref={componentRef}
       className="space-y-4 px-4 pb-4 transition-all duration-300 ease-in-out"
-      style={{ minWidth: isWideRatio ? 500 : undefined }}
     >
 
       {quickAddMenu && (
