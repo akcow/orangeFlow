@@ -72,6 +72,7 @@ type Props = {
   onRequestUpload?: () => void;
   onSuggestionClick?: (label: string) => void;
   onActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
+  aspectRatio?: string;
 };
 
 type GalleryItem = {
@@ -104,6 +105,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       onRequestUpload,
       onSuggestionClick,
       onActionsChange,
+      aspectRatio,
     },
     forwardedRef,
   ) => {
@@ -114,7 +116,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const nodes = useFlowStore((state) => state.nodes);
     const setNode = useFlowStore((state) => state.setNode);
     const node = useMemo(
-      () => nodes.find((candidate) => candidate.id === nodeId)?.data?.node,
+      () => (nodes.find((candidate) => candidate.id === nodeId)?.data as any)?.node,
       [nodes, nodeId],
     );
     const selectedModelName = useMemo(() => {
@@ -178,7 +180,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       setNode(
         nodeId,
         (oldNode) => {
-          const newData = { ...oldNode.data };
+          const newData = { ...(oldNode.data as any) };
           const newNode = { ...(newData.node as any) };
           const newTemplate = { ...(newNode.template ?? {}) };
           const draftField = { ...(newTemplate.draft_output ?? {}) };
@@ -209,10 +211,48 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       () => (isMinimal ? "" : PANEL_BG[kind]),
       [kind, isMinimal],
     );
+
+
+
+    // Calculate aspect ratio style
+    const containerStyle = useMemo(() => {
+      if (appearance !== "imageCreator" || !aspectRatio) return undefined;
+      // If there is content, let content dictate size (or keep strict frame? User said "when no image uploaded").
+      // We will check hasRenderablePreview later, but we can compute the style object here.
+
+      const ratioMap: Record<string, string> = {
+        "1:1": "1 / 1",
+        "16:9": "16 / 9",
+        "9:16": "9 / 16",
+        "4:3": "4 / 3",
+        "3:4": "3 / 4",
+        "2:3": "2 / 3",
+        "3:2": "3 / 2",
+        "21:9": "21 / 9",
+        "4:5": "4 / 5",
+        "5:4": "5 / 4",
+      };
+      const ratio = ratioMap[aspectRatio] ?? "1 / 1"; // Default/Fallback
+      // If "Adaptive" or "Auto", we might default to square for empty state
+      if (aspectRatio.toLowerCase() === "adaptive" || aspectRatio.toLowerCase() === "auto") {
+        return { aspectRatio: "1 / 1" };
+      }
+      return { aspectRatio: ratio };
+    }, [appearance, aspectRatio]);
+
+
     const minimalAspectClass = useMemo(() => {
       if (!isMinimal) return "";
       if (appearance === "videoGenerator" || isAudioMinimal) {
         return "aspect-[170/100]";
+      }
+      // For image creator, we dynamically handle aspect ratio via style if empty, or let it be flexible.
+      // If we use style for aspect-ratio, we should remove conflicting tailwind classes like aspect-square.
+      // We'll return a default if no aspect ratio is provided or if we want a fallback.
+      if (appearance === "imageCreator") {
+        // If we have a computed container style, we don't want 'aspect-square' forcing it.
+        // We will rely on the inline style or a default class.
+        return "";
       }
       return "aspect-square";
     }, [appearance, isMinimal, isAudioMinimal]);
@@ -225,20 +265,24 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     );
 
     const previewFrameClassName = cn(
-      "relative flex",
+      "relative flex transition-[aspect-ratio] duration-300 ease-in-out", // Restore transition for animation
       isMinimal
         ? appearance === "imageCreator"
           ? cn(
-              "w-full max-w-full",
-              minimalAspectClass,
-              // Single preview container for image creator (avoid nested frames inside the renderer).
-              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none dark:border-white/15 dark:bg-white/5",
-            )
+            "w-full max-w-full",
+            minimalAspectClass,
+            // Fallback to aspect-square if no style is applied and no specific ratio class? 
+            // Actually, if we remove aspect-square, it might collapse if empty. 
+            // We should ensure a default aspect ratio exists if the computed one is missing.
+            !containerStyle && "aspect-square",
+            // Single preview container for image creator (avoid nested frames inside the renderer).
+            "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none dark:border-white/15 dark:bg-white/5",
+          )
           : cn(
-              "w-full max-w-full",
-              minimalAspectClass,
-              "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
-            )
+            "w-full max-w-full",
+            minimalAspectClass,
+            "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
+          )
         : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10",
       panelClass,
     );
@@ -302,7 +346,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           setNode(
             nodeId,
             (oldNode) => {
-              const newData = { ...oldNode.data };
+              const newData = { ...(oldNode.data as any) };
               const newNode = { ...(newData.node as any) };
               const newTemplate = { ...(newNode.template ?? {}) };
               if (newTemplate.text) {
@@ -365,9 +409,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         payload.images.forEach((entry: any, idx: number) => {
           const inlineSource = sanitizePreviewDataUrl(
             entry?.image_data_url ??
-              entry?.preview_base64 ??
-              entry?.preview_data_url ??
-              entry?.data_url,
+            entry?.preview_base64 ??
+            entry?.preview_data_url ??
+            entry?.data_url,
           );
           const remoteSource =
             entry?.image_url ??
@@ -400,8 +444,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
       const inlineFallback = sanitizePreviewDataUrl(
         payload.image_data_url ??
-          payload.preview_base64 ??
-          payload.preview_data_url,
+        payload.preview_base64 ??
+        payload.preview_data_url,
       );
       const remoteFallback =
         payload.image_url ??
@@ -504,6 +548,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         ? referenceGallery
         : null;
 
+    const hasRenderablePreview =
+      hasGeneratedImagePreview ||
+      hasReferencePreview ||
+      hasVideoPreview ||
+      hasAudioPreview;
+
+    const appliedContainerStyle = !hasRenderablePreview ? containerStyle : undefined;
+
     const galleryKind = hasGeneratedImagePreview
       ? "generated"
       : hasReferencePreview
@@ -512,8 +564,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const currentImage = galleryForRenderer?.length
       ? galleryForRenderer[
-          Math.min(activeImageIndex, galleryForRenderer.length - 1)
-        ]
+      Math.min(activeImageIndex, galleryForRenderer.length - 1)
+      ]
       : null;
 
     const handleNavigateImages = useCallback(
@@ -535,12 +587,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       },
       [galleryForRenderer],
     );
-
-    const hasRenderablePreview =
-      hasGeneratedImagePreview ||
-      hasReferencePreview ||
-      hasVideoPreview ||
-      hasAudioPreview;
 
     const openModal = useCallback(() => {
       if (!hasRenderablePreview) return;
@@ -643,7 +689,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const shouldShowVideoUploadOverlay = false;
     const showUploadOverlay = Boolean(
       onRequestUpload &&
-        (shouldShowImageUploadOverlay || shouldShowVideoUploadOverlay),
+      (shouldShowImageUploadOverlay || shouldShowVideoUploadOverlay),
     );
     const uploadButtonLabel = "上传";
     const showReferenceSelectionBadge =
@@ -846,7 +892,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             </div>
           )}
 
-          <div className={previewFrameClassName}>
+          <div className={previewFrameClassName} style={appliedContainerStyle}>
             {appearance !== "imageCreator" && (
               <div className="absolute bottom-4 left-4 z-10">
                 <OutputModal
@@ -923,11 +969,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                   )}
                   {appearance !== "imageCreator" && hasRenderablePreview && (
                     <button
-                  type="button"
-                  aria-label="放大预览"
-                  onClick={openModal}
-                  className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
-                >
+                      type="button"
+                      aria-label="放大预览"
+                      onClick={openModal}
+                      className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
+                    >
                       <ForwardedIconComponent
                         name="Maximize2"
                         className="h-4 w-4 text-current"

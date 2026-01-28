@@ -1,5 +1,5 @@
 import { cloneDeep } from "lodash";
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import ShortUniqueId from "short-unique-id";
 import { type ReactFlowState, useStore, addEdge } from "@xyflow/react";
 import {
@@ -718,8 +718,12 @@ export default function DoubaoImageCreatorLayout({
           if (!isGeminiImageModel && geminiExclusiveRatios.has(optStr)) {
             return false;
           }
-          // 非 wan 模型移除 adaptive 选项
-          if (!isWanModel && optStr.toLowerCase() === "adaptive") {
+          // 非 wan 模型且非（Nano Banana系列+有参考图）时移除 adaptive 选项
+          // 即：Wan模型支持；Nano Banana系列+有参考图时也支持（作为Image-to-Image/Copy保持原比）
+          const isAdaptiveAllowed =
+            isWanModel || (isGeminiImageModel && hasAnyReferenceSelected);
+
+          if (!isAdaptiveAllowed && optStr.toLowerCase() === "adaptive") {
             return false;
           }
           return true;
@@ -1892,8 +1896,64 @@ export default function DoubaoImageCreatorLayout({
     quickAddMenu,
   ]);
 
+  const [_, startTransition] = useTransition();
+  const componentRef = useRef<HTMLDivElement>(null);
+  const prevHeightRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!componentRef.current || !data.id) return;
+
+    const nodeElement = componentRef.current;
+
+    // Initialize prevHeight with current height
+    prevHeightRef.current = nodeElement.offsetHeight;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        // Use borderBoxSize if available for better accuracy, fallback to contentRect or offsetHeight
+        const currentHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+
+        // We compare against the last observed height
+        const prevHeight = prevHeightRef.current;
+
+        // If height changed significantly (ignore sub-pixel noise)
+        if (Math.abs(currentHeight - prevHeight) > 1) {
+          const delta = currentHeight - prevHeight;
+
+          // Update ref immediately for next frame
+          prevHeightRef.current = currentHeight;
+
+          // Apply Y-correction synchronously-ish via state used in transition
+          // Note: We need to update the node position in the ReactFlow store
+          startTransition(() => {
+            setNodes((nodes) =>
+              nodes.map((node) => {
+                if (node.id === data.id) {
+                  return {
+                    ...node,
+                    position: {
+                      ...node.position,
+                      y: node.position.y - delta,
+                    },
+                  };
+                }
+                return node;
+              })
+            );
+          });
+        }
+      }
+    });
+
+    resizeObserver.observe(nodeElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [setNodes, data.id]);
+
   return (
-    <div className="space-y-4 px-4 pb-4">
+    <div ref={componentRef} className="space-y-4 px-4 pb-4">
 
       {quickAddMenu && (
         <DoubaoQuickAddMenu
@@ -1910,7 +1970,9 @@ export default function DoubaoImageCreatorLayout({
           }}
         />
       )}
+
       {/* Preview */}
+
       <div className="relative flex flex-col gap-4 lg:flex-row">
         {referenceHandleMeta && (
           <div className="absolute left-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:block">
@@ -2009,6 +2071,7 @@ export default function DoubaoImageCreatorLayout({
             onRequestUpload={openUploadDialog}
             onSuggestionClick={handlePreviewSuggestionClickWithVideo}
             onActionsChange={onPreviewActionsChange}
+            aspectRatio={String(template.aspect_ratio?.value ?? "")}
           />
         </div>
         {previewOutputHandles.length > 0 && (
@@ -2071,6 +2134,7 @@ export default function DoubaoImageCreatorLayout({
           </div>
         )}
       </div>
+
 
       {/* Prompt/config container */}
       {showExpanded && (
