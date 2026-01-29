@@ -985,6 +985,9 @@ export default function Page({
               onNodesChange={onNodesChangeWithHelperLines}
               onEdgesChange={onEdgesChange}
               onConnect={isLocked ? undefined : onConnectMod}
+              // Requirement: dragging an unselected node must NOT change the selection set.
+              // (Keep click-to-select behavior unchanged.)
+              selectNodesOnDrag={false}
               // Disable click-to-connect globally; our "+" handles use click for menus.
               connectOnClick={false}
               disableKeyboardA11y={true}

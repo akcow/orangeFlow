@@ -1968,7 +1968,7 @@ export default function DoubaoImageCreatorLayout({
   return (
     <div
       ref={componentRef}
-      className="space-y-4 px-4 pb-4 transition-all duration-300 ease-in-out"
+      className="relative flex flex-col gap-4 px-4 pb-4 transition-all duration-300 ease-in-out"
     >
 
       {quickAddMenu && (
@@ -2152,17 +2152,18 @@ export default function DoubaoImageCreatorLayout({
       </div>
 
 
-      {/* Prompt/config container */}
+      {/* Prompt/config container (floating overlay; must not change node height) */}
       {showExpanded && (
-        <div
-          className={cn(
-            "rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
-            "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
-            // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
-            "transform-gpu origin-top scale-[var(--inv-zoom)]",
-          )}
-          style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
-        >
+        <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
+          <div
+            className={cn(
+              "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+              // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+              "transform-gpu origin-top scale-[var(--inv-zoom)]",
+            )}
+            style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+          >
           <div className="space-y-3">
             <div
               className={cn(
@@ -2280,6 +2281,7 @@ export default function DoubaoImageCreatorLayout({
               />
             </div>
           )}
+          </div>
         </div>
       )}
 

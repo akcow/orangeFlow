@@ -48,6 +48,15 @@ export function DoubaoParameterButton({
     name,
   });
 
+  // Radix Tooltip opens on focus by default. After selecting a dropdown option, focus returns
+  // to the trigger button, which can leave the tooltip "stuck" visible. We explicitly blur
+  // on close/selection so the tooltip behaves like hover-only in this interaction.
+  const blurActiveElement = () => {
+    if (typeof document === "undefined") return;
+    const el = document.activeElement;
+    if (el && el instanceof HTMLElement) el.blur();
+  };
+
   const disabledOptionSet = useMemo(() => {
     return new Set((disabledOptions ?? []).map((option) => String(option)));
   }, [disabledOptions]);
@@ -85,6 +94,8 @@ export function DoubaoParameterButton({
     const parsed =
       typeof template.value === "number" ? Number(nextValue) : nextValue;
     handleOnNewValue({ value: parsed });
+    // Defer so we run after Radix closes the menu and restores focus.
+    setTimeout(blurActiveElement, 0);
   };
 
   useEffect(() => {
@@ -130,7 +141,13 @@ export function DoubaoParameterButton({
   if (!visibleOptions.length) return null;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (!open) {
+          setTimeout(blurActiveElement, 0);
+        }
+      }}
+    >
       <ShadTooltip
         content={
           <span className="text-xs">
@@ -141,6 +158,11 @@ export function DoubaoParameterButton({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
+            // Prevent focus on pointer interaction; otherwise Radix Tooltip may open on focus
+            // and appear "stuck" after selecting a dropdown option.
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
             className={cn(
               "flex h-11 flex-1 items-center justify-between rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 text-left text-sm font-medium text-[#2E3150] dark:border-white/15 dark:bg-white/10 dark:text-white",
               widthClass ?? "basis-[140px]",
@@ -163,6 +185,11 @@ export function DoubaoParameterButton({
       <DropdownMenuContent
         align="start"
         className="max-h-72 w-56 overflow-auto"
+        // Prevent Radix from restoring focus to the trigger on close; otherwise the tooltip can
+        // open via focus and appear "stuck" after picking an option.
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+        }}
       >
         <DropdownMenuRadioGroup
           value={String(effectiveValue ?? "")}
@@ -207,6 +234,17 @@ export function formatControlValue(name: string, value: any): string {
       display = display.slice(0, -1).trimEnd();
     }
     return display;
+  }
+  if (name === "resolution") {
+    const raw = String(value).trim();
+    if (!raw) return "";
+    if (raw.toLowerCase() === "auto") return "Auto";
+
+    // Keep only the leading "1K/2K/4K" label (strip any suffix like "（推荐）").
+    const match = raw.match(/^(1K|2K|4K)/i);
+    if (match) return match[1]!.toUpperCase();
+
+    return raw;
   }
   if (name === "image_count") {
     return `${value}X`;
