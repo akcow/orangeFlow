@@ -108,6 +108,13 @@ class DoubaoImageCreator(Component):
             "i2i_max_area": 1280 * 1280,
             "max_reference_images": 4,
         },
+        "kling O1": {
+            "provider": "kling",
+            "model_id": "kling-image-o1",
+            # Official docs: image_list + element_list <= 10
+            "max_reference_images": 10,
+            "supports_image_size": False,
+        },
     }
 
     RESOLUTION_PRESETS = {
@@ -147,6 +154,8 @@ class DoubaoImageCreator(Component):
             options=list(MODEL_CATALOG.keys()),
             value="Seedream 4.5 · 旗舰 (251128)",
             required=True,
+            real_time_refresh=True,
+            refresh_button=False,
             info="选择即梦模型：4.5 画质更高，4.0 更兼容 fast 模式及轻量场景。",
         ),
         MultilineInput(
@@ -294,6 +303,33 @@ class DoubaoImageCreator(Component):
                 "支持 png/jpg/webp/bmp/tiff/gif，单图 ≤10MB，可与上游节点联动实现图生图。"
             ),
         ),
+        StrInput(
+            name="kling_element_ids",
+            display_name="Kling 主体ID列表",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="仅 kling O1：主体库 element_id 列表（逗号分隔），用于 element_list，并可在 prompt 中用 <<<element_1>>> 引用。",
+        ),
+        StrInput(
+            name="kling_callback_url",
+            display_name="Kling Callback URL",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="仅 kling O1：任务状态回调地址（可选）。",
+        ),
+        StrInput(
+            name="kling_external_task_id",
+            display_name="Kling External Task ID",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="仅 kling O1：自定义任务 ID（可选，单用户需唯一）。",
+        ),
         SecretStrInput(
             name="api_key",
             display_name="API Key",
@@ -316,6 +352,123 @@ class DoubaoImageCreator(Component):
             types=["Data"],
         )
     ]
+
+    def update_build_config(self, build_config, field_value: Any, field_name: str | None = None):
+        """动态 UI 配置：为 kling O1 图片接入做字段禁用/约束。"""
+        if field_name and field_name in build_config:
+            build_config[field_name]["value"] = field_value
+
+        try:
+            model_value = str((build_config.get("model_name") or {}).get("value") or "").strip()
+        except Exception:
+            model_value = ""
+
+        is_kling = model_value == "kling O1" or model_value.lower().startswith("kling")
+
+        # Helper: restore a field back to its static definition (keeps current value).
+        def _restore_field_defaults(field: str) -> None:
+            current_value = (build_config.get(field) or {}).get("value")
+            for inp in getattr(type(self), "inputs", []) or []:
+                if getattr(inp, "name", None) == field and hasattr(inp, "to_dict"):
+                    build_config[field] = inp.to_dict()
+                    if current_value is not None:
+                        build_config[field]["value"] = current_value
+                    return
+
+        kling_only_fields = ("kling_element_ids", "kling_callback_url", "kling_external_task_id")
+
+        if is_kling:
+            # Show Kling-only fields.
+            for f in kling_only_fields:
+                if f in build_config:
+                    build_config[f]["show"] = True
+
+            # Hide unrelated knobs (other providers).
+            for f in (
+                "negative_prompt",
+                "seed",
+                "prompt_extend",
+                "watermark",
+                "enable_multi_turn",
+                "enable_google_search",
+                "ak",
+                "sk",
+                "api_base",
+                "region",
+                "max_retries",
+                "timeout_seconds",
+                "api_key",
+            ):
+                if f in build_config:
+                    build_config[f]["show"] = False
+
+            # Resolution: only 1K/2K.
+            if "resolution" in build_config:
+                build_config["resolution"]["options"] = ["1K（草稿）", "2K（推荐）"]
+                val = str(build_config["resolution"].get("value") or "2K（推荐）").strip()
+                if val not in {"1K（草稿）", "2K（推荐）"}:
+                    build_config["resolution"]["value"] = "2K（推荐）"
+                build_config["resolution"]["info"] = "kling O1：仅支持 1k / 2k（UI 显示为 1K/2K）。"
+
+            # Aspect ratio: keep 'adaptive' (maps to upstream 'auto') and add 21:9.
+            if "aspect_ratio" in build_config:
+                options = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9", "adaptive"]
+                build_config["aspect_ratio"]["options"] = options
+                build_config["aspect_ratio"]["options_metadata"] = []
+                val = str(build_config["aspect_ratio"].get("value") or "adaptive").strip()
+                if val not in set(options):
+                    build_config["aspect_ratio"]["value"] = "adaptive"
+                build_config["aspect_ratio"]["info"] = "kling O1：支持 21:9；UI 的 adaptive 会映射为上游的 auto。"
+
+            # Image count: 1-9.
+            if "image_count" in build_config:
+                build_config["image_count"]["range_spec"] = {"min": 1, "max": 9, "step": 1, "step_type": "int"}
+                try:
+                    cnt = int(build_config["image_count"].get("value") or 1)
+                except Exception:
+                    cnt = 1
+                build_config["image_count"]["value"] = max(1, min(cnt, 9))
+                build_config["image_count"]["info"] = "kling O1：生成张数范围 1-9。"
+
+            # Reference images: jpg/jpeg/png only.
+            if "reference_images" in build_config:
+                build_config["reference_images"]["file_types"] = ["jpg", "jpeg", "png"]
+                build_config["reference_images"]["info"] = (
+                    "仅 kling O1：支持 jpg/jpeg/png；单图 ≤10MB；参考图 + 主体数量之和 ≤10。"
+                )
+
+        else:
+            # Hide Kling-only fields when switching away.
+            for f in kling_only_fields:
+                if f in build_config:
+                    build_config[f]["show"] = False
+
+            # Restore defaults for fields we changed.
+            _restore_field_defaults("resolution")
+            _restore_field_defaults("aspect_ratio")
+            _restore_field_defaults("image_count")
+            _restore_field_defaults("reference_images")
+
+            # Restore visibility of common advanced fields.
+            for f in (
+                "negative_prompt",
+                "seed",
+                "prompt_extend",
+                "watermark",
+                "enable_multi_turn",
+                "enable_google_search",
+                "ak",
+                "sk",
+                "api_base",
+                "region",
+                "max_retries",
+                "timeout_seconds",
+                "api_key",
+            ):
+                if f in build_config:
+                    build_config[f]["show"] = True
+
+        return build_config
 
     def build_images(self) -> Data:
         prompt = self._merge_prompt(self.prompt)
@@ -346,6 +499,8 @@ class DoubaoImageCreator(Component):
 
         # Note: Gemini is handled after bridge-mode checks.
 
+        provider = str(model_meta.get("provider") or "").strip().lower()
+        is_kling = provider == "kling"
         is_dashscope = "t2i_model" in model_meta or "i2i_model" in model_meta
         if not prompt:
             uploads = getattr(self, "reference_images", None)
@@ -354,7 +509,11 @@ class DoubaoImageCreator(Component):
                     max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
                     payloads, metadata = self._prepare_reference_images(
                         max_reference_images=max_refs,
-                        allowed_extensions=set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None,
+                        allowed_extensions=(
+                            {"jpg", "jpeg", "png"}
+                            if is_kling
+                            else (set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None)
+                        ),
                     )
                 except Exception:
                     payloads, metadata = [], []
@@ -411,18 +570,44 @@ class DoubaoImageCreator(Component):
 
         # Hosted gateway path (server-managed credentials; no Provider Credentials UI / node keys).
         try:
-            resolution = self.resolution or "2Kï¼ˆæŽ¨èï¼‰"
+            resolution = self.resolution or "2K（推荐）"
             aspect_ratio = self.aspect_ratio or "1:1"
             image_count = int(self.image_count or 1)
-            image_count = max(1, min(image_count, 6))
-            size_info = self._resolve_size(model_meta, resolution, aspect_ratio)
+            image_count = max(1, min(image_count, 9 if is_kling else 6))
+            size_info = (
+                {
+                    "label": "",
+                    "size_value": "",
+                    "width": 0,
+                    "height": 0,
+                    "ratio": aspect_ratio,
+                    "base_resolution": resolution,
+                }
+                if is_kling
+                else self._resolve_size(model_meta, resolution, aspect_ratio)
+            )
             max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
             reference_payloads, reference_meta = self._prepare_reference_images(
                 max_reference_images=max_refs,
-                allowed_extensions=set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None,
+                allowed_extensions=(
+                    {"jpg", "jpeg", "png"}
+                    if is_kling
+                    else (set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None)
+                ),
             )
         except ValueError as exc:
             return self._error(str(exc))
+
+        if is_kling:
+            return self._build_images_kling_gateway(
+                prompt=prompt,
+                model_meta=model_meta,
+                resolution=resolution,
+                aspect_ratio=aspect_ratio,
+                image_count=image_count,
+                reference_payloads=reference_payloads,
+                reference_meta=reference_meta,
+            )
 
         if model_meta.get("provider") == "gemini":
             return self._build_images_gemini_gateway(
@@ -758,6 +943,200 @@ class DoubaoImageCreator(Component):
             )
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Gateway image generation failed: {exc}")
+
+    @staticmethod
+    def _parse_int_list(value: Any) -> list[int]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple)):
+            items = list(value)
+        else:
+            items = [value]
+
+        out: list[int] = []
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, int):
+                out.append(item)
+                continue
+            s = str(item).strip()
+            if not s:
+                continue
+            for part in s.replace("，", ",").replace(" ", ",").split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    out.append(int(part))
+                except ValueError:
+                    continue
+        return out
+
+    @staticmethod
+    def _map_kling_resolution(value: str) -> str:
+        v = str(value or "").strip().lower()
+        if not v:
+            return "1k"
+        # Accept both UI labels and raw upstream enum.
+        if "1k" in v:
+            return "1k"
+        if "2k" in v:
+            return "2k"
+        return "1k"
+
+    @staticmethod
+    def _map_kling_aspect_ratio(value: str) -> str:
+        v = str(value or "").strip()
+        if not v:
+            return "auto"
+        # UI uses "adaptive" which maps to upstream "auto".
+        if v == "adaptive":
+            return "auto"
+        allowed = {"16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9", "auto"}
+        return v if v in allowed else "auto"
+
+    @staticmethod
+    def _strip_data_url_to_base64(value: str) -> str:
+        """Kling image_list expects base64 string or an accessible URL; strip data-url prefix when present."""
+        v = str(value or "").strip()
+        if not v:
+            return ""
+        if v.startswith("data:") and "base64," in v:
+            return v.split("base64,", 1)[1].strip()
+        return v
+
+    def _build_images_kling_gateway(
+        self,
+        *,
+        prompt: str,
+        model_meta: dict[str, Any],
+        resolution: str,
+        aspect_ratio: str,
+        image_count: int,
+        reference_payloads: list[str],
+        reference_meta: list[dict[str, Any]],
+    ) -> Data:
+        """Kling (kling-image-o1) image generation via hosted gateway."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            kling_resolution = self._map_kling_resolution(resolution)
+            kling_ratio = self._map_kling_aspect_ratio(aspect_ratio)
+
+            image_list: list[dict[str, Any]] = []
+            for payload in reference_payloads:
+                normalized = self._strip_data_url_to_base64(payload)
+                if normalized:
+                    image_list.append({"image": normalized})
+
+            element_ids = self._parse_int_list(getattr(self, "kling_element_ids", None))
+            element_list = [{"element_id": eid} for eid in element_ids]
+
+            if len(image_list) + len(element_list) > 10:
+                return self._error("kling O1：参考图（image_list）与主体（element_list）数量之和不得超过 10。")
+
+            callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
+            external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
+
+            kling_payload: dict[str, Any] = {
+                "model_name": str(model_meta.get("model_id") or "kling-image-o1"),
+                "prompt": prompt,
+                "resolution": kling_resolution,
+                "n": int(image_count),
+                "aspect_ratio": kling_ratio,
+            }
+            if image_list:
+                kling_payload["image_list"] = image_list
+            if element_list:
+                kling_payload["element_list"] = element_list
+            if callback_url:
+                kling_payload["callback_url"] = callback_url
+            if external_task_id:
+                kling_payload["external_task_id"] = external_task_id
+
+            response = images_generations(
+                model=str(model_meta.get("model_id") or "kling-image-o1"),
+                prompt=prompt,
+                n=int(image_count),
+                size="1024x1024",
+                response_format="url",
+                extra_body={"kling_payload": kling_payload},
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+
+            response_data = (response or {}).get("data") or []
+            if not isinstance(response_data, list) or not response_data:
+                return self._error(f"Gateway returned no images: {response}")
+
+            images: list[dict[str, Any]] = []
+            preview_gallery: list[dict[str, Any]] = []
+            for index, entry in enumerate(response_data):
+                image_url = None
+                if isinstance(entry, dict):
+                    image_url = entry.get("url") or entry.get("image_url")
+                if not isinstance(image_url, str) or not image_url.strip():
+                    continue
+                image_url = image_url.strip()
+
+                preview_data, preview_error = self._download_preview(image_url)
+                image_record: dict[str, Any] = {
+                    "index": index,
+                    "image_url": image_url,
+                    "resolution": kling_resolution,
+                    "aspect_ratio": kling_ratio,
+                }
+                if preview_data:
+                    image_record["image_data_url"] = preview_data
+                if preview_error:
+                    image_record["preview_error"] = preview_error
+                images.append(image_record)
+
+                preview_gallery.append(
+                    {
+                        "index": index,
+                        "image_url": image_url,
+                        "image_data_url": preview_data,
+                        "ratio": kling_ratio,
+                    }
+                )
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": bool(preview_gallery),
+                "generated_at": generated_at,
+                "payload": {
+                    "images": preview_gallery,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": str(model_meta.get("model_id") or "kling-image-o1")},
+                    "resolution": kling_resolution,
+                    "aspect_ratio": kling_ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                    "element_list": element_list,
+                },
+            }
+
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": str(model_meta.get("model_id") or "kling-image-o1")},
+                    "resolution": kling_resolution,
+                    "aspect_ratio": kling_ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway kling image failed: {exc}")
 
     def _build_images_wan_gateway(
         self,

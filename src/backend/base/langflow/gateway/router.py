@@ -234,6 +234,7 @@ async def list_models(
         {"id": "doubao-seedream-4-5-251128", "object": "model", "owned_by": "doubao"},
         {"id": "sora-2", "object": "model", "owned_by": "sora"},
         {"id": "kling-video-o1", "object": "model", "owned_by": "kling"},
+        {"id": "kling-image-o1", "object": "model", "owned_by": "kling"},
         # ... add others from doc ...
     ]
 
@@ -259,6 +260,7 @@ async def list_model_page(
         
         {"id": "doubao-seedream-4-5-251128", "fullName": "Doubao Seedream 4.5", "type": "image"},
         {"id": "wan2.6-image", "fullName": "Wan 2.6 Image", "type": "image"},
+        {"id": "kling-image-o1", "fullName": "kling O1", "type": "image"},
         
         {"id": "sora-2", "fullName": "Sora 2", "type": "video"},
         {"id": "doubao-seedance-1-5-pro-251215", "fullName": "Doubao Seedance 1.5", "type": "video"},
@@ -303,6 +305,7 @@ async def get_model_by_full_name(
         {"id": "wan2.6-image", "fullName": "Wan 2.6 I2I", "type": "image"},
         {"id": "wan2.5-t2i-preview", "fullName": "Wan 2.5 T2I", "type": "image"},
         {"id": "wan2.5-i2i-preview", "fullName": "Wan 2.5 I2I", "type": "image"},
+        {"id": "kling-image-o1", "fullName": "kling O1", "type": "image"},
 
         {"id": "sora-2", "fullName": "Sora 2", "type": "video"},
         {"id": "sora-2-pro", "fullName": "Sora 2 Pro", "type": "video"},

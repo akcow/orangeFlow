@@ -6,6 +6,9 @@ type VideoRendererProps = {
   poster?: string;
   duration?: string;
   variant?: "inline" | "modal";
+  // When embedded in a persistent preview frame that already provides border/radius/bg,
+  // avoid rendering another nested container frame.
+  frameless?: boolean;
   showSpeedControl?: boolean;
   onDownloadClick?: () => void;
 };
@@ -17,6 +20,7 @@ const VideoRenderer = ({
   poster,
   duration,
   variant = "inline",
+  frameless = false,
   showSpeedControl = false,
   onDownloadClick,
 }: VideoRendererProps) => {
@@ -171,7 +175,9 @@ const VideoRenderer = ({
       className={
         isModal
           ? "flex flex-col gap-4"
-          : "relative overflow-hidden rounded-2xl bg-black min-h-[220px]"
+          : frameless
+            ? "relative h-full w-full overflow-hidden bg-black"
+            : "relative overflow-hidden rounded-2xl bg-black min-h-[220px]"
       }
     >
       <video
@@ -182,7 +188,9 @@ const VideoRenderer = ({
         className={
           isModal
             ? "max-h-[60vh] w-full rounded-xl object-contain"
-            : "w-full rounded-2xl object-contain aspect-video max-h-[420px]"
+            : frameless
+              ? "h-full w-full object-contain"
+              : "w-full rounded-2xl object-contain aspect-video max-h-[420px]"
         }
         preload="metadata"
         playsInline

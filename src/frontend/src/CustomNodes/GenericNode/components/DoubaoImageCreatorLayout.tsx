@@ -224,6 +224,7 @@ export default function DoubaoImageCreatorLayout({
   const isNanoBananaPro = selectedModelName === "Nano Banana Pro";
   const isGeminiImageModel = isNanoBanana || isNanoBananaPro;
   const isSeedreamImageModel = selectedModelName.toLowerCase().includes("seedream");
+  const isKlingImageModel = selectedModelName.toLowerCase().includes("kling");
   const supportsGeminiFeatureButtons = isNanoBananaPro;
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
@@ -710,11 +711,11 @@ export default function DoubaoImageCreatorLayout({
       }
       if (field.name === "aspect_ratio") {
         // Ensure "21:9", "4:5", "5:4", and "Adaptive" are in the list if not present
-        const extraRatios = ["21:9", "4:5", "5:4", "Adaptive"];
+        const extraRatios = ["21:9", "4:5", "5:4", "adaptive"];
         options = Array.from(new Set([...options, ...extraRatios]));
 
         // Nano Banana supports 4:5, 5:4.
-        // Wan, Nano Banana, Seedream support 21:9.
+        // Wan, Nano Banana, Seedream, Kling support 21:9.
         const bananaExclusiveRatios = new Set(["4:5", "5:4"]);
         const wideRatios = new Set(["21:9"]);
 
@@ -728,13 +729,14 @@ export default function DoubaoImageCreatorLayout({
 
           // 21:9 -> Wan OR Gemini OR Seedream
           if (wideRatios.has(optStr)) {
-            return isWanModel || isGeminiImageModel || isSeedreamImageModel;
+            return isWanModel || isGeminiImageModel || isSeedreamImageModel || isKlingImageModel;
           }
 
-          // Adaptive -> (Wan OR Gemini OR Seedream) + Ref
+          // adaptive -> Kling always (maps to upstream "auto"); others require reference.
           const isAdaptiveAllowed =
-            (isWanModel || isGeminiImageModel || isSeedreamImageModel) &&
-            hasAnyReferenceSelected;
+            isKlingImageModel ||
+            ((isWanModel || isGeminiImageModel || isSeedreamImageModel) &&
+              hasAnyReferenceSelected);
 
           if (optStr.toLowerCase() === "adaptive" && !isAdaptiveAllowed) {
             return false;
@@ -830,6 +832,7 @@ export default function DoubaoImageCreatorLayout({
     hasAnyReferenceSelected,
     isGeminiImageModel,
     isNanoBanana,
+    isKlingImageModel,
     edgeImageCountLimit,
   ]);
 
@@ -845,7 +848,13 @@ export default function DoubaoImageCreatorLayout({
   }, [handleOnlineSearchChange, onlineSearchEnabled]);
 
   const maxReferenceEntries = useMemo(() => {
-    const defaultLimit = isWanModel ? 4 : isNanoBanana ? 3 : MAX_REFERENCE_IMAGES;
+    const defaultLimit = isWanModel
+      ? 4
+      : isNanoBanana
+        ? 3
+        : isKlingImageModel
+          ? 10
+          : MAX_REFERENCE_IMAGES;
     const explicitLimit =
       (typeof referenceField?.max_length === "number" && referenceField?.max_length) ||
       (typeof referenceField?.max_files === "number" && referenceField?.max_files) ||
@@ -854,7 +863,7 @@ export default function DoubaoImageCreatorLayout({
       return edgeImageCountLimit ? Math.min(explicitLimit, edgeImageCountLimit) : explicitLimit;
     }
     return edgeImageCountLimit ? Math.min(defaultLimit, edgeImageCountLimit) : defaultLimit;
-  }, [referenceField, isWanModel, isNanoBanana, edgeImageCountLimit]);
+  }, [referenceField, isWanModel, isNanoBanana, isKlingImageModel, edgeImageCountLimit]);
   const maxLocalEntries = Math.max(
     maxReferenceEntries - upstreamReferencePreviews.length,
     0,

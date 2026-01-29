@@ -124,6 +124,87 @@ function DoubaoImageCreatorTopBar({
   );
 }
 
+function DoubaoVideoGeneratorTopBar({
+  nodeId,
+  isOpen,
+  setOpen,
+  onOpenPreview,
+  onDownload,
+  canDownload,
+}: {
+  nodeId: string;
+  isOpen: boolean;
+  setOpen: (open: boolean) => void;
+  onOpenPreview: () => void;
+  onDownload: () => void;
+  canDownload: boolean;
+}) {
+  const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
+  // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
+  const inverseZoom = useMemo(() => {
+    const MIN_FIXED_UI_ZOOM = 0.57;
+    const zoom = canvasZoom || 1;
+    return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
+  }, [canvasZoom]);
+
+  return (
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4">
+      <div
+        className={cn(
+          "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
+          "dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]",
+          // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+          "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
+        )}
+        style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+      >
+        <OutputModal
+          open={isOpen}
+          setOpen={setOpen}
+          disabled={false}
+          nodeId={nodeId}
+          outputName={"video"}
+        >
+          <button
+            type="button"
+            title="Logs"
+            aria-label="Logs"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+          >
+            <ForwardedIconComponent name="FileText" className="h-5 w-5" />
+          </button>
+        </OutputModal>
+
+        <button
+          type="button"
+          title="放大"
+          aria-label="放大"
+          onClick={onOpenPreview}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+        >
+          <ForwardedIconComponent name="Maximize2" className="h-5 w-5" />
+        </button>
+
+        <button
+          type="button"
+          title="下载"
+          aria-label="下载"
+          disabled={!canDownload}
+          onClick={onDownload}
+          className={cn(
+            "flex h-10 w-10 items-center justify-center rounded-full transition",
+            canDownload
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Download" className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const MemoizedRenderInputParameters = memo(RenderInputParameters);
 const MemoizedNodeIcon = memo(NodeIcon);
 const MemoizedNodeName = memo(NodeName);
@@ -181,6 +262,9 @@ function GenericNode({
   const [openUpdateModal, setOpenUpdateModal] = useState(false);
   const [isImageCreatorLogsOpen, setImageCreatorLogsOpen] = useState(false);
   const [imageCreatorPreviewActions, setImageCreatorPreviewActions] =
+    useState<DoubaoPreviewPanelActions | null>(null);
+  const [isVideoGeneratorLogsOpen, setVideoGeneratorLogsOpen] = useState(false);
+  const [videoGeneratorPreviewActions, setVideoGeneratorPreviewActions] =
     useState<DoubaoPreviewPanelActions | null>(null);
 
   const types = useTypesStore((state) => state.types);
@@ -514,8 +598,10 @@ function GenericNode({
   const memoizedNodeToolbarComponent = useMemo(() => {
     const isRightClicked = rightClickedNodeId === data.id;
     const isSelectedSingle = selected && selectedNodesCount === 1;
-    // Doubao image creator uses a cursor-anchored context menu instead of a fixed "more actions" button.
-    const shouldShowToolbar = !isDoubaoImageCreator && (isSelectedSingle || isRightClicked);
+    // Doubao creators use a cursor-anchored context menu instead of a fixed "more actions" button.
+    const shouldShowToolbar =
+      !(isDoubaoImageCreator || isDoubaoVideoGenerator) &&
+      (isSelectedSingle || isRightClicked);
 
     return shouldShowToolbar ? (
       <>
@@ -548,7 +634,7 @@ function GenericNode({
             openDropdownOnRightClick={isRightClicked}
           />
         </div>
-        {!isDoubaoImageCreator && (
+        {!(isDoubaoImageCreator || isDoubaoVideoGenerator) && (
           <div>
             <Button
               unstyled
@@ -637,10 +723,11 @@ function GenericNode({
     <div className={cn(shouldShowUpdateComponent ? "relative -mt-10" : "")}>
       <div
         className={cn(
-          !(isDoubaoImageCreator && showNode) && borderColor,
+          !((isDoubaoImageCreator || isDoubaoVideoGenerator) && showNode) &&
+            borderColor,
           nodeWidthClass,
           "generic-node-div group/node relative",
-          isDoubaoImageCreator && showNode
+          (isDoubaoImageCreator || isDoubaoVideoGenerator) && showNode
             ? "rounded-none border-0 bg-transparent shadow-none"
             : "rounded-xl border shadow-sm hover:shadow-md",
           !hasOutputs && "pb-4",
@@ -678,7 +765,11 @@ function GenericNode({
           data-testid={`${data.id}-main-node`}
           className={cn(
             "relative grid text-wrap leading-5",
-            showNode ? (isDoubaoImageCreator ? "" : "border-b") : "relative",
+            showNode
+              ? isDoubaoImageCreator || isDoubaoVideoGenerator
+                ? ""
+                : "border-b"
+              : "relative",
           )}
         >
           {showNode && usesWideDoubaoLayout && isDoubaoImageCreator && selected && (
@@ -691,6 +782,16 @@ function GenericNode({
               canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
             />
           )}
+          {showNode && usesWideDoubaoLayout && isDoubaoVideoGenerator && selected && (
+            <DoubaoVideoGeneratorTopBar
+              nodeId={data.id}
+              isOpen={isVideoGeneratorLogsOpen}
+              setOpen={setVideoGeneratorLogsOpen}
+              onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
+              onDownload={() => videoGeneratorPreviewActions?.download()}
+              canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
+            />
+          )}
           <div
             data-testid={"div-generic-node"}
             className={cn(
@@ -701,7 +802,9 @@ function GenericNode({
               className="flex-max-width items-center overflow-hidden"
               data-testid="generic-node-title-arrangement"
             >
-              {!isTextCreation && !isDoubaoImageCreator && (
+              {!isTextCreation &&
+                !isDoubaoImageCreator &&
+                !isDoubaoVideoGenerator && (
                 <MemoizedNodeIcon
                   dataType={data.type}
                   icon={data.node?.icon}
@@ -711,7 +814,8 @@ function GenericNode({
               <div
                 className={cn(
                   "ml-3 flex flex-1 overflow-hidden",
-                  (isTextCreation || isDoubaoImageCreator) && "ml-0",
+                  (isTextCreation || isDoubaoImageCreator || isDoubaoVideoGenerator) &&
+                    "ml-0",
                 )}
               >
                 <MemoizedNodeName
@@ -727,8 +831,10 @@ function GenericNode({
                   editNameDescription={editNameDescription}
                   toggleEditNameDescription={toggleEditNameDescription}
                   setHasChangedNodeDescription={setHasChangedNodeDescription}
-                  // Image creator title should feel more prominent.
-                  textClassName={isDoubaoImageCreator ? "text-xl" : undefined}
+                  // Doubao creator titles should feel more prominent.
+                  textClassName={
+                    isDoubaoImageCreator || isDoubaoVideoGenerator ? "text-xl" : undefined
+                  }
                 />
               </div>
             </div>
@@ -817,6 +923,7 @@ function GenericNode({
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
                   selected={selected ?? false}
+                  onPreviewActionsChange={setVideoGeneratorPreviewActions}
                 />
               ) : isDoubaoAudioGenerator ? (
                 <DoubaoAudioLayout

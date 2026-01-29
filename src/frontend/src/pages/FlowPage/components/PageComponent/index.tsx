@@ -75,6 +75,7 @@ import FlowBuildingComponent from "../flowBuildingComponent";
 import SelectionMenu from "../SelectionMenuComponent";
 import UpdateAllComponents from "../UpdateAllComponents";
 import DoubaoImageCreatorMoreActionsMenu from "./components/doubao-image-creator-more-actions-menu";
+import DoubaoVideoGeneratorMoreActionsMenu from "./components/doubao-video-generator-more-actions-menu";
 import HelperLines from "./components/helper-lines";
 import {
   getHelperLines,
@@ -757,6 +758,12 @@ export default function Page({
     x: number;
     y: number;
   } | null>(null);
+  const [videoGeneratorMoreActionsMenu, setVideoGeneratorMoreActionsMenu] =
+    useState<{
+      nodeId: string;
+      x: number;
+      y: number;
+    } | null>(null);
 
   const onSelectionEnd = useCallback(() => {
     setSelectionEnded(true);
@@ -786,11 +793,12 @@ export default function Page({
     (flow: OnSelectionChangeParams): void => {
       setLastSelection(flow);
       setImageCreatorMoreActionsMenu(null);
+      setVideoGeneratorMoreActionsMenu(null);
       if (flow.nodes && (flow.nodes.length === 0 || flow.nodes.length > 1)) {
         setRightClickedNodeId(null);
       }
     },
-    [setRightClickedNodeId, setImageCreatorMoreActionsMenu],
+    [setRightClickedNodeId, setImageCreatorMoreActionsMenu, setVideoGeneratorMoreActionsMenu],
   );
 
   const onNodeContextMenu = useCallback(
@@ -806,10 +814,24 @@ export default function Page({
           x: event.clientX,
           y: event.clientY,
         });
+        setVideoGeneratorMoreActionsMenu(null);
+        return;
+      }
+
+      // Doubao video generator: same cursor-anchored menu behavior as image creator.
+      if (node.type === "genericNode" && node.data?.type === "DoubaoVideoGenerator") {
+        setRightClickedNodeId(null);
+        setVideoGeneratorMoreActionsMenu({
+          nodeId: node.id,
+          x: event.clientX,
+          y: event.clientY,
+        });
+        setImageCreatorMoreActionsMenu(null);
         return;
       }
 
       setImageCreatorMoreActionsMenu(null);
+      setVideoGeneratorMoreActionsMenu(null);
 
       // Set the right-clicked node ID to show its dropdown menu
       setRightClickedNodeId(node.id);
@@ -822,7 +844,13 @@ export default function Page({
         }));
       });
     },
-    [isLocked, setRightClickedNodeId, setNodes, setImageCreatorMoreActionsMenu],
+    [
+      isLocked,
+      setRightClickedNodeId,
+      setNodes,
+      setImageCreatorMoreActionsMenu,
+      setVideoGeneratorMoreActionsMenu,
+    ],
   );
 
   const onPaneClick = useCallback(
@@ -832,6 +860,7 @@ export default function Page({
       // Hide right-click dropdown when clicking on the pane
       setRightClickedNodeId(null);
       setImageCreatorMoreActionsMenu(null);
+      setVideoGeneratorMoreActionsMenu(null);
       if (isAddingNote) {
         const shadowBox = document.getElementById("shadow-box");
         if (shadowBox) {
@@ -875,6 +904,7 @@ export default function Page({
       setFilterEdge,
       setFilterComponent,
       setImageCreatorMoreActionsMenu,
+      setVideoGeneratorMoreActionsMenu,
       setRightClickedNodeId,
     ],
   );
@@ -976,6 +1006,20 @@ export default function Page({
                 }}
                 onOpenChange={(open) => {
                   if (!open) setImageCreatorMoreActionsMenu(null);
+                }}
+              />
+            )}
+            {videoGeneratorMoreActionsMenu && (
+              <DoubaoVideoGeneratorMoreActionsMenu
+                key={`${videoGeneratorMoreActionsMenu.nodeId}:${videoGeneratorMoreActionsMenu.x}:${videoGeneratorMoreActionsMenu.y}`}
+                open={true}
+                nodeId={videoGeneratorMoreActionsMenu.nodeId}
+                position={{
+                  x: videoGeneratorMoreActionsMenu.x,
+                  y: videoGeneratorMoreActionsMenu.y,
+                }}
+                onOpenChange={(open) => {
+                  if (!open) setVideoGeneratorMoreActionsMenu(null);
                 }}
               />
             )}

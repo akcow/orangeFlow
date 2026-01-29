@@ -214,9 +214,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
 
 
-    // Calculate aspect ratio style
+    // Calculate aspect ratio style for persistent preview frames (image/video creators).
     const containerStyle = useMemo(() => {
-      if (appearance !== "imageCreator" || !aspectRatio) return undefined;
+      if (
+        (appearance !== "imageCreator" && appearance !== "videoGenerator") ||
+        !aspectRatio
+      ) {
+        return undefined;
+      }
       // If there is content, let content dictate size (or keep strict frame? User said "when no image uploaded").
       // We will check hasRenderablePreview later, but we can compute the style object here.
 
@@ -235,7 +240,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       const ratio = ratioMap[aspectRatio] ?? "1 / 1"; // Default/Fallback
       // If "Adaptive" or "Auto", we might default to square for empty state
       if (aspectRatio.toLowerCase() === "adaptive" || aspectRatio.toLowerCase() === "auto") {
-        return { aspectRatio: "1 / 1" };
+        // Image: square feels neutral; Video: default to 16:9.
+        return { aspectRatio: appearance === "videoGenerator" ? "16 / 9" : "1 / 1" };
       }
       return { aspectRatio: ratio };
     }, [appearance, aspectRatio]);
@@ -243,7 +249,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const minimalAspectClass = useMemo(() => {
       if (!isMinimal) return "";
-      if (appearance === "videoGenerator" || isAudioMinimal) {
+      if (appearance === "videoGenerator") {
+        // Prefer the configured aspect ratio via inline style; fallback keeps a stable frame.
+        return containerStyle ? "" : "aspect-[170/100]";
+      }
+      if (isAudioMinimal) {
         return "aspect-[170/100]";
       }
       // For image creator, we dynamically handle aspect ratio via style if empty, or let it be flexible.
@@ -270,7 +280,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const previewFrameClassName = cn(
       "relative flex transition-[aspect-ratio] duration-300 ease-in-out", // Restore transition for animation
       isMinimal
-        ? appearance === "imageCreator"
+        ? appearance === "imageCreator" || appearance === "videoGenerator"
           ? cn(
             "w-full max-w-full",
             minimalAspectClass,
@@ -295,7 +305,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const previewSurfaceClassName = cn(
       "flex h-full w-full items-center justify-center",
       isMinimal
-        ? appearance === "imageCreator"
+        ? appearance === "imageCreator" || appearance === "videoGenerator"
           ? "bg-transparent"
           : "rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
         : "min-h-[320px]",
@@ -559,7 +569,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       hasVideoPreview ||
       hasAudioPreview;
 
-    const appliedContainerStyle = !hasRenderablePreview ? containerStyle : undefined;
+    // Image creator only needs the empty-state frame style; video generator should keep a
+    // stable, aspect-driven frame even while showing a generated video.
+    const appliedContainerStyle =
+      appearance === "videoGenerator"
+        ? containerStyle
+        : !hasRenderablePreview
+          ? containerStyle
+          : undefined;
 
     const galleryKind = hasGeneratedImagePreview
       ? "generated"
@@ -691,6 +708,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       appearance === "imageCreator" &&
       kind === "image" &&
       (galleryForRenderer?.length || referenceGallery.length);
+    // Video creator: no persistent upload button in the preview frame (upload lives in the empty state UX).
     const shouldShowVideoUploadOverlay = false;
     const showUploadOverlay = Boolean(
       onRequestUpload &&
@@ -720,6 +738,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             videoUrl={videoPreview.videoUrl}
             poster={videoPreview.poster}
             duration={videoPreview.duration}
+            frameless={appearance === "videoGenerator"}
           />
         ) : kind === "audio" && audioPreview ? (
           <AudioPreview audioUrl={audioPreview.audioUrl} />
@@ -898,7 +917,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           )}
 
           <div className={previewFrameClassName} style={appliedContainerStyle}>
-            {appearance !== "imageCreator" && (
+            {appearance !== "imageCreator" && appearance !== "videoGenerator" && (
               <div className="absolute bottom-4 left-4 z-10">
                 <OutputModal
                   open={isLogsOpen}
@@ -1266,7 +1285,9 @@ function EmptyPreview({
         },
       ];
       return (
-        <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
+        // The persistent preview frame (outer container) already provides border/radius/bg.
+        // Keep this empty state frameless to avoid a nested square/rounded container.
+        <div className="flex h-full min-h-[220px] w-full flex-col justify-center p-5 text-center text-sm text-[#646B81] dark:text-slate-300">
           <div className="flex w-full justify-center">
             {renderSuggestionButtons(suggestions)}
           </div>

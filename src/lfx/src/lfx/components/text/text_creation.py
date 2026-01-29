@@ -86,12 +86,12 @@ class TextCreation(Component):
     def generate_text(self) -> Data:
         prompt = self._merge_prompt(self.prompt)
         draft_text = self._merge_prompt(getattr(self, "draft_text", None))
-        has_images = self._has_media([self.prompt, getattr(self, "draft_text", None)])
+        has_media = self._has_media([self.prompt, getattr(self, "draft_text", None)])
 
         # Passthrough mode: allow using the preview/draft text without calling the model.
         # This enables downstream nodes (e.g., video generation) to consume the text even when
         # the prompt input is intentionally left empty.
-        if not prompt and not has_images:
+        if not prompt and not has_media:
             generated_at = datetime.now(timezone.utc).isoformat()
 
             if not draft_text:
@@ -141,12 +141,19 @@ class TextCreation(Component):
 
         model_name = self.model_name or "deepseek-chat"
 
-        # Multimodal: route image input through Gemini 3 generateContent.
-        if has_images:
+        # Multimodal: route image/video input through Gemini 3 generateContent.
+        if has_media:
             if not self._is_gemini3(model_name):
-                return self._error("图片输入仅支持 Gemini 模型（gemini-3-*），请切换模型后重试。")
+                return self._error("图片/视频输入仅支持 Gemini 模型（gemini-3-*），请切换模型后重试。")
             api_key = (self.api_key or "").strip() or self._resolve_gemini_api_key()
-            return self._generate_gemini3_text(prompt=prompt, model_name=model_name, api_key=api_key)
+            return self._generate_gemini3_text(
+                prompt=prompt,
+                model_name=model_name,
+                api_key=api_key,
+                prompt_source=self.prompt,
+                draft_source=getattr(self, "draft_text", None),
+                media_expected=True,
+            )
 
         try:
             # Route all model calls through the hosted gateway (server-managed credentials).
@@ -190,7 +197,16 @@ class TextCreation(Component):
         self.status = "✅ 文本生成完成"
         return Data(data=result_data, text_key="text")
 
-    def _generate_gemini3_text(self, *, prompt: str, model_name: str, api_key: str) -> Data:
+    def _generate_gemini3_text(
+        self,
+        *,
+        prompt: str,
+        model_name: str,
+        api_key: str,
+        prompt_source: Any | None = None,
+        draft_source: Any | None = None,
+        media_expected: bool = False,
+    ) -> Data:
         try:
             import requests
         except Exception as exc:  # noqa: BLE001
@@ -206,8 +222,25 @@ class TextCreation(Component):
             "Content-Type": "application/json",
         }
 
-        # 构建 parts，支持文本和多媒体（prompt + draft_text）
-        parts = self._build_gemini_parts([prompt, getattr(self, "draft_text", None)])
+        # 构建 parts：同时考虑纯文本 prompt 与原始多媒体输入（Data/Dict/list）。
+        sources: list[Any] = []
+        if isinstance(prompt, str) and prompt.strip():
+            sources.append(prompt)
+        if prompt_source is not None and not (
+            isinstance(prompt_source, str) and prompt_source.strip() == (prompt or "").strip()
+        ):
+            sources.append(prompt_source)
+        if draft_source is not None:
+            sources.append(draft_source)
+
+        parts = self._build_gemini_parts(sources)
+        if media_expected and not any(
+            isinstance(part, dict) and "inline_data" in part for part in parts
+        ):
+            return self._error(
+                "检测到多媒体输入，但未提取到可用的图片/视频内容（inline_data）。"
+                "如果你传入的是 video_url，请确保该 URL 可访问且大小适合内联。"
+            )
 
         payload = {
             "contents": [
@@ -422,24 +455,101 @@ class TextCreation(Component):
     @staticmethod
     def _extract_video_from_dict(data: dict[str, Any]) -> dict[str, Any] | None:
         """从字典中提取视频数据"""
-        # 常见的视频数据字段
-        video_keys = ["video_data_url", "video_base64", "video"]
+        MAX_VIDEO_INLINE_BYTES = 25 * 1024 * 1024
 
+        def _is_video_like(url: str) -> bool:
+            url = (url or "").strip().lower()
+            if not url:
+                return False
+            path = url.split("?", 1)[0].split("#", 1)[0]
+            return path.endswith((".mp4", ".mov", ".webm", ".mkv", ".avi"))
+
+        def _download_video_as_inline_data(url: str) -> dict[str, Any] | None:
+            url = (url or "").strip()
+            if not url:
+                return None
+            try:
+                import requests
+            except Exception:
+                return None
+
+            try:
+                with requests.get(url, stream=True, timeout=45) as resp:
+                    resp.raise_for_status()
+                    ctype = (resp.headers.get("content-type") or "").split(";", 1)[0].strip()
+                    if not ctype:
+                        guessed, _ = mimetypes.guess_type(url)
+                        ctype = guessed or ""
+                    if ctype and not ctype.startswith("video/") and not _is_video_like(url):
+                        return None
+
+                    buf = bytearray()
+                    for chunk in resp.iter_content(chunk_size=1024 * 128):
+                        if not chunk:
+                            continue
+                        buf.extend(chunk)
+                        if len(buf) > MAX_VIDEO_INLINE_BYTES:
+                            return None
+
+                encoded = base64.b64encode(bytes(buf)).decode("utf-8")
+                return {"inline_data": {"mime_type": ctype or "video/mp4", "data": encoded}}
+            except Exception:
+                return None
+
+        # Support nested Doubao preview payloads.
+        preview = data.get("doubao_preview")
+        if isinstance(preview, dict):
+            payload = preview.get("payload")
+            if isinstance(payload, dict):
+                nested = TextCreation._extract_video_from_dict(payload)
+                if nested:
+                    return nested
+
+        # Common video fields (inline or URL).
+        video_keys = ["video_data_url", "video_base64", "video", "video_url", "url"]
         for key in video_keys:
             value = data.get(key)
             if not isinstance(value, str) or not value.strip():
                 continue
-
             value = value.strip()
 
-            # 已经是 data URL 格式
-            if value.startswith("data:video"):
+            # data URL format
+            if value.startswith("data:video") and ";base64," in value:
                 try:
-                    mime_type = value.split(":")[1].split(";")[0]
+                    mime_type = value.split(":", 1)[1].split(";", 1)[0]
                     _, encoded = value.split(";base64,", 1)
                     return {"inline_data": {"mime_type": mime_type, "data": encoded.strip()}}
                 except Exception:
                     continue
+
+            # raw base64 (assume mp4)
+            if key == "video_base64" and ";" not in value and "," not in value:
+                try:
+                    base64.b64decode(value)
+                    return {"inline_data": {"mime_type": "video/mp4", "data": value.strip()}}
+                except Exception:
+                    pass
+
+            # URL -> inline_data
+            if value.startswith(("http://", "https://")):
+                downloaded = _download_video_as_inline_data(value)
+                if downloaded:
+                    return downloaded
+
+        # Local file path -> inline_data (best-effort)
+        file_path_value = data.get("file_path") or data.get("path")
+        if isinstance(file_path_value, str) and file_path_value.strip():
+            try:
+                file_path = Path(file_path_value)
+                if file_path.exists() and file_path.is_file():
+                    if file_path.stat().st_size > MAX_VIDEO_INLINE_BYTES:
+                        return None
+                    mime_type, _ = mimetypes.guess_type(file_path.name)
+                    if mime_type and mime_type.startswith("video/"):
+                        encoded = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+                        return {"inline_data": {"mime_type": mime_type, "data": encoded}}
+            except Exception:
+                return None
 
         return None
 
@@ -501,6 +611,11 @@ class TextCreation(Component):
         if isinstance(value, Data):
             return TextCreation._has_media(value.data)
         if isinstance(value, dict):
+            # Common nested preview payload shape: {"doubao_preview": {"payload": {...}}}
+            preview = value.get("doubao_preview")
+            if isinstance(preview, dict) and TextCreation._has_media(preview.get("payload")):
+                return True
+
             file_paths = value.get("file_path") or value.get("path")
             if isinstance(file_paths, str) and file_paths.strip():
                 return True
@@ -514,6 +629,7 @@ class TextCreation(Component):
             for key in (
                 "images",
                 "generated_images",
+                "videos",
                 "reference_images",
                 "image_data_url",
                 "data_url",
@@ -521,6 +637,12 @@ class TextCreation(Component):
                 "image_base64",
                 "image",
                 "cover_preview_base64",
+                "video_data_url",
+                "video_base64",
+                "video_url",
+                "video",
+                "doubao_preview",
+                "payload",
             ):
                 if TextCreation._has_media(value.get(key)):
                     return True

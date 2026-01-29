@@ -1,8 +1,9 @@
 import { cloneDeep } from "lodash";
-import { useStore } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import DoubaoPreviewPanel, { type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
+import { type ReactFlowState, useStore } from "@xyflow/react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import DoubaoPreviewPanel, { type DoubaoPreviewPanelActions, type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
+import DoubaoQuickAddMenu from "./DoubaoQuickAddMenu";
 import RenderInputParameters from "./RenderInputParameters";
 import { cn } from "@/utils/utils";
 import type { EdgeType, GenericNodeType, NodeDataType } from "@/types/flow";
@@ -231,6 +232,7 @@ type Props = {
   isToolMode: boolean;
   buildStatus: BuildStatus;
   selected?: boolean;
+  onPreviewActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
 };
 type CandidatePreview = DoubaoReferenceImage & {
   originField: typeof FIRST_FRAME_FIELD | typeof LAST_FRAME_FIELD;
@@ -244,10 +246,17 @@ export default function DoubaoVideoGeneratorLayout({
   isToolMode,
   buildStatus,
   selected = false,
+  onPreviewActionsChange,
 }: Props) {
   const UPSTREAM_NODE_OFFSET_X = 950;
   const UPSTREAM_NODE_OFFSET_Y = 750;
   const IMAGE_OUTPUT_NAME = "image";
+  const VIDEO_OUTPUT_NAME = "video";
+  const TEXT_COMPONENT_NAME = "TextCreation";
+  const TEXT_OUTPUT_NAME = "text_output";
+  const TEXT_DRAFT_FIELD_NAME = "draft_text";
+  const AUDIO_COMPONENT_NAME = "DoubaoTTS";
+  const AUDIO_OUTPUT_NAME = "audio";
   const FIRST_FRAME_BUTTON_LABEL = "首帧生成视频";
   const FIRST_LAST_FRAME_BUTTON_LABEL = "首尾帧生成视频";
   const PRO_FAST_MODEL = "Doubao-Seedance-1.0-pro-fast｜251015";
@@ -395,6 +404,194 @@ export default function DoubaoVideoGeneratorLayout({
   const { validateFileSize } = useFileSizeValidator();
 
   const [isRunHovering, setRunHovering] = useState(false);
+  const [quickAddMenu, setQuickAddMenu] = useState<{
+    x: number;
+    y: number;
+    kind: "input" | "output";
+  } | null>(null);
+  const lockedPlusSide = quickAddMenu?.kind
+    ? (quickAddMenu.kind === "input" ? "left" : "right")
+    : null;
+
+  // Video creator "+" handles: hidden when node is not selected; shown when cursor enters
+  // the 212x212 capture zone centered on the default "+" position; selected nodes keep them visible.
+  type PlusSide = "left" | "right";
+  const previewWrapRef = useRef<HTMLDivElement>(null);
+  const leaveGraceTimerRef = useRef<number | null>(null);
+  const fadeOutTimerRef = useRef<number | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const [activePlusSide, setActivePlusSide] = useState<PlusSide | null>(null);
+  const [visiblePlusSide, setVisiblePlusSide] = useState<PlusSide | null>(null);
+  const DEFAULT_PLUS_OFFSET: Record<PlusSide, { x: number; y: number }> =
+    useMemo(
+      () => ({
+        left: { x: -106, y: 0 },
+        right: { x: 106, y: 0 },
+      }),
+      [],
+    );
+  const [plusOffsetBySide, setPlusOffsetBySide] = useState<
+    Record<PlusSide, { x: number; y: number }>
+  >(DEFAULT_PLUS_OFFSET);
+
+  const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
+  // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
+  const inverseZoom = useMemo(() => {
+    const MIN_FIXED_UI_ZOOM = 0.57;
+    const zoom = canvasZoom || 1;
+    return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
+  }, [canvasZoom]);
+
+  const clearPlusTimers = useCallback(() => {
+    if (leaveGraceTimerRef.current) {
+      window.clearTimeout(leaveGraceTimerRef.current);
+      leaveGraceTimerRef.current = null;
+    }
+    if (fadeOutTimerRef.current) {
+      window.clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+  }, []);
+
+  const isPointerInCaptureZone = useCallback(
+    (side: PlusSide, clientX: number, clientY: number, slopNodeSpace = 0) => {
+      const rect = previewWrapRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+
+      const zoom = canvasZoom || 1;
+      const edgeX = side === "left" ? rect.left : rect.right;
+      const centerY = rect.top + rect.height / 2;
+
+      const rawX = (clientX - edgeX) / zoom;
+      const rawY = (clientY - centerY) / zoom;
+
+      const withinX =
+        side === "left"
+          ? rawX >= -212 - slopNodeSpace && rawX <= 0 + slopNodeSpace
+          : rawX >= 0 - slopNodeSpace && rawX <= 212 + slopNodeSpace;
+      const withinY =
+        rawY >= -106 - slopNodeSpace && rawY <= 106 + slopNodeSpace;
+
+      return withinX && withinY;
+    },
+    [canvasZoom],
+  );
+
+  const computePlusOffset = useCallback(
+    (side: PlusSide, clientX: number, clientY: number) => {
+      const rect = previewWrapRef.current?.getBoundingClientRect();
+      if (!rect) return DEFAULT_PLUS_OFFSET[side];
+
+      // Bubble/zone transforms are inside the ReactFlow viewport and therefore scale with zoom.
+      // Convert screen-space pointer delta -> node-space delta so the "+" can truly track the cursor.
+      const zoom = canvasZoom || 1;
+
+      // Convert screen-space pointer position -> node-space offset relative to the preview edge,
+      // so the bubble center can precisely match the cursor across different zoom levels.
+      const edgeX = side === "left" ? rect.left : rect.right;
+      const centerY = rect.top + rect.height / 2;
+
+      // Capture zone: 212x212 square centered at the default "+" center point.
+      // Left side x-range in node-space is [-212, 0]; right side is [0, 212].
+      const rawX = (clientX - edgeX) / zoom;
+      const clampedX =
+        side === "left"
+          ? Math.max(-212, Math.min(0, rawX))
+          : Math.max(0, Math.min(212, rawX));
+      const clampedY = Math.max(-106, Math.min(106, (clientY - centerY) / zoom));
+
+      return { x: clampedX, y: clampedY };
+    },
+    [DEFAULT_PLUS_OFFSET, canvasZoom],
+  );
+
+  const showPlusForSide = useCallback(
+    (side: PlusSide, clientX?: number, clientY?: number) => {
+      clearPlusTimers();
+      setActivePlusSide(side);
+      setVisiblePlusSide(side);
+      if (typeof clientX === "number" && typeof clientY === "number") {
+        lastPointerRef.current = { x: clientX, y: clientY };
+        setPlusOffsetBySide((current) => ({
+          ...current,
+          [side]: computePlusOffset(side, clientX, clientY),
+        }));
+      }
+    },
+    [clearPlusTimers, computePlusOffset],
+  );
+
+  const updatePlusOffset = useCallback(
+    (side: PlusSide, clientX: number, clientY: number) => {
+      // If we moved from the bubble to the capture zone (or we jittered on the edge),
+      // cancel any pending rebound/fade so we don't "twitch".
+      clearPlusTimers();
+      setActivePlusSide(side);
+      setVisiblePlusSide(side);
+      lastPointerRef.current = { x: clientX, y: clientY };
+      setPlusOffsetBySide((current) => ({
+        ...current,
+        [side]: computePlusOffset(side, clientX, clientY),
+      }));
+    },
+    [clearPlusTimers, computePlusOffset],
+  );
+
+  const startHidePlus = useCallback(
+    (side: PlusSide, clientX?: number, clientY?: number) => {
+      if (typeof clientX === "number" && typeof clientY === "number") {
+        lastPointerRef.current = { x: clientX, y: clientY };
+      }
+
+      // When moving between adjacent capture zones (edge square -> bubble square),
+      // a short grace period prevents flicker/rebound.
+      clearPlusTimers();
+      leaveGraceTimerRef.current = window.setTimeout(() => {
+        const lastPointer = lastPointerRef.current;
+        // PointerLeave can fire on the zone edge even if the pointer is still inside due to DOM
+        // target changes; re-check with a small slop to avoid boundary "twitching".
+        if (
+          lastPointer &&
+          isPointerInCaptureZone(side, lastPointer.x, lastPointer.y, 6)
+        ) {
+          return;
+        }
+
+        // Rebound to the default position first...
+        setActivePlusSide((current) => (current === side ? null : current));
+        setPlusOffsetBySide((current) => ({
+          ...current,
+          [side]: DEFAULT_PLUS_OFFSET[side],
+        }));
+
+        // ...then fade out after the rebound animation ends.
+        fadeOutTimerRef.current = window.setTimeout(() => {
+          if (!selected) {
+            setVisiblePlusSide((current) => (current === side ? null : current));
+          }
+        }, 200);
+      }, 30);
+    },
+    [DEFAULT_PLUS_OFFSET, clearPlusTimers, isPointerInCaptureZone, selected],
+  );
+
+  useEffect(() => {
+    // Selection drives baseline state:
+    // - selected: show both "+" and reset to default positions
+    // - unselected: hide both until the cursor enters a capture zone
+    clearPlusTimers();
+    if (selected) {
+      setActivePlusSide(null);
+      setVisiblePlusSide(null);
+      setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
+    } else {
+      setActivePlusSide(null);
+      setVisiblePlusSide(null);
+      setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
+    }
+  }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, selected]);
+
+  useEffect(() => () => clearPlusTimers(), [clearPlusTimers]);
   const buildFlow = useFlowStore((state) => state.buildFlow);
   const isBuilding = useFlowStore((state) => state.isBuilding);
   const stopBuilding = useFlowStore((state) => state.stopBuilding);
@@ -1515,9 +1712,32 @@ export default function DoubaoVideoGeneratorLayout({
     };
   }, [lastFrameField, types, data.id]);
 
+  const promptHandleMeta = useMemo(() => {
+    if (!promptField) return null;
+    const inputTypes =
+      promptField.input_types && promptField.input_types.length > 0
+        ? promptField.input_types
+        : ["Message", "Data", "Text"];
+    const resolvedType = promptField.type ?? "data";
+    const colors = getNodeInputColors(inputTypes, resolvedType, types);
+    const colorName = getNodeInputColorsName(inputTypes, resolvedType, types);
+    return {
+      id: {
+        inputTypes,
+        type: resolvedType,
+        id: data.id,
+        fieldName: PROMPT_NAME,
+      },
+      tooltip: inputTypes?.join(", ") ?? resolvedType ?? "提示词输入",
+      title: promptField.display_name ?? "提示词输入",
+      colors,
+      colorName,
+      proxy: promptField.proxy,
+    };
+  }, [promptField, types, data.id]);
+
   const audioInputField = template[AUDIO_INPUT_FIELD];
   const audioHandleMeta = useMemo(() => {
-    if (!isWanModel) return null;
     if (!audioInputField) return null;
     const inputTypes =
       audioInputField.input_types && audioInputField.input_types.length > 0
@@ -1539,34 +1759,7 @@ export default function DoubaoVideoGeneratorLayout({
       colorName,
       proxy: audioInputField.proxy,
     };
-  }, [audioInputField, isWanModel, types, data.id]);
-
-  const promptHandleMeta = useMemo(() => {
-    if (!promptField) return null;
-    const colors = getNodeInputColors(
-      promptField.input_types,
-      promptField.type,
-      types,
-    );
-    const colorName = getNodeInputColorsName(
-      promptField.input_types,
-      promptField.type,
-      types,
-    );
-    return {
-      id: {
-        inputTypes: promptField.input_types,
-        type: promptField.type,
-        id: data.id,
-        fieldName: PROMPT_NAME,
-      },
-      colors,
-      colorName,
-      tooltip: promptField.input_types?.join(", ") ?? promptField.type ?? "提示词输入",
-      title: promptField.display_name ?? "提示词输入",
-      proxy: promptField.proxy,
-    };
-  }, [promptField, types, data.id]);
+  }, [audioInputField, types, data.id]);
 
   const openFirstFrameDialog = useCallback(() => {
     if (isFirstFrameUploadPending) return;
@@ -1579,6 +1772,502 @@ export default function DoubaoVideoGeneratorLayout({
     });
     window.dispatchEvent(uploadEvent);
   }, []);
+
+  const handleCreateTextUpstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const promptTemplateField = template[PROMPT_NAME];
+    if (!promptTemplateField) return;
+
+    const existingUpstreamNodeId = edges
+      .map((edge) => {
+        if (edge.target !== data.id) return null;
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        if (sourceNode?.data?.type !== TEXT_COMPONENT_NAME) return null;
+        if (sourceNode.position.x >= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== PROMPT_NAME) return null;
+
+        return sourceNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingUpstreamNodeId) {
+      // Keep a single selected node (avoid auto-group UI).
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingUpstreamNodeId,
+        })),
+      );
+      return;
+    }
+
+    const textTemplate = templates[TEXT_COMPONENT_NAME];
+    if (!textTemplate) return;
+
+    takeSnapshot();
+
+    const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newTextNode: GenericNodeType = {
+      id: newTextNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(textTemplate),
+        showNode: !textTemplate.minimized,
+        type: TEXT_COMPONENT_NAME,
+        id: newTextNodeId,
+      },
+      selected: false,
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newTextNode]);
+
+    const outputDefinition =
+      textTemplate.outputs?.find((output: any) => output.name === TEXT_OUTPUT_NAME) ??
+      textTemplate.outputs?.find((output: any) => !output.hidden) ??
+      textTemplate.outputs?.[0];
+
+    const sourceHandle = {
+      output_types: outputDefinition?.types?.length ? outputDefinition.types : ["Data"],
+      id: newTextNodeId,
+      dataType: TEXT_COMPONENT_NAME,
+      name: outputDefinition?.name ?? TEXT_OUTPUT_NAME,
+    };
+
+    const targetHandle = {
+      inputTypes: promptTemplateField.input_types,
+      type: promptTemplateField.type,
+      id: data.id,
+      fieldName: PROMPT_NAME,
+      ...(promptTemplateField.proxy ? { proxy: promptTemplateField.proxy } : {}),
+    };
+
+    // Delay edge creation to ensure the new node is fully rendered.
+    setTimeout(() => {
+      onConnect({
+        source: newTextNodeId,
+        target: data.id,
+        sourceHandle: scapedJSONStringfy(sourceHandle),
+        targetHandle: scapedJSONStringfy(targetHandle),
+      });
+    }, 200);
+
+    track("DoubaoVideoGenerator - Create Text Upstream Node", {
+      sourceNodeId: newTextNodeId,
+      targetNodeId: data.id,
+      sourceComponent: TEXT_COMPONENT_NAME,
+    });
+  }, [
+    PROMPT_NAME,
+    TEXT_COMPONENT_NAME,
+    TEXT_OUTPUT_NAME,
+    UPSTREAM_NODE_OFFSET_X,
+    data.id,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    template,
+    templates,
+  ]);
+
+  const handleCreateAudioUpstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const audioTemplateField = template[AUDIO_INPUT_FIELD];
+    if (!audioTemplateField) return;
+
+    const existingUpstreamNodeId = edges
+      .map((edge) => {
+        if (edge.target !== data.id) return null;
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        if (sourceNode?.data?.type !== AUDIO_COMPONENT_NAME) return null;
+        if (sourceNode.position.x >= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== AUDIO_INPUT_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== AUDIO_OUTPUT_NAME) return null;
+
+        return sourceNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingUpstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingUpstreamNodeId,
+        })),
+      );
+      return;
+    }
+
+    const audioTemplate = templates[AUDIO_COMPONENT_NAME];
+    if (!audioTemplate) return;
+
+    takeSnapshot();
+
+    const newAudioNodeId = getNodeId(AUDIO_COMPONENT_NAME);
+    const newAudioNode: GenericNodeType = {
+      id: newAudioNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y + UPSTREAM_NODE_OFFSET_Y / 4,
+      },
+      data: {
+        node: cloneDeep(audioTemplate),
+        showNode: !audioTemplate.minimized,
+        type: AUDIO_COMPONENT_NAME,
+        id: newAudioNodeId,
+      },
+      selected: false,
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newAudioNode]);
+
+    const outputDefinition =
+      audioTemplate.outputs?.find((output: any) => output.name === AUDIO_OUTPUT_NAME) ??
+      audioTemplate.outputs?.find((output: any) => !output.hidden) ??
+      audioTemplate.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: newAudioNodeId,
+      dataType: AUDIO_COMPONENT_NAME,
+      name: outputDefinition?.name ?? AUDIO_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: audioTemplateField.input_types,
+      type: audioTemplateField.type,
+      id: data.id,
+      fieldName: AUDIO_INPUT_FIELD,
+      ...(audioTemplateField.proxy ? { proxy: audioTemplateField.proxy } : {}),
+    };
+
+    // Delay edge creation to ensure the new node's handles are mounted; otherwise the edge
+    // may not render and looks like "failed to auto-connect".
+    setTimeout(() => {
+      onConnect({
+        source: newAudioNodeId,
+        target: data.id,
+        sourceHandle: scapedJSONStringfy(sourceHandle),
+        targetHandle: scapedJSONStringfy(targetHandle),
+      });
+    }, 200);
+
+    track("DoubaoVideoGenerator - Create Audio Upstream Node", {
+      sourceNodeId: newAudioNodeId,
+      targetNodeId: data.id,
+      sourceComponent: AUDIO_COMPONENT_NAME,
+    });
+  }, [
+    AUDIO_COMPONENT_NAME,
+    AUDIO_INPUT_FIELD,
+    AUDIO_OUTPUT_NAME,
+    UPSTREAM_NODE_OFFSET_X,
+    UPSTREAM_NODE_OFFSET_Y,
+    data.id,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    template,
+    templates,
+  ]);
+
+  const handleCreateTextDownstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const textTemplate = templates[TEXT_COMPONENT_NAME];
+    if (!textTemplate) return;
+
+    const draftTemplateField = textTemplate.template?.[TEXT_DRAFT_FIELD_NAME];
+    if (!draftTemplateField) return;
+
+    const existingDownstreamNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== TEXT_COMPONENT_NAME) return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== TEXT_DRAFT_FIELD_NAME) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== VIDEO_OUTPUT_NAME) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingDownstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingDownstreamNodeId,
+        })),
+      );
+      return;
+    }
+
+    takeSnapshot();
+
+    const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const seededTextTemplate = cloneDeep(textTemplate);
+    const geminiModel = seededTextTemplate.template?.model_name?.options?.find((opt) =>
+      String(opt).startsWith("gemini-"),
+    );
+    if (geminiModel && seededTextTemplate.template?.model_name) {
+      seededTextTemplate.template.model_name.value = geminiModel;
+    }
+
+    const newTextNode: GenericNodeType = {
+      id: newTextNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x + UPSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: seededTextTemplate,
+        showNode: !seededTextTemplate.minimized,
+        type: TEXT_COMPONENT_NAME,
+        id: newTextNodeId,
+      },
+      selected: false,
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newTextNode]);
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === VIDEO_OUTPUT_NAME) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? VIDEO_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: draftTemplateField.input_types,
+      type: draftTemplateField.type,
+      id: newTextNodeId,
+      fieldName: TEXT_DRAFT_FIELD_NAME,
+      ...(draftTemplateField.proxy ? { proxy: draftTemplateField.proxy } : {}),
+    };
+
+    const edge = {
+      id: `xy-edge__${data.id}-${sourceHandle.name}-${newTextNodeId}-${targetHandle.fieldName}`,
+      source: data.id,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      target: newTextNodeId,
+      targetHandle: scapedJSONStringfy(targetHandle),
+      type: "default",
+      data: {
+        sourceHandle: sourceHandle,
+        targetHandle: targetHandle,
+      },
+    } as EdgeType;
+
+    setEdges((prev) => [...prev, edge]);
+
+    track("DoubaoVideoGenerator - Create Text Downstream Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newTextNodeId,
+      targetComponent: TEXT_COMPONENT_NAME,
+    });
+  }, [
+    TEXT_COMPONENT_NAME,
+    TEXT_DRAFT_FIELD_NAME,
+    UPSTREAM_NODE_OFFSET_X,
+    VIDEO_OUTPUT_NAME,
+    data.id,
+    data.node?.outputs,
+    data.type,
+    edges,
+    nodes,
+    setEdges,
+    setNodes,
+    takeSnapshot,
+    templates,
+  ]);
+
+  const handleCreateVideoDownstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const videoTemplate = templates["DoubaoVideoGenerator"];
+    if (!videoTemplate) return;
+
+    const firstFrameTemplateField = videoTemplate.template?.[FIRST_FRAME_FIELD];
+    if (!firstFrameTemplateField) return;
+
+    const existingDownstreamVideoNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== "DoubaoVideoGenerator") return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== FIRST_FRAME_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== VIDEO_OUTPUT_NAME) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingDownstreamVideoNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingDownstreamVideoNodeId,
+        })),
+      );
+      return;
+    }
+
+    takeSnapshot();
+
+    const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+    const newVideoNode: GenericNodeType = {
+      id: newVideoNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x + UPSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(videoTemplate),
+        showNode: !videoTemplate.minimized,
+        type: "DoubaoVideoGenerator",
+        id: newVideoNodeId,
+      },
+      selected: false,
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newVideoNode]);
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === VIDEO_OUTPUT_NAME) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? VIDEO_OUTPUT_NAME,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: firstFrameTemplateField.input_types,
+      type: firstFrameTemplateField.type,
+      id: newVideoNodeId,
+      fieldName: FIRST_FRAME_FIELD,
+      ...(firstFrameTemplateField.proxy ? { proxy: firstFrameTemplateField.proxy } : {}),
+    };
+
+    // Video-to-video edges support a dedicated refer type. Defaulting to "base" makes the intent
+    // explicit ("视频编辑"). Users can change it later on the edge itself.
+    const edge = {
+      id: `xy-edge__${data.id}-${sourceHandle.name}-${newVideoNodeId}-${targetHandle.fieldName}`,
+      source: data.id,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      target: newVideoNodeId,
+      targetHandle: scapedJSONStringfy(targetHandle),
+      type: "default",
+      data: {
+        sourceHandle: sourceHandle,
+        targetHandle: targetHandle,
+        videoReferType: "base",
+      },
+    } as EdgeType;
+
+    setEdges((prev) => [...prev, edge]);
+
+    track("DoubaoVideoGenerator - Create Video Downstream Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newVideoNodeId,
+      targetComponent: "DoubaoVideoGenerator",
+    });
+  }, [
+    FIRST_FRAME_FIELD,
+    UPSTREAM_NODE_OFFSET_X,
+    VIDEO_OUTPUT_NAME,
+    data.id,
+    data.node?.outputs,
+    data.type,
+    edges,
+    nodes,
+    setEdges,
+    setNodes,
+    takeSnapshot,
+    templates,
+  ]);
 
   const handleCreateFirstFrameUpstreamNode = useCallback(() => {
     const currentNode = nodes.find((node) => node.id === data.id);
@@ -1628,12 +2317,6 @@ export default function DoubaoVideoGeneratorLayout({
           };
         }),
       );
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-          selected: node.id === existingUpstreamNodeId || node.id === data.id,
-        })),
-      );
       requestUploadDialogForNode(existingUpstreamNodeId);
       return;
     }
@@ -1657,13 +2340,10 @@ export default function DoubaoVideoGeneratorLayout({
         type: "DoubaoImageCreator",
         id: newImageNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: node.id === data.id })),
-      newImageNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newImageNode]);
 
     const outputDefinition =
       imageTemplate.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
@@ -1869,21 +2549,13 @@ export default function DoubaoVideoGeneratorLayout({
     };
 
     if (existingFirstFrameNodeId && existingLastFrameNodeId) {
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-          selected:
-            node.id === data.id ||
-            node.id === existingFirstFrameNodeId ||
-            node.id === existingLastFrameNodeId,
-        })),
-      );
       ensureConnection(existingFirstFrameNodeId, FIRST_FRAME_FIELD, firstFrameTemplateField, "first");
       const lastTargetField = useRoleEdgesForFirstLast ? FIRST_FRAME_FIELD : LAST_FRAME_FIELD;
       const lastTargetTemplateField = useRoleEdgesForFirstLast
         ? firstFrameTemplateField
         : lastFrameTemplateField;
       ensureConnection(existingLastFrameNodeId, lastTargetField, lastTargetTemplateField, "last");
+      queueMicrotask(() => requestUploadDialogForNode(existingFirstFrameNodeId));
       return;
     }
 
@@ -1911,7 +2583,7 @@ export default function DoubaoVideoGeneratorLayout({
           type: "DoubaoImageCreator",
           id: newImageNodeId,
         },
-        selected: true,
+        selected: false,
       };
       nodesToAdd.push(newNode);
       return newImageNodeId;
@@ -1924,13 +2596,7 @@ export default function DoubaoVideoGeneratorLayout({
       existingLastFrameNodeId ??
       createNamedImageNode("尾帧", currentNode.position.y + UPSTREAM_NODE_OFFSET_Y);
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({
-        ...node,
-        selected: node.id === data.id,
-      })),
-      ...nodesToAdd,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, ...nodesToAdd]);
 
     ensureConnection(firstFrameNodeId, FIRST_FRAME_FIELD, firstFrameTemplateField, "first");
     const lastTargetField = useRoleEdgesForFirstLast ? FIRST_FRAME_FIELD : LAST_FRAME_FIELD;
@@ -1938,6 +2604,8 @@ export default function DoubaoVideoGeneratorLayout({
       ? firstFrameTemplateField
       : lastFrameTemplateField;
     ensureConnection(lastFrameNodeId, lastTargetField, lastTargetTemplateField, "last");
+
+    queueMicrotask(() => requestUploadDialogForNode(firstFrameNodeId));
 
     track("DoubaoVideoGenerator - Create First+Last Frame Upstream Nodes", {
       sourceNodeId: data.id,
@@ -2307,202 +2975,419 @@ export default function DoubaoVideoGeneratorLayout({
       });
   }, [data.id, data.node?.outputs, data.type, types]);
 
-  return (
-    <div className="space-y-4 px-4 pb-4">
-      <div className="rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]">
+  const quickAddTitle =
+    quickAddMenu?.kind === "input" ? "添加上下文：" : "下游组件连接：";
+  const quickAddItems = useMemo(() => {
+    if (!quickAddMenu) return [];
 
-        <div className="mt-5 flex flex-col gap-5">
-          <div className="relative flex flex-col gap-4 lg:flex-row">
-            {(promptHandleMeta ||
-              audioHandleMeta ||
-              firstFrameHandleMeta ||
-              shouldShowLastFrameHandle) && (
-              <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:flex lg:flex-col lg:gap-3">
-                {promptHandleMeta && (
-                  <HandleRenderComponent
-                    left
-                    tooltipTitle={promptHandleMeta.tooltip}
-                    id={promptHandleMeta.id}
-                    title={promptHandleMeta.title}
-                    nodeId={data.id}
-                    myData={typeData}
-                    colors={promptHandleMeta.colors}
-                    colorName={promptHandleMeta.colorName}
-                    setFilterEdge={setFilterEdge}
-                    showNode={true}
-                    testIdComplement={`${data.type?.toLowerCase()}-prompt-handle`}
-                    proxy={promptHandleMeta.proxy}
-                  />
-                )}
-                {audioHandleMeta && (
-                  <HandleRenderComponent
-                    left
-                    tooltipTitle={audioHandleMeta.tooltip}
-                    id={audioHandleMeta.id}
-                    title={audioHandleMeta.title}
-                    nodeId={data.id}
-                    myData={typeData}
-                    colors={audioHandleMeta.colors}
-                    colorName={audioHandleMeta.colorName}
-                    setFilterEdge={setFilterEdge}
-                    showNode={true}
-                    testIdComplement={`${data.type?.toLowerCase()}-audio-input-handle`}
-                    proxy={audioHandleMeta.proxy}
-                  />
-                )}
-                {firstFrameHandleMeta && (
+    if (quickAddMenu.kind === "input") {
+      return [
+        {
+          key: "text-upstream",
+          label: "文本创作",
+          icon: "ToyBrick",
+          onSelect: handleCreateTextUpstreamNode,
+        },
+        {
+          key: "image-upstream",
+          label: "图片创作",
+          icon: "Image",
+          onSelect: handleCreateFirstFrameUpstreamNode,
+        },
+        {
+          key: "audio-upstream",
+          label: "音频创作",
+          icon: "Music",
+          onSelect: handleCreateAudioUpstreamNode,
+        },
+      ];
+    }
+
+    return [
+      {
+        key: "video-downstream",
+        label: "视频编辑/参考",
+        icon: "Scissors",
+        onSelect: handleCreateVideoDownstreamNode,
+      },
+      {
+        key: "text-downstream",
+        label: "文本创作",
+        icon: "ToyBrick",
+        onSelect: handleCreateTextDownstreamNode,
+      },
+    ];
+  }, [
+    handleCreateAudioUpstreamNode,
+    handleCreateFirstFrameUpstreamNode,
+    handleCreateTextDownstreamNode,
+    handleCreateTextUpstreamNode,
+    handleCreateVideoDownstreamNode,
+    quickAddMenu,
+  ]);
+
+  const [_, startTransition] = useTransition();
+  const componentRef = useRef<HTMLDivElement>(null);
+  const prevHeightRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!componentRef.current || !data.id) return;
+
+    const nodeElement = componentRef.current;
+
+    // Initialize prevHeight with current height
+    prevHeightRef.current = nodeElement.offsetHeight;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        // Use borderBoxSize if available for better accuracy, fallback to contentRect or offsetHeight
+        const currentHeight =
+          entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+
+        // We compare against the last observed height
+        const prevHeight = prevHeightRef.current;
+
+        // If height changed significantly (ignore sub-pixel noise)
+        if (Math.abs(currentHeight - prevHeight) > 1) {
+          const delta = currentHeight - prevHeight;
+
+          // Update ref immediately for next frame
+          prevHeightRef.current = currentHeight;
+
+          // Apply Y-correction synchronously-ish via state used in transition
+          startTransition(() => {
+            setNodes((nodes) =>
+              nodes.map((node) => {
+                if (node.id === data.id) {
+                  return {
+                    ...node,
+                    position: {
+                      ...node.position,
+                      y: node.position.y - delta,
+                    },
+                  };
+                }
+                return node;
+              }),
+            );
+          });
+        }
+      }
+    });
+
+    resizeObserver.observe(nodeElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [setNodes, data.id, startTransition]);
+
+  return (
+    <div
+      ref={componentRef}
+      className="relative flex flex-col gap-4 px-4 pb-4 transition-all duration-300 ease-in-out"
+    >
+      {quickAddMenu && (
+        <DoubaoQuickAddMenu
+          open={Boolean(quickAddMenu)}
+          position={{ x: quickAddMenu.x, y: quickAddMenu.y }}
+          title={quickAddTitle}
+          items={quickAddItems}
+          onOpenChange={(open) => {
+            if (!open) setQuickAddMenu(null);
+          }}
+        />
+      )}
+
+      {/* Preview */}
+      <div className="relative flex flex-col gap-4 lg:flex-row">
+        {firstFrameHandleMeta && (
+          <div className="absolute left-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:block">
+            <HandleRenderComponent
+              left
+              tooltipTitle={firstFrameHandleMeta.tooltip}
+              id={firstFrameHandleMeta.id}
+              title={firstFrameHandleMeta.title}
+              nodeId={data.id}
+              myData={typeData}
+              colors={firstFrameHandleMeta.colors}
+              colorName={firstFrameHandleMeta.colorName}
+              setFilterEdge={setFilterEdge}
+              showNode={true}
+              testIdComplement={`${data.type?.toLowerCase()}-first-frame-handle`}
+              proxy={firstFrameHandleMeta.proxy}
+              uiVariant="plus"
+              visible={selected || visiblePlusSide === "left" || lockedPlusSide === "left"}
+              isTracking={activePlusSide === "left" || lockedPlusSide === "left"}
+              clickMode="menu"
+              disablePointerEvents={isKlingModel && !klingCanUploadAny}
+              onMenuRequest={({ x, y, kind }) => {
+                clearPlusTimers();
+                setVisiblePlusSide("left");
+                setActivePlusSide("left");
+                setQuickAddMenu({ x, y, kind });
+              }}
+              onPlusPointerEnter={(event) =>
+                lockedPlusSide
+                  ? undefined
+                  : showPlusForSide("left", event.clientX, event.clientY)
+              }
+              onPlusPointerMove={(event) =>
+                lockedPlusSide
+                  ? undefined
+                  : updatePlusOffset("left", event.clientX, event.clientY)
+              }
+              onPlusPointerLeave={(event) =>
+                lockedPlusSide
+                  ? undefined
+                  : startHidePlus("left", event.clientX, event.clientY)
+              }
+              // Requirement: gap (preview edge -> "+" outer edge) = 70px.
+              // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
+              visualOffset={{
+                x: plusOffsetBySide.left.x,
+                y: plusOffsetBySide.left.y,
+              }}
+            />
+          </div>
+        )}
+        {/* Hidden handle for audio_input: needed so auto-created edges can render/attach correctly.
+            Keep it invisible to match the ImageCreator UI (no extra visible handles in the preview area). */}
+        {promptHandleMeta && (
+          <div className="pointer-events-none absolute left-0 top-1/2 z-[900] -translate-y-1/2 opacity-0">
+            <HandleRenderComponent
+              left
+              tooltipTitle={promptHandleMeta.tooltip}
+              id={promptHandleMeta.id}
+              title={promptHandleMeta.title}
+              nodeId={data.id}
+              myData={typeData}
+              colors={promptHandleMeta.colors}
+              colorName={promptHandleMeta.colorName}
+              setFilterEdge={setFilterEdge}
+              showNode={true}
+              testIdComplement={`${data.type?.toLowerCase()}-prompt-handle`}
+              proxy={promptHandleMeta.proxy}
+              uiVariant="dot"
+              clickMode="none"
+            />
+          </div>
+        )}
+        {audioHandleMeta && (
+          <div className="pointer-events-none absolute left-0 top-1/2 z-[900] -translate-y-1/2 opacity-0">
+            <HandleRenderComponent
+              left
+              tooltipTitle={audioHandleMeta.tooltip}
+              id={audioHandleMeta.id}
+              title={audioHandleMeta.title}
+              nodeId={data.id}
+              myData={typeData}
+              colors={audioHandleMeta.colors}
+              colorName={audioHandleMeta.colorName}
+              setFilterEdge={setFilterEdge}
+              showNode={true}
+              testIdComplement={`${data.type?.toLowerCase()}-audio-input-handle`}
+              proxy={audioHandleMeta.proxy}
+              uiVariant="dot"
+              clickMode="none"
+            />
+          </div>
+        )}
+        <div ref={previewWrapRef} className="relative flex-1">
+          {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
+          <div
+            className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
+            onPointerEnter={(event) =>
+              quickAddMenu
+                ? undefined
+                : showPlusForSide("left", event.clientX, event.clientY)
+            }
+            onPointerMove={(event) =>
+              quickAddMenu
+                ? undefined
+                : updatePlusOffset("left", event.clientX, event.clientY)
+            }
+            onPointerLeave={(event) =>
+              quickAddMenu
+                ? undefined
+                : startHidePlus("left", event.clientX, event.clientY)
+            }
+          />
+          <div
+            className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
+            onPointerEnter={(event) =>
+              quickAddMenu
+                ? undefined
+                : showPlusForSide("right", event.clientX, event.clientY)
+            }
+            onPointerMove={(event) =>
+              quickAddMenu
+                ? undefined
+                : updatePlusOffset("right", event.clientX, event.clientY)
+            }
+            onPointerLeave={(event) =>
+              quickAddMenu
+                ? undefined
+                : startHidePlus("right", event.clientX, event.clientY)
+            }
+          />
+          <DoubaoPreviewPanel
+            nodeId={data.id}
+            componentName={data.type}
+            appearance="videoGenerator"
+            referenceImages={combinedFirstFramePreviews}
+            onRequestUpload={openFirstFrameDialog}
+            onSuggestionClick={handlePreviewSuggestionClick}
+            onActionsChange={onPreviewActionsChange}
+            aspectRatio={String(template.aspect_ratio?.value ?? "")}
+          />
+        </div>
+        {previewOutputHandles.length > 0 && (
+          <div className="absolute right-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:flex lg:flex-col lg:items-start">
+            {previewOutputHandles.map((handle, index) => (
+              <div
+                key={`${handle.id.name ?? "video"}-${index}`}
+                className="mb-3 last:mb-0"
+              >
                 <HandleRenderComponent
-                  left
-                  tooltipTitle={firstFrameHandleMeta.tooltip}
-                  id={firstFrameHandleMeta.id}
-                  title={firstFrameHandleMeta.title}
+                  left={false}
+                  tooltipTitle={handle.tooltip}
+                  id={handle.id}
+                  title={handle.title}
                   nodeId={data.id}
                   myData={typeData}
-                  colors={firstFrameHandleMeta.colors}
-                  colorName={firstFrameHandleMeta.colorName}
+                  colors={handle.colors}
                   setFilterEdge={setFilterEdge}
                   showNode={true}
-                  disablePointerEvents={isKlingModel && !klingCanUploadAny}
-                  testIdComplement={`${data.type?.toLowerCase()}-first-frame-handle`}
-                  proxy={firstFrameHandleMeta.proxy}
+                  testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
+                  proxy={handle.proxy}
+                  colorName={handle.colorName}
+                  uiVariant="plus"
+                  visible={selected || visiblePlusSide === "right" || lockedPlusSide === "right"}
+                  isTracking={activePlusSide === "right" || lockedPlusSide === "right"}
+                  clickMode="menu"
+                  onMenuRequest={({ x, y, kind }) => {
+                    setVisiblePlusSide("right");
+                    setActivePlusSide("right");
+                    setQuickAddMenu({ x, y, kind });
+                  }}
+                  onPlusPointerEnter={(event) =>
+                    lockedPlusSide
+                      ? undefined
+                      : showPlusForSide("right", event.clientX, event.clientY)
+                  }
+                  onPlusPointerMove={(event) =>
+                    lockedPlusSide
+                      ? undefined
+                      : updatePlusOffset("right", event.clientX, event.clientY)
+                  }
+                  onPlusPointerLeave={(event) =>
+                    lockedPlusSide
+                      ? undefined
+                      : startHidePlus("right", event.clientX, event.clientY)
+                  }
+                  // Requirement: gap (preview edge -> "+" outer edge) = 70px.
+                  // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
+                  visualOffset={{
+                    x: plusOffsetBySide.right.x,
+                    y: plusOffsetBySide.right.y,
+                  }}
                 />
-                )}
-                {shouldShowLastFrameHandle && (
-                  <HandleRenderComponent
-                    left
-                    tooltipTitle={lastFrameHandleMeta.tooltip}
-                    id={lastFrameHandleMeta.id}
-                    title={lastFrameHandleMeta.title}
-                    nodeId={data.id}
-                    myData={typeData}
-                    colors={lastFrameHandleMeta.colors}
-                    colorName={lastFrameHandleMeta.colorName}
-                    setFilterEdge={setFilterEdge}
-                    showNode={true}
-                    disablePointerEvents={
-                      isKlingModel && (!klingCanUploadImage || klingHasLastFrameAny)
-                    }
-                    testIdComplement={`${data.type?.toLowerCase()}-last-frame-handle`}
-                    proxy={lastFrameHandleMeta.proxy}
-                  />
-                )}
               </div>
-            )}
-            <div className="flex-1">
-              <DoubaoPreviewPanel
-                nodeId={data.id}
-                componentName={data.type}
-                appearance="videoGenerator"
-                referenceImages={combinedFirstFramePreviews}
-                onRequestUpload={openFirstFrameDialog}
-                onSuggestionClick={handlePreviewSuggestionClick}
-              />
-            </div>
-            {previewOutputHandles.length > 0 && (
-              <div className="absolute left-full top-1/2 hidden -translate-y-1/2 pl-6 lg:flex lg:flex-col lg:items-start">
-                {previewOutputHandles.map((handle, index) => (
-                  <div
-                    key={`${handle.id.name ?? "video"}-${index}`}
-                    className="mb-3 last:mb-0"
-                  >
-                    <HandleRenderComponent
-                      left={false}
-                      tooltipTitle={handle.tooltip}
-                      id={handle.id}
-                      title={handle.title}
-                      nodeId={data.id}
-                      myData={typeData}
-                      colors={handle.colors}
-                      setFilterEdge={setFilterEdge}
-                      showNode={true}
-                      testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
-                      proxy={handle.proxy}
-                      colorName={handle.colorName}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+            ))}
           </div>
-
-          {showExpanded && (
-          <div className="space-y-3 text-sm text-[#3C4057] dark:text-slate-100">
-            <div
-              className={cn(
-                "rounded-[12px] p-3",
-                "[&_.primary-input]:bg-transparent",
-                "[&_.primary-input]:text-[#1C202D]",
-                "[&_.primary-input]:text-sm",
-                "[&_.primary-input]:placeholder:text-[#9CA3C0]",
-                "[&_.text-muted-foreground]:text-[#8D92A8]",
-                "dark:[&_.primary-input]:text-white",
-                "dark:[&_.primary-input]:placeholder:text-slate-400",
-                "dark:[&_.text-muted-foreground]:text-slate-400",
-              )}
-            >
-              <RenderInputParameters
-                data={data}
-                types={types}
-                isToolMode={isToolMode}
-                showNode
-                shownOutputs={[]}
-                showHiddenOutputs={false}
-                filterFields={[PROMPT_NAME]}
-                filterMode="include"
-                fieldOverrides={{
-                  [PROMPT_NAME]: {
-                    placeholder:
-                      "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
-                  },
-                }}
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              {controlConfigs.map((config) => (
-                <DoubaoParameterButton key={config.name} data={data} config={config} />
-              ))}
-
-              <button
-                type="button"
-                disabled={disableRun}
-                className={cn(
-                  "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
-                  "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
-                  disableRun
-                    ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
-                    : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
-                )}
-                onClick={handleRun}
-                onMouseEnter={() => setRunHovering(true)}
-                onMouseLeave={() => setRunHovering(false)}
-              >
-                <ForwardedIconComponent
-                  name={runIconName}
-                  className={cn(
-                    "h-4 w-4",
-                    runIconName === "Loader2" && "animate-spin",
-                  )}
-                />
-              </button>
-            </div>
-          </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {showExpanded && hasAdditionalFields && (
-        <div className="mt-5">
-          <RenderInputParameters
-            data={data}
-            types={types}
-            isToolMode={isToolMode}
-            showNode
-            shownOutputs={[]}
-            showHiddenOutputs={false}
-            filterFields={Array.from(customFields)}
-            filterMode="exclude"
-          />
+      {/* Prompt/config container (floating overlay; must not change node height) */}
+      {showExpanded && (
+        <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
+          <div
+            className={cn(
+              "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+              // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+              "transform-gpu origin-top scale-[var(--inv-zoom)]",
+            )}
+            style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+          >
+            <div className="space-y-3 text-sm text-[#3C4057] dark:text-slate-100">
+              <div
+                className={cn(
+                  "rounded-[12px] p-3",
+                  "[&_.primary-input]:bg-transparent",
+                  "[&_.primary-input]:text-[#1C202D]",
+                  "[&_.primary-input]:text-sm",
+                  "[&_.primary-input]:placeholder:text-[#9CA3C0]",
+                  "[&_.text-muted-foreground]:text-[#8D92A8]",
+                  "dark:[&_.primary-input]:text-white",
+                  "dark:[&_.primary-input]:placeholder:text-slate-400",
+                  "dark:[&_.text-muted-foreground]:text-slate-400",
+                )}
+              >
+                <RenderInputParameters
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  showNode
+                  shownOutputs={[]}
+                  showHiddenOutputs={false}
+                  filterFields={[PROMPT_NAME]}
+                  filterMode="include"
+                  fieldOverrides={{
+                    [PROMPT_NAME]: {
+                      placeholder:
+                        "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
+                    },
+                  }}
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                {controlConfigs.map((config) => (
+                  <DoubaoParameterButton key={config.name} data={data} config={config} />
+                ))}
+
+                <button
+                  type="button"
+                  disabled={disableRun}
+                  className={cn(
+                    "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
+                    "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                    disableRun
+                      ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                      : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                  )}
+                  onClick={handleRun}
+                  onMouseEnter={() => setRunHovering(true)}
+                  onMouseLeave={() => setRunHovering(false)}
+                >
+                  <ForwardedIconComponent
+                    name={runIconName}
+                    className={cn(
+                      "h-4 w-4",
+                      runIconName === "Loader2" && "animate-spin",
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {hasAdditionalFields && (
+              <div className="mt-5">
+                <RenderInputParameters
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  showNode
+                  shownOutputs={[]}
+                  showHiddenOutputs={false}
+                  filterFields={Array.from(customFields)}
+                  filterMode="exclude"
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -2602,7 +3487,8 @@ export default function DoubaoVideoGeneratorLayout({
                             setNodes((currentNodes) =>
                               currentNodes.map((node) => ({
                                 ...node,
-                                selected: node.id === data.id || node.id === upstreamLastFrameNodeId,
+                                // Keep a single selected node to avoid triggering the auto-group UI.
+                                selected: node.id === upstreamLastFrameNodeId,
                               })),
                             );
                             requestUploadDialogForNode(upstreamLastFrameNodeId);

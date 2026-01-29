@@ -793,8 +793,66 @@ export function isValidConnection(
   const nodesArray = nodes || useFlowStore.getState().nodes;
   const edgesArray = edges || useFlowStore.getState().edges;
 
-  const targetHandleObject: targetHandleType = scapeJSONParse(targetHandle!);
+  // Some nodes use a single visible "+" input bubble for UX. For type-safety, we may need to
+  // reinterpret what that drop means based on the source type.
+  let effectiveTargetHandle = targetHandle!;
+  let targetHandleObject: targetHandleType = scapeJSONParse(effectiveTargetHandle);
   const sourceHandleObject: sourceHandleType = scapeJSONParse(sourceHandle!);
+
+  // Special-case: audio output dropped onto video generator's image "+" should connect to audio_input.
+  // This avoids creating an invalid "首帧/参考" edge for an audio payload.
+  const targetNode = nodesArray.find((node) => node.id === target!);
+  const sourceNode = nodesArray.find((node) => node.id === source);
+  const resolvedSourceType =
+    sourceNode?.data?.type ?? (sourceHandleObject?.dataType as string | undefined);
+  const targetFieldName = targetHandleObject?.fieldName ?? targetHandleObject?.name;
+  if (
+    targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+    (targetFieldName === IMAGE_ROLE_FIELD || targetFieldName === "last_frame_image") &&
+    resolvedSourceType === "DoubaoTTS"
+  ) {
+    const audioField = targetNode?.data?.node?.template?.["audio_input"];
+    if (audioField) {
+      const inputTypes =
+        audioField.input_types && audioField.input_types.length > 0
+          ? audioField.input_types
+          : ["Data"];
+      const resolvedType = audioField.type ?? "data";
+      targetHandleObject = {
+        inputTypes,
+        type: resolvedType,
+        id: target!,
+        fieldName: "audio_input",
+        ...(audioField.proxy ? { proxy: audioField.proxy } : {}),
+      };
+      effectiveTargetHandle = scapedJSONStringfy(targetHandleObject);
+    }
+  }
+
+  // Special-case: TextCreation output dropped onto video generator's image "+" should connect to prompt.
+  // This avoids creating an invalid "首帧/参考" edge for a text payload.
+  if (
+    targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+    (targetFieldName === IMAGE_ROLE_FIELD || targetFieldName === "last_frame_image") &&
+    resolvedSourceType === "TextCreation"
+  ) {
+    const promptField = targetNode?.data?.node?.template?.["prompt"];
+    if (promptField) {
+      const inputTypes =
+        promptField.input_types && promptField.input_types.length > 0
+          ? promptField.input_types
+          : ["Message", "Data", "Text"];
+      const resolvedType = promptField.type ?? "data";
+      targetHandleObject = {
+        inputTypes,
+        type: resolvedType,
+        id: target!,
+        fieldName: "prompt",
+        ...(promptField.proxy ? { proxy: promptField.proxy } : {}),
+      };
+      effectiveTargetHandle = scapedJSONStringfy(targetHandleObject);
+    }
+  }
 
   // Helper to find the edge between two nodes
   function findEdgeBetween(srcId: string, tgtId: string) {
@@ -839,18 +897,17 @@ export function isValidConnection(
         t === targetHandleObject.type,
     )
   ) {
-    const targetNode = nodesArray.find((node) => node.id === target!);
     const targetNodeDataNode = targetNode?.data?.node;
     if (
       (!targetNodeDataNode &&
-        !edgesArray.find((e) => e.targetHandle === targetHandle)) ||
+        !edgesArray.find((e) => e.targetHandle === effectiveTargetHandle)) ||
       (targetNodeDataNode &&
         targetHandleObject.output_types &&
-        !edgesArray.find((e) => e.targetHandle === targetHandle)) ||
+        !edgesArray.find((e) => e.targetHandle === effectiveTargetHandle)) ||
       (targetNodeDataNode &&
         !targetHandleObject.output_types &&
         ((!targetNodeDataNode.template[targetHandleObject.fieldName].list &&
-          !edgesArray.find((e) => e.targetHandle === targetHandle)) ||
+          !edgesArray.find((e) => e.targetHandle === effectiveTargetHandle)) ||
           targetNodeDataNode.template[targetHandleObject.fieldName].list))
     ) {
       // If the current target handle is a loop component, allow connection immediately

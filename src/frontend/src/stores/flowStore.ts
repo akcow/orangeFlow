@@ -893,13 +893,95 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
 
     let newEdges: EdgeType[] = [];
     get().setEdges((oldEdges) => {
-      const targetHandle = scapeJSONParse(connection.targetHandle!);
+      // Normalize/massage connections before applying edge-role logic.
+      // (e.g. allow dropping audio onto the video's "+" input bubble, but route it to audio_input.)
+      let normalizedConnection = connection;
+      let targetHandle = scapeJSONParse(connection.targetHandle!);
       const sourceHandle = scapeJSONParse(connection.sourceHandle!);
       const sourceNode = get().nodes.find((node) => node.id === connection.source);
       const targetNode = get().nodes.find(
         (node) => node.id === connection.target,
       );
-      const targetFieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      let targetFieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      const resolvedSourceType =
+        sourceNode?.data?.type ?? (sourceHandle?.dataType as string | undefined);
+
+      // Prevent invalid semantic connections: audio output should not connect to image inputs.
+      // If the user drops audio onto the video's "+" input bubble (which is the first_frame_image
+      // handle for historical reasons), transparently route it to audio_input instead.
+      if (
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        (targetFieldName === IMAGE_ROLE_FIELD ||
+          targetFieldName === "last_frame_image") &&
+        resolvedSourceType === "DoubaoTTS"
+      ) {
+        const audioField = targetNode?.data?.node?.template?.["audio_input"];
+        if (!audioField) {
+          setErrorData({
+            title: "不支持的连接",
+            list: [
+              "音频合成的输出是音频，不能连接到视频创作的图片输入（首帧/尾帧）。请连接到“音频输入”。",
+            ],
+          });
+          return oldEdges;
+        }
+
+        const inputTypes =
+          audioField.input_types && audioField.input_types.length > 0
+            ? audioField.input_types
+            : ["Data"];
+        const resolvedType = audioField.type ?? "data";
+        targetHandle = {
+          inputTypes,
+          type: resolvedType,
+          id: connection.target,
+          fieldName: "audio_input",
+          ...(audioField.proxy ? { proxy: audioField.proxy } : {}),
+        };
+        targetFieldName = "audio_input";
+        normalizedConnection = {
+          ...connection,
+          targetHandle: scapedJSONStringfy(targetHandle),
+        };
+      }
+
+      // If the user drops TextCreation output onto the video generator's image "+" bubble,
+      // route it to the text prompt input instead (avoid creating an invalid "首帧/参考" edge).
+      if (
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        (targetFieldName === IMAGE_ROLE_FIELD ||
+          targetFieldName === "last_frame_image") &&
+        resolvedSourceType === "TextCreation"
+      ) {
+        const promptField = targetNode?.data?.node?.template?.["prompt"];
+        if (!promptField) {
+          setErrorData({
+            title: 'Unsupported connection',
+            list: [
+              'TextCreation output cannot connect to first/last frame image inputs. Please connect it to the video prompt input.',
+            ],
+          });
+          return oldEdges;
+        }
+
+        const inputTypes =
+          promptField.input_types && promptField.input_types.length > 0
+            ? promptField.input_types
+            : ["Message", "Data", "Text"];
+        const resolvedType = promptField.type ?? "data";
+        targetHandle = {
+          inputTypes,
+          type: resolvedType,
+          id: connection.target,
+          fieldName: "prompt",
+          ...(promptField.proxy ? { proxy: promptField.proxy } : {}),
+        };
+        targetFieldName = "prompt";
+        normalizedConnection = {
+          ...normalizedConnection,
+          targetHandle: scapedJSONStringfy(targetHandle),
+        };
+      }
 
       const modelName = getDoubaoVideoModelName(targetNode);
       const isTargetKling = modelName.toLowerCase().startsWith("kling");
@@ -1094,7 +1176,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
 
       newEdges = addEdge(
         {
-          ...connection,
+          ...normalizedConnection,
           data: {
             targetHandle,
             sourceHandle,
