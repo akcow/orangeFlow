@@ -91,6 +91,12 @@ import {
 import getRandomName from "./utils/get-random-name";
 import isWrappedWithClass from "./utils/is-wrapped-with-class";
 
+function shouldDeselectNodeOnMarquee(node: AllNodeType): boolean {
+  // Requirement: keep marquee/box selection gesture, but do not let "components" (genericNode)
+  // enter selected UI state during marquee selection.
+  return node.type === "genericNode";
+}
+
 const nodeTypes = {
   genericNode: GenericNode,
   noteNode: NoteNode,
@@ -562,6 +568,8 @@ export default function Page({
   const [helperLines, setHelperLines] = useState<HelperLinesState>({});
   const [isDragging, setIsDragging] = useState(false);
   const helperLineEnabled = useFlowStore((state) => state.helperLineEnabled);
+  const marqueeSelectingRef = useRef(false);
+  const marqueeSelectionJustEndedRef = useRef(false);
 
   const onNodeDrag: OnNodeDrag = useCallback(
     (_, node) => {
@@ -605,13 +613,25 @@ export default function Page({
 
   const onNodesChangeWithHelperLines = useCallback(
     (changes: NodeChange<AllNodeType>[]) => {
+      // During marquee selection, prevent generic nodes from becoming selected at all.
+      // This avoids any selected-state UI from appearing (from start of drag to end).
+      const filteredChanges =
+        marqueeSelectingRef.current
+          ? changes.filter((change) => {
+              if (change.type !== "select") return true;
+              const nodeId = change.id as string;
+              const node = nodes.find((n) => n.id === nodeId);
+              return !(node && shouldDeselectNodeOnMarquee(node));
+            })
+          : changes;
+
       if (!helperLineEnabled) {
-        onNodesChange(changes);
+        onNodesChange(filteredChanges);
         return;
       }
 
       // Apply snapping to position changes during drag
-      const modifiedChanges = changes.map((change) => {
+      const modifiedChanges = filteredChanges.map((change) => {
         if (
           change.type === "position" &&
           "dragging" in change &&
@@ -778,22 +798,33 @@ export default function Page({
   } | null>(null);
 
   const onSelectionEnd = useCallback(() => {
+    if (marqueeSelectingRef.current) {
+      marqueeSelectionJustEndedRef.current = true;
+      marqueeSelectingRef.current = false;
+    }
     setSelectionEnded(true);
   }, []);
   const onSelectionStart = useCallback((event: MouseEvent) => {
     event.preventDefault();
+    marqueeSelectingRef.current = true;
+    marqueeSelectionJustEndedRef.current = false;
     setSelectionEnded(false);
   }, []);
 
   // Workaround to show the menu only after the selection has ended.
   useEffect(() => {
-    const hasSelection = !!lastSelection && (lastSelection.nodes?.length ?? 0) > 0;
-    const isGroupOnly =
-      !!lastSelection &&
-      lastSelection.nodes.length === 1 &&
-      lastSelection.nodes[0]?.type === "groupNode";
+    const rawNodes = lastSelection?.nodes ?? [];
+    // If the selection came from marquee select, ignore nodes we immediately deselect so we don't
+    // flash the selection menu ("分组") for them.
+    const nodesForMenu =
+      marqueeSelectingRef.current || marqueeSelectionJustEndedRef.current
+        ? rawNodes.filter((n) => !shouldDeselectNodeOnMarquee(n as AllNodeType))
+        : rawNodes;
 
-    if (selectionEnded && hasSelection && (isGroupOnly || lastSelection!.nodes.length > 1)) {
+    const isGroupOnly =
+      nodesForMenu.length === 1 && nodesForMenu[0]?.type === "groupNode";
+
+    if (selectionEnded && nodesForMenu.length > 0 && (isGroupOnly || nodesForMenu.length > 1)) {
       setSelectionMenuVisible(true);
       return;
     }
@@ -801,14 +832,61 @@ export default function Page({
     setSelectionMenuVisible(false);
   }, [selectionEnded, lastSelection]);
 
+  // Keep marquee selection (box select), but prevent certain custom components from staying selected
+  // after marquee selection ends (they should remain in their compact preview style).
+  useEffect(() => {
+    if (!selectionEnded) return;
+    if (!marqueeSelectionJustEndedRef.current) return;
+    marqueeSelectionJustEndedRef.current = false;
+
+    const selectedNodes = lastSelection?.nodes ?? [];
+    const idsToDeselect = new Set(
+      selectedNodes
+        .filter((n) => shouldDeselectNodeOnMarquee(n as AllNodeType))
+        .map((n) => n.id),
+    );
+
+    if (idsToDeselect.size === 0) return;
+
+    setNodes((currentNodes) =>
+      currentNodes.map((n) =>
+        idsToDeselect.has(n.id) ? { ...n, selected: false } : n,
+      ),
+    );
+
+    // Keep PageComponent's selection state in sync so keyboard actions / selection menu won't apply.
+    setLastSelection((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        nodes: (prev.nodes ?? []).filter((n) => !idsToDeselect.has(n.id)),
+        edges: prev.edges ?? [],
+      };
+    });
+  }, [lastSelection, selectionEnded, setNodes]);
+
   const onSelectionChange = useCallback(
     (flow: OnSelectionChangeParams): void => {
-      setLastSelection(flow);
+      const filteredFlow =
+        marqueeSelectingRef.current || marqueeSelectionJustEndedRef.current
+          ? {
+              ...flow,
+              nodes: (flow.nodes ?? []).filter(
+                (n) => !shouldDeselectNodeOnMarquee(n as AllNodeType),
+              ),
+              edges: flow.edges ?? [],
+            }
+          : flow;
+
+      setLastSelection(filteredFlow);
       setImageCreatorMoreActionsMenu(null);
       setVideoGeneratorMoreActionsMenu(null);
       setAudioCreatorMoreActionsMenu(null);
       setTextCreationMoreActionsMenu(null);
-      if (flow.nodes && (flow.nodes.length === 0 || flow.nodes.length > 1)) {
+      if (
+        filteredFlow.nodes &&
+        (filteredFlow.nodes.length === 0 || filteredFlow.nodes.length > 1)
+      ) {
         setRightClickedNodeId(null);
       }
     },

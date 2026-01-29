@@ -1215,7 +1215,7 @@ export default function TextCreationLayout({
             className={cn(
               // Keep the preview frame "single-layer": the outer container provides the frame.
               "h-full min-h-0 resize-none rounded-2xl border border-transparent",
-              "bg-transparent p-0 text-base text-foreground outline-none ring-0 focus-visible:ring-0",
+              "bg-transparent p-0 text-lg text-foreground outline-none ring-0 focus-visible:ring-0",
               "dark:text-slate-100",
             )}
             value={previewText}
