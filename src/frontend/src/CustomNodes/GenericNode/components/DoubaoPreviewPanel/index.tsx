@@ -917,7 +917,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           )}
 
           <div className={previewFrameClassName} style={appliedContainerStyle}>
-            {appearance !== "imageCreator" && appearance !== "videoGenerator" && (
+            {appearance === "default" && (
               <div className="absolute bottom-4 left-4 z-10">
                 <OutputModal
                   open={isLogsOpen}

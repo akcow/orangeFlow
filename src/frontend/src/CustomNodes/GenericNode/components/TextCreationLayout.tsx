@@ -1,6 +1,13 @@
 import { cloneDeep } from "lodash";
-import { useStore } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactFlowState, useStore } from "@xyflow/react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,12 +18,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
+import DoubaoQuickAddMenu from "./DoubaoQuickAddMenu";
 import {
   DoubaoParameterButton,
   DOUBAO_CONFIG_TOOLTIP,
   DOUBAO_CONTROL_HINTS,
   type DoubaoControlConfig,
 } from "./DoubaoParameterButton";
+import type { DoubaoPreviewPanelActions } from "./DoubaoPreviewPanel";
 import HandleRenderComponent from "./handleRenderComponent";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { scapeJSONParse, scapedJSONStringfy, getNodeId } from "@/utils/reactflowUtils";
@@ -34,7 +43,6 @@ import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors"
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import { useTextCreationPreview } from "../../hooks/use-text-creation-preview";
-import OutputModal from "./outputModal";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px]" },
@@ -51,6 +59,7 @@ type Props = {
   isToolMode: boolean;
   buildStatus: BuildStatus;
   selected?: boolean;
+  onPreviewActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
 };
 
 const SUGGESTIONS = [
@@ -66,9 +75,12 @@ export default function TextCreationLayout({
   isToolMode,
   buildStatus,
   selected = false,
+  onPreviewActionsChange,
 }: Props) {
   const DOWNSTREAM_NODE_OFFSET_X = 700;
   const IMAGE_UPSTREAM_NODE_OFFSET_X = 1000;
+  const UPSTREAM_TEXT_NODE_OFFSET_X = 700;
+  const TEXT_COMPONENT_NAME = "TextCreation";
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
   const setNodes = useFlowStore((state) => state.setNodes);
@@ -81,6 +93,181 @@ export default function TextCreationLayout({
   // selection set to oscillate and look like "twitching".
   const userSelectionActive = useStore((s) => s.userSelectionActive);
   const showExpanded = Boolean(selected) && !userSelectionActive;
+
+  const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
+  // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
+  const inverseZoom = useMemo(() => {
+    const MIN_FIXED_UI_ZOOM = 0.57;
+    const zoom = canvasZoom || 1;
+    return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
+  }, [canvasZoom]);
+
+  const [quickAddMenu, setQuickAddMenu] = useState<{
+    x: number;
+    y: number;
+    kind: "input" | "output";
+  } | null>(null);
+  const lockedPlusSide = quickAddMenu?.kind
+    ? (quickAddMenu.kind === "input" ? "left" : "right")
+    : null;
+
+  // Text creator "+" handles: hidden when node is not selected; shown when cursor enters
+  // the 212x212 capture zone centered on the default "+" position; selected nodes keep them visible.
+  type PlusSide = "left" | "right";
+  const previewWrapRef = useRef<HTMLDivElement>(null);
+  const leaveGraceTimerRef = useRef<number | null>(null);
+  const fadeOutTimerRef = useRef<number | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const [activePlusSide, setActivePlusSide] = useState<PlusSide | null>(null);
+  const [visiblePlusSide, setVisiblePlusSide] = useState<PlusSide | null>(null);
+  const DEFAULT_PLUS_OFFSET: Record<PlusSide, { x: number; y: number }> =
+    useMemo(
+      () => ({
+        left: { x: -106, y: 0 },
+        right: { x: 106, y: 0 },
+      }),
+      [],
+    );
+  const [plusOffsetBySide, setPlusOffsetBySide] = useState<
+    Record<PlusSide, { x: number; y: number }>
+  >(DEFAULT_PLUS_OFFSET);
+
+  const clearPlusTimers = useCallback(() => {
+    if (leaveGraceTimerRef.current) {
+      window.clearTimeout(leaveGraceTimerRef.current);
+      leaveGraceTimerRef.current = null;
+    }
+    if (fadeOutTimerRef.current) {
+      window.clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+  }, []);
+
+  const isPointerInCaptureZone = useCallback(
+    (
+      side: PlusSide,
+      clientX: number,
+      clientY: number,
+      slopNodeSpace = 0,
+    ) => {
+      const rect = previewWrapRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+
+      const zoom = canvasZoom || 1;
+      const edgeX = side === "left" ? rect.left : rect.right;
+      const centerY = rect.top + rect.height / 2;
+
+      const rawX = (clientX - edgeX) / zoom;
+      const rawY = (clientY - centerY) / zoom;
+
+      const withinX =
+        side === "left"
+          ? rawX >= -212 - slopNodeSpace && rawX <= 0 + slopNodeSpace
+          : rawX >= 0 - slopNodeSpace && rawX <= 212 + slopNodeSpace;
+      const withinY =
+        rawY >= -106 - slopNodeSpace && rawY <= 106 + slopNodeSpace;
+
+      return withinX && withinY;
+    },
+    [canvasZoom],
+  );
+
+  const computePlusOffset = useCallback(
+    (side: PlusSide, clientX: number, clientY: number) => {
+      const rect = previewWrapRef.current?.getBoundingClientRect();
+      if (!rect) return DEFAULT_PLUS_OFFSET[side];
+
+      const zoom = canvasZoom || 1;
+      const edgeX = side === "left" ? rect.left : rect.right;
+      const centerY = rect.top + rect.height / 2;
+
+      const rawX = (clientX - edgeX) / zoom;
+      const clampedX =
+        side === "left"
+          ? Math.max(-212, Math.min(0, rawX))
+          : Math.max(0, Math.min(212, rawX));
+      const clampedY = Math.max(
+        -106,
+        Math.min(106, (clientY - centerY) / zoom),
+      );
+
+      return { x: clampedX, y: clampedY };
+    },
+    [DEFAULT_PLUS_OFFSET, canvasZoom],
+  );
+
+  const showPlusForSide = useCallback(
+    (side: PlusSide, clientX?: number, clientY?: number) => {
+      clearPlusTimers();
+      setActivePlusSide(side);
+      setVisiblePlusSide(side);
+      if (typeof clientX === "number" && typeof clientY === "number") {
+        lastPointerRef.current = { x: clientX, y: clientY };
+        setPlusOffsetBySide((current) => ({
+          ...current,
+          [side]: computePlusOffset(side, clientX, clientY),
+        }));
+      }
+    },
+    [clearPlusTimers, computePlusOffset],
+  );
+
+  const updatePlusOffset = useCallback(
+    (side: PlusSide, clientX: number, clientY: number) => {
+      clearPlusTimers();
+      setActivePlusSide(side);
+      setVisiblePlusSide(side);
+      lastPointerRef.current = { x: clientX, y: clientY };
+      setPlusOffsetBySide((current) => ({
+        ...current,
+        [side]: computePlusOffset(side, clientX, clientY),
+      }));
+    },
+    [clearPlusTimers, computePlusOffset],
+  );
+
+  const startHidePlus = useCallback(
+    (side: PlusSide, clientX?: number, clientY?: number) => {
+      if (typeof clientX === "number" && typeof clientY === "number") {
+        lastPointerRef.current = { x: clientX, y: clientY };
+      }
+
+      clearPlusTimers();
+      leaveGraceTimerRef.current = window.setTimeout(() => {
+        const lastPointer = lastPointerRef.current;
+        if (
+          lastPointer &&
+          isPointerInCaptureZone(side, lastPointer.x, lastPointer.y, 6)
+        ) {
+          return;
+        }
+
+        setActivePlusSide((current) => (current === side ? null : current));
+        setPlusOffsetBySide((current) => ({
+          ...current,
+          [side]: DEFAULT_PLUS_OFFSET[side],
+        }));
+
+        fadeOutTimerRef.current = window.setTimeout(() => {
+          if (!selected) {
+            setVisiblePlusSide((current) =>
+              current === side ? null : current,
+            );
+          }
+        }, 200);
+      }, 30);
+    },
+    [DEFAULT_PLUS_OFFSET, clearPlusTimers, isPointerInCaptureZone, selected],
+  );
+
+  useEffect(() => {
+    clearPlusTimers();
+    setActivePlusSide(null);
+    setVisiblePlusSide(null);
+    setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
+  }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, selected]);
+
+  useEffect(() => () => clearPlusTimers(), [clearPlusTimers]);
   const customFields = useMemo(
     () => new Set<string>([
       PROMPT_FIELD,
@@ -162,7 +349,6 @@ export default function TextCreationLayout({
     Boolean((draftField?.value ?? "").trim()),
   );
   const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
-  const [isLogsOpen, setLogsOpen] = useState(false);
   const [isRunHovering, setRunHovering] = useState(false);
 
   const { current, history, isBuilding, lastUpdated } = useTextCreationPreview(
@@ -277,13 +463,10 @@ export default function TextCreationLayout({
         type: "DoubaoVideoGenerator",
         id: newVideoNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: false })),
-      newVideoNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newVideoNode]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
@@ -325,6 +508,358 @@ export default function TextCreationLayout({
       targetComponent: "DoubaoVideoGenerator",
     });
   }, [data.id, data.node?.outputs, data.type, edges, nodes, onConnect, setNodes, takeSnapshot, templates]);
+
+  const handleCreateImageDownstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const existingImageNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== "DoubaoImageCreator") return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== "prompt") return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== PREFERRED_OUTPUT) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingImageNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingImageNodeId,
+        })),
+      );
+      return;
+    }
+
+    const imageComponentTemplate = templates["DoubaoImageCreator"];
+    if (!imageComponentTemplate) return;
+
+    const promptTemplateField = imageComponentTemplate.template?.prompt;
+    if (!promptTemplateField) return;
+
+    takeSnapshot();
+
+    const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const seededImageComponent = cloneDeep(imageComponentTemplate);
+    if (seededImageComponent.template?.prompt) {
+      seededImageComponent.template.prompt.value = "根据文字描述生成图片";
+    }
+
+    const newImageNode: GenericNodeType = {
+      id: newImageNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: seededImageComponent,
+        showNode: !seededImageComponent.minimized,
+        type: "DoubaoImageCreator",
+        id: newImageNodeId,
+      },
+      selected: false,
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newImageNode]);
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? PREFERRED_OUTPUT,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: promptTemplateField.input_types,
+      type: promptTemplateField.type,
+      id: newImageNodeId,
+      fieldName: "prompt",
+      ...(promptTemplateField.proxy ? { proxy: promptTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: data.id,
+      target: newImageNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    track("TextCreation - Create Image Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newImageNodeId,
+      targetComponent: "DoubaoImageCreator",
+    });
+  }, [
+    DOWNSTREAM_NODE_OFFSET_X,
+    data.id,
+    data.node?.outputs,
+    data.type,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    templates,
+  ]);
+
+  const handleCreateTextUpstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const draftTemplateField = template[DRAFT_FIELD];
+    if (!draftTemplateField) return;
+
+    const existingUpstreamNodeId = edges
+      .map((edge) => {
+        if (edge.target !== data.id) return null;
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        if (sourceNode?.data?.type !== TEXT_COMPONENT_NAME) return null;
+        if (sourceNode.position.x >= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== DRAFT_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== PREFERRED_OUTPUT) return null;
+
+        return sourceNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingUpstreamNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingUpstreamNodeId,
+        })),
+      );
+      return;
+    }
+
+    const textTemplate = templates[TEXT_COMPONENT_NAME];
+    if (!textTemplate) return;
+
+    takeSnapshot();
+
+    const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newTextNode: GenericNodeType = {
+      id: newTextNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x - UPSTREAM_TEXT_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(textTemplate),
+        showNode: !textTemplate.minimized,
+        type: TEXT_COMPONENT_NAME,
+        id: newTextNodeId,
+      },
+      selected: false,
+    };
+
+    // Force single selection to avoid triggering the selection "group" menu.
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: node.id === data.id })),
+      newTextNode,
+    ]);
+
+    const outputDefinition =
+      textTemplate.outputs?.find((output: any) => output.name === PREFERRED_OUTPUT) ??
+      textTemplate.outputs?.find((output: any) => !output.hidden) ??
+      textTemplate.outputs?.[0];
+
+    const sourceHandle = {
+      output_types: outputDefinition?.types?.length ? outputDefinition.types : ["Data"],
+      id: newTextNodeId,
+      dataType: TEXT_COMPONENT_NAME,
+      name: outputDefinition?.name ?? PREFERRED_OUTPUT,
+    };
+
+    const targetHandle = {
+      inputTypes: draftTemplateField.input_types,
+      type: draftTemplateField.type,
+      id: data.id,
+      fieldName: DRAFT_FIELD,
+      ...(draftTemplateField.proxy ? { proxy: draftTemplateField.proxy } : {}),
+    };
+
+    setTimeout(() => {
+      onConnect({
+        source: newTextNodeId,
+        target: data.id,
+        sourceHandle: scapedJSONStringfy(sourceHandle),
+        targetHandle: scapedJSONStringfy(targetHandle),
+      });
+    }, 200);
+
+    track("TextCreation - Create Text Upstream Node", {
+      sourceNodeId: newTextNodeId,
+      targetNodeId: data.id,
+      sourceComponent: TEXT_COMPONENT_NAME,
+    });
+  }, [
+    DRAFT_FIELD,
+    TEXT_COMPONENT_NAME,
+    UPSTREAM_TEXT_NODE_OFFSET_X,
+    data.id,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    template,
+    templates,
+  ]);
+
+  const handleCreateTextDownstreamNode = useCallback(() => {
+    const currentNode = nodes.find((node) => node.id === data.id);
+    if (!currentNode) return;
+
+    const existingTextNodeId = edges
+      .map((edge) => {
+        if (edge.source !== data.id) return null;
+
+        const targetNode = nodes.find((node) => node.id === edge.target);
+        if (targetNode?.data?.type !== TEXT_COMPONENT_NAME) return null;
+        if (targetNode.position.x <= currentNode.position.x) return null;
+
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== PROMPT_FIELD) return null;
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== PREFERRED_OUTPUT) return null;
+
+        return targetNode.id;
+      })
+      .find(Boolean) as string | undefined;
+
+    if (existingTextNodeId) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: node.id === existingTextNodeId,
+        })),
+      );
+      return;
+    }
+
+    const textTemplate = templates[TEXT_COMPONENT_NAME];
+    if (!textTemplate) return;
+
+    const promptTemplateField = textTemplate.template?.[PROMPT_FIELD];
+    if (!promptTemplateField) return;
+
+    takeSnapshot();
+
+    const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newTextNode: GenericNodeType = {
+      id: newTextNodeId,
+      type: "genericNode",
+      position: {
+        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
+        y: currentNode.position.y,
+      },
+      data: {
+        node: cloneDeep(textTemplate),
+        showNode: !textTemplate.minimized,
+        type: TEXT_COMPONENT_NAME,
+        id: newTextNodeId,
+      },
+      selected: false,
+    };
+
+    setNodes((currentNodes) => [...currentNodes, newTextNode]);
+
+    const outputDefinition =
+      data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
+      data.node?.outputs?.find((output) => !output.hidden) ??
+      data.node?.outputs?.[0];
+
+    const sourceOutputTypes =
+      outputDefinition?.types && outputDefinition.types.length === 1
+        ? outputDefinition.types
+        : outputDefinition?.selected
+          ? [outputDefinition.selected]
+          : ["Data"];
+    const sourceHandle = {
+      output_types: sourceOutputTypes,
+      id: data.id,
+      dataType: data.type,
+      name: outputDefinition?.name ?? PREFERRED_OUTPUT,
+      ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+    };
+
+    const targetHandle = {
+      inputTypes: promptTemplateField.input_types,
+      type: promptTemplateField.type,
+      id: newTextNodeId,
+      fieldName: PROMPT_FIELD,
+      ...(promptTemplateField.proxy ? { proxy: promptTemplateField.proxy } : {}),
+    };
+
+    onConnect({
+      source: data.id,
+      target: newTextNodeId,
+      sourceHandle: scapedJSONStringfy(sourceHandle),
+      targetHandle: scapedJSONStringfy(targetHandle),
+    });
+
+    track("TextCreation - Create Text Downstream Node", {
+      sourceNodeId: data.id,
+      targetNodeId: newTextNodeId,
+      targetComponent: TEXT_COMPONENT_NAME,
+    });
+  }, [
+    DOWNSTREAM_NODE_OFFSET_X,
+    PROMPT_FIELD,
+    TEXT_COMPONENT_NAME,
+    data.id,
+    data.node?.outputs,
+    data.type,
+    edges,
+    nodes,
+    onConnect,
+    setNodes,
+    takeSnapshot,
+    templates,
+  ]);
 
   const handleCreateAudioNode = useCallback(() => {
     const currentNode = nodes.find((node) => node.id === data.id);
@@ -384,13 +919,10 @@ export default function TextCreationLayout({
         type: "DoubaoTTS",
         id: newAudioNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: false })),
-      newAudioNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newAudioNode]);
 
     const outputDefinition =
       data.node?.outputs?.find((output) => output.name === PREFERRED_OUTPUT) ??
@@ -509,7 +1041,8 @@ export default function TextCreationLayout({
       setNodes((currentNodes) =>
         currentNodes.map((node) => ({
           ...node,
-          selected: node.id === existingImageNodeId || node.id === data.id,
+          // Keep a single selected node (avoid auto-group UI).
+          selected: node.id === existingImageNodeId,
         })),
       );
       ensureImageDraftConnection(existingImageNodeId);
@@ -537,13 +1070,10 @@ export default function TextCreationLayout({
         type: "DoubaoImageCreator",
         id: newImageNodeId,
       },
-      selected: true,
+      selected: false,
     };
 
-    setNodes((currentNodes) => [
-      ...currentNodes.map((node) => ({ ...node, selected: node.id === data.id })),
-      newImageNode,
-    ]);
+    setNodes((currentNodes) => [...currentNodes, newImageNode]);
 
     const sourceHandle = {
       output_types: ["Data"],
@@ -683,77 +1213,26 @@ export default function TextCreationLayout({
         <div className="relative h-full">
           <Textarea
             className={cn(
-              "h-full min-h-0 resize-none rounded-2xl border border-white/60",
-              "bg-white/90 p-4 text-sm text-foreground shadow-inner outline-none ring-0 focus-visible:ring-0",
-              "dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-100",
+              // Keep the preview frame "single-layer": the outer container provides the frame.
+              "h-full min-h-0 resize-none rounded-2xl border border-transparent",
+              "bg-transparent p-0 text-base text-foreground outline-none ring-0 focus-visible:ring-0",
+              "dark:text-slate-100",
             )}
             value={previewText}
             onChange={(e) => handlePreviewInput(e.target.value)}
             placeholder="在此直接编写或查看生成内容"
           />
-          <button
-            type="button"
-            aria-label="放大预览"
-            onClick={() => setPreviewModalOpen(true)}
-            className={cn(
-              "absolute bottom-3 right-3 flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5]",
-              "bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow transition hover:border-[#C7D2F4] hover:bg-white",
-            )}
-          >
-            <ForwardedIconComponent name="Maximize2" className="h-4 w-4" />
-          </button>
-          <div className="absolute bottom-3 left-3">
-            <OutputModal
-              open={isLogsOpen}
-              setOpen={setLogsOpen}
-              disabled={false}
-              nodeId={data.id}
-              outputName={PREFERRED_OUTPUT}
-            >
-              <button
-                type="button"
-                className={cn(
-                  "flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5]",
-                  "bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow transition hover:border-[#C7D2F4] hover:bg-white",
-                )}
-              >
-                <ForwardedIconComponent name="FileText" className="h-4 w-4" />
-                Logs
-              </button>
-            </OutputModal>
-          </div>
         </div>
       );
     }
     return (
       <div
         className={cn(
-          "relative flex h-full flex-col items-center justify-center gap-4 rounded-2xl border border-dashed",
-          "border-slate-200/70 bg-white/80 p-6 text-center text-sm text-muted-foreground",
-          "dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-200",
+          // Keep the preview frame "single-layer": avoid extra inner frames.
+          "relative flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-sm text-muted-foreground",
+          "dark:text-slate-200",
         )}
       >
-        <div className="absolute bottom-3 left-3">
-          <OutputModal
-            open={isLogsOpen}
-            setOpen={setLogsOpen}
-            disabled={false}
-            nodeId={data.id}
-            outputName={PREFERRED_OUTPUT}
-          >
-            <button
-              type="button"
-              className={cn(
-                "flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5]",
-                "bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow transition hover:border-[#C7D2F4] hover:bg-white",
-                "dark:border-white/10 dark:bg-slate-800/70 dark:text-slate-100",
-              )}
-            >
-              <ForwardedIconComponent name="FileText" className="h-4 w-4" />
-              Logs
-            </button>
-          </OutputModal>
-        </div>
         <div className="w-full space-y-2 text-left">
           <div className="text-xs font-semibold text-foreground dark:text-white">
             尝试：
@@ -780,6 +1259,7 @@ export default function TextCreationLayout({
                   }
                   if (item.label === "图片反推提示词") {
                     handleCreateImageUpstreamNode();
+                    return;
                   }
                 }}
                 className={cn(
@@ -801,100 +1281,278 @@ export default function TextCreationLayout({
     );
   };
 
+  const quickAddTitle =
+    quickAddMenu?.kind === "input" ? "添加上下文：" : "下游组件连接：";
+  const quickAddItems = useMemo(() => {
+    if (!quickAddMenu) return [];
+
+    if (quickAddMenu.kind === "input") {
+      return [
+        {
+          key: "text-upstream",
+          label: "文本创作",
+          icon: "ToyBrick",
+          onSelect: handleCreateTextUpstreamNode,
+        },
+        {
+          key: "image-upstream",
+          label: "图片创作",
+          icon: "Image",
+          onSelect: handleCreateImageUpstreamNode,
+        },
+      ];
+    }
+
+    return [
+      {
+        key: "text-downstream",
+        label: "文本创作",
+        icon: "ToyBrick",
+        onSelect: handleCreateTextDownstreamNode,
+      },
+      {
+        key: "video-downstream",
+        label: "视频创作",
+        icon: "Clapperboard",
+        onSelect: handleCreateVideoNode,
+      },
+      {
+        key: "image-downstream",
+        label: "图片创作",
+        icon: "Image",
+        onSelect: handleCreateImageDownstreamNode,
+      },
+      {
+        key: "audio-downstream",
+        label: "音频合成",
+        icon: "Music",
+        onSelect: handleCreateAudioNode,
+      },
+    ];
+  }, [
+    handleCreateAudioNode,
+    handleCreateImageDownstreamNode,
+    handleCreateImageUpstreamNode,
+    handleCreateTextDownstreamNode,
+    handleCreateTextUpstreamNode,
+    handleCreateVideoNode,
+    quickAddMenu,
+  ]);
+
+  const openPreview = useCallback(() => setPreviewModalOpen(true), []);
+  const noopDownload = useCallback(() => undefined, []);
+  useEffect(() => {
+    onPreviewActionsChange?.({
+      openPreview,
+      download: noopDownload,
+      canDownload: false,
+    });
+  }, [noopDownload, onPreviewActionsChange, openPreview]);
+
   return (
-    <div className="space-y-4 px-4 pb-4">
-      <div
-        className={cn(
-          "rounded-[24px] border border-[#E6E9F4] bg-white p-5",
-          "shadow-[0_20px_40px_rgba(15,23,42,0.08)]",
-          "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_20px_32px_rgba(0,0,0,0.55)]",
+    <div className="relative flex flex-col gap-4 px-4 pb-4 transition-all duration-300 ease-in-out">
+      {quickAddMenu && (
+        <DoubaoQuickAddMenu
+          open={Boolean(quickAddMenu)}
+          position={{ x: quickAddMenu.x, y: quickAddMenu.y }}
+          title={quickAddTitle}
+          items={quickAddItems}
+          onOpenChange={(open) => {
+            if (!open) {
+              setQuickAddMenu(null);
+              setActivePlusSide(null);
+            }
+          }}
+        />
+      )}
+
+      {/* Preview */}
+      <div className="relative flex flex-col gap-4 lg:flex-row">
+        {draftHandleMeta && (
+          <div className="absolute left-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:block">
+            <HandleRenderComponent
+              left
+              tooltipTitle={draftHandleMeta.tooltip}
+              id={draftHandleMeta.id}
+              title={draftHandleMeta.title}
+              nodeId={data.id}
+              myData={typeData}
+              colors={draftHandleMeta.colors}
+              colorName={draftHandleMeta.colorName}
+              setFilterEdge={setFilterEdge}
+              showNode
+              testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
+              proxy={draftHandleMeta.proxy}
+              uiVariant="plus"
+              visible={selected || visiblePlusSide === "left" || lockedPlusSide === "left"}
+              isTracking={activePlusSide === "left" || lockedPlusSide === "left"}
+              clickMode="menu"
+              onMenuRequest={({ x, y, kind }) => {
+                clearPlusTimers();
+                setVisiblePlusSide("left");
+                setActivePlusSide("left");
+                setQuickAddMenu({ x, y, kind });
+              }}
+              onPlusPointerEnter={(event) =>
+                lockedPlusSide
+                  ? undefined
+                  : showPlusForSide("left", event.clientX, event.clientY)
+              }
+              onPlusPointerMove={(event) =>
+                lockedPlusSide
+                  ? undefined
+                  : updatePlusOffset("left", event.clientX, event.clientY)
+              }
+              onPlusPointerLeave={(event) =>
+                lockedPlusSide
+                  ? undefined
+                  : startHidePlus("left", event.clientX, event.clientY)
+              }
+              visualOffset={{
+                x: plusOffsetBySide.left.x,
+                y: plusOffsetBySide.left.y,
+              }}
+            />
+          </div>
         )}
-      >
-        <div className="mt-5 flex flex-col gap-5">
-          <div className="relative flex flex-col gap-4 lg:flex-row">
-            <div className="flex-1">
-              <div className="relative">
-                <div className="aspect-square w-full">
-                  <div
-                    className={cn(
-                      "flex h-full flex-col rounded-[16px] border border-[#dce7ff] bg-[#f3f7ff] p-4 text-sm text-foreground shadow-sm",
-                      "dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-100",
-                    )}
-                  >
-                    {isBuilding && (
-                      <div className="mb-3 flex items-center justify-end text-xs text-muted-foreground">
-                        <div
-                          className={cn(
-                            "flex items-center gap-1 rounded-full bg-white/90 px-3 py-1",
-                            "text-[11px] font-medium text-slate-600 shadow",
-                            "dark:bg-slate-800/70 dark:text-slate-100",
-                          )}
-                        >
-                          <ForwardedIconComponent
-                            name="Loader2"
-                            className="h-3 w-3 animate-spin"
-                          />
-                          <span>生成中…</span>
-                        </div>
-                      </div>
-                    )}
-                    <div className="relative flex-1">
-                      {draftHandleMeta && (
-                        <div className="absolute -left-12 top-1/2 hidden -translate-y-1/2 lg:block">
-                          <HandleRenderComponent
-                            left
-                            tooltipTitle={draftHandleMeta.tooltip}
-                            id={draftHandleMeta.id}
-                            title={draftHandleMeta.title}
-                            nodeId={data.id}
-                            myData={typeData}
-                            colors={draftHandleMeta.colors}
-                            colorName={draftHandleMeta.colorName}
-                            setFilterEdge={setFilterEdge}
-                            showNode
-                            testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
-                            proxy={draftHandleMeta.proxy}
-                          />
-                        </div>
-                      )}
-                      <div className="h-full">{renderPreviewContent()}</div>
-                    </div>
-                  </div>
+
+        <div ref={previewWrapRef} className="relative flex-1">
+          {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
+          <div
+            className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
+            onPointerEnter={(event) =>
+              quickAddMenu
+                ? undefined
+                : showPlusForSide("left", event.clientX, event.clientY)
+            }
+            onPointerMove={(event) =>
+              quickAddMenu
+                ? undefined
+                : updatePlusOffset("left", event.clientX, event.clientY)
+            }
+            onPointerLeave={(event) =>
+              quickAddMenu
+                ? undefined
+                : startHidePlus("left", event.clientX, event.clientY)
+            }
+          />
+          <div
+            className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
+            onPointerEnter={(event) =>
+              quickAddMenu
+                ? undefined
+                : showPlusForSide("right", event.clientX, event.clientY)
+            }
+            onPointerMove={(event) =>
+              quickAddMenu
+                ? undefined
+                : updatePlusOffset("right", event.clientX, event.clientY)
+            }
+            onPointerLeave={(event) =>
+              quickAddMenu
+                ? undefined
+                : startHidePlus("right", event.clientX, event.clientY)
+            }
+          />
+
+          <div
+            className={cn(
+              "flex aspect-square w-full flex-col rounded-[16px] border border-[#dce7ff] bg-[#f3f7ff] p-4 text-sm text-foreground shadow-sm",
+              "dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-100",
+            )}
+          >
+            {isBuilding && (
+              <div className="mb-3 flex items-center justify-end text-xs text-muted-foreground">
+                <div
+                  className={cn(
+                    "flex items-center gap-1 rounded-full bg-white/90 px-3 py-1",
+                    "text-[11px] font-medium text-slate-600 shadow",
+                    "dark:bg-slate-800/70 dark:text-slate-100",
+                  )}
+                >
+                  <ForwardedIconComponent
+                    name="Loader2"
+                    className="h-3 w-3 animate-spin"
+                  />
+                  <span>生成中…</span>
                 </div>
               </div>
-            </div>
-            {previewOutputHandles.length > 0 && (
-              <div className="absolute left-full top-1/2 hidden -translate-y-1/2 pl-6 lg:flex lg:flex-col lg:items-start">
-                {previewOutputHandles.map((handle, index) => (
-                  <div
-                    key={`${handle.id.name ?? "text"}-${index}`}
-                    className="mb-3 last:mb-0"
-                  >
-                    <HandleRenderComponent
-                      left={false}
-                      tooltipTitle={handle.tooltip}
-                      id={handle.id}
-                      title={handle.title}
-                      nodeId={data.id}
-                      myData={typeData}
-                      colors={handle.colors}
-                      setFilterEdge={setFilterEdge}
-                      showNode={true}
-                      testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
-                      proxy={handle.proxy}
-                      colorName={handle.colorName}
-                    />
-                  </div>
-                ))}
-              </div>
             )}
+            <div className="relative flex-1">{renderPreviewContent()}</div>
           </div>
+        </div>
 
-              {showExpanded && (
-                <div className="space-y-3">
-                  <div
-                    className={cn(
-                      "rounded-[12px] p-3",
+        {previewOutputHandles.length > 0 && (
+          <div className="absolute right-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:flex lg:flex-col lg:items-start">
+            {previewOutputHandles.map((handle, index) => (
+              <div
+                key={`${handle.id.name ?? "text"}-${index}`}
+                className="mb-3 last:mb-0"
+              >
+                <HandleRenderComponent
+                  left={false}
+                  tooltipTitle={handle.tooltip}
+                  id={handle.id}
+                  title={handle.title}
+                  nodeId={data.id}
+                  myData={typeData}
+                  colors={handle.colors}
+                  setFilterEdge={setFilterEdge}
+                  showNode={true}
+                  testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
+                  proxy={handle.proxy}
+                  colorName={handle.colorName}
+                  uiVariant="plus"
+                  visible={selected || visiblePlusSide === "right" || lockedPlusSide === "right"}
+                  isTracking={activePlusSide === "right" || lockedPlusSide === "right"}
+                  clickMode="menu"
+                  onMenuRequest={({ x, y, kind }) => {
+                    setVisiblePlusSide("right");
+                    setActivePlusSide("right");
+                    setQuickAddMenu({ x, y, kind });
+                  }}
+                  onPlusPointerEnter={(event) =>
+                    lockedPlusSide
+                      ? undefined
+                      : showPlusForSide("right", event.clientX, event.clientY)
+                  }
+                  onPlusPointerMove={(event) =>
+                    lockedPlusSide
+                      ? undefined
+                      : updatePlusOffset("right", event.clientX, event.clientY)
+                  }
+                  onPlusPointerLeave={(event) =>
+                    lockedPlusSide
+                      ? undefined
+                      : startHidePlus("right", event.clientX, event.clientY)
+                  }
+                  visualOffset={{
+                    x: plusOffsetBySide.right.x,
+                    y: plusOffsetBySide.right.y,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Prompt/config container (floating overlay; must not change node height) */}
+      {showExpanded && (
+        <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
+          <div
+            className={cn(
+              "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+              // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+              "transform-gpu origin-top scale-[var(--inv-zoom)]",
+            )}
+            style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+          >
+            <div className="space-y-3 text-sm text-[#3C4057] dark:text-slate-100">
+              <div
+                className={cn(
+                  "rounded-[12px] p-3",
                   "[&_.primary-input]:bg-transparent",
                   "[&_.primary-input]:text-[#1C202D]",
                   "[&_.primary-input]:text-sm",
@@ -903,30 +1561,34 @@ export default function TextCreationLayout({
                   "dark:[&_.primary-input]:text-white",
                   "dark:[&_.primary-input]:placeholder:text-slate-400",
                   "dark:[&_.text-muted-foreground]:text-slate-400",
-                    )}
-                  >
-                    <RenderInputParameters
-                      data={data}
-                      types={types}
-                      isToolMode
-                      showNode
-                      shownOutputs={[]}
-                      showHiddenOutputs={false}
-                      filterFields={[PROMPT_FIELD]}
-                      filterMode="include"
-                      fieldOverrides={{
-                        [PROMPT_FIELD]: {
-                          placeholder:
-                            "描述你想要生成的内容，并在下方调整生成参数。（按下Enter 生成，Shift+Enter 换行）",
-                          inputTypes: ["Message"],
-                        },
-                      }}
-                    />
-                  </div>
+                )}
+              >
+                <RenderInputParameters
+                  data={data}
+                  types={types}
+                  isToolMode
+                  showNode
+                  shownOutputs={[]}
+                  showHiddenOutputs={false}
+                  filterFields={[PROMPT_FIELD]}
+                  filterMode="include"
+                  fieldOverrides={{
+                    [PROMPT_FIELD]: {
+                      placeholder:
+                        "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
+                      inputTypes: ["Message"],
+                    },
+                  }}
+                />
+              </div>
 
-                  <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3">
                 {controlConfigs.map((config) => (
-                  <DoubaoParameterButton key={config.name} data={data} config={config} />
+                  <DoubaoParameterButton
+                    key={config.name}
+                    data={data}
+                    config={config}
+                  />
                 ))}
 
                 <button
@@ -952,23 +1614,23 @@ export default function TextCreationLayout({
                   />
                 </button>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
 
-      {showExpanded && hasAdditionalFields && (
-        <div className="mt-5">
-          <RenderInputParameters
-            data={data}
-            types={types}
-            isToolMode={isToolMode}
-            showNode
-            shownOutputs={[]}
-            showHiddenOutputs={false}
-            filterFields={Array.from(customFields)}
-            filterMode="exclude"
-          />
+              {hasAdditionalFields && (
+                <div className="mt-5">
+                  <RenderInputParameters
+                    data={data}
+                    types={types}
+                    isToolMode={isToolMode}
+                    showNode
+                    shownOutputs={[]}
+                    showHiddenOutputs={false}
+                    filterFields={Array.from(customFields)}
+                    filterMode="exclude"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

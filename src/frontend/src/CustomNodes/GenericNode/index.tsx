@@ -205,6 +205,148 @@ function DoubaoVideoGeneratorTopBar({
   );
 }
 
+function DoubaoAudioTopBar({
+  nodeId,
+  isOpen,
+  setOpen,
+  onOpenPreview,
+  onDownload,
+  canDownload,
+}: {
+  nodeId: string;
+  isOpen: boolean;
+  setOpen: (open: boolean) => void;
+  onOpenPreview: () => void;
+  onDownload: () => void;
+  canDownload: boolean;
+}) {
+  const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
+  // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
+  const inverseZoom = useMemo(() => {
+    const MIN_FIXED_UI_ZOOM = 0.57;
+    const zoom = canvasZoom || 1;
+    return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
+  }, [canvasZoom]);
+
+  return (
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4">
+      <div
+        className={cn(
+          "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
+          "dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]",
+          // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+          "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
+        )}
+        style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+      >
+        <OutputModal
+          open={isOpen}
+          setOpen={setOpen}
+          disabled={false}
+          nodeId={nodeId}
+          outputName={"audio"}
+        >
+          <button
+            type="button"
+            title="Logs"
+            aria-label="Logs"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+          >
+            <ForwardedIconComponent name="FileText" className="h-5 w-5" />
+          </button>
+        </OutputModal>
+
+        <button
+          type="button"
+          title="放大"
+          aria-label="放大"
+          onClick={onOpenPreview}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+        >
+          <ForwardedIconComponent name="Maximize2" className="h-5 w-5" />
+        </button>
+
+        <button
+          type="button"
+          title="下载"
+          aria-label="下载"
+          disabled={!canDownload}
+          onClick={onDownload}
+          className={cn(
+            "flex h-10 w-10 items-center justify-center rounded-full transition",
+            canDownload
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Download" className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TextCreationTopBar({
+  nodeId,
+  isOpen,
+  setOpen,
+  onOpenPreview,
+}: {
+  nodeId: string;
+  isOpen: boolean;
+  setOpen: (open: boolean) => void;
+  onOpenPreview: () => void;
+}) {
+  const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
+  // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
+  const inverseZoom = useMemo(() => {
+    const MIN_FIXED_UI_ZOOM = 0.57;
+    const zoom = canvasZoom || 1;
+    return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
+  }, [canvasZoom]);
+
+  return (
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4">
+      <div
+        className={cn(
+          "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
+          "dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]",
+          // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+          "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
+        )}
+        style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+      >
+        <OutputModal
+          open={isOpen}
+          setOpen={setOpen}
+          disabled={false}
+          nodeId={nodeId}
+          outputName={"text_output"}
+        >
+          <button
+            type="button"
+            title="Logs"
+            aria-label="Logs"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+          >
+            <ForwardedIconComponent name="FileText" className="h-5 w-5" />
+          </button>
+        </OutputModal>
+
+        <button
+          type="button"
+          title="放大"
+          aria-label="放大"
+          onClick={onOpenPreview}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+        >
+          <ForwardedIconComponent name="Maximize2" className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const MemoizedRenderInputParameters = memo(RenderInputParameters);
 const MemoizedNodeIcon = memo(NodeIcon);
 const MemoizedNodeName = memo(NodeName);
@@ -265,6 +407,12 @@ function GenericNode({
     useState<DoubaoPreviewPanelActions | null>(null);
   const [isVideoGeneratorLogsOpen, setVideoGeneratorLogsOpen] = useState(false);
   const [videoGeneratorPreviewActions, setVideoGeneratorPreviewActions] =
+    useState<DoubaoPreviewPanelActions | null>(null);
+  const [isAudioCreatorLogsOpen, setAudioCreatorLogsOpen] = useState(false);
+  const [audioCreatorPreviewActions, setAudioCreatorPreviewActions] =
+    useState<DoubaoPreviewPanelActions | null>(null);
+  const [isTextCreationLogsOpen, setTextCreationLogsOpen] = useState(false);
+  const [textCreationPreviewActions, setTextCreationPreviewActions] =
     useState<DoubaoPreviewPanelActions | null>(null);
 
   const types = useTypesStore((state) => state.types);
@@ -598,9 +746,9 @@ function GenericNode({
   const memoizedNodeToolbarComponent = useMemo(() => {
     const isRightClicked = rightClickedNodeId === data.id;
     const isSelectedSingle = selected && selectedNodesCount === 1;
-    // Doubao creators use a cursor-anchored context menu instead of a fixed "more actions" button.
+    // Creator nodes use a cursor-anchored context menu instead of a fixed "more actions" button.
     const shouldShowToolbar =
-      !(isDoubaoImageCreator || isDoubaoVideoGenerator) &&
+      !(isDoubaoImageCreator || isDoubaoVideoGenerator || isDoubaoAudioGenerator || isTextCreation) &&
       (isSelectedSingle || isRightClicked);
 
     return shouldShowToolbar ? (
@@ -634,7 +782,7 @@ function GenericNode({
             openDropdownOnRightClick={isRightClicked}
           />
         </div>
-        {!(isDoubaoImageCreator || isDoubaoVideoGenerator) && (
+        {!(isDoubaoImageCreator || isDoubaoVideoGenerator || isDoubaoAudioGenerator || isTextCreation) && (
           <div>
             <Button
               unstyled
@@ -690,6 +838,8 @@ function GenericNode({
     isOutdated,
     isUserEdited,
     isDoubaoImageCreator,
+    isDoubaoAudioGenerator,
+    isTextCreation,
     selected,
     shortcuts,
     editNameDescription,
@@ -723,11 +873,21 @@ function GenericNode({
     <div className={cn(shouldShowUpdateComponent ? "relative -mt-10" : "")}>
       <div
         className={cn(
-          !((isDoubaoImageCreator || isDoubaoVideoGenerator) && showNode) &&
+          !(
+            (isDoubaoImageCreator ||
+              isDoubaoVideoGenerator ||
+              isDoubaoAudioGenerator ||
+              isTextCreation) &&
+            showNode
+          ) &&
             borderColor,
           nodeWidthClass,
           "generic-node-div group/node relative",
-          (isDoubaoImageCreator || isDoubaoVideoGenerator) && showNode
+          (isDoubaoImageCreator ||
+            isDoubaoVideoGenerator ||
+            isDoubaoAudioGenerator ||
+            isTextCreation) &&
+            showNode
             ? "rounded-none border-0 bg-transparent shadow-none"
             : "rounded-xl border shadow-sm hover:shadow-md",
           !hasOutputs && "pb-4",
@@ -766,7 +926,7 @@ function GenericNode({
           className={cn(
             "relative grid text-wrap leading-5",
             showNode
-              ? isDoubaoImageCreator || isDoubaoVideoGenerator
+              ? usesWideDoubaoLayout
                 ? ""
                 : "border-b"
               : "relative",
@@ -792,6 +952,24 @@ function GenericNode({
               canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
             />
           )}
+          {showNode && usesWideDoubaoLayout && isDoubaoAudioGenerator && selected && (
+            <DoubaoAudioTopBar
+              nodeId={data.id}
+              isOpen={isAudioCreatorLogsOpen}
+              setOpen={setAudioCreatorLogsOpen}
+              onOpenPreview={() => audioCreatorPreviewActions?.openPreview()}
+              onDownload={() => audioCreatorPreviewActions?.download()}
+              canDownload={Boolean(audioCreatorPreviewActions?.canDownload)}
+            />
+          )}
+          {showNode && usesWideDoubaoLayout && isTextCreation && selected && (
+            <TextCreationTopBar
+              nodeId={data.id}
+              isOpen={isTextCreationLogsOpen}
+              setOpen={setTextCreationLogsOpen}
+              onOpenPreview={() => textCreationPreviewActions?.openPreview()}
+            />
+          )}
           <div
             data-testid={"div-generic-node"}
             className={cn(
@@ -804,7 +982,8 @@ function GenericNode({
             >
               {!isTextCreation &&
                 !isDoubaoImageCreator &&
-                !isDoubaoVideoGenerator && (
+                !isDoubaoVideoGenerator &&
+                !isDoubaoAudioGenerator && (
                 <MemoizedNodeIcon
                   dataType={data.type}
                   icon={data.node?.icon}
@@ -814,7 +993,10 @@ function GenericNode({
               <div
                 className={cn(
                   "ml-3 flex flex-1 overflow-hidden",
-                  (isTextCreation || isDoubaoImageCreator || isDoubaoVideoGenerator) &&
+                  (isTextCreation ||
+                    isDoubaoImageCreator ||
+                    isDoubaoVideoGenerator ||
+                    isDoubaoAudioGenerator) &&
                     "ml-0",
                 )}
               >
@@ -833,7 +1015,12 @@ function GenericNode({
                   setHasChangedNodeDescription={setHasChangedNodeDescription}
                   // Doubao creator titles should feel more prominent.
                   textClassName={
-                    isDoubaoImageCreator || isDoubaoVideoGenerator ? "text-xl" : undefined
+                    isDoubaoImageCreator ||
+                    isDoubaoVideoGenerator ||
+                    isDoubaoAudioGenerator ||
+                    isTextCreation
+                      ? "text-xl"
+                      : undefined
                   }
                 />
               </div>
@@ -932,6 +1119,7 @@ function GenericNode({
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
                   selected={selected ?? false}
+                  onPreviewActionsChange={setAudioCreatorPreviewActions}
                 />
               ) : (
                 <TextCreationLayout
@@ -940,6 +1128,7 @@ function GenericNode({
                   isToolMode={isToolMode}
                   buildStatus={buildStatus}
                   selected={selected ?? false}
+                  onPreviewActionsChange={setTextCreationPreviewActions}
                 />
               )
             ) : (

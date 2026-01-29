@@ -76,6 +76,8 @@ import SelectionMenu from "../SelectionMenuComponent";
 import UpdateAllComponents from "../UpdateAllComponents";
 import DoubaoImageCreatorMoreActionsMenu from "./components/doubao-image-creator-more-actions-menu";
 import DoubaoVideoGeneratorMoreActionsMenu from "./components/doubao-video-generator-more-actions-menu";
+import DoubaoAudioMoreActionsMenu from "./components/doubao-audio-more-actions-menu";
+import TextCreationMoreActionsMenu from "./components/text-creation-more-actions-menu";
 import HelperLines from "./components/helper-lines";
 import {
   getHelperLines,
@@ -764,6 +766,16 @@ export default function Page({
       x: number;
       y: number;
     } | null>(null);
+  const [audioCreatorMoreActionsMenu, setAudioCreatorMoreActionsMenu] = useState<{
+    nodeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [textCreationMoreActionsMenu, setTextCreationMoreActionsMenu] = useState<{
+    nodeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const onSelectionEnd = useCallback(() => {
     setSelectionEnded(true);
@@ -794,11 +806,19 @@ export default function Page({
       setLastSelection(flow);
       setImageCreatorMoreActionsMenu(null);
       setVideoGeneratorMoreActionsMenu(null);
+      setAudioCreatorMoreActionsMenu(null);
+      setTextCreationMoreActionsMenu(null);
       if (flow.nodes && (flow.nodes.length === 0 || flow.nodes.length > 1)) {
         setRightClickedNodeId(null);
       }
     },
-    [setRightClickedNodeId, setImageCreatorMoreActionsMenu, setVideoGeneratorMoreActionsMenu],
+    [
+      setRightClickedNodeId,
+      setImageCreatorMoreActionsMenu,
+      setVideoGeneratorMoreActionsMenu,
+      setAudioCreatorMoreActionsMenu,
+      setTextCreationMoreActionsMenu,
+    ],
   );
 
   const onNodeContextMenu = useCallback(
@@ -815,6 +835,8 @@ export default function Page({
           y: event.clientY,
         });
         setVideoGeneratorMoreActionsMenu(null);
+        setAudioCreatorMoreActionsMenu(null);
+        setTextCreationMoreActionsMenu(null);
         return;
       }
 
@@ -827,11 +849,43 @@ export default function Page({
           y: event.clientY,
         });
         setImageCreatorMoreActionsMenu(null);
+        setAudioCreatorMoreActionsMenu(null);
+        setTextCreationMoreActionsMenu(null);
+        return;
+      }
+
+      // Doubao audio generator: same cursor-anchored menu behavior as image creator.
+      if (node.type === "genericNode" && node.data?.type === "DoubaoTTS") {
+        setRightClickedNodeId(null);
+        setAudioCreatorMoreActionsMenu({
+          nodeId: node.id,
+          x: event.clientX,
+          y: event.clientY,
+        });
+        setImageCreatorMoreActionsMenu(null);
+        setVideoGeneratorMoreActionsMenu(null);
+        setTextCreationMoreActionsMenu(null);
+        return;
+      }
+
+      // Text creation: same cursor-anchored menu behavior as image creator.
+      if (node.type === "genericNode" && node.data?.type === "TextCreation") {
+        setRightClickedNodeId(null);
+        setTextCreationMoreActionsMenu({
+          nodeId: node.id,
+          x: event.clientX,
+          y: event.clientY,
+        });
+        setImageCreatorMoreActionsMenu(null);
+        setVideoGeneratorMoreActionsMenu(null);
+        setAudioCreatorMoreActionsMenu(null);
         return;
       }
 
       setImageCreatorMoreActionsMenu(null);
       setVideoGeneratorMoreActionsMenu(null);
+      setAudioCreatorMoreActionsMenu(null);
+      setTextCreationMoreActionsMenu(null);
 
       // Set the right-clicked node ID to show its dropdown menu
       setRightClickedNodeId(node.id);
@@ -850,6 +904,8 @@ export default function Page({
       setNodes,
       setImageCreatorMoreActionsMenu,
       setVideoGeneratorMoreActionsMenu,
+      setAudioCreatorMoreActionsMenu,
+      setTextCreationMoreActionsMenu,
     ],
   );
 
@@ -861,6 +917,8 @@ export default function Page({
       setRightClickedNodeId(null);
       setImageCreatorMoreActionsMenu(null);
       setVideoGeneratorMoreActionsMenu(null);
+      setAudioCreatorMoreActionsMenu(null);
+      setTextCreationMoreActionsMenu(null);
       if (isAddingNote) {
         const shadowBox = document.getElementById("shadow-box");
         if (shadowBox) {
@@ -905,6 +963,8 @@ export default function Page({
       setFilterComponent,
       setImageCreatorMoreActionsMenu,
       setVideoGeneratorMoreActionsMenu,
+      setAudioCreatorMoreActionsMenu,
+      setTextCreationMoreActionsMenu,
       setRightClickedNodeId,
     ],
   );
@@ -1020,6 +1080,34 @@ export default function Page({
                 }}
                 onOpenChange={(open) => {
                   if (!open) setVideoGeneratorMoreActionsMenu(null);
+                }}
+              />
+            )}
+            {audioCreatorMoreActionsMenu && (
+              <DoubaoAudioMoreActionsMenu
+                key={`${audioCreatorMoreActionsMenu.nodeId}:${audioCreatorMoreActionsMenu.x}:${audioCreatorMoreActionsMenu.y}`}
+                open={true}
+                nodeId={audioCreatorMoreActionsMenu.nodeId}
+                position={{
+                  x: audioCreatorMoreActionsMenu.x,
+                  y: audioCreatorMoreActionsMenu.y,
+                }}
+                onOpenChange={(open) => {
+                  if (!open) setAudioCreatorMoreActionsMenu(null);
+                }}
+              />
+            )}
+            {textCreationMoreActionsMenu && (
+              <TextCreationMoreActionsMenu
+                key={`${textCreationMoreActionsMenu.nodeId}:${textCreationMoreActionsMenu.x}:${textCreationMoreActionsMenu.y}`}
+                open={true}
+                nodeId={textCreationMoreActionsMenu.nodeId}
+                position={{
+                  x: textCreationMoreActionsMenu.x,
+                  y: textCreationMoreActionsMenu.y,
+                }}
+                onOpenChange={(open) => {
+                  if (!open) setTextCreationMoreActionsMenu(null);
                 }}
               />
             )}
