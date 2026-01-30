@@ -1,5 +1,5 @@
 import { cloneDeep } from "lodash";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
@@ -15,6 +15,7 @@ import { useTypesStore } from "../../../../stores/typesStore";
 import type { APIClassType } from "../../../../types/api";
 import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
 import GenerationHistoryPanel from "./components/generationHistoryPanel";
+import WorkflowsPanel from "./components/workflowsPanel";
 import { SidebarFilterComponent } from "./components/sidebarFilterComponent";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
@@ -148,6 +149,21 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
 
   const [componentsOpen, setComponentsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  const [pendingCreateGroupId, setPendingCreateGroupId] = useState<string | null>(null);
+
+  // Allow other parts of the app (e.g. selection menu) to open workflows panel.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail ?? {};
+      if (detail?.groupId) setPendingCreateGroupId(String(detail.groupId));
+      setWorkflowsOpen(true);
+      setComponentsOpen(false);
+      setHistoryOpen(false);
+    };
+    window.addEventListener("lf:open-workflows-panel", handler as any);
+    return () => window.removeEventListener("lf:open-workflows-panel", handler as any);
+  }, []);
 
   const handleAddNote = useCallback(() => {
     window.dispatchEvent(new Event("lf:start-add-note"));
@@ -276,6 +292,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
             onOpenChange={(open) => {
               setHistoryOpen(open);
               if (open) setComponentsOpen(false);
+              if (open) setWorkflowsOpen(false);
             }}
           >
             <ShadTooltip content={t("生成历史")} side="right">
@@ -298,6 +315,43 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
               className="h-[75vh] w-[560px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
             >
               <GenerationHistoryPanel />
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={workflowsOpen}
+            onOpenChange={(open) => {
+              setWorkflowsOpen(open);
+              if (open) {
+                setComponentsOpen(false);
+                setHistoryOpen(false);
+              }
+            }}
+          >
+            <ShadTooltip content={t("我的工作流")} side="right">
+              <PopoverTrigger asChild>
+                <Button
+                  variant={workflowsOpen ? "secondary" : "ghost"}
+                  size="iconMd"
+                  className="h-12 w-12 rounded-full p-0"
+                  aria-label={t("我的工作流")}
+                  data-testid="flow-toolbar-workflows"
+                >
+                  <ForwardedIconComponent name="Workflow" className="h-6 w-6" />
+                </Button>
+              </PopoverTrigger>
+            </ShadTooltip>
+            <PopoverContent
+              align="center"
+              side="right"
+              sideOffset={8}
+              className="h-[75vh] w-[980px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+            >
+              <WorkflowsPanel
+                pendingCreateGroupId={pendingCreateGroupId}
+                onConsumePendingCreate={() => setPendingCreateGroupId(null)}
+                onRequestClose={() => setWorkflowsOpen(false)}
+              />
             </PopoverContent>
           </Popover>
 

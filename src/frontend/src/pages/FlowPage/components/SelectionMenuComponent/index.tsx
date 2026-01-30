@@ -2,6 +2,7 @@ import { NodeToolbar } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
+import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import {
   Popover,
   PopoverContent,
@@ -56,12 +57,14 @@ function GroupColorPickerButtons({
 export default function SelectionMenu({
   onGroup,
   onUngroup,
+  onCreateWorkflow,
   nodes,
   isVisible,
   lastSelection,
 }: {
   onGroup: () => void;
   onUngroup: (groupId?: string) => void;
+  onCreateWorkflow?: (groupId: string) => void;
   nodes: any;
   isVisible: boolean;
   lastSelection: any;
@@ -185,6 +188,20 @@ export default function SelectionMenu({
                 className="text-primary"
               />
               解散
+            </Button>
+
+            <Button
+              unstyled
+              className="flex h-full items-center gap-2 text-sm"
+              onClick={() => {
+                const groupId = lastSelection?.nodes?.[0]?.id as string | undefined;
+                if (!groupId) return;
+                onCreateWorkflow?.(groupId);
+              }}
+              data-testid="create-workflow-from-group"
+            >
+              <ForwardedIconComponent name="Workflow" className="h-5 w-5 text-primary" />
+              创建工作流
             </Button>
           </div>
         ) : null}

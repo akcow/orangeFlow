@@ -104,7 +104,7 @@ export default function GroupContainerNode({
           <input
             ref={inputRef}
             className={cn(
-              "nodrag h-7 w-48 bg-transparent text-lg outline-none",
+              "nodrag h-7 w-48 bg-transparent text-xl outline-none",
               "focus:ring-0",
             )}
             value={data.label}
@@ -121,7 +121,7 @@ export default function GroupContainerNode({
             }}
           />
         ) : (
-          <span className="select-none text-lg font-semibold text-foreground">
+          <span className="select-none text-xl font-semibold text-foreground">
             {data.label}
           </span>
         )}

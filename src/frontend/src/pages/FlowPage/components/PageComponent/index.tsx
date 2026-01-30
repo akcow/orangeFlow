@@ -92,9 +92,9 @@ import getRandomName from "./utils/get-random-name";
 import isWrappedWithClass from "./utils/is-wrapped-with-class";
 
 function shouldDeselectNodeOnMarquee(node: AllNodeType): boolean {
-  // Requirement: keep marquee/box selection gesture, but do not let "components" (genericNode)
-  // enter selected UI state during marquee selection.
-  return node.type === "genericNode";
+  // Keep default ReactFlow selection behavior so marquee selection can be grouped.
+  // (Some builds previously avoided selecting generic nodes here; that breaks grouping UX.)
+  return false;
 }
 
 const nodeTypes = {
@@ -372,6 +372,17 @@ export default function Page({
       setRightClickedNodeId(null);
     },
     [isLocked, lastSelection, setNodes, setRightClickedNodeId, takeSnapshot],
+  );
+
+  const handleCreateWorkflowFromGroup = useCallback(
+    (groupId: string) => {
+      if (isLocked) return;
+      if (!groupId) return;
+      window.dispatchEvent(
+        new CustomEvent("lf:open-workflows-panel", { detail: { groupId } }),
+      );
+    },
+    [isLocked],
   );
 
   useEffect(() => {
@@ -814,17 +825,10 @@ export default function Page({
   // Workaround to show the menu only after the selection has ended.
   useEffect(() => {
     const rawNodes = lastSelection?.nodes ?? [];
-    // If the selection came from marquee select, ignore nodes we immediately deselect so we don't
-    // flash the selection menu ("分组") for them.
-    const nodesForMenu =
-      marqueeSelectingRef.current || marqueeSelectionJustEndedRef.current
-        ? rawNodes.filter((n) => !shouldDeselectNodeOnMarquee(n as AllNodeType))
-        : rawNodes;
-
     const isGroupOnly =
-      nodesForMenu.length === 1 && nodesForMenu[0]?.type === "groupNode";
+      rawNodes.length === 1 && rawNodes[0]?.type === "groupNode";
 
-    if (selectionEnded && nodesForMenu.length > 0 && (isGroupOnly || nodesForMenu.length > 1)) {
+    if (selectionEnded && rawNodes.length > 0 && (isGroupOnly || rawNodes.length > 1)) {
       setSelectionMenuVisible(true);
       return;
     }
@@ -832,60 +836,16 @@ export default function Page({
     setSelectionMenuVisible(false);
   }, [selectionEnded, lastSelection]);
 
-  // Keep marquee selection (box select), but prevent certain custom components from staying selected
-  // after marquee selection ends (they should remain in their compact preview style).
-  useEffect(() => {
-    if (!selectionEnded) return;
-    if (!marqueeSelectionJustEndedRef.current) return;
-    marqueeSelectionJustEndedRef.current = false;
-
-    const selectedNodes = lastSelection?.nodes ?? [];
-    const idsToDeselect = new Set(
-      selectedNodes
-        .filter((n) => shouldDeselectNodeOnMarquee(n as AllNodeType))
-        .map((n) => n.id),
-    );
-
-    if (idsToDeselect.size === 0) return;
-
-    setNodes((currentNodes) =>
-      currentNodes.map((n) =>
-        idsToDeselect.has(n.id) ? { ...n, selected: false } : n,
-      ),
-    );
-
-    // Keep PageComponent's selection state in sync so keyboard actions / selection menu won't apply.
-    setLastSelection((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        nodes: (prev.nodes ?? []).filter((n) => !idsToDeselect.has(n.id)),
-        edges: prev.edges ?? [],
-      };
-    });
-  }, [lastSelection, selectionEnded, setNodes]);
-
   const onSelectionChange = useCallback(
     (flow: OnSelectionChangeParams): void => {
-      const filteredFlow =
-        marqueeSelectingRef.current || marqueeSelectionJustEndedRef.current
-          ? {
-              ...flow,
-              nodes: (flow.nodes ?? []).filter(
-                (n) => !shouldDeselectNodeOnMarquee(n as AllNodeType),
-              ),
-              edges: flow.edges ?? [],
-            }
-          : flow;
-
-      setLastSelection(filteredFlow);
+      setLastSelection(flow);
       setImageCreatorMoreActionsMenu(null);
       setVideoGeneratorMoreActionsMenu(null);
       setAudioCreatorMoreActionsMenu(null);
       setTextCreationMoreActionsMenu(null);
       if (
-        filteredFlow.nodes &&
-        (filteredFlow.nodes.length === 0 || filteredFlow.nodes.length > 1)
+        flow.nodes &&
+        (flow.nodes.length === 0 || flow.nodes.length > 1)
       ) {
         setRightClickedNodeId(null);
       }
@@ -1132,6 +1092,7 @@ export default function Page({
               nodes={lastSelection?.nodes}
               onGroup={handleCreateOrMergeGroup}
               onUngroup={handleDissolveGroup}
+              onCreateWorkflow={handleCreateWorkflowFromGroup}
             />
             {imageCreatorMoreActionsMenu && (
               <DoubaoImageCreatorMoreActionsMenu

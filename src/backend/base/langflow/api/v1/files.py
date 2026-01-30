@@ -1,4 +1,5 @@
 import hashlib
+import re
 from datetime import datetime, timezone
 from http import HTTPStatus
 from io import BytesIO
@@ -52,18 +53,30 @@ async def upload_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-    if file.size > max_file_size_upload * 1024 * 1024:
-        raise HTTPException(
-            status_code=413, detail=f"File size is larger than the maximum file size {max_file_size_upload}MB."
-        )
-
     if flow.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="You don't have access to this flow")
 
     try:
         file_content = await file.read()
+
+        # Some FastAPI/Starlette versions don't expose UploadFile.size reliably; fall back to len(bytes).
+        file_size = getattr(file, "size", None)
+        if file_size is None:
+            file_size = len(file_content)
+
+        if file_size > max_file_size_upload * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size is larger than the maximum file size {max_file_size_upload}MB.",
+            )
+
         timestamp = datetime.now(tz=timezone.utc).astimezone().strftime("%Y-%m-%d_%H-%M-%S")
         file_name = file.filename or hashlib.sha256(file_content).hexdigest()
+        # Prevent path traversal / nested paths / Windows-invalid filenames.
+        file_name = Path(file_name).name
+        file_name = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1F]', "_", file_name).strip().strip(".")
+        if not file_name:
+            file_name = hashlib.sha256(file_content).hexdigest()
         full_file_name = f"{timestamp}_{file_name}"
         folder = str(flow.id)
         await storage_service.save_file(flow_id=folder, file_name=full_file_name, data=file_content)
