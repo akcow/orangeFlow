@@ -116,7 +116,7 @@ export default function NodeName({
       <div
         data-testid={"title-" + display_name}
         className={cn(
-          "nodoubleclick nodrag truncate font-medium text-primary pr-2",
+          "nodoubleclick nodrag truncate font-medium text-primary pr-6",
           showNode ? "cursor-text" : "cursor-default",
         )}
         onClick={startEditing}
