@@ -127,20 +127,19 @@ const HeaderComponent = ({
         <>
           <div className={cn("flex flex-row-reverse pb-4")}>
             <div className="w-full border-b dark:border-border" />
-                {tabTypes.map((type) => (
-                  <Button
-                    key={type}
-                    unstyled
-                    id={`${type}-btn`}
-                    data-testid={`${type}-btn`}
-                    onClick={() => {
-                      setFlowType(type as "flows" | "components");
-                    }}
-                    className={`border-b ${
-                      flowType === type
-                        ? "border-b-2 border-foreground text-foreground"
-                        : "border-border text-muted-foreground hover:text-foreground"
-                } text-nowrap px-2 pb-2 pt-1 text-mmd`}
+            {tabTypes.map((type) => (
+              <Button
+                key={type}
+                unstyled
+                id={`${type}-btn`}
+                data-testid={`${type}-btn`}
+                onClick={() => {
+                  setFlowType(type as "flows" | "components");
+                }}
+                className={`border-b ${flowType === type
+                    ? "border-b-2 border-foreground text-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                  } text-nowrap px-2 pb-2 pt-1 text-mmd`}
               >
                 <div className={flowType === type ? "-mb-px" : ""}>
                   {type === "flows" ? t("Flows") : t("Components")}
@@ -150,88 +149,87 @@ const HeaderComponent = ({
           </div>
           {/* Search and filters */}
           <div className="flex justify-between">
-              <div className="flex w-full xl:w-5/12">
-                <Input
-                  icon="Search"
-                  data-testid="search-store-input"
-                  type="text"
-                  placeholder={
-                    flowType === "flows"
-                      ? t("Search flows...")
-                      : t("Search components...")
-                  }
-                  className="mr-2 !text-mmd"
-                  inputClassName="!text-mmd"
-                  value={debouncedSearch}
-                  onChange={handleSearch}
-                />
-                <div className="relative mr-2 flex h-fit rounded-lg border border-muted bg-muted">
-                  {/* Sliding Indicator */}
-                  <div
-                    className={`absolute top-[2px] h-[32px] w-8 transform rounded-md bg-background shadow-md transition-transform duration-300 ${
-                      view === "list"
-                        ? "left-[2px] translate-x-0"
-                        : "left-[6px] translate-x-full"
-                    }`}
-                  ></div>
-
-                  {/* Buttons */}
-                  {["list", "grid"].map((viewType) => (
-                    <Button
-                      key={viewType}
-                      unstyled
-                      size="icon"
-                      className={`group relative z-10 m-[2px] flex-1 rounded-lg p-2 ${
-                        view === viewType
-                          ? "text-foreground"
-                          : "text-muted-foreground hover:bg-muted"
-                      }`}
-                      onClick={() => setView(viewType as "list" | "grid")}
-                    >
-                      <ForwardedIconComponent
-                        name={viewType === "list" ? "Menu" : "LayoutGrid"}
-                        aria-hidden="true"
-                        className="h-4 w-4 group-hover:text-foreground"
-                      />
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center">
+            <div className="flex w-full xl:w-5/12">
+              <Input
+                icon="Search"
+                data-testid="search-store-input"
+                type="text"
+                placeholder={
+                  flowType === "flows"
+                    ? t("Search flows...")
+                    : t("Search components...")
+                }
+                className="mr-2 !text-mmd"
+                inputClassName="!text-mmd"
+                value={debouncedSearch}
+                onChange={handleSearch}
+              />
+              <div className="relative mr-2 flex h-fit rounded-lg border border-muted bg-muted">
+                {/* Sliding Indicator */}
                 <div
-                  className={cn(
-                    "flex w-0 items-center gap-2 overflow-hidden opacity-0 transition-all duration-300",
-                    selectedFlows.length > 0 && "w-36 opacity-100",
-                  )}
+                  className={`absolute top-[2px] h-[32px] w-8 transform rounded-md bg-background shadow-md transition-transform duration-300 ${view === "list"
+                      ? "left-[2px] translate-x-0"
+                      : "left-[6px] translate-x-full"
+                    }`}
+                ></div>
+
+                {/* Buttons */}
+                {["list", "grid"].map((viewType) => (
+                  <Button
+                    key={viewType}
+                    unstyled
+                    size="icon"
+                    className={`group relative z-10 m-[2px] flex-1 rounded-lg p-2 ${view === viewType
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:bg-muted"
+                      }`}
+                    onClick={() => setView(viewType as "list" | "grid")}
+                  >
+                    <ForwardedIconComponent
+                      name={viewType === "list" ? "Menu" : "LayoutGrid"}
+                      aria-hidden="true"
+                      className="h-4 w-4 group-hover:text-foreground"
+                    />
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center">
+              <div
+                className={cn(
+                  "flex w-0 items-center gap-2 overflow-hidden opacity-0 transition-all duration-300",
+                  selectedFlows.length > 0 && "w-36 opacity-100",
+                )}
+              >
+                <Button
+                  variant="outline"
+                  size="iconMd"
+                  className="h-8 w-8"
+                  data-testid="download-bulk-btn"
+                  onClick={handleDownload}
+                  loading={isDownloading}
+                >
+                  <ForwardedIconComponent name="Download" />
+                </Button>
+
+                <DeleteConfirmationModal
+                  onConfirm={handleDelete}
+                  description={t("selected flows")}
+                  note={t("and their message history")}
                 >
                   <Button
-                    variant="outline"
+                    variant="destructive"
                     size="iconMd"
-                    className="h-8 w-8"
-                    data-testid="download-bulk-btn"
-                    onClick={handleDownload}
-                    loading={isDownloading}
+                    className="px-2.5 !text-mmd"
+                    data-testid="delete-bulk-btn"
+                    loading={isDeleting}
                   >
-                    <ForwardedIconComponent name="Download" />
+                    <ForwardedIconComponent name="Trash2" />
+                    {t("Delete")}
                   </Button>
-
-                  <DeleteConfirmationModal
-                    onConfirm={handleDelete}
-                    description={t("selected flows")}
-                    note={t("and their message history")}
-                  >
-                    <Button
-                      variant="destructive"
-                      size="iconMd"
-                      className="px-2.5 !text-mmd"
-                      data-testid="delete-bulk-btn"
-                      loading={isDeleting}
-                    >
-                      <ForwardedIconComponent name="Trash2" />
-                      {t("Delete")}
-                    </Button>
-                  </DeleteConfirmationModal>
-                </div>
+                </DeleteConfirmationModal>
+              </div>
+              {selectedFlows.length === 0 && (
                 <ShadTooltip content={t("New Flow")} side="bottom">
                   <Button
                     variant="default"
@@ -252,7 +250,8 @@ const HeaderComponent = ({
                     </span>
                   </Button>
                 </ShadTooltip>
-              </div>
+              )}
+            </div>
           </div>
         </>
       )}

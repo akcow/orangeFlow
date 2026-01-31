@@ -119,6 +119,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       () => (nodes.find((candidate) => candidate.id === nodeId)?.data as any)?.node,
       [nodes, nodeId],
     );
+    const isNodeSelected = useMemo(
+      () => Boolean(nodes.find((candidate) => candidate.id === nodeId)?.selected),
+      [nodes, nodeId],
+    );
     const selectedModelName = useMemo(() => {
       const template = (node as any)?.template ?? {};
       const value =
@@ -291,15 +295,23 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             // We should ensure a default aspect ratio exists if the computed one is missing.
             !containerStyle && "aspect-square",
             // Single preview container for image creator (avoid nested frames inside the renderer).
-            "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none dark:border-white/15 dark:bg-white/5",
+            cn(
+              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-shadow dark:border-white/15 dark:bg-white/5",
+              isNodeSelected &&
+                "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
+            ),
           )
           : cn(
             "w-full max-w-full",
             minimalAspectClass,
-            "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
+            cn(
+              "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-shadow dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
+              isNodeSelected && "ring-2 ring-node-selected/25",
+            ),
           )
         : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10",
       panelClass,
+      !isMinimal && isNodeSelected && "ring-2 ring-node-selected/25",
     );
 
     const previewSurfaceClassName = cn(

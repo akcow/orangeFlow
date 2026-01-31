@@ -1458,7 +1458,12 @@ export default function TextCreationLayout({
           <div
             className={cn(
               "flex aspect-square w-full flex-col rounded-[16px] border border-[#dce7ff] bg-[#f3f7ff] p-4 text-sm text-foreground shadow-sm",
+              "transition-all duration-300 ease-in-out", // Smooth transition
+              selected
+                ? "border-indigo-500 ring-2 ring-indigo-500/20 shadow-[0_0_20px_rgba(99,102,241,0.15)] scale-[1.01]"
+                : "border-[#dce7ff] hover:border-indigo-200 hover:shadow-md",
               "dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-100",
+              selected && "dark:border-indigo-500/50 dark:ring-indigo-500/30 dark:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
             )}
           >
             {isBuilding && (

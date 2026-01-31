@@ -53,10 +53,10 @@ export default function NodeName({
         data: {
           ...old.data,
           node: {
-            ...old.data.node,
+            ...(old.data as any).node,
             display_name: nodeName,
           },
-        },
+        } as any,
       }));
     } else {
       setNodeName(display_name ?? "");
@@ -107,17 +107,28 @@ export default function NodeName({
       />
     </div>
   ) : (
-    <div className="group my-px flex flex-1 items-center gap-2 overflow-hidden">
+    <div
+      className={cn(
+        "group my-px flex flex-1 items-center gap-2 min-w-0",
+        selected ? "overflow-visible" : "overflow-hidden",
+      )}
+    >
       <div
         data-testid={"title-" + display_name}
         className={cn(
-          "nodoubleclick nodrag truncate font-medium text-primary",
+          "nodoubleclick nodrag truncate font-medium text-primary pr-2",
           showNode ? "cursor-text" : "cursor-default",
         )}
         onClick={startEditing}
       >
         <div className="flex items-center gap-2">
-          <span className={cn("truncate text-sm", textClassName)}>
+          <span
+            className={cn(
+              "truncate text-sm transition-all duration-300 ease-out origin-left",
+              textClassName,
+              selected && "text-indigo-600 dark:text-indigo-400 translate-x-1 scale-105 font-semibold"
+            )}
+          >
             {display_name}
           </span>
           {legacy && (

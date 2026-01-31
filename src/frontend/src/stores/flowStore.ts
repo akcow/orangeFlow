@@ -60,6 +60,9 @@ import {
 import {
   dissolveSmallGroups,
   getAbsolutePosition,
+  getNodeDimensions,
+  GROUP_HEADER_HEIGHT,
+  GROUP_PADDING,
   isGroupContainerNode,
   sortNodesByParentDepth,
 } from "../utils/groupingUtils";
@@ -375,10 +378,85 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
   onNodesChange: (changes: NodeChange<AllNodeType>[]) => {
     const updated = applyNodeChanges(changes, get().nodes);
 
+    // Fast-path: group resizing emits a high-frequency stream of "dimensions" changes.
+    // Avoid extra full-graph normalization/sorting work on each tick for smoother resize UX.
+    const onlyDimensions = changes.length > 0 && changes.every((c) => c.type === "dimensions");
+    if (onlyDimensions) {
+      // Ensure group containers stay behind other nodes/edges (rarely needed, but cheap for only changed ids).
+      const changedIds = new Set(changes.map((c) => c.id as string));
+      let needsZFix = false;
+      const byId = new Map(updated.map((n) => [n.id, n]));
+      for (const id of changedIds) {
+        const n: any = byId.get(id);
+        if (n?.type === "groupNode" && n?.zIndex !== -100) {
+          needsZFix = true;
+          break;
+        }
+      }
+      if (!needsZFix) {
+        set({ nodes: updated });
+        return;
+      }
+      set({
+        nodes: updated.map((n: any) => {
+          if (n.type !== "groupNode") return n;
+          if (n.zIndex === -100) return n;
+          const style: any = { ...(n.style ?? {}), zIndex: -100 };
+          return { ...n, zIndex: -100, style };
+        }),
+      });
+      return;
+    }
+
+    // Clamp "workflow locked" nodes to remain within their parent group bounds.
+    // Do this only for position-changed nodes to keep drag smooth on large graphs.
+    const positionChangeIds = changes
+      .filter((c) => c.type === "position")
+      .map((c) => c.id as string);
+
+    let clamped = updated;
+    if (positionChangeIds.length > 0) {
+      const byId = new Map(updated.map((n) => [n.id, n]));
+      const indexById = new Map(updated.map((n, idx) => [n.id, idx]));
+      let next = updated;
+      let changed = false;
+      for (const id of positionChangeIds) {
+        const n: any = byId.get(id);
+        if (!n?.parentId) continue;
+        if (!Boolean(n?.data?.workflowLocked)) continue;
+        const parent: any = byId.get(n.parentId);
+        if (!parent || parent.type !== "groupNode") continue;
+
+        const parentWidth = parent.width ?? getNodeDimensions(parent).width;
+        const parentHeight = parent.height ?? getNodeDimensions(parent).height;
+        if (!parentWidth || !parentHeight) continue;
+
+        const { width: childWidth, height: childHeight } = getNodeDimensions(n);
+        const minX = GROUP_PADDING;
+        const minY = GROUP_HEADER_HEIGHT + GROUP_PADDING;
+        const maxX = Math.max(minX, parentWidth - childWidth - GROUP_PADDING);
+        const maxY = Math.max(minY, parentHeight - childHeight - GROUP_PADDING);
+
+        const nextX = Math.min(maxX, Math.max(minX, n.position.x));
+        const nextY = Math.min(maxY, Math.max(minY, n.position.y));
+        if (nextX === n.position.x && nextY === n.position.y) continue;
+
+        const idx = indexById.get(id);
+        if (typeof idx !== "number") continue;
+        if (!changed) {
+          next = [...updated];
+          changed = true;
+        }
+        next[idx] = { ...n, position: { x: nextX, y: nextY } };
+        byId.set(id, next[idx]);
+      }
+      clamped = changed ? next : updated;
+    }
+
     // Normalize: we don't constrain group children with `extent: 'parent'` / `expandParent`.
     // Important: avoid cloning every nested node on every drag tick; only touch nodes that
     // actually carry these props to keep XYFlow dragging stable.
-    const normalized = updated.map((n) => {
+    const normalized = clamped.map((n) => {
       // Keep group containers behind edges/nodes.
       const shouldFixZ = (n as any).type === "groupNode" && (n as any).zIndex !== -100;
 

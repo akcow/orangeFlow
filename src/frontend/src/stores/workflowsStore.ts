@@ -76,6 +76,12 @@ type WorkflowsStore = {
     id: string,
     patch: Partial<Pick<StoredWorkflow, "name" | "note" | "tags" | "cover">>,
   ) => void;
+  updateWorkflowFromGroup: (params: {
+    workflowId: string;
+    groupId: string;
+    nodes: AllNodeType[];
+    edges: EdgeType[];
+  }) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
 
   markUsed: (id: string) => void;
@@ -377,6 +383,102 @@ function setSelectionRootGroupLabel(selection: WorkflowSelection, rootGroupId: s
   };
 }
 
+async function buildSelectionWithCopiedAssets(selection: WorkflowSelection): Promise<{
+  selection: WorkflowSelection;
+  urlAssetMap: Record<string, string>;
+  coverGuess: WorkflowCover;
+}> {
+  // Download & store file assets referenced by template fields.
+  const allPaths = new Set<string>();
+  selection.nodes.forEach((n) => {
+    const template = (n as any)?.data?.node?.template;
+    collectTemplateFilePaths(template).forEach((p) => allPaths.add(p));
+  });
+
+  const mapping = new Map<string, { assetId: string; name: string }>();
+  for (const path of allPaths) {
+    const blob = await downloadPathAsBlob(path);
+    const assetId = makeId("wfa");
+    const name = getFileNameFromPath(path);
+    await putWorkflowAsset({
+      id: assetId,
+      blob,
+      name,
+      type: blob.type || "application/octet-stream",
+      size: blob.size,
+      createdAt: nowIso(),
+    });
+    mapping.set(path, { assetId, name });
+  }
+
+  // Also copy any embedded /files/download/... urls inside template values (e.g. draft_output)
+  // so previews remain valid when applying the workflow to another flow.
+  const urlAssetMap: Record<string, string> = {};
+  const embeddedUrls = new Set<string>();
+  for (const node of selection.nodes) {
+    const template = (node as any)?.data?.node?.template;
+    if (!template || typeof template !== "object") continue;
+    // Only scan values; file_path/path are already handled above.
+    for (const field of Object.values(template)) {
+      if (!field || typeof field !== "object") continue;
+      if (!("value" in (field as any))) continue;
+      collectFileDownloadUrlsFromValue((field as any).value, embeddedUrls);
+    }
+  }
+  for (const url of embeddedUrls) {
+    try {
+      const blob = await downloadUrlAsBlob(url);
+      const assetId = makeId("wfu");
+      const name = getFileNameFromUrl(url);
+      await putWorkflowAsset({
+        id: assetId,
+        blob,
+        name,
+        type: blob.type || "application/octet-stream",
+        size: blob.size,
+        createdAt: nowIso(),
+      });
+      urlAssetMap[url] = assetId;
+    } catch {
+      // Best effort; if a single url is not downloadable, keep it as-is.
+    }
+  }
+
+  const nextSelection: WorkflowSelection = {
+    nodes: selection.nodes.map((node) => {
+      const nextNode = cloneDeep(node);
+      const template = (nextNode as any)?.data?.node?.template;
+      if (template) {
+        const nextTemplate = replaceTemplatePathsWithAssetRefs(template, mapping);
+        // Keep embedded URLs unchanged for now; we only rewrite them on apply (after upload).
+        (nextNode as any).data.node.template = nextTemplate;
+      }
+      return nextNode;
+    }),
+    edges: cloneDeep(selection.edges),
+  };
+
+  // Cover: prefer generated/selected images; fallback to first image asset; else default.
+  const previewGuess = guessWorkflowCoverFromSelection(selection.nodes);
+  let cover: WorkflowCover = normalizeCoverFromGuess(previewGuess);
+  if (cover.kind === "url" && cover.url && urlAssetMap[cover.url]) {
+    cover = { kind: "asset", assetId: urlAssetMap[cover.url]! };
+  } else if (cover.kind === "url" && cover.url) {
+    const path = extractFileDownloadPathFromUrl(cover.url);
+    if (path && mapping.get(path)) {
+      cover = { kind: "asset", assetId: mapping.get(path)!.assetId };
+    }
+  }
+  if (cover.kind === "default" || (cover.kind === "url" && !cover.url)) {
+    const imagePath = findFirstImagePathInSelection(selection);
+    if (imagePath && mapping.get(imagePath)) {
+      cover = { kind: "asset", assetId: mapping.get(imagePath)!.assetId };
+    }
+  }
+
+  return { selection: nextSelection, urlAssetMap, coverGuess: cover };
+}
+
 export const useWorkflowsStore = create<WorkflowsStore>((set, get) => ({
   hydrated: false,
   workflows: [],
@@ -443,93 +545,7 @@ export const useWorkflowsStore = create<WorkflowsStore>((set, get) => ({
     });
 
     try {
-      // Download & store file assets referenced by template fields.
-      const allPaths = new Set<string>();
-      selection.nodes.forEach((n) => {
-        const template = (n as any)?.data?.node?.template;
-        collectTemplateFilePaths(template).forEach((p) => allPaths.add(p));
-      });
-
-      const mapping = new Map<string, { assetId: string; name: string }>();
-      for (const path of allPaths) {
-        const blob = await downloadPathAsBlob(path);
-        const assetId = makeId("wfa");
-        const name = getFileNameFromPath(path);
-        await putWorkflowAsset({
-          id: assetId,
-          blob,
-          name,
-          type: blob.type || "application/octet-stream",
-          size: blob.size,
-          createdAt: nowIso(),
-        });
-        mapping.set(path, { assetId, name });
-      }
-
-      // Also copy any embedded /files/download/... urls inside template values (e.g. draft_output)
-      // so previews remain valid when applying the workflow to another flow.
-      const urlAssetMap: Record<string, string> = {};
-      const embeddedUrls = new Set<string>();
-      for (const node of selection.nodes) {
-        const template = (node as any)?.data?.node?.template;
-        if (!template || typeof template !== "object") continue;
-        // Only scan values; file_path/path are already handled above.
-        for (const field of Object.values(template)) {
-          if (!field || typeof field !== "object") continue;
-          if (!("value" in (field as any))) continue;
-          collectFileDownloadUrlsFromValue((field as any).value, embeddedUrls);
-        }
-      }
-      for (const url of embeddedUrls) {
-        try {
-          const blob = await downloadUrlAsBlob(url);
-          const assetId = makeId("wfu");
-          const name = getFileNameFromUrl(url);
-          await putWorkflowAsset({
-            id: assetId,
-            blob,
-            name,
-            type: blob.type || "application/octet-stream",
-            size: blob.size,
-            createdAt: nowIso(),
-          });
-          urlAssetMap[url] = assetId;
-        } catch {
-          // Best effort; if a single url is not downloadable, keep it as-is.
-        }
-      }
-
-      const nextSelection: WorkflowSelection = {
-        nodes: selection.nodes.map((node) => {
-          const nextNode = cloneDeep(node);
-          const template = (nextNode as any)?.data?.node?.template;
-          if (template) {
-            let nextTemplate = replaceTemplatePathsWithAssetRefs(template, mapping);
-            // Keep embedded URLs unchanged for now; we only rewrite them on apply (after upload).
-            (nextNode as any).data.node.template = nextTemplate;
-          }
-          return nextNode;
-        }),
-        edges: cloneDeep(selection.edges),
-      };
-
-      // Cover: prefer generated/selected images; fallback to first image asset; else default.
-      const previewGuess = guessWorkflowCoverFromSelection(selection.nodes);
-      let cover: WorkflowCover = normalizeCoverFromGuess(previewGuess);
-      if (cover.kind === "url" && cover.url && urlAssetMap[cover.url]) {
-        cover = { kind: "asset", assetId: urlAssetMap[cover.url]! };
-      } else if (cover.kind === "url" && cover.url) {
-        const path = extractFileDownloadPathFromUrl(cover.url);
-        if (path && mapping.get(path)) {
-          cover = { kind: "asset", assetId: mapping.get(path)!.assetId };
-        }
-      }
-      if (cover.kind === "default" || (cover.kind === "url" && !cover.url)) {
-        const imagePath = findFirstImagePathInSelection(selection);
-        if (imagePath && mapping.get(imagePath)) {
-          cover = { kind: "asset", assetId: mapping.get(imagePath)!.assetId };
-        }
-      }
+      const prepared = await buildSelectionWithCopiedAssets(selection);
 
       set((state) => {
         if (state.draft.status === "idle") return state;
@@ -537,9 +553,9 @@ export const useWorkflowsStore = create<WorkflowsStore>((set, get) => ({
           draft: {
             ...state.draft,
             status: "ready",
-            selection: nextSelection,
-            cover,
-            urlAssetMap,
+            selection: prepared.selection,
+            cover: prepared.coverGuess,
+            urlAssetMap: prepared.urlAssetMap,
           } as DraftState,
         };
       });
@@ -623,6 +639,52 @@ export const useWorkflowsStore = create<WorkflowsStore>((set, get) => ({
     });
   },
 
+  updateWorkflowFromGroup: async ({ workflowId, groupId, nodes, edges }) => {
+    const existing = get().workflows.find((w) => w.id === workflowId);
+    if (!existing) throw new Error("Workflow not found");
+
+    const selection = extractGroupSelectionForWorkflow(groupId, nodes, edges);
+    if (!selection) throw new Error("请选择一个分组");
+
+    const prepared = await buildSelectionWithCopiedAssets(selection);
+
+    // Keep the workflow name as the root group label so applying restores the correct label.
+    const nextSelection = cloneDeep(prepared.selection);
+    setSelectionRootGroupLabel(nextSelection, groupId, existing.name);
+
+    // Best-effort cleanup of old assets, but keep the cover if it is an asset.
+    const oldAssetIds = new Set<string>();
+    deepCollectAssetRefs(existing.selection, oldAssetIds);
+    Object.values(existing.urlAssetMap ?? {}).forEach((assetId) => oldAssetIds.add(assetId));
+    const keep = new Set<string>();
+    if (existing.cover.kind === "asset") keep.add(existing.cover.assetId);
+
+    set((state) => {
+      const workflows = state.workflows.map((wf) => {
+        if (wf.id !== workflowId) return wf;
+        const updated: StoredWorkflow = {
+          ...wf,
+          rootGroupId: groupId,
+          selection: nextSelection,
+          urlAssetMap: prepared.urlAssetMap,
+          updatedAt: nowIso(),
+        };
+        return updated;
+      });
+      persistWorkflows(workflows);
+      return { workflows };
+    });
+
+    for (const assetId of oldAssetIds) {
+      if (keep.has(assetId)) continue;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await deleteWorkflowAsset(assetId);
+      } catch {
+      }
+    }
+  },
+
   deleteWorkflow: async (id) => {
     const wf = get().workflows.find((w) => w.id === id);
     if (!wf) return;
@@ -685,7 +747,20 @@ export const useWorkflowsStore = create<WorkflowsStore>((set, get) => ({
     for (const node of wf.selection.nodes) {
       const nextNode = cloneDeep(node);
       if (nextNode.id === wf.rootGroupId) {
-        (nextNode as any).data = { ...((nextNode as any).data ?? {}), label: wf.name };
+        (nextNode as any).data = {
+          ...((nextNode as any).data ?? {}),
+          label: wf.name,
+          appliedWorkflowId: wf.id,
+          appliedWorkflowName: wf.name,
+          appliedWorkflowUpdatedAt: wf.updatedAt,
+        };
+      } else {
+        // Mark "original" workflow nodes so the canvas can keep them inside the group bounds.
+        (nextNode as any).data = {
+          ...((nextNode as any).data ?? {}),
+          workflowLocked: true,
+          appliedWorkflowId: wf.id,
+        };
       }
       const template = (nextNode as any)?.data?.node?.template;
       if (template) {
