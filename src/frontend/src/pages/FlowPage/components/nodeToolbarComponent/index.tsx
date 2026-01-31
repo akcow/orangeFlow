@@ -25,6 +25,7 @@ import useFlowStore from "../../../../stores/flowStore";
 import useFlowsManagerStore from "../../../../stores/flowsManagerStore";
 import { useShortcutsStore } from "../../../../stores/shortcuts";
 import { useStoreStore } from "../../../../stores/storeStore";
+import { useAssetsStore } from "../../../../stores/assetsStore";
 import type { nodeToolbarPropsType } from "../../../../types/components";
 import type { FlowType } from "../../../../types/flow";
 import {
@@ -145,10 +146,10 @@ const NodeToolbarComponent = memo(
       if (data.node?.tool_mode !== undefined) {
         setToolMode(
           data.node?.tool_mode ||
-            data.node?.outputs?.some(
-              (output) => output.name === "component_as_tool",
-            ) ||
-            false,
+          data.node?.outputs?.some(
+            (output) => output.name === "component_as_tool",
+          ) ||
+          false,
         );
       }
     }, [data.node?.tool_mode, data.node?.outputs]);
@@ -330,6 +331,13 @@ const NodeToolbarComponent = memo(
           case "save":
             saveComponent();
             break;
+          case "saveAsAsset": {
+            const nodeData = cloneDeep(data);
+            useAssetsStore.getState().startDraftFromNode(nodeData).then(() => {
+              window.dispatchEvent(new Event("lf:open-assets-panel"));
+            });
+            break;
+          }
           case "freezeAll":
             takeSnapshot();
             FreezeAllVertices({ flowId: currentFlowId, stopNodeId: data.id });
@@ -471,7 +479,7 @@ const NodeToolbarComponent = memo(
               onOpenChange={handleOpenChange}
               open={dropdownOpen}
             >
-                <SelectTrigger className="w-62">
+              <SelectTrigger className="w-62">
                 <ShadTooltip content="更多操作" side="top">
                   <div data-testid="more-options-modal">
                     <Button
@@ -492,6 +500,14 @@ const NodeToolbarComponent = memo(
               <SelectContentWithoutPortal
                 className={"relative top-1 w-56 bg-background"}
               >
+                <SelectItem value={"saveAsAsset"}>
+                  <ToolbarSelectItem
+                    value={"添加为资产"}
+                    icon={"Save"}
+                    dataTestId="save-as-asset-button-modal"
+                    shortcut=""
+                  />
+                </SelectItem>
                 <SelectItem value={"duplicate"}>
                   <ToolbarSelectItem
                     shortcut={

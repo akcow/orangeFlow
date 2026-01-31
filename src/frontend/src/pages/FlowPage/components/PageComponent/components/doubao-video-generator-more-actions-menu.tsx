@@ -9,6 +9,7 @@ import {
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useShortcutsStore } from "@/stores/shortcuts";
+import { useAssetsStore } from "@/stores/assetsStore";
 import ToolbarSelectItem from "../../nodeToolbarComponent/toolbarSelectItem";
 
 type DoubaoVideoGeneratorMoreActionsMenuProps = {
@@ -58,6 +59,23 @@ export default function DoubaoVideoGeneratorMoreActionsMenu({
         alignOffset={2}
         className="w-56 origin-top-left zoom-in-95"
       >
+        <DropdownMenuItem
+          onSelect={() => {
+            const nodes = useFlowStore.getState().nodes;
+            const node = nodes.find((n) => n.id === nodeId);
+            if (!node) return;
+            const nodeData = cloneDeep(node.data);
+            useAssetsStore.getState().startDraftFromNode(nodeData as any).then(() => {
+              window.dispatchEvent(new Event("lf:open-assets-panel"));
+            });
+          }}
+        >
+          <ToolbarSelectItem
+            value={"添加为资产"}
+            icon={"Save"}
+            dataTestId="save-as-asset-button-modal"
+          />
+        </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => {
             const nodes = useFlowStore.getState().nodes;

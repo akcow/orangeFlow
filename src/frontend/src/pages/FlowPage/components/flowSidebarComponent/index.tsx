@@ -16,6 +16,7 @@ import type { APIClassType } from "../../../../types/api";
 import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
 import GenerationHistoryPanel from "./components/generationHistoryPanel";
 import WorkflowsPanel from "./components/workflowsPanel";
+import AssetsPanel from "./components/AssetsPanel";
 import { SidebarFilterComponent } from "./components/sidebarFilterComponent";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
@@ -150,6 +151,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const [componentsOpen, setComponentsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  const [assetsOpen, setAssetsOpen] = useState(false);
   const [pendingCreateGroupId, setPendingCreateGroupId] = useState<string | null>(null);
 
   // Allow other parts of the app (e.g. selection menu) to open workflows panel.
@@ -160,9 +162,21 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
       setWorkflowsOpen(true);
       setComponentsOpen(false);
       setHistoryOpen(false);
+      setAssetsOpen(false);
     };
     window.addEventListener("lf:open-workflows-panel", handler as any);
     return () => window.removeEventListener("lf:open-workflows-panel", handler as any);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      setAssetsOpen(true);
+      setWorkflowsOpen(false);
+      setComponentsOpen(false);
+      setHistoryOpen(false);
+    };
+    window.addEventListener("lf:open-assets-panel", handler as any);
+    return () => window.removeEventListener("lf:open-assets-panel", handler as any);
   }, []);
 
   const handleAddNote = useCallback(() => {
@@ -177,7 +191,10 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
             open={componentsOpen}
             onOpenChange={(open) => {
               setComponentsOpen(open);
-              if (open) setHistoryOpen(false);
+              if (open) {
+                setHistoryOpen(false);
+                setAssetsOpen(false);
+              }
             }}
           >
             <ShadTooltip content={t("Components")} side="right">
@@ -228,7 +245,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                   <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-sm text-muted-foreground">
                     <div>{t("No components found.")}</div>
                     {(getFilterEdge?.length ?? 0) > 0 ||
-                    getFilterComponent !== "" ? (
+                      getFilterComponent !== "" ? (
                       <Button variant="secondary" size="sm" onClick={resetFilters}>
                         {t("Remove filter")}
                       </Button>
@@ -291,8 +308,11 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
             open={historyOpen}
             onOpenChange={(open) => {
               setHistoryOpen(open);
-              if (open) setComponentsOpen(false);
-              if (open) setWorkflowsOpen(false);
+              if (open) {
+                setComponentsOpen(false);
+                setAssetsOpen(false);
+                setWorkflowsOpen(false);
+              }
             }}
           >
             <ShadTooltip content={t("生成历史")} side="right">
@@ -319,12 +339,47 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
           </Popover>
 
           <Popover
+            open={assetsOpen}
+            onOpenChange={(open) => {
+              setAssetsOpen(open);
+              if (open) {
+                setComponentsOpen(false);
+                setHistoryOpen(false);
+                setWorkflowsOpen(false);
+              }
+            }}
+          >
+            <ShadTooltip content={t("我的资产")} side="right">
+              <PopoverTrigger asChild>
+                <Button
+                  variant={assetsOpen ? "secondary" : "ghost"}
+                  size="iconMd"
+                  className="h-12 w-12 rounded-full p-0"
+                  aria-label={t("我的资产")}
+                  data-testid="flow-toolbar-assets"
+                >
+                  <ForwardedIconComponent name="Package" className="h-6 w-6" />
+                </Button>
+              </PopoverTrigger>
+            </ShadTooltip>
+            <PopoverContent
+              align="center"
+              side="right"
+              sideOffset={8}
+              className="h-[75vh] w-[800px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+            >
+              <AssetsPanel onRequestClose={() => setAssetsOpen(false)} />
+            </PopoverContent>
+          </Popover>
+
+          <Popover
             open={workflowsOpen}
             onOpenChange={(open) => {
               setWorkflowsOpen(open);
               if (open) {
                 setComponentsOpen(false);
                 setHistoryOpen(false);
+                setAssetsOpen(false);
               }
             }}
           >
