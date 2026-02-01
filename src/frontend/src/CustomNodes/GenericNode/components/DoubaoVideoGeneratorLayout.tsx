@@ -90,12 +90,6 @@ const MODEL_LIMITS: Record<
     maxDuration: 12,
     enableLastFrame: true,
   },
-  "Doubao-Seedance-1.0-pro-fast｜251015": {
-    resolutions: ["480p", "720p"],
-    minDuration: 2,
-    maxDuration: 12,
-    enableLastFrame: false,
-  },
   "wan2.6": {
     resolutions: ["720p", "1080p"],
     minDuration: 5,
@@ -259,7 +253,6 @@ export default function DoubaoVideoGeneratorLayout({
   const AUDIO_OUTPUT_NAME = "audio";
   const FIRST_FRAME_BUTTON_LABEL = "首帧生成视频";
   const FIRST_LAST_FRAME_BUTTON_LABEL = "首尾帧生成视频";
-  const PRO_FAST_MODEL = "Doubao-Seedance-1.0-pro-fast｜251015";
   const DEFAULT_LAST_FRAME_MODEL = "Doubao-Seedance-1.0-pro｜250528";
   const template = data.node?.template ?? {};
   // Avoid resizing the node while the user is box-selecting; resizing can cause the
@@ -698,9 +691,9 @@ export default function DoubaoVideoGeneratorLayout({
   }, [firstFrameField]);
   const hasFirstFrame = Boolean(hasFirstFrameEdge || hasFirstFrameValue);
   const hasLastFrame = Boolean(hasLastFrameEdge || hasLastFrameValue);
-  const shouldBlockFirstLastMix = Boolean(
-    !isWanModel && !isVeoModel && !isSoraModel && hasFirstFrame && hasLastFrame,
-  );
+  // Some models don't support providing a last frame at all. If a user switches models while a
+  // last-frame edge/value exists, block run with a clear message instead of silently ignoring it.
+  const shouldBlockFirstLastMix = Boolean(!allowLastFrame && hasLastFrame);
 
   const hasReferenceVideosValue = useMemo(() => {
     if (!(isWanModel && normalizedModelName === "wan2.6")) return false;
@@ -720,7 +713,6 @@ export default function DoubaoVideoGeneratorLayout({
     return "t2v";
   }, [hasFirstFrameEdge, hasFirstFrameValue, hasReferenceVideosValue, isWanModel]);
 
-  const shouldDisableProFastModel = Boolean(hasLastFrameEdge || hasLastFrameValue);
   const isFirstLastFrameMode = Boolean(
     forceFirstLastFrameMode || hasLastFrameEdge || hasLastFrameValue,
   );
@@ -728,6 +720,8 @@ export default function DoubaoVideoGeneratorLayout({
     ? Boolean(hasLastFrameEdge)
     : Boolean(allowLastFrame || hasLastFrameEdge);
 
+  // If the user has set a tail frame, automatically prevent Wan model selection (Wan doesn't support tail frames).
+  // Prefer switching to a Seedance model that supports first+last frames.
   const resolveSeedanceModelForFirstLastFrame = useCallback(() => {
     const modelOptions: Array<string> =
       (template.model_name?.options as Array<string> | undefined) ?? [];
@@ -744,28 +738,6 @@ export default function DoubaoVideoGeneratorLayout({
     });
     return firstEnabled ?? DEFAULT_LAST_FRAME_MODEL;
   }, [DEFAULT_LAST_FRAME_MODEL, template.model_name?.options]);
-
-  useEffect(() => {
-    if (!shouldDisableProFastModel) return;
-    if (normalizedModelName !== PRO_FAST_MODEL) return;
-
-    const modelOptions: Array<string> =
-      (template.model_name?.options as Array<string> | undefined) ?? [];
-    const fallback =
-      modelOptions.includes(DEFAULT_LAST_FRAME_MODEL)
-        ? DEFAULT_LAST_FRAME_MODEL
-        : modelOptions.find((option) => option !== PRO_FAST_MODEL) ??
-          DEFAULT_LAST_FRAME_MODEL;
-
-    handleModelNameChange({ value: fallback }, { skipSnapshot: true });
-  }, [
-    DEFAULT_LAST_FRAME_MODEL,
-    PRO_FAST_MODEL,
-    handleModelNameChange,
-    normalizedModelName,
-    shouldDisableProFastModel,
-    template.model_name?.options,
-  ]);
 
   useEffect(() => {
     if (!isFirstLastFrameMode) return;
@@ -789,8 +761,8 @@ export default function DoubaoVideoGeneratorLayout({
     if (isBusy) return;
     if (shouldBlockFirstLastMix) {
       setErrorData({
-        title: "首尾帧冲突",
-        list: ["豆包模型不支持首尾帧同时输入，请清空尾帧或移除首帧后再运行。"],
+        title: "尾帧不支持",
+        list: ["当前模型不支持尾帧输入。请清空尾帧/移除尾帧连接，或切换到支持首尾帧的模型后再运行。"],
       });
       return;
     }
@@ -1040,9 +1012,6 @@ export default function DoubaoVideoGeneratorLayout({
         }
       }
 
-      if (field.name === "model_name" && shouldDisableProFastModel) {
-        disabledOptions = [...(disabledOptions ?? []), PRO_FAST_MODEL];
-      }
       if (field.name === "model_name" && disableSoraModelSelectionAfterFrameActions) {
         disabledOptions = [...(disabledOptions ?? []), "sora-2", "sora-2-pro"];
       }
@@ -1090,7 +1059,6 @@ export default function DoubaoVideoGeneratorLayout({
     }).filter(Boolean) as Array<DoubaoControlConfig>;
   }, [
     disableSoraModelSelectionAfterFrameActions,
-    PRO_FAST_MODEL,
     firstFrameField,
     hasIncomingVideoBridge,
     hasLastFrameEdge,
@@ -1102,7 +1070,6 @@ export default function DoubaoVideoGeneratorLayout({
     isWanModel,
     modelLimits,
     normalizedModelName,
-    shouldDisableProFastModel,
     template,
     wanMode,
     data.id,
@@ -2420,7 +2387,7 @@ export default function DoubaoVideoGeneratorLayout({
     if (!isVeoModel && !lastFrameTemplateField) return;
 
     setForceFirstLastFrameMode(true);
-    if (isWanModel || normalizedModelName === PRO_FAST_MODEL) {
+    if (isWanModel) {
       const fallback = resolveSeedanceModelForFirstLastFrame();
       handleModelNameChange({ value: fallback }, { skipSnapshot: true });
     }
@@ -2615,7 +2582,6 @@ export default function DoubaoVideoGeneratorLayout({
     FIRST_FRAME_FIELD,
     IMAGE_OUTPUT_NAME,
     LAST_FRAME_FIELD,
-    PRO_FAST_MODEL,
     UPSTREAM_NODE_OFFSET_X,
     UPSTREAM_NODE_OFFSET_Y,
     data.id,

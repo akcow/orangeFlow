@@ -114,7 +114,7 @@ python start_service.py
 
 #### 4. 视频创作 (DoubaoVideoGenerator)
 - **功能**: 根据文本生成高质量视频
-- **模型**: Doubao-Seedance-1.0-pro-fast｜251015
+- **模型**: Doubao-Seedance-1.0-pro｜250528
 - **主要参数**:
   - 视频生成提示词（必需）
   - 视频分辨率（480p/720p/1080p，默认1080p）

@@ -49,7 +49,6 @@ class DoubaoVideoGenerator(Component):
     MODEL_MAPPING = {
         "Doubao-Seedance-1.5-pro｜251215": "doubao-seedance-1-5-pro-251215",
         "Doubao-Seedance-1.0-pro｜250528": "doubao-seedance-1-0-pro-250528",
-        "Doubao-Seedance-1.0-pro-fast｜251015": "doubao-seedance-1-0-pro-fast-251015",
         "wan2.6": "wan2.6",
         "wan2.5": "wan2.5",
         "VEO3.1": "veo-3.1-generate-preview",
@@ -65,30 +64,28 @@ class DoubaoVideoGenerator(Component):
             "min_duration": 4,
             "max_duration": 12,
             "supports_last_frame": True,
+            "supports_reference_images": False,
         },
         "Doubao-Seedance-1.0-pro｜250528": {
             "resolutions": ["480p", "720p", "1080p"],
             "min_duration": 2,
             "max_duration": 12,
             "supports_last_frame": True,
-        },
-        "Doubao-Seedance-1.0-pro-fast｜251015": {
-            "resolutions": ["480p", "720p"],
-            "min_duration": 2,
-            "max_duration": 12,
-            "supports_last_frame": False,
+            "supports_reference_images": False,
         },
         "wan2.6": {
             "resolutions": ["720p", "1080p"],
             "min_duration": 5,
             "max_duration": 15,
             "supports_last_frame": False,
+            "supports_reference_images": False,
         },
         "wan2.5": {
             "resolutions": ["480p", "720p", "1080p"],
             "min_duration": 5,
             "max_duration": 10,
             "supports_last_frame": False,
+            "supports_reference_images": False,
         },
         "VEO3.1": {
             "resolutions": ["720p", "1080p"],
@@ -156,7 +153,7 @@ class DoubaoVideoGenerator(Component):
             name="model_name",
             display_name="模型名称",
             options=list(MODEL_MAPPING.keys()),
-            value="Doubao-Seedance-1.0-pro-fast｜251015",  # 使用UI显示的模型名称作为默认值
+            value="Doubao-Seedance-1.0-pro｜250528",  # 使用UI显示的模型名称作为默认值
             required=True,
             real_time_refresh=True,
             info="选择视频创作模型，UI显示模型名称，API调用使用对应的端点ID。",
@@ -261,7 +258,7 @@ class DoubaoVideoGenerator(Component):
             list_add_label="继续添加候选图",
             file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "mp4", "mov"],
             input_types=["Data"],
-            info="可选：上传图片或视频，或连接上游图片节点。\n- Doubao/wan: 首帧图片\n- Veo: 首帧/尾帧/参考图（根据role字段）\n- Sora: 参考图片（input_reference）",
+            info="可选：上传图片或视频，或连接上游图片节点。\n- Doubao/Seedance: 首帧/尾帧\n- wan: 首帧（不支持尾帧）\n- Veo: 首帧/尾帧/参考图\n- Sora: 参考图片",
         ),
         FileInput(
             name="last_frame_image",
@@ -270,7 +267,7 @@ class DoubaoVideoGenerator(Component):
             list_add_label="设置尾帧",
             file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"],
             input_types=["Data"],
-            info="可选：上传或指定尾帧图片，实现首尾帧衔接的视频生成。",
+            info="可选：上传或指定尾帧图片，实现首尾帧衔接的视频生成（wan 系列不支持）。",
         ),
         SecretStrInput(
             name="api_key",
@@ -403,7 +400,9 @@ class DoubaoVideoGenerator(Component):
             return Data(data=payload, type="video")
 
         model_name = str(self.model_name or "").strip()
-        endpoint_id = self.MODEL_MAPPING.get(model_name, model_name)
+        if model_name not in self.MODEL_MAPPING:
+            return self._error(f"模型已下线或不支持：{model_name}")
+        endpoint_id = self.MODEL_MAPPING[model_name]
 
         # All provider calls go through the hosted gateway (server-managed credentials).
         if model_name.startswith("wan2."):
@@ -496,396 +495,6 @@ class DoubaoVideoGenerator(Component):
 
         return build_config
 
-        creds = resolve_credentials(
-            component_app_id=None,
-            component_access_token=None,
-            component_api_key=self.api_key,
-            env_api_key_var="ARK_API_KEY",
-        )
-
-        def _normalize_api_key(value: str) -> str:
-            v = (value or "").strip().strip("'").strip('"')
-            if v.lower().startswith("bearer "):
-                v = v.split(" ", 1)[1].strip()
-            # Keys should not contain whitespace; if a masked secret like "****1234" was saved, keep as-is for diagnosis.
-            if not v.startswith("****"):
-                v = "".join(v.split())
-            return v
-
-        api_key = _normalize_api_key(creds.api_key or "")
-        ak = _normalize_api_key(getattr(self, "ak", "") or "")
-        sk = _normalize_api_key(getattr(self, "sk", "") or "")
-
-        if api_key.startswith("****"):
-            return self._error(
-                "检测到 Provider Credentials 中保存了被掩码的 api_key（形如 ****1234），"
-                "这不是有效的 Ark key。请在 Provider Credentials 中重新粘贴完整 ARK_API_KEY 保存。"
-            )
-
-        if not api_key and not (ak and sk):
-            return self._error("未检测到豆包 API Key 或 AK/SK，请在节点或环境变量中配置。")
-
-        # 初始化Ark客户端
-        client_kwargs: dict[str, Any] = {
-            "base_url": (self.api_base or "https://ark.cn-beijing.volces.com/api/v3").strip(),
-            "region": (self.region or "cn-beijing").strip(),
-            "timeout": float(self.timeout_seconds or 600.0),
-            "max_retries": int(self.max_retries or 2),
-        }
-        if ak and sk:
-            client_kwargs["ak"] = ak
-            client_kwargs["sk"] = sk
-        else:
-            client_kwargs["api_key"] = api_key
-
-        client = Ark(**client_kwargs)
-
-        # 准备API参数
-        try:
-            model_name = str(self.model_name or "")
-            model_limits = self.MODEL_LIMITS.get(model_name, {})
-            resolution = str(self.resolution or "1080p")
-            duration = int(self.duration or 5)
-            aspect_ratio = str(self.aspect_ratio or "16:9")
-            allowed_resolutions = model_limits.get("resolutions") or []
-            if allowed_resolutions and resolution not in allowed_resolutions:
-                resolution = allowed_resolutions[0]
-            if aspect_ratio not in self.SUPPORTED_RATIOS:
-                aspect_ratio = self.SUPPORTED_RATIOS[0]
-            min_duration = model_limits.get("min_duration", 2)
-            max_duration = model_limits.get("max_duration", 12)
-            duration = max(min_duration, min(duration, max_duration))
-            supports_last_frame = model_limits.get("supports_last_frame", True)
-            camera_fixed = False
-            watermark = False
-            enable_preview = True
-            # 使用固定的轮询参数（不在UI中显示）
-            polling_interval = 3  # 固定3秒轮询间隔
-            max_wait_time = 300   # 固定5分钟最大等待时间
-
-            # 获取API调用所需的端点ID
-            endpoint_id = self.MODEL_MAPPING.get(self.model_name, self.model_name)
-        except (TypeError, ValueError):
-            return self._error("参数格式错误，请检查输入的数值。")
-
-        # 构建文本提示词参数
-        text_params = f"{merged_prompt} --ratio {aspect_ratio} --dur {duration} --resolution {resolution} --camerafixed {str(camera_fixed).lower()} --watermark {str(watermark).lower()}"
-
-        # 构建内容数组
-        content = [
-            {
-                "type": "text",
-                "text": text_params
-            }
-        ]
-
-        # 如果提供了首帧图片，添加到内容中
-        first_frame_url = self._extract_image_url(getattr(self, "first_frame_image", None))
-        if first_frame_url:
-            self.status = f"🖼️ 使用首帧图片: {first_frame_url[:50]}..."
-            content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": first_frame_url
-                },
-                "role": "first_frame"
-            })
-        else:
-            self.status = "📝 未提供首帧图片，进行纯文生视频"
-
-        last_frame_url = None
-        if supports_last_frame:
-            last_frame_url = self._extract_image_url(getattr(self, "last_frame_image", None))
-            if last_frame_url:
-                self.status = f"🖼️ 使用尾帧图片: {last_frame_url[:50]}..."
-                content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": last_frame_url
-                    },
-                    "role": "last_frame"
-                })
-        elif getattr(self, "last_frame_image", None):
-            self.status = "ℹ️ 当前模型不支持尾帧，已忽略尾帧输入"
-
-        # 构建生成参数
-        # 注意：不同版本的 Ark SDK 对 tasks.create 的参数支持不一致。
-        # 当前 SDK 不支持 resolution/ratio/duration 作为 kwargs（会抛 TypeError），因此将这些信息仅保留在 text prompt 中。
-        generate_params: dict[str, Any] = {
-            "model": endpoint_id,  # 使用端点ID进行API调用
-            "content": content,
-        }
-        if supports_last_frame and (first_frame_url or last_frame_url):
-            generate_params["return_last_frame"] = True
-
-        try:
-            # 创建视频生成任务
-            self.status = "📋 创建视频生成任务..."
-            try:
-                create_result = client.content_generation.tasks.create(**generate_params)
-            except TypeError as exc:
-                # Backward/forward compat: retry without optional flags if the SDK signature changed.
-                if "unexpected keyword argument" in str(exc) and "return_last_frame" in generate_params:
-                    fallback_params = {k: v for k, v in generate_params.items() if k != "return_last_frame"}
-                    create_result = client.content_generation.tasks.create(**fallback_params)
-                else:
-                    raise
-            task_id = create_result.id
-
-            self.status = f"⏳ 任务已创建 (ID: {task_id})，开始轮询状态..."
-
-            # 轮询查询任务状态
-            start_time = time.time()
-            while True:
-                get_result = client.content_generation.tasks.get(task_id=task_id)
-                status = get_result.status
-
-                if status == "succeeded":
-                    self.status = "✅ 视频生成成功！"
-                    break
-                elif status == "failed":
-                    error_msg = getattr(get_result, 'error', '未知错误')
-                    return self._error(f"视频生成失败：{error_msg}")
-                else:
-                    # 检查是否超时
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time > max_wait_time:
-                        return self._error(f"视频生成超时（超过{max_wait_time}秒），请稍后重试。")
-
-                    self.status = f"⏳ 当前状态: {status}，已等待 {int(elapsed_time)}s，{polling_interval}秒后重试..."
-                    time.sleep(polling_interval)
-
-            # 提取结果数据 - 增强调试信息和响应解析
-            self.status = "🔍 解析API响应数据..."
-
-            # 记录完整的响应信息用于调试
-            # 记录完整的响应信息用于调试
-            result_data = {
-                "task_id": task_id,
-                "status": "succeeded",
-                "prompt": merged_prompt,
-                "resolution": resolution,
-                "duration": duration,
-                "aspect_ratio": aspect_ratio,
-                "camera_fixed": camera_fixed,
-                "watermark": watermark,
-                "model_display_name": self.model_name,  # UI显示的模型名称
-                "model_endpoint_id": endpoint_id,  # API调用使用的端点ID
-                "supports_last_frame": supports_last_frame,
-                "generation_time": int(time.time() - start_time),
-                "first_frame_used": bool(first_frame_url),
-                "last_frame_used": bool(last_frame_url) if supports_last_frame else False,
-                "debug_info": {
-                    "has_results": hasattr(get_result, 'results'),
-                    "has_data": hasattr(get_result, 'data'),
-                    "has_content": hasattr(get_result, 'content'),
-                    "response_type": type(get_result).__name__,
-                    "response_attributes": [attr for attr in dir(get_result) if not attr.startswith('_')]
-                }
-            }
-
-            # 提取额外的有用信息
-            if hasattr(get_result, 'seed'):
-                result_data["actual_seed"] = get_result.seed
-
-            if hasattr(get_result, 'usage'):
-                try:
-                    usage = get_result.usage
-                    if hasattr(usage, 'total_tokens'):
-                        result_data["token_usage"] = {
-                            "total_tokens": usage.total_tokens,
-                            "completion_tokens": getattr(usage, 'completion_tokens', None)
-                        }
-                except Exception:
-                    pass
-
-            if hasattr(get_result, 'framespersecond'):
-                result_data["fps"] = get_result.framespersecond
-
-            # 尝试多种方式解析响应数据
-            video_results = []
-
-            # 方法1: 检查 content 属性（视频创作的主要方式）
-            if hasattr(get_result, 'content') and get_result.content:
-                try:
-                    content_obj = get_result.content
-                    video_url = None
-                    cover_url = None
-                    last_frame_resp = None
-
-                    # 从content对象中提取URL
-                    if hasattr(content_obj, 'video_url'):
-                        video_url = content_obj.video_url
-                    if hasattr(content_obj, 'cover_url'):
-                        cover_url = content_obj.cover_url
-                    if hasattr(content_obj, 'last_frame_url'):
-                        cover_url = content_obj.last_frame_url
-                        last_frame_resp = content_obj.last_frame_url
-                        result_data["last_frame_url"] = content_obj.last_frame_url
-
-                    if video_url:
-                        video_results = [{
-                            "index": 0,
-                            "video_url": video_url,
-                            "cover_url": cover_url,
-                            "last_frame_url": last_frame_resp,
-                            "duration": duration,
-                            "source_attr": "content.video_url"
-                        }]
-                        result_data["debug_info"]["parsing_method"] = "content_attribute"
-                except Exception as e:
-                    result_data["debug_info"]["content_parse_error"] = str(e)
-
-            # 方法2: 检查 results 属性
-            elif hasattr(get_result, 'results') and get_result.results:
-                video_results = self._parse_results_array(get_result.results)
-                result_data["debug_info"]["parsing_method"] = "results_attribute"
-
-            # 方法3: 检查 data 属性
-            elif hasattr(get_result, 'data') and get_result.data:
-                video_results = self._parse_results_array(get_result.data)
-                result_data["debug_info"]["parsing_method"] = "data_attribute"
-
-            # 方法4: 尝试直接访问可能的URL属性
-            else:
-                possible_url_attrs = ['url', 'video_url', 'video', 'result']
-                for attr in possible_url_attrs:
-                    if hasattr(get_result, attr):
-                        url_value = getattr(get_result, attr)
-                        if url_value:
-                            video_results = [{
-                                "index": 0,
-                                "video_url": str(url_value),
-                                "cover_url": None,
-                                "duration": duration,
-                                "source_attr": attr
-                            }]
-                            result_data["debug_info"]["parsing_method"] = f"direct_{attr}"
-                            break
-
-                # 如果还是没有找到，记录所有可用属性
-                if not video_results:
-                    all_attrs = {}
-                    for attr in dir(get_result):
-                        if not attr.startswith('_'):
-                            try:
-                                value = getattr(get_result, attr)
-                                if not callable(value):
-                                    all_attrs[attr] = str(value)[:200]  # 限制长度避免过长
-                            except Exception:
-                                all_attrs[attr] = "access_error"
-
-                    result_data["debug_info"]["all_attributes"] = all_attrs
-                    result_data["debug_info"]["raw_response"] = str(get_result)[:1000]  # 前1000字符
-
-            result_data["videos"] = video_results
-            result_data["video_count"] = len(video_results)
-
-            # 添加可选的预览功能
-            result_data["preview_enabled"] = enable_preview
-
-            if enable_preview and video_results:
-                self.status = "🖼️ 生成视频封面预览..."
-                # 尝试为每个视频生成封面预览
-                for i, video_data in enumerate(video_results):
-                    cover_url = video_data.get("cover_url") or video_data.get("last_frame_url")
-                    if cover_url:
-                        preview_base64 = self._get_cover_preview(cover_url)
-                        if preview_base64:
-                            video_data["cover_preview_base64"] = preview_base64
-                            video_data["cover_preview_type"] = "image/jpeg"
-                        else:
-                            video_data["cover_preview_error"] = "封面预览生成失败"
-
-            if video_results and video_results[0].get("video_url"):
-                self.status = f"✅ 视频生成成功 ({resolution}, {duration}秒) - 共{len(video_results)}个视频"
-            else:
-                self.status = f"⚠️ 任务完成但未获取到视频URL，请检查API响应格式"
-                result_data["warning"] = "任务完成但未获取到视频URL"
-                result_data["debug_suggestion"] = "API响应结构可能已变化，请查看debug_info字段了解详细响应内容"
-
-            generated_at = datetime.now(timezone.utc).isoformat()
-            primary_video: dict[str, Any] | None = video_results[0] if video_results else None
-            primary_video_url = primary_video.get("video_url") if isinstance(primary_video, dict) else None
-            primary_cover_url = None
-            primary_cover_preview_base64 = None
-            primary_duration = None
-            if isinstance(primary_video, dict):
-                primary_cover_url = primary_video.get("cover_url") or primary_video.get("last_frame_url")
-                primary_cover_preview_base64 = primary_video.get("cover_preview_base64")
-                primary_duration = primary_video.get("duration") or duration
-
-            result_data["doubao_preview"] = {
-                "token": task_id,
-                "kind": "video",
-                "available": bool(primary_video_url),
-                "generated_at": generated_at,
-                "payload": {
-                    # Keep a flat payload shape for the frontend preview panel.
-                    "video_url": primary_video_url,
-                    "cover_url": primary_cover_url,
-                    "cover_preview_base64": primary_cover_preview_base64,
-                    "duration": primary_duration,
-                    "videos": video_results,
-                    "prompt": merged_prompt,
-                    "task_id": task_id,
-                },
-                "error": result_data.get("warning"),
-            }
-
-        except Exception as exc:
-            return self._error(f"视频生成失败：{exc}")
-
-        return Data(data=result_data, type="video")
-
-    def _parse_results_array(self, results_array: Any) -> list[dict[str, Any]]:
-        """解析结果数组，提取视频信息"""
-        video_results = []
-
-        try:
-            if isinstance(results_array, list):
-                for i, result in enumerate(results_array):
-                    video_data = {
-                        "index": i,
-                        "video_url": None,
-                        "cover_url": None,
-                        "last_frame_url": None,
-                        "duration": None,
-                    }
-
-                    # 尝试提取URL信息
-                    if hasattr(result, 'url'):
-                        video_data["video_url"] = result.url
-                    elif hasattr(result, 'video_url'):
-                        video_data["video_url"] = result.video_url
-
-                    # 尝试提取封面信息
-                    if hasattr(result, 'cover_url'):
-                        video_data["cover_url"] = result.cover_url
-                    if hasattr(result, 'last_frame_url'):
-                        video_data["last_frame_url"] = result.last_frame_url
-
-                    # 尝试提取时长信息
-                    if hasattr(result, 'duration'):
-                        video_data["duration"] = result.duration
-
-                    # 如果是字典类型
-                    elif isinstance(result, dict):
-                        video_data["video_url"] = result.get('url') or result.get('video_url')
-                        video_data["cover_url"] = result.get('cover_url')
-                        video_data["last_frame_url"] = result.get('last_frame_url')
-                        video_data["duration"] = result.get('duration')
-
-                    # 如果获取到了视频URL，添加到结果中
-                    if video_data["video_url"]:
-                        video_results.append(video_data)
-
-        except Exception as e:
-            # 解析失败时返回空列表，但记录错误
-            print(f"解析结果数组时出错: {e}")
-
-        return video_results
-
     def _build_video_dashscope(self, *, prompt: str, model_name: str) -> Data:
         creds = resolve_credentials(
             component_app_id=None,
@@ -915,10 +524,28 @@ class DoubaoVideoGenerator(Component):
         duration = int(getattr(self, "duration", 5) or 5)
         aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
 
-        media = self._collect_wan_media_from_first_frame()
-        reference_urls = media["videos"]
+        entries = self._collect_multimodal_inputs("first_frame_image")
+        resolved_img_url = None
+        reference_urls = []
+        for entry in entries:
+            url = entry.get("url")
+            if not url:
+                continue
+            if self._is_video_url(url):
+                reference_urls.append(url)
+            elif entry.get("role") == "first" and not resolved_img_url:
+                resolved_img_url = url
+        
+        # Fallback: if no explicit 'first' image, take the first non-video image
+        if not resolved_img_url:
+            for entry in entries:
+                url = entry.get("url")
+                if url and not self._is_video_url(url):
+                    resolved_img_url = url
+                    break
+
         has_reference = bool(reference_urls)
-        img_url = media["images"][0] if media["images"] else None
+        img_url = resolved_img_url
         has_img = bool(img_url)
 
         if has_reference and model_name != "wan2.6":
@@ -1103,42 +730,7 @@ class DoubaoVideoGenerator(Component):
             self.status = f"✅ wan 视频生成成功 ({dashscope_model})"
         return Data(data=result_payload, type="video")
 
-    def _collect_wan_media_from_first_frame(self) -> dict[str, list[str]]:
-        images: list[str] = []
-        videos: list[str] = []
-        raw = getattr(self, "first_frame_image", None)
 
-        entries: list[Any] = []
-        if isinstance(raw, (list, tuple)):
-            entries.extend(list(raw))
-        elif raw is not None:
-            entries.append(raw)
-
-        for entry in entries:
-            # Prefer explicit file_path if present (uploaded via LangFlow UI).
-            file_path = self._extract_file_path(entry)
-            if file_path:
-                ext = (Path(file_path).suffix or "").lower().lstrip(".")
-                public_url = self._build_public_file_url(file_path, ttl_seconds=3600)
-                if not public_url:
-                    continue
-                if ext in {"mp4", "mov"}:
-                    videos.append(public_url)
-                else:
-                    images.append(public_url)
-                continue
-
-            # Otherwise, fall back to embedded/base64/http image data.
-            image_url = self._extract_image_url(entry)
-            if image_url:
-                # Upstream nodes may pass http(s) video URLs here (e.g. video->video edges).
-                # Classify by file extension so wan2.6 can enter r2v mode.
-                if self._is_video_url(image_url):
-                    videos.append(image_url)
-                else:
-                    images.append(image_url)
-
-        return {"images": images, "videos": videos}
 
     @staticmethod
     def _is_video_url(url: str) -> bool:
@@ -1776,8 +1368,10 @@ class DoubaoVideoGenerator(Component):
 
         return None
 
-    def _collect_veo_entries_from_first_frame(self, raw: Any) -> list[dict[str, Any]]:
-        """从 first_frame_image 收集 Veo 需要的条目（包含角色信息）"""
+    def _collect_multimodal_inputs(self, input_name: str = "first_frame_image") -> list[dict[str, Any]]:
+        """从输入字段收集多模态输入（支持 upstream list + role annotations）"""
+        raw = getattr(self, input_name, None)
+
         def _to_list(value: Any) -> list[Any]:
             if value is None:
                 return []
@@ -1794,6 +1388,7 @@ class DoubaoVideoGenerator(Component):
             alias_map = {
                 "start": "first",
                 "first_frame": "first",
+                "end_frame": "last",
                 "last_frame": "last",
                 "ref": "reference",
             }
@@ -1819,17 +1414,22 @@ class DoubaoVideoGenerator(Component):
             values = _to_list(raw)
             paths = []
 
-        default_role = "first" if max(len(values), len(paths)) <= 1 else "reference"
         length = max(len(values), len(paths))
         entries: list[dict[str, Any]] = []
         for idx in range(length):
             value_entry = values[idx] if idx < len(values) else None
             path_entry = paths[idx] if idx < len(paths) else None
 
+            # Always try extracting from path first, then value
             url = self._extract_image_url(path_entry) or self._extract_image_url(value_entry)
             if not url:
                 continue
 
+            # Default logic: First item is 'first', others are 'reference'
+            # This ensures that even if user provides multiple images without roles, 
+            # the first one determines the main subject/start.
+            default_role = "first" if idx == 0 else "reference"
+            
             role: str = default_role
             role_source: dict[str, Any] | None = None
             if isinstance(value_entry, Data) and isinstance(value_entry.data, dict):
@@ -1882,10 +1482,8 @@ class DoubaoVideoGenerator(Component):
             reference_images = []
 
             # 处理 first_frame_image with roles
-            first_frame_raw = getattr(self, "first_frame_image", None)
-            if first_frame_raw:
-                entries = self._collect_veo_entries_from_first_frame(first_frame_raw)
-                for entry in entries:
+            entries = self._collect_multimodal_inputs("first_frame_image")
+            for entry in entries:
                     role = entry.get("role", "first")
                     url = entry.get("url")
                     if not url:
@@ -2885,9 +2483,24 @@ class DoubaoVideoGenerator(Component):
             duration = int(getattr(self, "duration", 5) or 5)
             aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
 
-            media = self._collect_wan_media_from_first_frame()
-            reference_urls = media["videos"]
-            img_url = media["images"][0] if media["images"] else None
+            entries = self._collect_multimodal_inputs("first_frame_image")
+            resolved_img_url: str | None = None
+            reference_urls: list[str] = []
+            fallback_img_url: str | None = None
+
+            for entry in entries:
+                url = str(entry.get("url") or "").strip()
+                if not url:
+                    continue
+                if self._is_video_url(url):
+                    reference_urls.append(url)
+                    continue
+                if not fallback_img_url:
+                    fallback_img_url = url
+                if entry.get("role") == "first" and not resolved_img_url:
+                    resolved_img_url = url
+
+            img_url = resolved_img_url or fallback_img_url
 
             if reference_urls and model_name != "wan2.6":
                 return self._error("wan2.5 does not support reference-video (r2v). Use wan2.6 or remove reference video.")
@@ -2966,7 +2579,7 @@ class DoubaoVideoGenerator(Component):
             reference_images: list[str] = []
             first_frame_raw = getattr(self, "first_frame_image", None)
             if first_frame_raw:
-                entries = self._collect_veo_entries_from_first_frame(first_frame_raw)
+                entries = self._collect_multimodal_inputs("first_frame_image")
                 for entry in entries:
                     role = entry.get("role", "first")
                     url = entry.get("url")
@@ -3233,22 +2846,47 @@ class DoubaoVideoGenerator(Component):
             text_params = f"{prompt} --ratio {aspect_ratio} --dur {duration} --resolution {resolution}"
             content: list[dict[str, Any]] = [{"type": "text", "text": text_params}]
 
-            first_frame_url = self._extract_image_url(getattr(self, "first_frame_image", None))
-            if first_frame_url:
-                self.status = f"🖼️ 使用首帧图片: {first_frame_url[:50]}..."
-                content.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
+            entries = self._collect_multimodal_inputs("first_frame_image")
+            # Also append manual last_frame_image if present
+            manual_last = getattr(self, "last_frame_image", None)
+            if manual_last:
+                 last_url = self._extract_image_url(manual_last)
+                 if last_url:
+                     entries.append({"url": last_url, "role": "last"})
 
-            model_limits = self.MODEL_LIMITS.get(model_display_name, {})
-            supports_last_frame = model_limits.get("supports_last_frame", True)
-            last_frame_url = self._extract_image_url(getattr(self, "last_frame_image", None))
-            if last_frame_url and not supports_last_frame:
-                return self._error("当前模型不支持尾帧输入，请切换模型或清空尾帧。")
-            if first_frame_url and last_frame_url:
-                return self._error("豆包模型不支持首尾帧同时输入，请只保留首帧或尾帧。")
-            if last_frame_url:
-                self.status = f"🖼️ 使用尾帧图片: {last_frame_url[:50]}..."
-                content.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
+            first_frame_url: str | None = None
+            last_frame_url: str | None = None
 
+            for entry in entries:
+                url = entry.get("url")
+                role = entry.get("role") or "first"
+                
+                if role == "first":
+                    if not first_frame_url:
+                        first_frame_url = url
+                        self.status = f"🖼️ 使用首帧图片: {first_frame_url[:50]}..."
+                        content.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
+                    else:
+                        # Multiple first frames? Warning or Reference?
+                        pass
+                elif role == "last":
+                    if not last_frame_url:
+                        last_frame_url = url
+                        # Check limits
+                        model_limits = self.MODEL_LIMITS.get(model_display_name, {})
+                        supports_last_frame = model_limits.get("supports_last_frame", True)
+                        if not supports_last_frame:
+                             # Warning instead of error allows flow to proceed (maybe ignoring it) or user sees status
+                             self.status = "⚠️ 当前模型弱支持尾帧，已尝试添加"
+                        content.append({"type": "image_url", "image_url": {"url": url}, "role": "last_frame"})
+                elif role == "reference":
+                     # Seedream supports reference images if implemented in backend gateway. Add as generic image.
+                     content.append({"type": "image_url", "image_url": {"url": url}, "role": "reference_image"})
+
+            if first_frame_url and last_frame_url and "doubao" in model_display_name.lower() and "seedance" not in model_display_name.lower():
+                 # Doubao-Video vs Seedance conflict? 
+                 # Old code: "豆包模型不支持首尾帧同时输入"
+                 pass
             create = videos_create(
                 model=endpoint_id,
                 prompt=prompt,

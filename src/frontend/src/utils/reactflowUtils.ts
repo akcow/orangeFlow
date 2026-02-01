@@ -126,10 +126,20 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
     };
   }
 
-  if (isWanModel || isSeedanceModel) {
+  if (isWanModel) {
     return {
+      // Wan video models don't support a tail frame; keep the original behavior.
       allowedRoles: ["first"],
       maxTotal: DEFAULT_FIRST_FRAME_MAX_UPLOADS,
+    };
+  }
+
+  if (isSeedanceModel) {
+    return {
+      // Seedance supports "first + last" (two keyframes). We intentionally disallow
+      // "reference" here to make the default 2nd connection become "last".
+      allowedRoles: ["first", "last"],
+      maxTotal: 2,
     };
   }
 
@@ -181,15 +191,22 @@ export function getImageRoleCounts(
     const fieldName = getEdgeTargetFieldName(edge);
     return fieldName === IMAGE_ROLE_FIELD;
   });
-  const total = roleEdges.length;
+  const lastFrameEdges = edges.filter((edge) => {
+    if (edge.target !== targetId) return false;
+    const fieldName = getEdgeTargetFieldName(edge);
+    return fieldName === "last_frame_image";
+  });
+  // Only role-edges participate in the implicit first/reference ordering.
+  const totalRoleEdges = roleEdges.length;
   const counts: ImageRoleCounts = {
-    total,
+    total: roleEdges.length + lastFrameEdges.length,
     first: 0,
     reference: 0,
-    last: 0,
+    // last_frame_image is always treated as a fixed "last" input when connected.
+    last: lastFrameEdges.length,
   };
   roleEdges.forEach((edge) => {
-    const role = resolveEdgeImageRole(edge, total);
+    const role = resolveEdgeImageRole(edge, totalRoleEdges);
     counts[role] += 1;
   });
   if (targetNode) {
@@ -215,6 +232,23 @@ function getLocalImageRoleCounts(
   };
   const template = node?.data?.node?.template;
   if (!template) return counts;
+
+  // Count dedicated last-frame input (if present) as a fixed "last" role.
+  const lastField = template["last_frame_image"];
+  if (lastField) {
+    const raw = lastField.value ?? lastField.file_path;
+    const items = Array.isArray(raw)
+      ? raw
+      : raw !== undefined && raw !== null
+        ? [raw]
+        : [];
+    const hasAny = items.some((v: unknown) => !isEmptyImageEntry(v));
+    if (hasAny) {
+      counts.total += 1;
+      counts.last += 1;
+    }
+  }
+
   const field = template[IMAGE_ROLE_FIELD];
   if (!field) return counts;
 
@@ -937,6 +971,14 @@ export function isValidConnection(
         targetNode?.data?.type === IMAGE_ROLE_TARGET &&
         targetHandleObject?.fieldName === IMAGE_ROLE_FIELD
       ) {
+        // Video-to-video "bridge" edges (e.g. Wan r2v reference videos) shouldn't consume
+        // the image-role budget for first_frame_image.
+        const isVideoBridgeEdge =
+          sourceNode?.data?.type === IMAGE_ROLE_TARGET &&
+          targetNode?.data?.type === IMAGE_ROLE_TARGET;
+        if (isVideoBridgeEdge) {
+          return true;
+        }
         const modelName = getDoubaoVideoModelName(targetNode);
         const limits = getImageRoleLimits(modelName);
         const counts = getImageRoleCounts(edgesArray, target!, targetNode);

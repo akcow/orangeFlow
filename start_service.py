@@ -108,6 +108,23 @@ def _ensure_uv_environment() -> None:
         raise SystemExit(0)
 
 
+def _ensure_python_dependencies() -> None:
+    """Make sure Python deps are installed before starting the backend.
+
+    This repo uses uv workspaces. If a developer has a .venv but hasn't run `uv sync`,
+    imports can fail at runtime (e.g. `from jose import JWTError`).
+    """
+    if os.environ.get("LANGFLOW_SKIP_UV_SYNC") == "1":
+        return
+
+    # If uv isn't available, we can't auto-install; let the backend fail with a clear import error.
+    if not shutil.which("uv"):
+        return
+
+    # `uv sync` is idempotent and fast when already up-to-date.
+    run(["uv", "sync"], cwd=REPO_ROOT)
+
+
 def _ensure_frontend_built(env: dict[str, str]) -> None:
     """Build and sync the frontend only when needed."""
     package_json = FRONTEND_DIR / "package.json"
@@ -236,23 +253,26 @@ def main() -> None:
     _ensure_uv_environment()
 
     print("LangFlow dev launcher")
-    print("1) clean caches  2) ensure frontend  3) set env  4) run service")
+    print("1) clean caches  2) ensure python deps  3) ensure frontend  4) set env  5) run service")
 
-    print("\n[1/4] Cleaning caches and component index...")
+    print("\n[1/5] Cleaning caches and component index...")
     clear_component_index_cache(verbose=True)
     for target in CACHE_TARGETS:
         remove_path(target)
 
+    print("\n[2/5] Ensuring Python dependencies (uv sync)...")
+    _ensure_python_dependencies()
+
     env = build_env()
-    print("\n[2/4] Ensuring frontend dependencies + build...")
+    print("\n[3/5] Ensuring frontend dependencies + build...")
     _ensure_frontend_built(env)
 
-    print("\n[3/4] Environment summary:")
+    print("\n[4/5] Environment summary:")
     print(f"   LANGFLOW_COMPONENTS_PATH={env['LANGFLOW_COMPONENTS_PATH']}")
     print(f"   PYTHONPATH={env['PYTHONPATH']}")
     print(f"   LFX_DEV={env['LFX_DEV']}")
 
-    print("\n[4/4] Starting LangFlow (Ctrl+C to stop)...")
+    print("\n[5/5] Starting LangFlow (Ctrl+C to stop)...")
     host = "0.0.0.0"
     port = _resolve_port(host)
     print(f"   URL: http://localhost:{port}")

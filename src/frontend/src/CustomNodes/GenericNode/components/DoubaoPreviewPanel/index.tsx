@@ -216,9 +216,33 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [kind, isMinimal],
     );
 
+    // Track aspectRatio changes to enable transition animation only when ratio changes.
+    const prevAspectRatioRef = useRef<string | undefined>(aspectRatio);
+    const [isAnimating, setIsAnimating] = useState(false);
+
+    useEffect(() => {
+      const prevRatio = prevAspectRatioRef.current;
+      if (prevRatio !== aspectRatio && prevRatio !== undefined) {
+        // Ratio changed, enable animation
+        setIsAnimating(true);
+        // Disable animation after transition ends (500ms to ensure smooth completion)
+        const timer = window.setTimeout(() => {
+          setIsAnimating(false);
+        }, 500);
+        return () => window.clearTimeout(timer);
+      }
+      prevAspectRatioRef.current = aspectRatio;
+    }, [aspectRatio]);
+
+    // Update ref when aspectRatio changes (must be after the effect)
+    useEffect(() => {
+      prevAspectRatioRef.current = aspectRatio;
+    }, [aspectRatio]);
+
 
 
     // Calculate aspect ratio style for persistent preview frames (image/video creators).
+    // Using padding-bottom percentage technique for smooth transition (aspect-ratio CSS property doesn't support transition).
     const containerStyle = useMemo(() => {
       if (
         (appearance !== "imageCreator" && appearance !== "videoGenerator") ||
@@ -226,29 +250,41 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       ) {
         return undefined;
       }
-      // If there is content, let content dictate size (or keep strict frame? User said "when no image uploaded").
-      // We will check hasRenderablePreview later, but we can compute the style object here.
 
-      const ratioMap: Record<string, string> = {
-        "1:1": "1 / 1",
-        "16:9": "16 / 9",
-        "9:16": "9 / 16",
-        "4:3": "4 / 3",
-        "3:4": "3 / 4",
-        "2:3": "2 / 3",
-        "3:2": "3 / 2",
-        "21:9": "21 / 9",
-        "4:5": "4 / 5",
-        "5:4": "5 / 4",
+      // padding-bottom = (height / width) * 100%
+      const paddingMap: Record<string, number> = {
+        "1:1": 100,        // 1/1 = 100%
+        "16:9": 56.25,     // 9/16 = 56.25%
+        "9:16": 177.78,    // 16/9 = 177.78%
+        "4:3": 75,         // 3/4 = 75%
+        "3:4": 133.33,     // 4/3 = 133.33%
+        "2:3": 150,        // 3/2 = 150%
+        "3:2": 66.67,      // 2/3 = 66.67%
+        "21:9": 42.86,     // 9/21 = 42.86%
+        "4:5": 125,        // 5/4 = 125%
+        "5:4": 80,         // 4/5 = 80%
       };
-      const ratio = ratioMap[aspectRatio] ?? "1 / 1"; // Default/Fallback
-      // If "Adaptive" or "Auto", we might default to square for empty state
+
+      let paddingPercent = paddingMap[aspectRatio];
+
+      // If "Adaptive" or "Auto", use defaults
       if (aspectRatio.toLowerCase() === "adaptive" || aspectRatio.toLowerCase() === "auto") {
-        // Image: square feels neutral; Video: default to 16:9.
-        return { aspectRatio: appearance === "videoGenerator" ? "16 / 9" : "1 / 1" };
+        paddingPercent = appearance === "videoGenerator" ? 56.25 : 100; // 16:9 or 1:1
       }
-      return { aspectRatio: ratio };
-    }, [appearance, aspectRatio]);
+
+      if (paddingPercent === undefined) {
+        paddingPercent = 100; // Default to 1:1
+      }
+
+      return {
+        position: "relative" as const,
+        width: "100%",
+        height: 0,
+        paddingBottom: `${paddingPercent}%`,
+        transition: isAnimating ? "padding-bottom 0.4s cubic-bezier(0.25, 0.1, 0.25, 1)" : "none",
+      };
+    }, [appearance, aspectRatio, isAnimating]);
+
 
 
     const minimalAspectClass = useMemo(() => {
@@ -282,7 +318,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       appearance === "imageCreator" && String(aspectRatio ?? "").trim() === "21:9";
 
     const previewFrameClassName = cn(
-      "relative flex transition-[aspect-ratio] duration-300 ease-in-out", // Restore transition for animation
+      "relative flex",
       isMinimal
         ? appearance === "imageCreator" || appearance === "videoGenerator"
           ? cn(
@@ -298,7 +334,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             cn(
               "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-shadow dark:border-white/15 dark:bg-white/5",
               isNodeSelected &&
-                "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
+              "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
             ),
           )
           : cn(
@@ -315,12 +351,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     );
 
     const previewSurfaceClassName = cn(
-      "flex h-full w-full items-center justify-center",
+      "flex items-center justify-center",
       isMinimal
         ? appearance === "imageCreator" || appearance === "videoGenerator"
-          ? "bg-transparent"
-          : "rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
-        : "min-h-[320px]",
+          // Use absolute positioning to fill the padding-bottom created space
+          ? "absolute inset-0 bg-transparent"
+          : "h-full w-full rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
+        : "h-full w-full min-h-[320px]",
     );
 
     const outputName = useMemo(() => {
@@ -581,10 +618,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       hasVideoPreview ||
       hasAudioPreview;
 
-    // Image creator only needs the empty-state frame style; video generator should keep a
-    // stable, aspect-driven frame even while showing a generated video.
+    // Image creator and video generator should always use containerStyle for smooth aspect ratio transitions.
     const appliedContainerStyle =
-      appearance === "videoGenerator"
+      appearance === "videoGenerator" || appearance === "imageCreator"
         ? containerStyle
         : !hasRenderablePreview
           ? containerStyle
@@ -928,7 +964,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             </div>
           )}
 
-          <div className={previewFrameClassName} style={appliedContainerStyle}>
+          <div
+            className={previewFrameClassName}
+            style={appliedContainerStyle}
+          >
             {appearance === "default" && (
               <div className="absolute bottom-4 left-4 z-10">
                 <OutputModal
