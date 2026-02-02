@@ -2167,7 +2167,7 @@ export default function DoubaoImageCreatorLayout({
           <div
             className={cn(
               "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
-              "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+              "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
             )}
@@ -2304,14 +2304,14 @@ export default function DoubaoImageCreatorLayout({
           </DialogHeader>
           {referenceField ? (
             <div className="space-y-4">
-              <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 dark:border dark:border-white/10 dark:bg-[#111a2b]/80">
+              <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 transition-colors duration-200 ease-out dark:border dark:border-white/20 dark:bg-neutral-800/75 dark:backdrop-blur-xl">
                 <p className="text-sm font-medium text-foreground">
                   选择要上传的图片（支持多选）
                 </p>
                 <button
                   type="button"
                   className={cn(
-                    "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#F4F5F9] text-sm font-medium text-[#13141A] dark:bg-white/5 dark:text-white",
+                    "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#F4F5F9] text-sm font-medium text-[#13141A] transition-colors duration-200 dark:bg-slate-800/40 dark:text-white dark:hover:bg-slate-800/50",
                     (isReferenceUploadPending || !canAddMoreReferences) &&
                     "opacity-70",
                   )}
@@ -2342,7 +2342,7 @@ export default function DoubaoImageCreatorLayout({
                 )}
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-dashed border-[#E0E5F2] bg-white/80 p-3 dark:border-white/15 dark:bg-[#0a1220]/70">
+              <div className="space-y-3 rounded-2xl border border-dashed border-[#E0E5F2] bg-white/80 p-3 transition-colors duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/70 dark:backdrop-blur-xl">
                 <div className="flex items-center justify-between text-xs text-[#636A86] dark:text-slate-300">
                   <span>图片上传管理</span>
                   <span className="font-medium text-[#1B66FF]">
@@ -2358,7 +2358,7 @@ export default function DoubaoImageCreatorLayout({
                         return (
                           <div
                             key={preview.id ?? `${preview.imageSource}-${index}`}
-                            className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
+                            className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm transition-colors duration-200 dark:border-white/10 dark:bg-slate-800/40 dark:shadow-[0_20px_35px_rgba(0,0,0,0.35)] dark:hover:bg-slate-800/50"
                           >
                             <button
                               type="button"
@@ -2423,7 +2423,7 @@ export default function DoubaoImageCreatorLayout({
                     </div>
                     {managedPreviewIndex !== null &&
                       combinedReferencePreviews[managedPreviewIndex] && (
-                        <div className="space-y-2 rounded-xl border border-[#E2E7F5] bg-[#F8FAFF] p-3 dark:border-white/10 dark:bg-white/5">
+                        <div className="space-y-2 rounded-xl border border-[#E2E7F5] bg-[#F8FAFF] p-3 transition-colors duration-200 dark:border-white/10 dark:bg-slate-800/40">
                           <div className="flex items-center justify-between text-xs text-[#4A5168] dark:text-slate-200">
                             <span>
                               预览：
@@ -2439,7 +2439,7 @@ export default function DoubaoImageCreatorLayout({
                               收起
                             </button>
                           </div>
-                          <div className="h-48 w-full overflow-hidden rounded-lg bg-[#F4F6FB] dark:bg-slate-900/50">
+                          <div className="h-48 w-full overflow-hidden rounded-lg bg-[#F4F6FB] dark:bg-slate-800/50">
                             <img
                               src={
                                 combinedReferencePreviews[managedPreviewIndex].imageSource

@@ -96,7 +96,7 @@ const ImageRenderer = ({
           "flex h-full w-full items-center justify-center text-xs",
           isImageCreatorMinimal
             ? "text-muted-foreground"
-            : "min-h-[240px] rounded-2xl border border-dashed border-emerald-200/70 bg-emerald-50/70 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200",
+            : "min-h-[240px] rounded-2xl border border-dashed border-emerald-200/70 bg-emerald-50/70 text-emerald-600 transition-colors duration-200 ease-out dark:border-emerald-400/35 dark:bg-emerald-900/20 dark:text-emerald-200",
         )}
       >
         暂无图片可预览
@@ -111,7 +111,7 @@ const ImageRenderer = ({
           "flex h-full w-full items-center justify-center text-red-600",
           isImageCreatorMinimal
             ? ""
-            : "min-h-[240px] rounded-2xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40",
+            : "min-h-[240px] rounded-2xl border border-red-200 bg-red-50 transition-colors duration-200 ease-out dark:border-red-400/25 dark:bg-red-900/20",
         )}
       >
         <div className="text-center">
@@ -128,7 +128,7 @@ const ImageRenderer = ({
         "relative flex h-full w-full flex-col overflow-hidden",
         isImageCreatorMinimal
           ? ""
-          : "min-h-[320px] rounded-2xl border border-emerald-200/60 bg-white/95 shadow-inner dark:border-emerald-500/40 dark:bg-emerald-950/30",
+          : "min-h-[320px] rounded-2xl border border-emerald-200/60 bg-white/95 shadow-inner transition-colors duration-200 ease-out dark:border-emerald-400/30 dark:bg-emerald-900/15",
       )}
     >
       <img
@@ -152,13 +152,13 @@ const ImageRenderer = ({
 
       {total > 1 && (
         <>
-          <div className="absolute top-3 left-3 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-emerald-700 shadow dark:bg-slate-900/80 dark:text-emerald-100">
+          <div className="absolute top-3 left-3 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-emerald-700 shadow transition-colors duration-200 dark:bg-slate-800/70 dark:text-emerald-100">
             第 {safeIndex + 1} / {total} 张
           </div>
           <button
             type="button"
             aria-label="上一张"
-            className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-emerald-700 shadow transition hover:bg-white dark:bg-slate-900"
+            className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-emerald-700 shadow transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-emerald-100 dark:hover:bg-slate-800"
             onClick={() => onNavigate(-1)}
           >
             <ForwardedIconComponent name="ChevronLeft" className="h-4 w-4" />
@@ -166,7 +166,7 @@ const ImageRenderer = ({
           <button
             type="button"
             aria-label="下一张"
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-emerald-700 shadow transition hover:bg-white dark:bg-slate-900"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-emerald-700 shadow transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-emerald-100 dark:hover:bg-slate-800"
             onClick={() => onNavigate(1)}
           >
             <ForwardedIconComponent name="ChevronRight" className="h-4 w-4" />

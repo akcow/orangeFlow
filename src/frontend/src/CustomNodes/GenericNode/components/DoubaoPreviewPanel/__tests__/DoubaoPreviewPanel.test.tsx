@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import DoubaoPreviewPanel from "../index";
 import { useDoubaoPreview } from "../../../../hooks/use-doubao-preview";
 
@@ -404,6 +404,111 @@ describe("DoubaoPreviewPanel", () => {
     expect(await screen.findByText("预计时长：00:10")).toBeInTheDocument();
     const saveButtons = await screen.findAllByText("下载结果");
     expect(saveButtons).toHaveLength(1);
+  });
+
+  test("autoplays video on hover in persistent video generator preview and hides progress bar", async () => {
+    const mockVideoPreview = {
+      kind: "video" as const,
+      available: true,
+      payload: {
+        video_url: "https://example.com/video.mp4",
+        cover_preview_base64:
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        duration: "00:10",
+      },
+      token: "test-token",
+    };
+
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: mockVideoPreview,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const { container } = render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={"DoubaoVideoGenerator"}
+        appearance="videoGenerator"
+      />,
+    );
+
+    const frame = await screen.findByTestId("doubao-preview-frame");
+
+    await waitFor(() => {
+      expect(container.querySelector("video")).not.toBeNull();
+      expect(container.querySelector('input[type="range"]')).not.toBeNull();
+    });
+
+    const playMock = window.HTMLMediaElement.prototype.play as unknown as jest.Mock;
+    const pauseMock = window.HTMLMediaElement.prototype.pause as unknown as jest.Mock;
+    playMock.mockClear();
+    pauseMock.mockClear();
+
+    fireEvent.mouseEnter(frame);
+    expect(playMock).toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(container.querySelector('input[type="range"]')).toBeNull();
+    });
+
+    fireEvent.mouseLeave(frame);
+    expect(pauseMock).toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(container.querySelector('input[type="range"]')).not.toBeNull();
+    });
+  });
+
+  test("shows uploaded reference video in persistent video generator preview when no generated output", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const { container } = render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={"DoubaoVideoGenerator"}
+        appearance="videoGenerator"
+        referenceImages={[
+          {
+            id: "ref-video-1",
+            imageSource: "/api/v1/files/media/00000000-0000-0000-0000-000000000000/clip.mp4",
+            fileName: "clip.mp4",
+          },
+        ]}
+      />,
+    );
+
+    const frame = await screen.findByTestId("doubao-preview-frame");
+
+    await waitFor(() => {
+      expect(container.querySelector("video")).not.toBeNull();
+      expect(container.querySelector('input[type=\"range\"]')).not.toBeNull();
+    });
+
+    const playMock = window.HTMLMediaElement.prototype.play as unknown as jest.Mock;
+    const pauseMock = window.HTMLMediaElement.prototype.pause as unknown as jest.Mock;
+    playMock.mockClear();
+    pauseMock.mockClear();
+
+    fireEvent.mouseEnter(frame);
+    expect(playMock).toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(container.querySelector('input[type=\"range\"]')).toBeNull();
+    });
+
+    fireEvent.mouseLeave(frame);
+    expect(pauseMock).toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(container.querySelector('input[type=\"range\"]')).not.toBeNull();
+    });
   });
 
   test("renders audio preview when audio data is available", async () => {

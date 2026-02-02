@@ -11,6 +11,13 @@ type VideoRendererProps = {
   frameless?: boolean;
   showSpeedControl?: boolean;
   onDownloadClick?: () => void;
+  /**
+   * When set, toggles playback programmatically (used for hover-to-preview in persistent frames).
+   * - true: play (best-effort)
+   * - false: pause + reset to 0
+   * - undefined: no programmatic control (default behavior)
+   */
+  autoPlay?: boolean;
 };
 
 const SPEED_OPTIONS = [0.5, 1, 1.5, 2];
@@ -23,6 +30,7 @@ const VideoRenderer = ({
   frameless = false,
   showSpeedControl = false,
   onDownloadClick,
+  autoPlay,
 }: VideoRendererProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -94,6 +102,33 @@ const VideoRenderer = ({
   }, [videoUrl]);
 
   useEffect(() => {
+    if (autoPlay === undefined) return;
+    if (!videoUrl) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (!autoPlay) {
+      video.pause();
+      video.currentTime = 0;
+      setCurrentTime(0);
+      setIsPlaying(false);
+      return;
+    }
+
+    // Start from the beginning for "hover preview" style playback.
+    video.currentTime = 0;
+    setCurrentTime(0);
+
+    video
+      .play()
+      .then(() => setIsPlaying(true))
+      .catch((error) => {
+        // Autoplay on hover can be blocked by browser policies; fall back to manual play.
+        console.error("Failed to play video:", error);
+      });
+  }, [autoPlay, videoUrl]);
+
+  useEffect(() => {
     setRetryCount(0);
     setReloadToken(0);
     if (retryTimeoutRef.current) {
@@ -159,6 +194,8 @@ const VideoRenderer = ({
     [isModal],
   );
 
+  const shouldHideProgressBar = Boolean(autoPlay && !isModal && isPlaying);
+
   if (!videoUrl) {
     return (
       <div className="flex aspect-[16/9] items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30">
@@ -185,6 +222,7 @@ const VideoRenderer = ({
         ref={videoRef}
         src={videoUrl}
         poster={poster}
+        muted={Boolean(autoPlay && !isModal)}
         className={
           isModal
             ? "max-h-[60vh] w-full rounded-xl object-contain"
@@ -211,15 +249,17 @@ const VideoRenderer = ({
               )}
             </button>
 
-            <input
-              type="range"
-              min="0"
-              max={videoDuration || 0}
-              step="0.1"
-              value={currentTime}
-              onChange={handleSeek}
-              className="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/50 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-            />
+            {!shouldHideProgressBar && (
+              <input
+                type="range"
+                min="0"
+                max={videoDuration || 0}
+                step="0.1"
+                value={currentTime}
+                onChange={handleSeek}
+                className="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/50 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+              />
+            )}
 
             <span className="text-xs tabular-nums">
               {formatTime(currentTime)} / {formatTime(videoDuration)}

@@ -6,6 +6,7 @@ import {
   useMemo,
   useCallback,
   useState,
+  useLayoutEffect,
   useEffect,
   useRef,
 } from "react";
@@ -29,9 +30,11 @@ import useFlowStore from "@/stores/flowStore";
 import OutputModal from "../outputModal";
 
 const PANEL_BG = {
-  image: "bg-emerald-50/80 dark:bg-emerald-950/30",
-  video: "bg-sky-50/80 dark:bg-sky-950/30",
-  audio: "bg-rose-50/80 dark:bg-rose-950/20",
+  // Dark mode: avoid translucent tinted backdrops here, otherwise they override the
+  // "card surface" background and let the canvas dots bleed through.
+  image: "bg-emerald-50/80 dark:bg-transparent",
+  video: "bg-sky-50/80 dark:bg-transparent",
+  audio: "bg-rose-50/80 dark:bg-transparent",
 };
 
 const DOUBAO_KIND: Record<string, "image" | "video" | "audio"> = {
@@ -45,6 +48,52 @@ const OUTPUT_NAME_BY_COMPONENT: Record<string, string> = {
   DoubaoVideoGenerator: "video",
   DoubaoTTS: "audio",
 };
+
+type DoubaoPreviewAppearance =
+  | "default"
+  | "imageCreator"
+  | "videoGenerator"
+  | "audioCreator";
+
+const DEFAULT_IMAGE_PADDING_PERCENT = 100; // 1:1
+// Keep the same fallback geometry as the existing `aspect-[170/100]` class used for video.
+const DEFAULT_VIDEO_PADDING_PERCENT = (100 / 170) * 100; // ~58.82%
+
+// Some node/template updates can remount this component. Cache the last rendered ratio per node so we
+// can still animate from the previous value to the new one after mount.
+const lastPersistentPreviewPaddingByKey = new Map<string, number>();
+
+function resolvePersistentPreviewPaddingPercent(
+  rawAspectRatio: string | undefined,
+  appearance: DoubaoPreviewAppearance,
+): number {
+  const fallback =
+    appearance === "videoGenerator"
+      ? DEFAULT_VIDEO_PADDING_PERCENT
+      : DEFAULT_IMAGE_PADDING_PERCENT;
+
+  const raw = String(rawAspectRatio ?? "").trim();
+  if (!raw) return fallback;
+
+  const lowered = raw.toLowerCase();
+  if (lowered === "adaptive" || lowered === "auto") {
+    // Historical default: 16:9 for video; 1:1 for image.
+    return appearance === "videoGenerator" ? 56.25 : DEFAULT_IMAGE_PADDING_PERCENT;
+  }
+
+  // Supports "W:H" (e.g. "16:9") and "WxH" (e.g. "1024x768"), including labels like "16:9 横屏".
+  const match = raw.match(/(\d+(?:\.\d+)?)\s*[:xX]\s*(\d+(?:\.\d+)?)/);
+  if (!match) return fallback;
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return fallback;
+  }
+
+  const percent = (height / width) * 100;
+  return Math.max(0, Math.round(percent * 100) / 100);
+}
 
 export type DoubaoReferenceImage = {
   id: string;
@@ -67,7 +116,7 @@ export type DoubaoPreviewPanelActions = {
 type Props = {
   nodeId: string;
   componentName?: string;
-  appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
+  appearance?: DoubaoPreviewAppearance;
   referenceImages?: DoubaoReferenceImage[];
   onRequestUpload?: () => void;
   onSuggestionClick?: (label: string) => void;
@@ -202,6 +251,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       appearance === "imageCreator" ||
       appearance === "videoGenerator" ||
       isAudioMinimal;
+    const [isPersistentPreviewHovered, setIsPersistentPreviewHovered] =
+      useState(false);
+    const enableHoverAutoplay = isMinimal && appearance === "videoGenerator";
 
     const kind = useMemo(() => {
       if (resolvedPreview?.kind) return resolvedPreview.kind;
@@ -216,74 +268,253 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [kind, isMinimal],
     );
 
-    // Track aspectRatio changes to enable transition animation only when ratio changes.
-    const prevAspectRatioRef = useRef<string | undefined>(aspectRatio);
-    const [isAnimating, setIsAnimating] = useState(false);
+    // PERF NOTE:
+    // We use the padding-bottom percentage technique for geometry. For animation, we *don't* animate
+    // padding-bottom (layout animation triggers heavy XYFlow internals updates per frame). Instead we do a
+    // FLIP-style transform animation so ReactFlow/XYFlow only sees one size change.
+    const isPersistentPreview =
+      appearance === "imageCreator" || appearance === "videoGenerator";
+    const paddingCacheKey = `${nodeId}:${appearance}`;
+    const targetPaddingPercent = useMemo(() => {
+      if (!isPersistentPreview) return null;
+      return resolvePersistentPreviewPaddingPercent(aspectRatio, appearance);
+    }, [appearance, aspectRatio, isPersistentPreview]);
 
-    useEffect(() => {
-      const prevRatio = prevAspectRatioRef.current;
-      if (prevRatio !== aspectRatio && prevRatio !== undefined) {
-        // Ratio changed, enable animation
-        setIsAnimating(true);
-        // Disable animation after transition ends (500ms to ensure smooth completion)
-        const timer = window.setTimeout(() => {
-          setIsAnimating(false);
-        }, 500);
-        return () => window.clearTimeout(timer);
+    // Geometry used for layout (padding-bottom). For performance we avoid animating layout; we animate with
+    // transforms and only "commit" a single layout size change.
+    const [layoutPaddingPercent, setLayoutPaddingPercent] = useState(() => {
+      if (!isPersistentPreview || targetPaddingPercent === null) {
+        return DEFAULT_IMAGE_PADDING_PERCENT;
       }
-      prevAspectRatioRef.current = aspectRatio;
-    }, [aspectRatio]);
+      return lastPersistentPreviewPaddingByKey.get(paddingCacheKey) ?? targetPaddingPercent;
+    });
 
-    // Update ref when aspectRatio changes (must be after the effect)
+    const [isRatioTransitioning, setIsRatioTransitioning] = useState(false);
+    const persistentPreviewFrameRef = useRef<HTMLDivElement | null>(null);
+    const persistentPreviewContentRef = useRef<HTMLDivElement | null>(null);
+    const pendingRatioAnimationRef = useRef<{
+      fromScaleY: number;
+      toScaleY: number;
+      finalizePaddingPercent: number | null;
+    } | null>(null);
+    const shouldResetTransformsOnNextLayoutRef = useRef(false);
+    const ratioAnimSeqRef = useRef(0);
+    const [ratioAnimSeq, setRatioAnimSeq] = useState(0);
+    const ratioFrameAnimationRef = useRef<Animation | null>(null);
+    const ratioContentAnimationRef = useRef<Animation | null>(null);
+    const transitionEndFallbackRef = useRef<((event: TransitionEvent) => void) | null>(
+      null,
+    );
+
+    // Decide how to animate when target aspect ratio changes.
     useEffect(() => {
-      prevAspectRatioRef.current = aspectRatio;
-    }, [aspectRatio]);
+      if (!isPersistentPreview) return;
+      if (targetPaddingPercent === null) return;
+      if (layoutPaddingPercent === targetPaddingPercent) return;
 
-
-
-    // Calculate aspect ratio style for persistent preview frames (image/video creators).
-    // Using padding-bottom percentage technique for smooth transition (aspect-ratio CSS property doesn't support transition).
-    const containerStyle = useMemo(() => {
-      if (
-        (appearance !== "imageCreator" && appearance !== "videoGenerator") ||
-        !aspectRatio
-      ) {
-        return undefined;
+      // Cancel any in-flight animation.
+      ratioFrameAnimationRef.current?.cancel();
+      ratioFrameAnimationRef.current = null;
+      ratioContentAnimationRef.current?.cancel();
+      ratioContentAnimationRef.current = null;
+      const el = persistentPreviewFrameRef.current;
+      if (el && transitionEndFallbackRef.current) {
+        el.removeEventListener("transitionend", transitionEndFallbackRef.current);
+        transitionEndFallbackRef.current = null;
       }
 
-      // padding-bottom = (height / width) * 100%
-      const paddingMap: Record<string, number> = {
-        "1:1": 100,        // 1/1 = 100%
-        "16:9": 56.25,     // 9/16 = 56.25%
-        "9:16": 177.78,    // 16/9 = 177.78%
-        "4:3": 75,         // 3/4 = 75%
-        "3:4": 133.33,     // 4/3 = 133.33%
-        "2:3": 150,        // 3/2 = 150%
-        "3:2": 66.67,      // 2/3 = 66.67%
-        "21:9": 42.86,     // 9/21 = 42.86%
-        "4:5": 125,        // 5/4 = 125%
-        "5:4": 80,         // 4/5 = 80%
+      // Animate the frame itself first (compositor), then commit the real layout size at the end.
+      // This avoids the "instant resize then animate" jump, while keeping XYFlow work minimal.
+      const current = layoutPaddingPercent;
+      const next = targetPaddingPercent;
+      pendingRatioAnimationRef.current = {
+        fromScaleY: 1,
+        toScaleY: next / current,
+        finalizePaddingPercent: next,
       };
 
-      let paddingPercent = paddingMap[aspectRatio];
+      ratioAnimSeqRef.current += 1;
+      setRatioAnimSeq(ratioAnimSeqRef.current);
+    }, [isPersistentPreview, layoutPaddingPercent, targetPaddingPercent]);
 
-      // If "Adaptive" or "Auto", use defaults
-      if (aspectRatio.toLowerCase() === "adaptive" || aspectRatio.toLowerCase() === "auto") {
-        paddingPercent = appearance === "videoGenerator" ? 56.25 : 100; // 16:9 or 1:1
-      }
+    useEffect(() => {
+      if (!isPersistentPreview) return;
+      lastPersistentPreviewPaddingByKey.set(paddingCacheKey, layoutPaddingPercent);
+    }, [isPersistentPreview, paddingCacheKey, layoutPaddingPercent]);
 
-      if (paddingPercent === undefined) {
-        paddingPercent = 100; // Default to 1:1
-      }
-
+    const containerStyle = useMemo(() => {
+      if (!isPersistentPreview || targetPaddingPercent === null) return undefined;
       return {
         position: "relative" as const,
         width: "100%",
         height: 0,
-        paddingBottom: `${paddingPercent}%`,
-        transition: isAnimating ? "padding-bottom 0.4s cubic-bezier(0.25, 0.1, 0.25, 1)" : "none",
+        paddingBottom: `${layoutPaddingPercent}%`,
       };
-    }, [appearance, aspectRatio, isAnimating]);
+    }, [isPersistentPreview, layoutPaddingPercent, targetPaddingPercent]);
+
+    // Start the ratio animation after the DOM has applied any needed layout change.
+    useLayoutEffect(() => {
+      if (!isPersistentPreview) return;
+      if (targetPaddingPercent === null) return;
+
+      const frameEl = persistentPreviewFrameRef.current;
+      const contentEl = persistentPreviewContentRef.current;
+      if (!frameEl || !contentEl) return;
+
+      // If we just committed a shrink (layout changed after finishing the animation), clear transforms before paint.
+      if (shouldResetTransformsOnNextLayoutRef.current) {
+        shouldResetTransformsOnNextLayoutRef.current = false;
+        frameEl.style.willChange = "";
+        frameEl.style.transformOrigin = "";
+        frameEl.style.transform = "";
+        frameEl.style.transition = "";
+        contentEl.style.willChange = "";
+        contentEl.style.transformOrigin = "";
+        contentEl.style.transform = "";
+        contentEl.style.transition = "";
+        setIsRatioTransitioning(false);
+        return;
+      }
+
+      const request = pendingRatioAnimationRef.current;
+      if (!request) return;
+      pendingRatioAnimationRef.current = null;
+
+      const { fromScaleY, toScaleY, finalizePaddingPercent } = request;
+      if (!Number.isFinite(fromScaleY) || !Number.isFinite(toScaleY)) return;
+      if (Math.abs(fromScaleY - toScaleY) < 0.002) return;
+
+      // Cancel any in-flight animation and detach fallback listeners.
+      ratioFrameAnimationRef.current?.cancel();
+      ratioFrameAnimationRef.current = null;
+      ratioContentAnimationRef.current?.cancel();
+      ratioContentAnimationRef.current = null;
+      if (transitionEndFallbackRef.current) {
+        frameEl.removeEventListener("transitionend", transitionEndFallbackRef.current);
+        transitionEndFallbackRef.current = null;
+      }
+
+      setIsRatioTransitioning(true);
+      // Match expected behavior: keep the bottom edge visually anchored while resizing.
+      frameEl.style.transformOrigin = "bottom";
+      frameEl.style.willChange = "transform";
+      contentEl.style.transformOrigin = "bottom";
+      contentEl.style.willChange = "transform";
+
+      const cleanup = () => {
+        frameEl.style.willChange = "";
+        frameEl.style.transformOrigin = "";
+        frameEl.style.transition = "";
+        frameEl.style.transform = "";
+        contentEl.style.willChange = "";
+        contentEl.style.transformOrigin = "";
+        contentEl.style.transition = "";
+        contentEl.style.transform = "";
+        setIsRatioTransitioning(false);
+      };
+
+      const durationMs = 200;
+      const easing = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+      // Pre-apply starting transforms so we never flash the "final" frame before the animation begins.
+      frameEl.style.transform = `scaleY(${fromScaleY})`;
+      contentEl.style.transform = `scaleY(${1 / fromScaleY})`;
+
+      if (typeof frameEl.animate === "function" && typeof contentEl.animate === "function") {
+        const frameAnim = frameEl.animate(
+          [{ transform: `scaleY(${fromScaleY})` }, { transform: `scaleY(${toScaleY})` }],
+          { duration: durationMs, easing, fill: "both" },
+        );
+        const contentAnim = contentEl.animate(
+          [
+            { transform: `scaleY(${1 / fromScaleY})` },
+            { transform: `scaleY(${1 / toScaleY})` },
+          ],
+          { duration: durationMs, easing, fill: "both" },
+        );
+        ratioFrameAnimationRef.current = frameAnim;
+        ratioContentAnimationRef.current = contentAnim;
+
+        frameAnim.onfinish = () => {
+          // Freeze final transforms as inline styles so we can commit the real layout size without a flash.
+          frameEl.style.transform = `scaleY(${toScaleY})`;
+          contentEl.style.transform = `scaleY(${1 / toScaleY})`;
+
+          // Remove the animation effect stack (now that the final state is captured in inline styles).
+          try {
+            frameAnim.cancel();
+          } catch {
+            // ignore
+          }
+          try {
+            contentAnim.cancel();
+          } catch {
+            // ignore
+          }
+          ratioFrameAnimationRef.current = null;
+          ratioContentAnimationRef.current = null;
+
+          // Commit the layout size; transforms will be cleared in the next layout effect (before paint).
+          if (finalizePaddingPercent !== null) {
+            shouldResetTransformsOnNextLayoutRef.current = true;
+            setLayoutPaddingPercent(finalizePaddingPercent);
+            return;
+          }
+
+          cleanup();
+        };
+        frameAnim.oncancel = () => {
+          ratioFrameAnimationRef.current = null;
+          ratioContentAnimationRef.current = null;
+          cleanup();
+        };
+        return;
+      }
+
+      // Fallback: CSS transition on transform (frame + content).
+      frameEl.style.transition = "none";
+      contentEl.style.transition = "none";
+      void frameEl.getBoundingClientRect();
+      requestAnimationFrame(() => {
+        frameEl.style.transition = `transform ${durationMs}ms ${easing}`;
+        contentEl.style.transition = `transform ${durationMs}ms ${easing}`;
+        frameEl.style.transform = `scaleY(${toScaleY})`;
+        contentEl.style.transform = `scaleY(${1 / toScaleY})`;
+      });
+
+      const onEnd = (event: TransitionEvent) => {
+        if (event.target !== frameEl) return;
+        if (event.propertyName !== "transform") return;
+        frameEl.removeEventListener("transitionend", onEnd);
+        transitionEndFallbackRef.current = null;
+
+        if (finalizePaddingPercent !== null) {
+          // Capture final transforms for the same reason as the WAAPI branch.
+          frameEl.style.transform = `scaleY(${toScaleY})`;
+          contentEl.style.transform = `scaleY(${1 / toScaleY})`;
+          shouldResetTransformsOnNextLayoutRef.current = true;
+          setLayoutPaddingPercent(finalizePaddingPercent);
+          return;
+        }
+        cleanup();
+      };
+      transitionEndFallbackRef.current = onEnd;
+      frameEl.addEventListener("transitionend", onEnd);
+    }, [isPersistentPreview, layoutPaddingPercent, ratioAnimSeq, targetPaddingPercent]);
+
+    useEffect(() => {
+      return () => {
+        const el = persistentPreviewFrameRef.current;
+        ratioFrameAnimationRef.current?.cancel();
+        ratioFrameAnimationRef.current = null;
+        ratioContentAnimationRef.current?.cancel();
+        ratioContentAnimationRef.current = null;
+        if (el && transitionEndFallbackRef.current) {
+          el.removeEventListener("transitionend", transitionEndFallbackRef.current);
+          transitionEndFallbackRef.current = null;
+        }
+      };
+    }, []);
 
 
 
@@ -311,7 +542,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       "text-sm",
       isMinimal
         ? "h-full text-foreground"
-        : "mt-3 rounded-3xl border border-muted-foreground/20 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-slate-900/60",
+        : "mt-3 rounded-3xl border border-muted-foreground/20 bg-white/80 p-4 shadow-sm transition-colors transition-shadow duration-200 ease-out hover:shadow-md dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
     );
 
     const isUltraWide21x9 =
@@ -322,29 +553,33 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       isMinimal
         ? appearance === "imageCreator" || appearance === "videoGenerator"
           ? cn(
-            "w-full max-w-full",
-            minimalAspectClass,
-            // 21:9 looks too short in the persistent preview; increase minimum visible area only for this ratio.
-            isUltraWide21x9 && "min-h-[320px]",
-            // Fallback to aspect-square if no style is applied and no specific ratio class? 
-            // Actually, if we remove aspect-square, it might collapse if empty. 
-            // We should ensure a default aspect ratio exists if the computed one is missing.
-            !containerStyle && "aspect-square",
-            // Single preview container for image creator (avoid nested frames inside the renderer).
-            cn(
-              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-shadow dark:border-white/15 dark:bg-white/5",
-              isNodeSelected &&
-              "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
-            ),
-          )
-          : cn(
-            "w-full max-w-full",
-            minimalAspectClass,
-            cn(
-              "rounded-[20px] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-shadow dark:from-slate-900/85 dark:to-slate-950/85 dark:shadow-[0_15px_40px_rgba(2,6,23,0.65)]",
-              isNodeSelected && "ring-2 ring-node-selected/25",
-            ),
-          )
+             "w-full max-w-full",
+             minimalAspectClass,
+             // 21:9 looks too short in the persistent preview; increase minimum visible area only for this ratio.
+             isUltraWide21x9 && "min-h-[320px]",
+             // Fallback to aspect-square if no style is applied and no specific ratio class? 
+             // Actually, if we remove aspect-square, it might collapse if empty. 
+             // We should ensure a default aspect ratio exists if the computed one is missing.
+             !containerStyle && "aspect-square",
+             // Single preview container for image creator (avoid nested frames inside the renderer).
+               cn(
+                "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-colors transition-shadow duration-200 ease-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
+              // backdrop-filter can force repaints during transform/layout changes; disable it only while animating.
+              isRatioTransitioning && "dark:backdrop-blur-none",
+               isNodeSelected &&
+                 (isRatioTransitioning
+                   ? "ring-2 ring-node-selected/25"
+                   : "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]"),
+             ),
+            )
+           : cn(
+             "w-full max-w-full",
+             minimalAspectClass,
+              cn(
+                "rounded-[20px] border border-[#E6E9F4] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_15px_40px_rgba(0,0,0,0.30)]",
+               isNodeSelected && "ring-2 ring-node-selected/25",
+              ),
+            )
         : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10",
       panelClass,
       !isMinimal && isNodeSelected && "ring-2 ring-node-selected/25",
@@ -354,9 +589,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       "flex items-center justify-center",
       isMinimal
         ? appearance === "imageCreator" || appearance === "videoGenerator"
-          // Use absolute positioning to fill the padding-bottom created space
-          ? "absolute inset-0 bg-transparent"
-          : "h-full w-full rounded-[16px] bg-[#F9FAFE] dark:bg-slate-900/70"
+           // Use absolute positioning to fill the padding-bottom created space
+           ? "absolute inset-0 bg-transparent"
+           : "h-full w-full rounded-[16px] bg-[#F9FAFE] dark:bg-neutral-800/80 dark:backdrop-blur-xl"
         : "h-full w-full min-h-[320px]",
     );
 
@@ -563,21 +798,44 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const referenceSelectionCount = referenceGallery.length;
 
     const videoPreview = useMemo(() => {
-      if (kind !== "video" || !resolvedPreview?.payload) return null;
-      // 优先使用 base64 编码的视频（避免认证问题）
-      const videoBase64: string | undefined = resolvedPreview.payload?.video_base64;
-      const videoUrl: string | undefined = resolvedPreview.payload?.video_url;
-      const finalVideoUrl = videoBase64 || videoUrl;
-      if (!finalVideoUrl) return null;
-      return {
-        videoUrl: finalVideoUrl,
-        poster:
-          resolvedPreview.payload?.cover_preview_base64 ||
-          resolvedPreview.payload?.cover_url,
-        duration: resolvedPreview.payload?.duration,
-        extension: inferExtensionFromSource(finalVideoUrl, "mp4"),
-      };
-    }, [kind, resolvedPreview]);
+      if (kind !== "video") return null;
+
+      if (resolvedPreview?.payload) {
+        // 优先使用 base64 编码的视频（避免认证问题）
+        const videoBase64: string | undefined = resolvedPreview.payload?.video_base64;
+        const videoUrl: string | undefined = resolvedPreview.payload?.video_url;
+        const finalVideoUrl = videoBase64 || videoUrl;
+        if (finalVideoUrl) {
+          return {
+            videoUrl: finalVideoUrl,
+            poster:
+              resolvedPreview.payload?.cover_preview_base64 ||
+              resolvedPreview.payload?.cover_url,
+            duration: resolvedPreview.payload?.duration,
+            extension: inferExtensionFromSource(finalVideoUrl, "mp4"),
+          };
+        }
+      }
+
+      // 视频创作：如果还没有生成输出，优先预览第一段上传的参考视频。
+      if (appearance === "videoGenerator" && referenceImages.length) {
+        const candidate = referenceImages.find((item) => {
+          const src = item?.imageSource || item?.downloadSource || "";
+          return isVideoCandidate(src, item?.fileName);
+        });
+        if (!candidate) return null;
+        const src = candidate.imageSource || candidate.downloadSource || "";
+        if (!src) return null;
+        return {
+          videoUrl: src,
+          poster: undefined,
+          duration: undefined,
+          extension: inferExtensionFromSource(src, "mp4"),
+        };
+      }
+
+      return null;
+    }, [appearance, kind, referenceImages, resolvedPreview]);
 
     const audioPreview = useMemo(() => {
       if (kind !== "audio" || !resolvedPreview?.payload) return null;
@@ -601,8 +859,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       Boolean(resolvedPreview?.available && imageGallery?.length);
     const hasReferencePreview =
       kind === "image" && !hasGeneratedImagePreview && referenceGallery.length;
-    const hasVideoPreview =
-      kind === "video" && Boolean(resolvedPreview?.available && videoPreview);
+    const hasVideoPreview = kind === "video" && Boolean(videoPreview);
     const hasAudioPreview =
       kind === "audio" && Boolean(resolvedPreview?.available && audioPreview);
 
@@ -756,8 +1013,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       appearance === "imageCreator" &&
       kind === "image" &&
       (galleryForRenderer?.length || referenceGallery.length);
-    // Video creator: no persistent upload button in the preview frame (upload lives in the empty state UX).
-    const shouldShowVideoUploadOverlay = false;
+    const shouldShowVideoUploadOverlay =
+      appearance === "videoGenerator" && kind === "video";
     const showUploadOverlay = Boolean(
       onRequestUpload &&
       (shouldShowImageUploadOverlay || shouldShowVideoUploadOverlay),
@@ -787,6 +1044,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             poster={videoPreview.poster}
             duration={videoPreview.duration}
             frameless={appearance === "videoGenerator"}
+            autoPlay={enableHoverAutoplay ? isPersistentPreviewHovered : undefined}
           />
         ) : kind === "audio" && audioPreview ? (
           <AudioPreview audioUrl={audioPreview.audioUrl} />
@@ -965,128 +1223,278 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           )}
 
           <div
+            ref={persistentPreviewFrameRef}
             className={previewFrameClassName}
             style={appliedContainerStyle}
+            data-testid="doubao-preview-frame"
+            onMouseEnter={
+              enableHoverAutoplay
+                ? () => setIsPersistentPreviewHovered(true)
+                : undefined
+            }
+            onMouseLeave={
+              enableHoverAutoplay
+                ? () => setIsPersistentPreviewHovered(false)
+                : undefined
+            }
           >
-            {appearance === "default" && (
-              <div className="absolute bottom-4 left-4 z-10">
-                <OutputModal
-                  open={isLogsOpen}
-                  setOpen={setLogsOpen}
-                  disabled={false}
-                  nodeId={nodeId}
-                  outputName={outputName}
-                >
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="h-7 rounded-full px-2 text-[11px]"
-                  >
-                    <ForwardedIconComponent
-                      name="FileText"
-                      className="mr-1 h-3 w-3"
-                    />
-                    Logs
-                  </Button>
-                </OutputModal>
-              </div>
-            )}
-            <div className={previewSurfaceClassName}>
-              {inlinePreview}
-            </div>
-            {showReferenceSelectionBadge && (
-              <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
-                已选择 {referenceSelectionCount}
-              </div>
-            )}
-
-            {isMinimal ? (
-              (showUploadOverlay || hasRenderablePreview || (isAudioMinimal && downloadInfo)) && (
-                <div className="absolute top-4 right-4 flex items-center gap-2">
-                  {showUploadOverlay && (
-                    <button
-                      type="button"
-                      className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onRequestUpload?.();
-                      }}
-                    >
-                      {uploadButtonLabel}
-                    </button>
-                  )}
-                  {isAudioMinimal && hasAudioPreview && (
-                    <button
-                      type="button"
-                      className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        handlePickLocalAudio();
-                      }}
-                    >
-                      上传
-                    </button>
-                  )}
-                  {isAudioMinimal && downloadInfo && (
-                    <button
-                      type="button"
-                      onClick={handleDownload}
-                      className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
-                    >
-                      <ForwardedIconComponent
-                        name="Download"
-                        className="h-4 w-4 text-current"
-                      />
-                      <span>保存</span>
-                    </button>
-                  )}
-                  {appearance !== "imageCreator" && hasRenderablePreview && (
-                    <button
-                      type="button"
-                      aria-label="放大预览"
-                      onClick={openModal}
-                      className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
-                    >
-                      <ForwardedIconComponent
-                        name="Maximize2"
-                        className="h-4 w-4 text-current"
-                      />
-                    </button>
-                  )}
-                </div>
-              )
-            ) : (
-              hasRenderablePreview && (
-                <button
-                  type="button"
-                  aria-label="放大预览"
-                  onClick={openModal}
-                  className="group absolute -top-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-muted-foreground/40 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-md hover:border-muted-foreground/60 hover:bg-white dark:bg-slate-900"
-                >
-                  <ForwardedIconComponent
-                    name="Maximize2"
-                    className="h-4 w-4 text-current"
-                  />
-                  <span>放大预览</span>
-                </button>
-              )
-            )}
-
-            {appearance !== "imageCreator" && downloadInfo && !isAudioMinimal && (
-              <button
-                onClick={handleDownload}
-                className={cn(
-                  "absolute flex items-center gap-1 text-xs font-medium transition",
-                  isMinimal
-                    ? "bottom-4 right-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow"
-                    : "bottom-4 right-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg hover:bg-white dark:bg-slate-900 dark:text-slate-100",
-                )}
+            {isPersistentPreview ? (
+              <div
+                ref={persistentPreviewContentRef}
+                className="absolute inset-0 relative"
               >
-                <ForwardedIconComponent name="Download" className="h-4 w-4" />
-                <span>下载结果</span>
-              </button>
+                {appearance === "default" && (
+                  <div className="absolute bottom-4 left-4 z-10">
+                    <OutputModal
+                      open={isLogsOpen}
+                      setOpen={setLogsOpen}
+                      disabled={false}
+                      nodeId={nodeId}
+                      outputName={outputName}
+                    >
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-7 rounded-full px-2 text-[11px]"
+                      >
+                        <ForwardedIconComponent
+                          name="FileText"
+                          className="mr-1 h-3 w-3"
+                        />
+                        Logs
+                      </Button>
+                    </OutputModal>
+                  </div>
+                )}
+
+                <div className={previewSurfaceClassName}>{inlinePreview}</div>
+                {showReferenceSelectionBadge && (
+                  <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
+                    已选择 {referenceSelectionCount}
+                  </div>
+                )}
+
+                {isMinimal ? (
+                  (showUploadOverlay ||
+                    hasRenderablePreview ||
+                    (isAudioMinimal && downloadInfo)) && (
+                    <div className="absolute top-4 right-4 flex items-center gap-2">
+                      {showUploadOverlay && (
+                        <button
+                          type="button"
+                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onRequestUpload?.();
+                          }}
+                        >
+                          {uploadButtonLabel}
+                        </button>
+                      )}
+                      {isAudioMinimal && hasAudioPreview && (
+                        <button
+                          type="button"
+                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            handlePickLocalAudio();
+                          }}
+                        >
+                          上传
+                        </button>
+                      )}
+                      {isAudioMinimal && downloadInfo && (
+                        <button
+                          type="button"
+                          onClick={handleDownload}
+                          className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
+                        >
+                          <ForwardedIconComponent
+                            name="Download"
+                            className="h-4 w-4 text-current"
+                          />
+                          <span>保存</span>
+                        </button>
+                      )}
+                      {(appearance === "default" ||
+                        appearance === "audioCreator") &&
+                        hasRenderablePreview && (
+                          <button
+                            type="button"
+                            aria-label="放大预览"
+                            onClick={openModal}
+                            className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
+                          >
+                            <ForwardedIconComponent
+                              name="Maximize2"
+                              className="h-4 w-4 text-current"
+                            />
+                          </button>
+                        )}
+                    </div>
+                  )
+                ) : (
+                  (appearance === "default" || appearance === "audioCreator") &&
+                    hasRenderablePreview && (
+                      <button
+                        type="button"
+                        aria-label="放大预览"
+                        onClick={openModal}
+                        className="group absolute -top-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-muted-foreground/40 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-md transition-colors duration-200 hover:border-muted-foreground/60 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <ForwardedIconComponent
+                          name="Maximize2"
+                          className="h-4 w-4 text-current"
+                        />
+                        <span>放大预览</span>
+                      </button>
+                    )
+                )}
+
+                {appearance !== "imageCreator" && downloadInfo && !isAudioMinimal && (
+                  <button
+                    onClick={handleDownload}
+                    className={cn(
+                      "absolute flex items-center gap-1 text-xs font-medium transition",
+                      isMinimal
+                        ? "bottom-4 right-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow"
+                        : "bottom-4 right-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                    )}
+                  >
+                    <ForwardedIconComponent name="Download" className="h-4 w-4" />
+                    <span>下载结果</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                {appearance === "default" && (
+                  <div className="absolute bottom-4 left-4 z-10">
+                    <OutputModal
+                      open={isLogsOpen}
+                      setOpen={setLogsOpen}
+                      disabled={false}
+                      nodeId={nodeId}
+                      outputName={outputName}
+                    >
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-7 rounded-full px-2 text-[11px]"
+                      >
+                        <ForwardedIconComponent
+                          name="FileText"
+                          className="mr-1 h-3 w-3"
+                        />
+                        Logs
+                      </Button>
+                    </OutputModal>
+                  </div>
+                )}
+
+                <div className={previewSurfaceClassName}>{inlinePreview}</div>
+                {showReferenceSelectionBadge && (
+                  <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
+                    已选择 {referenceSelectionCount}
+                  </div>
+                )}
+
+                {isMinimal ? (
+                  (showUploadOverlay ||
+                    hasRenderablePreview ||
+                    (isAudioMinimal && downloadInfo)) && (
+                    <div className="absolute top-4 right-4 flex items-center gap-2">
+                      {showUploadOverlay && (
+                        <button
+                          type="button"
+                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onRequestUpload?.();
+                          }}
+                        >
+                          {uploadButtonLabel}
+                        </button>
+                      )}
+                      {isAudioMinimal && hasAudioPreview && (
+                        <button
+                          type="button"
+                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            handlePickLocalAudio();
+                          }}
+                        >
+                          上传
+                        </button>
+                      )}
+                      {isAudioMinimal && downloadInfo && (
+                        <button
+                          type="button"
+                          onClick={handleDownload}
+                          className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
+                        >
+                          <ForwardedIconComponent
+                            name="Download"
+                            className="h-4 w-4 text-current"
+                          />
+                          <span>保存</span>
+                        </button>
+                      )}
+                      {(appearance === "default" ||
+                        appearance === "audioCreator") &&
+                        hasRenderablePreview && (
+                          <button
+                            type="button"
+                            aria-label="放大预览"
+                            onClick={openModal}
+                            className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
+                          >
+                            <ForwardedIconComponent
+                              name="Maximize2"
+                              className="h-4 w-4 text-current"
+                            />
+                          </button>
+                        )}
+                    </div>
+                  )
+                ) : (
+                  (appearance === "default" || appearance === "audioCreator") &&
+                    hasRenderablePreview && (
+                      <button
+                        type="button"
+                        aria-label="放大预览"
+                        onClick={openModal}
+                        className="group absolute -top-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-muted-foreground/40 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-md transition-colors duration-200 hover:border-muted-foreground/60 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <ForwardedIconComponent
+                          name="Maximize2"
+                          className="h-4 w-4 text-current"
+                        />
+                        <span>放大预览</span>
+                      </button>
+                    )
+                )}
+
+                {appearance !== "imageCreator" && downloadInfo && !isAudioMinimal && (
+                  <button
+                    onClick={handleDownload}
+                    className={cn(
+                      "absolute flex items-center gap-1 text-xs font-medium transition",
+                      isMinimal
+                        ? "bottom-4 right-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow"
+                        : "bottom-4 right-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                    )}
+                  >
+                    <ForwardedIconComponent name="Download" className="h-4 w-4" />
+                    <span>下载结果</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -1157,6 +1565,15 @@ function inferExtensionFromSource(source: string, fallback: string): string {
   }
 
   return fallback;
+}
+
+function isVideoCandidate(source: string | undefined, fileName?: string) {
+  const combined = `${fileName ?? ""} ${source ?? ""}`.toLowerCase();
+  return (
+    combined.includes(".mp4") ||
+    combined.includes(".mov") ||
+    combined.includes(".webm")
+  );
 }
 
 async function downloadPreviewFile(source: string, fileName: string) {
@@ -1287,10 +1704,12 @@ function EmptyPreview({
             type="button"
             disabled={Boolean(isBuilding || item.disabled)}
             className={cn(
-              "flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-[#3C4258] shadow-sm transition dark:border-white/10 dark:bg-white/5 dark:text-slate-100",
+              // Keep these buttons visibly "button-like" in light mode too; otherwise they can blend
+              // into the preview surface and look like they're missing.
+              "flex w-full items-center gap-2 rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 py-2 text-[#2E3150] shadow-sm transition-colors duration-200 hover:bg-[#E9EEFF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B66FF]/25 dark:border-white/20 dark:bg-neutral-800/70 dark:text-slate-100 dark:hover:bg-neutral-800/80",
               isBuilding || item.disabled
                 ? "cursor-not-allowed opacity-60"
-                : "hover:border-slate-300 hover:bg-white dark:hover:border-white/20",
+                : "",
             )}
             onClick={(event) => {
               event.preventDefault();
@@ -1301,7 +1720,7 @@ function EmptyPreview({
           >
             <ForwardedIconComponent
               name={item.icon}
-              className="h-4 w-4 text-muted-foreground"
+              className="h-4 w-4 text-[#8D92A8] dark:text-slate-300"
             />
             <span>{item.label}</span>
           </button>
@@ -1351,7 +1770,7 @@ function EmptyPreview({
               onUploadClick && (
                 <button
                   type="button"
-                  className="text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
+                  className="inline-flex items-center justify-center rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 py-2 text-base font-medium text-[#1B66FF] shadow-sm transition-colors duration-200 hover:bg-[#E9EEFF] dark:border-white/20 dark:bg-neutral-800/70 dark:text-[#9BB8FF] dark:hover:bg-neutral-800/80"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1373,7 +1792,7 @@ function EmptyPreview({
         { label: "音频转视频", icon: "Music" as const },
       ];
       return (
-        <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
+        <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] transition-colors duration-200 dark:border-white/20 dark:bg-neutral-800/80 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:text-slate-300">
           <div className="flex w-full justify-center">
             {renderSuggestionButtons(suggestions)}
           </div>
@@ -1397,7 +1816,7 @@ function EmptyPreview({
         </div>
         <button
           type="button"
-          className="mt-4 text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff] dark:hover:text-[#a6c4ff]"
+          className="mx-auto mt-4 inline-flex items-center justify-center rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 py-2 text-base font-medium text-[#1B66FF] shadow-sm transition-colors duration-200 hover:bg-[#E9EEFF] dark:border-white/20 dark:bg-neutral-800/70 dark:text-[#9BB8FF] dark:hover:bg-neutral-800/80"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();

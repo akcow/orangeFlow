@@ -1333,7 +1333,7 @@ export default function DoubaoVideoGeneratorLayout({
   const selectedLastFrame = combinedLastFramePreviews[0] ?? null;
   const selectedLastFrameSource = useMemo(
     () =>
-      (selectedLastFrame?.downloadSource || selectedLastFrame?.imageSource || "")
+      (selectedLastFrame?.imageSource || selectedLastFrame?.downloadSource || "")
         .toString()
         .trim(),
     [selectedLastFrame],
@@ -1353,7 +1353,7 @@ export default function DoubaoVideoGeneratorLayout({
   const isSelectedLastFrameFromUpstream = useMemo(() => {
     if (!selectedLastFrameSource) return false;
     return normalizedUpstreamLastFramePreviews.some((preview) => {
-      const source = (preview.downloadSource || preview.imageSource || "").toString().trim();
+      const source = (preview.imageSource || preview.downloadSource || "").toString().trim();
       return source === selectedLastFrameSource;
     });
   }, [selectedLastFrameSource, normalizedUpstreamLastFramePreviews]);
@@ -1524,7 +1524,7 @@ export default function DoubaoVideoGeneratorLayout({
       : null;
   const selectedFirstFrameSource = useMemo(
     () =>
-      (selectedFirstFrame?.downloadSource || selectedFirstFrame?.imageSource || "")
+      (selectedFirstFrame?.imageSource || selectedFirstFrame?.downloadSource || "")
         .toString()
         .trim(),
     [selectedFirstFrame],
@@ -3271,7 +3271,7 @@ export default function DoubaoVideoGeneratorLayout({
           <div
             className={cn(
               "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
-              "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+              "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
             )}
@@ -3376,17 +3376,17 @@ export default function DoubaoVideoGeneratorLayout({
             </DialogHeader>
           {firstFrameField ? (
             <div className="space-y-4">
-              <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 dark:border dark:border-white/10 dark:bg-[#111a2b]/80">
+              <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 transition-colors duration-200 ease-out dark:border dark:border-white/20 dark:bg-neutral-800/75 dark:backdrop-blur-xl">
                 <p className="text-sm font-medium text-foreground">
                   {isSoraModel ? "选择要上传的参考图（最多 1 张）" : "选择要上传的图片或视频（支持多选）"}
                 </p>
                 <button
                   type="button"
-                  className={cn(
-                    "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#F4F5F9] text-sm font-medium text-[#13141A] dark:bg-white/5 dark:text-white",
-                    (isFirstFrameUploadPending || (!isKlingModel && !canUploadMoreFirstFrames)) &&
-                      "opacity-70",
-                  )}
+                    className={cn(
+                    "flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#F4F5F9] text-sm font-medium text-[#13141A] transition-colors duration-200 dark:bg-slate-800/40 dark:text-white dark:hover:bg-slate-800/50",
+                     (isFirstFrameUploadPending || (!isKlingModel && !canUploadMoreFirstFrames)) &&
+                       "opacity-70",
+                   )}
                   onClick={triggerFirstFrameUpload}
                   disabled={isFirstFrameUploadPending || (!isKlingModel && !canUploadMoreFirstFrames)}
                 >
@@ -3476,7 +3476,7 @@ export default function DoubaoVideoGeneratorLayout({
                 )}
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-dashed border-[#E0E5F2] bg-white/80 p-3 dark:border-white/15 dark:bg-[#0a1220]/70">
+              <div className="space-y-3 rounded-2xl border border-dashed border-[#E0E5F2] bg-white/80 p-3 transition-colors duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/70 dark:backdrop-blur-xl">
                 <div className="flex items-center justify-between text-xs text-[#636A86] dark:text-slate-300">
                   <span>{isSoraModel ? "参考图管理" : "图片候选管理"}</span>
                   <span className="font-medium text-[#1B66FF]">
@@ -3494,7 +3494,7 @@ export default function DoubaoVideoGeneratorLayout({
                     <div className="grid grid-cols-2 gap-3">
                     {combinedImagePreviews.map((preview, index) => {
                       const previewSource =
-                        preview.downloadSource ?? preview.imageSource ?? "";
+                        preview.imageSource ?? preview.downloadSource ?? "";
                       const isSelectedLastFrame =
                         allowLastFrame &&
                         selectedLastFrameSource &&
@@ -3534,7 +3534,7 @@ export default function DoubaoVideoGeneratorLayout({
                       return (
                         <div
                           key={preview.id ?? `${preview.imageSource}-${index}`}
-                          className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-[0_20px_35px_rgba(0,0,0,0.45)]"
+                          className="group relative flex flex-col overflow-hidden rounded-xl border border-[#E2E7F5] bg-white shadow-sm transition-colors duration-200 dark:border-white/10 dark:bg-slate-800/40 dark:shadow-[0_20px_35px_rgba(0,0,0,0.35)] dark:hover:bg-slate-800/50"
                         >
                           <div className="relative h-28 w-full overflow-hidden">
                             {isVideoCandidate(previewSource, preview.fileName) ? (
@@ -3544,6 +3544,16 @@ export default function DoubaoVideoGeneratorLayout({
                                 muted
                                 playsInline
                                 preload="metadata"
+                                onMouseEnter={(event) => {
+                                  const video = event.currentTarget;
+                                  video.currentTime = 0;
+                                  video.play().catch(() => {});
+                                }}
+                                onMouseLeave={(event) => {
+                                  const video = event.currentTarget;
+                                  video.pause();
+                                  video.currentTime = 0;
+                                }}
                               />
                             ) : (
                               <img
@@ -4052,10 +4062,11 @@ function buildFirstFramePreviewItems(
       extractReferenceSource(pathEntries[index]) ??
       extractReferenceSource(valueEntries[index]);
     if (!rawSource) continue;
-    const resolved = resolveReferenceSource(rawSource);
+    const valueLabel = extractReferenceLabel(valueEntries[index]);
+    const resolved = resolveReferenceSource(rawSource, valueLabel);
     if (!resolved) continue;
     const label =
-      extractReferenceLabel(valueEntries[index]) ??
+      valueLabel ??
       resolved.fileName ??
       `候选素材 ${index + 1}`;
     previews.push({
@@ -4063,7 +4074,9 @@ function buildFirstFramePreviewItems(
       imageSource: resolved.url,
       downloadSource: resolved.downloadUrl,
       label,
-      fileName: resolved.fileName,
+      // Preserve original uploaded filename (when present) so we can correctly detect video even if the stored path
+      // has an unexpected/trimmed extension (e.g. ".mp_").
+      fileName: valueLabel ?? resolved.fileName,
       role: extractReferenceRole(valueEntries[index]),
     });
   }
@@ -4144,7 +4157,7 @@ function extractReferenceRole(entry: unknown): FirstFrameEntry["role"] | undefin
   return undefined;
 }
 
-function resolveReferenceSource(raw: string) {
+function resolveReferenceSource(raw: string, fileNameHint?: string) {
   const trimmed = raw?.trim();
   if (!trimmed) return null;
   if (
@@ -4165,7 +4178,7 @@ function resolveReferenceSource(raw: string) {
   if (
     segments.length >= 4 &&
     segments[0] === "files" &&
-    (segments[1] === "images" || segments[1] === "download")
+    (segments[1] === "images" || segments[1] === "download" || segments[1] === "media")
   ) {
     segments = segments.slice(2);
   }
@@ -4175,12 +4188,16 @@ function resolveReferenceSource(raw: string) {
   const encodedFlow = encodeURIComponent(flowId);
   const encodedFile = rest.map((part) => encodeURIComponent(part)).join("/");
   const fileName = rest[rest.length - 1];
-  const url = isVideoCandidate(trimmed, fileName)
-    ? `${BASE_URL_API}files/download/${encodedFlow}/${encodedFile}`
+  const isVideo = isVideoCandidate(trimmed, fileNameHint ?? fileName);
+  const url = isVideo
+    ? `${BASE_URL_API}files/media/${encodedFlow}/${encodedFile}`
     : `${BASE_URL_API}files/images/${encodedFlow}/${encodedFile}`;
+  const downloadUrl = isVideo
+    ? `${BASE_URL_API}files/download/${encodedFlow}/${encodedFile}`
+    : url;
   return {
     url,
-    downloadUrl: url,
+    downloadUrl,
     fileName,
     sourceId: `${flowId}-${fileName}`,
   };

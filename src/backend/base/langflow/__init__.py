@@ -7,9 +7,20 @@ references the old langflow module structure.
 
 import importlib
 import importlib.util
+import asyncio
 import sys
 from types import ModuleType
 from typing import Any
+
+# On Windows, the default Proactor event loop can produce noisy ConnectionResetError
+# logs when browsers cancel HTTP range probes during media preview. Prefer the
+# selector loop policy to avoid that.
+if sys.platform.startswith("win"):
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # type: ignore[attr-defined]
+    except Exception:
+        # Best-effort only: keep compatibility even if policy isn't available.
+        pass
 
 
 class LangflowCompatibilityModule(ModuleType):

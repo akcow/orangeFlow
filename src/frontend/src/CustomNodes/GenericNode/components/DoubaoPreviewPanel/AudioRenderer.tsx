@@ -109,13 +109,13 @@ const AudioRenderer = ({
     () =>
       isModal
         ? "rounded-2xl border border-rose-200/40 bg-rose-950/20 p-5 text-white"
-        : "rounded-2xl border border-rose-100 bg-rose-50/60 p-4 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-50",
+        : "rounded-2xl border border-rose-100 bg-rose-50/60 p-4 text-rose-900 transition-colors duration-200 ease-out dark:border-rose-400/25 dark:bg-rose-900/20 dark:text-rose-50",
     [isModal],
   );
 
   if (!audioUrl) {
     return (
-      <div className="flex items-center justify-center rounded-2xl border border-rose-100 bg-rose-50/70 p-4 text-rose-500 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-200">
+      <div className="flex items-center justify-center rounded-2xl border border-rose-100 bg-rose-50/70 p-4 text-rose-500 transition-colors duration-200 ease-out dark:border-rose-400/25 dark:bg-rose-900/20 dark:text-rose-200">
         <div className="text-center">
           <ForwardedIconComponent name="VolumeX" className="mx-auto h-6 w-6" />
           <p className="mt-2 text-xs">音频暂不可用</p>

@@ -805,7 +805,7 @@ export default function DoubaoAudioLayout({
           <div
             className={cn(
               "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
-              "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+              "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-2xl dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
             )}

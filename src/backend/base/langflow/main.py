@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import platform
 import re
 import warnings
 from contextlib import asynccontextmanager
@@ -37,6 +38,13 @@ from langflow.middleware import ContentSizeLimitMiddleware
 from langflow.services.deps import get_queue_service, get_service, get_settings_service, get_telemetry_service
 from langflow.services.schema import ServiceType
 from langflow.services.utils import initialize_services, initialize_settings_service, teardown_services
+
+# Ensure we don't use the Proactor event loop on Windows (it can surface noisy connection reset logs for aborted requests).
+if platform.system() == "Windows":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 if TYPE_CHECKING:
     from tempfile import TemporaryDirectory

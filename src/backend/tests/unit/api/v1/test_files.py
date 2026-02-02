@@ -185,6 +185,47 @@ async def test_download_file(files_client, files_created_api_key, files_flow):
     assert response.content == b"test content"
 
 
+async def test_media_file_serves_inline_video(files_client, files_created_api_key, files_flow):
+    headers = {"x-api-key": files_created_api_key.api_key}
+
+    response = await files_client.post(
+        f"api/v1/files/upload/{files_flow.id}",
+        files={"file": ("clip.mp4", b"fake video bytes")},
+        headers=headers,
+    )
+    assert response.status_code == 201
+
+    file_path = response.json()["file_path"]
+    file_name = file_path.split("/")[-1]
+
+    response = await files_client.get(f"api/v1/files/media/{files_flow.id}/{file_name}", headers=headers)
+    assert response.status_code == 200
+    assert response.content == b"fake video bytes"
+    assert response.headers.get("content-type", "").startswith("video/")
+    assert "inline" in (response.headers.get("content-disposition", "")).lower()
+
+
+async def test_media_file_sniffs_mp4_when_extension_is_unknown(files_client, files_created_api_key, files_flow):
+    headers = {"x-api-key": files_created_api_key.api_key}
+
+    # Minimal MP4-like signature: size(4 bytes) + 'ftyp' + major_brand(4 bytes)
+    mp4_header = b\"\\x00\\x00\\x00\\x18ftypisom\" + b\"\\x00\" * 32
+
+    response = await files_client.post(
+        f\"api/v1/files/upload/{files_flow.id}\",
+        files={\"file\": (\"broken.mp_\", mp4_header)},
+        headers=headers,
+    )
+    assert response.status_code == 201
+
+    file_path = response.json()[\"file_path\"]
+    file_name = file_path.split(\"/\")[-1]
+
+    response = await files_client.get(f\"api/v1/files/media/{files_flow.id}/{file_name}\", headers=headers)
+    assert response.status_code == 200
+    assert response.headers.get(\"content-type\", \"\").startswith(\"video/\")
+
+
 async def test_download_public_file(files_client, files_created_api_key, files_flow):
     from langflow.services.deps import get_settings_service
     from lfx.utils.public_files import generate_public_file_token

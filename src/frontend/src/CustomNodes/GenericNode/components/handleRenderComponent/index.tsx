@@ -27,6 +27,7 @@ const HandleContent = memo(function HandleContent({
   accentForegroundColorName,
   isHovered,
   openHandle,
+  dark,
   uiVariant,
   visible,
   visualOffset,
@@ -45,6 +46,7 @@ const HandleContent = memo(function HandleContent({
   accentForegroundColorName: string;
   isHovered: boolean;
   openHandle: boolean;
+  dark: boolean;
   uiVariant: "dot" | "plus";
   visible: boolean;
   visualOffset?: { x: number; y: number };
@@ -213,18 +215,28 @@ const HandleContent = memo(function HandleContent({
               ? "opacity 200ms ease-out"
               : "transform 200ms ease-out, opacity 200ms ease-out",
             transform: `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
-            background: "hsl(var(--background) / 0.78)",
-            border: "1px solid hsl(var(--border) / 0.55)",
+            // Dark mode: use a more opaque neutral surface so the canvas dot grid doesn't bleed through.
+            background: dark
+              ? "linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0)), rgba(38, 38, 38, 0.94)"
+              : "hsl(var(--background) / 0.78)",
+            border: dark
+              ? "1px solid rgba(255, 255, 255, 0.18)"
+              : "1px solid hsl(var(--border) / 0.55)",
             boxShadow: visible
-              ? "0 10px 25px rgba(15,23,42,0.18)"
+              ? dark
+                ? "0 18px 45px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.10)"
+                : "0 10px 25px rgba(15,23,42,0.18)"
               : "0 0 0 rgba(0,0,0,0)",
-            backdropFilter: "blur(8px)",
+            backdropFilter: dark ? "blur(14px)" : "blur(8px)",
           }}
         >
           <div className="pointer-events-none flex h-full w-full items-center justify-center">
             <ForwardedIconComponent
               name="Plus"
-              className="pointer-events-none h-7 w-7"
+              className={cn(
+                "pointer-events-none h-7 w-7",
+                dark ? "text-white/90" : "text-slate-700",
+              )}
             />
           </div>
         </div>
@@ -639,6 +651,7 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
           accentForegroundColorName={accentForegroundColorName}
           isHovered={isHovered}
           openHandle={openHandle}
+          dark={dark}
           uiVariant={uiVariant}
           visible={resolvedVisible || hasAnyInteraction}
           visualOffset={visualOffset}

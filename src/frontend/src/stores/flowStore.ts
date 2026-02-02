@@ -309,16 +309,35 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         }
       }
     });
-    const brokenEdges = detectBrokenEdgesEdges(nodes, edges);
+
+    // Ensure group containers are present and ordered before their children.
+    // XYFlow warns (and may stutter) when parents appear after children in the nodes array.
+    // We also defensively detach nodes pointing at a missing parent to avoid repeated warnings.
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const repairedNodes = nodes.map((n) => {
+      if (!n.parentId) return n;
+      if (byId.has(n.parentId)) return n;
+      // Fallback: detach from missing parent; keep the stored position as-is.
+      return { ...(n as any), parentId: undefined };
+    });
+    const orderedNodes = sortNodesByParentDepth(
+      repairedNodes.map((n) => {
+        if (n.type !== "groupNode") return n;
+        const style: any = { ...((n as any).style ?? {}), zIndex: -100 };
+        return { ...(n as any), zIndex: -100, style };
+      }),
+    );
+
+    const brokenEdges = detectBrokenEdgesEdges(orderedNodes, edges);
     if (brokenEdges.length > 0) {
       useAlertStore.getState().setErrorData({
         title: BROKEN_EDGES_WARNING,
         list: brokenEdges.map((edge) => brokenEdgeMessage(edge)),
       });
     }
-    const newEdges = cleanEdges(nodes, edges);
-    const { inputs, outputs } = getInputsAndOutputs(nodes);
-    get().updateComponentsToUpdate(nodes);
+    const newEdges = cleanEdges(orderedNodes, edges);
+    const { inputs, outputs } = getInputsAndOutputs(orderedNodes);
+    get().updateComponentsToUpdate(orderedNodes);
 
     const safeParseStringArray = (raw: string | null, key: string) => {
       if (!raw) return [] as string[];
@@ -341,12 +360,12 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         `dismiss_legacy_${flow?.id}`,
       ),
     });
-    unselectAllNodesEdges(nodes, newEdges);
+    unselectAllNodesEdges(orderedNodes, newEdges);
     if (flow?.id) {
-      useTweaksStore.getState().initialSetup(nodes, flow?.id);
+      useTweaksStore.getState().initialSetup(orderedNodes, flow?.id);
     }
     set({
-      nodes,
+      nodes: orderedNodes,
       edges: newEdges,
       flowState: undefined,
       buildInfo: null,
@@ -456,7 +475,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     // Normalize: we don't constrain group children with `extent: 'parent'` / `expandParent`.
     // Important: avoid cloning every nested node on every drag tick; only touch nodes that
     // actually carry these props to keep XYFlow dragging stable.
-    const normalized = clamped.map((n) => {
+    let normalized = clamped.map((n) => {
       // Keep group containers behind edges/nodes.
       const shouldFixZ = (n as any).type === "groupNode" && (n as any).zIndex !== -100;
 
@@ -479,6 +498,26 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       }
       return nn;
     });
+
+    // If a group container was removed, detach any children still pointing at it.
+    // This prevents XYFlow warnings and avoids repeated expensive internals updates.
+    if (changes.some((c) => c.type === "remove")) {
+      const byId = new Map(normalized.map((n) => [n.id, n]));
+      let hasOrphans = false;
+      for (const n of normalized) {
+        if (n.parentId && !byId.has(n.parentId)) {
+          hasOrphans = true;
+          break;
+        }
+      }
+      if (hasOrphans) {
+        normalized = normalized.map((n) => {
+          if (!n.parentId) return n;
+          if (byId.has(n.parentId)) return n;
+          return { ...(n as any), parentId: undefined };
+        });
+      }
+    }
 
     // XYFlow derives child absolute positions from parent internals, but it may skip recomputing
     // unchanged child nodes when only the parent object changes. If a group container moves,
@@ -555,8 +594,16 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       return nn;
     });
 
+    const dissolved = dissolveSmallGroups(withoutExtent);
+    const byId = new Map(dissolved.map((n) => [n.id, n]));
+    const repaired = dissolved.map((n) => {
+      if (!n.parentId) return n;
+      if (byId.has(n.parentId)) return n;
+      return { ...(n as any), parentId: undefined };
+    });
+
     const newChange = sortNodesByParentDepth(
-      dissolveSmallGroups(withoutExtent).map((n) => {
+      repaired.map((n) => {
         if (n.type !== "groupNode") return n;
         const style: any = { ...((n as any).style ?? {}), zIndex: -100 };
         return { ...(n as any), zIndex: -100, style };

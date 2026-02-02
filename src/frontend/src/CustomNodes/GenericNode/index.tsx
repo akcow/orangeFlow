@@ -71,7 +71,7 @@ function DoubaoImageCreatorTopBar({
       <div
         className={cn(
           "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
-          "dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]",
+          "dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_12px_30px_rgba(0,0,0,0.28)]",
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}
@@ -152,7 +152,7 @@ function DoubaoVideoGeneratorTopBar({
       <div
         className={cn(
           "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
-          "dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]",
+          "dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_12px_30px_rgba(0,0,0,0.28)]",
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}
@@ -233,7 +233,7 @@ function DoubaoAudioTopBar({
       <div
         className={cn(
           "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
-          "dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]",
+          "dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_12px_30px_rgba(0,0,0,0.28)]",
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}
@@ -310,7 +310,7 @@ function TextCreationTopBar({
       <div
         className={cn(
           "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
-          "dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_12px_30px_rgba(0,0,0,0.5)]",
+          "dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_12px_30px_rgba(0,0,0,0.28)]",
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}

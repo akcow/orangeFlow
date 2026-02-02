@@ -1265,7 +1265,7 @@ export default function TextCreationLayout({
                 className={cn(
                   "flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80",
                   "px-3 py-2 text-foreground shadow-sm transition hover:border-slate-300 hover:bg-white",
-                  "dark:border-white/10 dark:bg-slate-800/70 dark:text-slate-100",
+                  "dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-xl dark:text-slate-100",
                 )}
               >
                 <ForwardedIconComponent
@@ -1462,7 +1462,7 @@ export default function TextCreationLayout({
               selected
                 ? "border-indigo-500 ring-2 ring-indigo-500/20 shadow-[0_0_20px_rgba(99,102,241,0.15)] scale-[1.01]"
                 : "border-[#dce7ff] hover:border-indigo-200 hover:shadow-md",
-              "dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-100",
+              "dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-xl dark:text-slate-100",
               selected && "dark:border-indigo-500/50 dark:ring-indigo-500/30 dark:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
             )}
           >
@@ -1472,7 +1472,7 @@ export default function TextCreationLayout({
                   className={cn(
                     "flex items-center gap-1 rounded-full bg-white/90 px-3 py-1",
                     "text-[11px] font-medium text-slate-600 shadow",
-                    "dark:bg-slate-800/70 dark:text-slate-100",
+                    "dark:bg-slate-700/50 dark:backdrop-blur-xl dark:text-slate-100",
                   )}
                 >
                   <ForwardedIconComponent
@@ -1548,7 +1548,7 @@ export default function TextCreationLayout({
           <div
             className={cn(
               "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
-              "dark:border-white/10 dark:bg-[#0b1220]/70 dark:shadow-[0_25px_50px_rgba(0,0,0,0.55)]",
+              "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-2xl dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
             )}
@@ -1662,7 +1662,7 @@ export default function TextCreationLayout({
               className={cn(
                 "min-h-[40vh] resize-none rounded-2xl border border-slate-200 bg-white/95 p-4",
                 "text-sm shadow-inner outline-none ring-0 focus-visible:ring-0",
-                "dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-100",
+                "dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-xl dark:text-slate-100",
               )}
               placeholder="在此输入或编辑生成的文本内容"
             />
@@ -1683,7 +1683,7 @@ export default function TextCreationLayout({
                   key={item.id}
                   className={cn(
                     "rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm",
-                    "dark:border-white/10 dark:bg-slate-900/60",
+                    "dark:border-white/20 dark:bg-slate-700/40 dark:backdrop-blur-xl",
                   )}
                 >
                   <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -1704,7 +1704,7 @@ export default function TextCreationLayout({
                     className={cn(
                       "max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3",
                       "text-sm leading-relaxed text-foreground",
-                      "dark:bg-slate-800/70 dark:text-slate-100",
+                      "dark:bg-slate-700/50 dark:backdrop-blur-xl dark:text-slate-100",
                     )}
                   >
                     {item.text}

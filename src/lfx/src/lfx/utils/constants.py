@@ -217,6 +217,7 @@ EXTENSION_TO_CONTENT_TYPE = {
     "mp3": "audio/mpeg",
     "wav": "audio/wav",
     "mp4": "video/mp4",
+    "mov": "video/quicktime",
     "webm": "video/webm",
     "zip": "application/zip",
     "tar": "application/x-tar",
