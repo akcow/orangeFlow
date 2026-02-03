@@ -50,6 +50,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview,
   onDownload,
   canDownload,
+  motionStart,
+  motionCommitToken,
 }: {
   nodeId: string;
   isOpen: boolean;
@@ -57,7 +59,56 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
+  motionStart?: {
+    token: number;
+    motion: { deltaTopPx: number; durationMs: number; easing: string };
+  } | null;
+  motionCommitToken?: number;
 }) {
+  const motionRef = useRef<HTMLDivElement | null>(null);
+  const motionAnimRef = useRef<Animation | null>(null);
+
+  useEffect(() => {
+    if (!motionStart?.token) return;
+    const el = motionRef.current;
+    if (!el) return;
+
+    motionAnimRef.current?.cancel();
+    motionAnimRef.current = null;
+
+    const { deltaTopPx, durationMs, easing } = motionStart.motion;
+    if (typeof el.animate === "function") {
+      const anim = el.animate(
+        [{ transform: "translateY(0px)" }, { transform: `translateY(${deltaTopPx}px)` }],
+        { duration: durationMs, easing, fill: "both" },
+      );
+      motionAnimRef.current = anim;
+      anim.onfinish = () => {
+        el.style.transform = `translateY(${deltaTopPx}px)`;
+        try {
+          anim.cancel();
+        } catch {
+          // ignore
+        }
+        if (motionAnimRef.current === anim) motionAnimRef.current = null;
+      };
+      anim.oncancel = () => {
+        if (motionAnimRef.current === anim) motionAnimRef.current = null;
+      };
+      return;
+    }
+  }, [motionStart?.token]);
+
+  useEffect(() => {
+    const el = motionRef.current;
+    if (!el) return;
+    // After the preview layout commits, the node position may jump (bottom-anchored correction).
+    // Clear our temporary transform to avoid double-applying the motion.
+    motionAnimRef.current?.cancel();
+    motionAnimRef.current = null;
+    el.style.transform = "";
+  }, [motionCommitToken]);
+
   const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
   // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
   const inverseZoom = useMemo(() => {
@@ -67,7 +118,10 @@ function DoubaoImageCreatorTopBar({
   }, [canvasZoom]);
 
   return (
-    <div className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4">
+    <div
+      ref={motionRef}
+      className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4"
+    >
       <div
         className={cn(
           "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
@@ -131,6 +185,8 @@ function DoubaoVideoGeneratorTopBar({
   onOpenPreview,
   onDownload,
   canDownload,
+  motionStart,
+  motionCommitToken,
 }: {
   nodeId: string;
   isOpen: boolean;
@@ -138,7 +194,54 @@ function DoubaoVideoGeneratorTopBar({
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
+  motionStart?: {
+    token: number;
+    motion: { deltaTopPx: number; durationMs: number; easing: string };
+  } | null;
+  motionCommitToken?: number;
 }) {
+  const motionRef = useRef<HTMLDivElement | null>(null);
+  const motionAnimRef = useRef<Animation | null>(null);
+
+  useEffect(() => {
+    if (!motionStart?.token) return;
+    const el = motionRef.current;
+    if (!el) return;
+
+    motionAnimRef.current?.cancel();
+    motionAnimRef.current = null;
+
+    const { deltaTopPx, durationMs, easing } = motionStart.motion;
+    if (typeof el.animate === "function") {
+      const anim = el.animate(
+        [{ transform: "translateY(0px)" }, { transform: `translateY(${deltaTopPx}px)` }],
+        { duration: durationMs, easing, fill: "both" },
+      );
+      motionAnimRef.current = anim;
+      anim.onfinish = () => {
+        el.style.transform = `translateY(${deltaTopPx}px)`;
+        try {
+          anim.cancel();
+        } catch {
+          // ignore
+        }
+        if (motionAnimRef.current === anim) motionAnimRef.current = null;
+      };
+      anim.oncancel = () => {
+        if (motionAnimRef.current === anim) motionAnimRef.current = null;
+      };
+      return;
+    }
+  }, [motionStart?.token]);
+
+  useEffect(() => {
+    const el = motionRef.current;
+    if (!el) return;
+    motionAnimRef.current?.cancel();
+    motionAnimRef.current = null;
+    el.style.transform = "";
+  }, [motionCommitToken]);
+
   const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
   // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
   const inverseZoom = useMemo(() => {
@@ -148,7 +251,10 @@ function DoubaoVideoGeneratorTopBar({
   }, [canvasZoom]);
 
   return (
-    <div className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4">
+    <div
+      ref={motionRef}
+      className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4"
+    >
       <div
         className={cn(
           "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
@@ -414,6 +520,32 @@ function GenericNode({
   const [isTextCreationLogsOpen, setTextCreationLogsOpen] = useState(false);
   const [textCreationPreviewActions, setTextCreationPreviewActions] =
     useState<DoubaoPreviewPanelActions | null>(null);
+
+  // Used to sync the floating top bar with the persistent preview frame resize animation
+  // (the node is bottom-anchored via ResizeObserver, so without this the top bar "jumps" at the end).
+  const persistentPreviewMotionTokenRef = useRef(0);
+  const [persistentPreviewMotionStart, setPersistentPreviewMotionStart] = useState<{
+    token: number;
+    motion: { deltaTopPx: number; durationMs: number; easing: string };
+  } | null>(null);
+  const [persistentPreviewMotionCommitToken, setPersistentPreviewMotionCommitToken] =
+    useState(0);
+
+  const handlePersistentPreviewMotionStart = useCallback(
+    // Layouts may include extra fields (e.g. deltaCenterPx) for syncing other UI; we only need deltaTopPx here.
+    (motion: { deltaTopPx: number; deltaCenterPx?: number; durationMs: number; easing: string }) => {
+      persistentPreviewMotionTokenRef.current += 1;
+      setPersistentPreviewMotionStart({
+        token: persistentPreviewMotionTokenRef.current,
+        motion,
+      });
+    },
+    [],
+  );
+  const handlePersistentPreviewMotionCommit = useCallback(() => {
+    setPersistentPreviewMotionCommitToken((token) => token + 1);
+    setPersistentPreviewMotionStart(null);
+  }, []);
 
   const types = useTypesStore((state) => state.types);
   const templates = useTypesStore((state) => state.templates);
@@ -940,6 +1072,8 @@ function GenericNode({
               onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
               onDownload={() => imageCreatorPreviewActions?.download()}
               canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+              motionStart={persistentPreviewMotionStart}
+              motionCommitToken={persistentPreviewMotionCommitToken}
             />
           )}
           {showNode && usesWideDoubaoLayout && isDoubaoVideoGenerator && selected && (
@@ -950,6 +1084,8 @@ function GenericNode({
               onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
               onDownload={() => videoGeneratorPreviewActions?.download()}
               canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
+              motionStart={persistentPreviewMotionStart}
+              motionCommitToken={persistentPreviewMotionCommitToken}
             />
           )}
           {showNode && usesWideDoubaoLayout && isDoubaoAudioGenerator && selected && (
@@ -1102,6 +1238,10 @@ function GenericNode({
                   buildStatus={buildStatus}
                   selected={selected ?? false}
                   onPreviewActionsChange={setImageCreatorPreviewActions}
+                  onPersistentPreviewMotionStart={({ deltaTopPx, durationMs, easing }) =>
+                    handlePersistentPreviewMotionStart({ deltaTopPx, durationMs, easing })
+                  }
+                  onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
                 />
               ) : isDoubaoVideoGenerator ? (
                 <DoubaoVideoGeneratorLayout
@@ -1111,6 +1251,10 @@ function GenericNode({
                   buildStatus={buildStatus}
                   selected={selected ?? false}
                   onPreviewActionsChange={setVideoGeneratorPreviewActions}
+                  onPersistentPreviewMotionStart={({ deltaTopPx, durationMs, easing }) =>
+                    handlePersistentPreviewMotionStart({ deltaTopPx, durationMs, easing })
+                  }
+                  onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
                 />
               ) : isDoubaoAudioGenerator ? (
                 <DoubaoAudioLayout

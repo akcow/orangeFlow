@@ -66,6 +66,7 @@ const lastPersistentPreviewPaddingByKey = new Map<string, number>();
 function resolvePersistentPreviewPaddingPercent(
   rawAspectRatio: string | undefined,
   appearance: DoubaoPreviewAppearance,
+  adaptivePaddingPercent?: number | null,
 ): number {
   const fallback =
     appearance === "videoGenerator"
@@ -73,12 +74,14 @@ function resolvePersistentPreviewPaddingPercent(
       : DEFAULT_IMAGE_PADDING_PERCENT;
 
   const raw = String(rawAspectRatio ?? "").trim();
-  if (!raw) return fallback;
+  // Treat empty as "adaptive" for the persistent preview frame.
+  if (!raw) {
+    return adaptivePaddingPercent ?? fallback;
+  }
 
   const lowered = raw.toLowerCase();
   if (lowered === "adaptive" || lowered === "auto") {
-    // Historical default: 16:9 for video; 1:1 for image.
-    return appearance === "videoGenerator" ? 56.25 : DEFAULT_IMAGE_PADDING_PERCENT;
+    return adaptivePaddingPercent ?? fallback;
   }
 
   // Supports "W:H" (e.g. "16:9") and "WxH" (e.g. "1024x768"), including labels like "16:9 横屏".
@@ -122,6 +125,14 @@ type Props = {
   onSuggestionClick?: (label: string) => void;
   onActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
   aspectRatio?: string;
+  // Used by parent layouts to sync UI (e.g. "+" handles) with the persistent preview resize animation.
+  onPersistentPreviewMotionStart?: (motion: {
+    deltaTopPx: number;
+    deltaCenterPx: number;
+    durationMs: number;
+    easing: string;
+  }) => void;
+  onPersistentPreviewMotionCommit?: () => void;
 };
 
 type GalleryItem = {
@@ -155,6 +166,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       onSuggestionClick,
       onActionsChange,
       aspectRatio,
+      onPersistentPreviewMotionStart,
+      onPersistentPreviewMotionCommit,
     },
     forwardedRef,
   ) => {
@@ -275,10 +288,26 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const isPersistentPreview =
       appearance === "imageCreator" || appearance === "videoGenerator";
     const paddingCacheKey = `${nodeId}:${appearance}`;
+    const [adaptivePaddingPercent, setAdaptivePaddingPercent] = useState<number | null>(
+      null,
+    );
+    const handlePreviewMeta = useCallback((meta: any) => {
+      const width = Number(meta?.width);
+      const height = Number(meta?.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+      if (width <= 0 || height <= 0) return;
+      const percent = (height / width) * 100;
+      const clamped = Math.max(0, Math.round(percent * 100) / 100);
+      setAdaptivePaddingPercent(clamped);
+    }, []);
     const targetPaddingPercent = useMemo(() => {
       if (!isPersistentPreview) return null;
-      return resolvePersistentPreviewPaddingPercent(aspectRatio, appearance);
-    }, [appearance, aspectRatio, isPersistentPreview]);
+      return resolvePersistentPreviewPaddingPercent(
+        aspectRatio,
+        appearance,
+        adaptivePaddingPercent,
+      );
+    }, [appearance, aspectRatio, isPersistentPreview, adaptivePaddingPercent]);
 
     // Geometry used for layout (padding-bottom). For performance we avoid animating layout; we animate with
     // transforms and only "commit" a single layout size change.
@@ -291,7 +320,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const [isRatioTransitioning, setIsRatioTransitioning] = useState(false);
     const persistentPreviewFrameRef = useRef<HTMLDivElement | null>(null);
-    const persistentPreviewContentRef = useRef<HTMLDivElement | null>(null);
+    const persistentPreviewScaleShieldRef = useRef<HTMLDivElement | null>(null);
+    const persistentPreviewTranslateLayerRef = useRef<HTMLDivElement | null>(null);
     const pendingRatioAnimationRef = useRef<{
       fromScaleY: number;
       toScaleY: number;
@@ -301,7 +331,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const ratioAnimSeqRef = useRef(0);
     const [ratioAnimSeq, setRatioAnimSeq] = useState(0);
     const ratioFrameAnimationRef = useRef<Animation | null>(null);
-    const ratioContentAnimationRef = useRef<Animation | null>(null);
     const transitionEndFallbackRef = useRef<((event: TransitionEvent) => void) | null>(
       null,
     );
@@ -315,8 +344,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       // Cancel any in-flight animation.
       ratioFrameAnimationRef.current?.cancel();
       ratioFrameAnimationRef.current = null;
-      ratioContentAnimationRef.current?.cancel();
-      ratioContentAnimationRef.current = null;
       const el = persistentPreviewFrameRef.current;
       if (el && transitionEndFallbackRef.current) {
         el.removeEventListener("transitionend", transitionEndFallbackRef.current);
@@ -358,8 +385,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       if (targetPaddingPercent === null) return;
 
       const frameEl = persistentPreviewFrameRef.current;
-      const contentEl = persistentPreviewContentRef.current;
-      if (!frameEl || !contentEl) return;
+      const shieldEl = persistentPreviewScaleShieldRef.current;
+      const translateEl = persistentPreviewTranslateLayerRef.current;
+      if (!frameEl) return;
+      if (!shieldEl || !translateEl) return;
 
       // If we just committed a shrink (layout changed after finishing the animation), clear transforms before paint.
       if (shouldResetTransformsOnNextLayoutRef.current) {
@@ -368,11 +397,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         frameEl.style.transformOrigin = "";
         frameEl.style.transform = "";
         frameEl.style.transition = "";
-        contentEl.style.willChange = "";
-        contentEl.style.transformOrigin = "";
-        contentEl.style.transform = "";
-        contentEl.style.transition = "";
+        shieldEl.style.willChange = "";
+        shieldEl.style.transformOrigin = "";
+        shieldEl.style.transform = "";
+        shieldEl.style.transition = "";
+        translateEl.style.willChange = "";
+        translateEl.style.transform = "";
+        translateEl.style.transition = "";
         setIsRatioTransitioning(false);
+        onPersistentPreviewMotionCommit?.();
         return;
       }
 
@@ -387,8 +420,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       // Cancel any in-flight animation and detach fallback listeners.
       ratioFrameAnimationRef.current?.cancel();
       ratioFrameAnimationRef.current = null;
-      ratioContentAnimationRef.current?.cancel();
-      ratioContentAnimationRef.current = null;
       if (transitionEndFallbackRef.current) {
         frameEl.removeEventListener("transitionend", transitionEndFallbackRef.current);
         transitionEndFallbackRef.current = null;
@@ -398,47 +429,69 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       // Match expected behavior: keep the bottom edge visually anchored while resizing.
       frameEl.style.transformOrigin = "bottom";
       frameEl.style.willChange = "transform";
-      contentEl.style.transformOrigin = "bottom";
-      contentEl.style.willChange = "transform";
+      shieldEl.style.transformOrigin = "bottom";
+      shieldEl.style.willChange = "transform";
+      translateEl.style.willChange = "transform";
 
       const cleanup = () => {
         frameEl.style.willChange = "";
         frameEl.style.transformOrigin = "";
         frameEl.style.transition = "";
         frameEl.style.transform = "";
-        contentEl.style.willChange = "";
-        contentEl.style.transformOrigin = "";
-        contentEl.style.transition = "";
-        contentEl.style.transform = "";
+        shieldEl.style.willChange = "";
+        shieldEl.style.transformOrigin = "";
+        shieldEl.style.transition = "";
+        shieldEl.style.transform = "";
+        translateEl.style.willChange = "";
+        translateEl.style.transition = "";
+        translateEl.style.transform = "";
         setIsRatioTransitioning(false);
       };
 
       const durationMs = 200;
       const easing = "cubic-bezier(0.22, 1, 0.36, 1)";
 
+      // Use unscaled layout pixels so the animation stays correct under canvas zoom.
+      const baseHeightPx = frameEl.offsetHeight || frameEl.getBoundingClientRect().height;
+      const deltaTopPx = (1 - toScaleY) * baseHeightPx;
+      const deltaCenterPx = deltaTopPx / 2;
+      onPersistentPreviewMotionStart?.({
+        deltaTopPx,
+        deltaCenterPx,
+        durationMs,
+        easing,
+      });
+
       // Pre-apply starting transforms so we never flash the "final" frame before the animation begins.
       frameEl.style.transform = `scaleY(${fromScaleY})`;
-      contentEl.style.transform = `scaleY(${1 / fromScaleY})`;
+      shieldEl.style.transform = "scaleY(1)";
+      translateEl.style.transform = "translateY(0px)";
 
-      if (typeof frameEl.animate === "function" && typeof contentEl.animate === "function") {
+      if (
+        typeof frameEl.animate === "function" &&
+        typeof shieldEl.animate === "function" &&
+        typeof translateEl.animate === "function"
+      ) {
         const frameAnim = frameEl.animate(
           [{ transform: `scaleY(${fromScaleY})` }, { transform: `scaleY(${toScaleY})` }],
           { duration: durationMs, easing, fill: "both" },
         );
-        const contentAnim = contentEl.animate(
-          [
-            { transform: `scaleY(${1 / fromScaleY})` },
-            { transform: `scaleY(${1 / toScaleY})` },
-          ],
+        ratioFrameAnimationRef.current = frameAnim;
+        const shieldAnim = shieldEl.animate(
+          [{ transform: "scaleY(1)" }, { transform: `scaleY(${1 / toScaleY})` }],
           { duration: durationMs, easing, fill: "both" },
         );
-        ratioFrameAnimationRef.current = frameAnim;
-        ratioContentAnimationRef.current = contentAnim;
+        const translateAnim = translateEl.animate(
+          // Keep inner content unscaled (via shield) and re-center it within the scaled frame.
+          [{ transform: "translateY(0px)" }, { transform: `translateY(${deltaCenterPx}px)` }],
+          { duration: durationMs, easing, fill: "both" },
+        );
 
         frameAnim.onfinish = () => {
           // Freeze final transforms as inline styles so we can commit the real layout size without a flash.
           frameEl.style.transform = `scaleY(${toScaleY})`;
-          contentEl.style.transform = `scaleY(${1 / toScaleY})`;
+          shieldEl.style.transform = `scaleY(${1 / toScaleY})`;
+          translateEl.style.transform = `translateY(${deltaCenterPx}px)`;
 
           // Remove the animation effect stack (now that the final state is captured in inline styles).
           try {
@@ -447,12 +500,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             // ignore
           }
           try {
-            contentAnim.cancel();
+            shieldAnim.cancel();
+          } catch {
+            // ignore
+          }
+          try {
+            translateAnim.cancel();
           } catch {
             // ignore
           }
           ratioFrameAnimationRef.current = null;
-          ratioContentAnimationRef.current = null;
 
           // Commit the layout size; transforms will be cleared in the next layout effect (before paint).
           if (finalizePaddingPercent !== null) {
@@ -465,7 +522,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         };
         frameAnim.oncancel = () => {
           ratioFrameAnimationRef.current = null;
-          ratioContentAnimationRef.current = null;
           cleanup();
         };
         return;
@@ -473,13 +529,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
       // Fallback: CSS transition on transform (frame + content).
       frameEl.style.transition = "none";
-      contentEl.style.transition = "none";
+      shieldEl.style.transition = "none";
+      translateEl.style.transition = "none";
       void frameEl.getBoundingClientRect();
       requestAnimationFrame(() => {
         frameEl.style.transition = `transform ${durationMs}ms ${easing}`;
-        contentEl.style.transition = `transform ${durationMs}ms ${easing}`;
+        shieldEl.style.transition = `transform ${durationMs}ms ${easing}`;
+        translateEl.style.transition = `transform ${durationMs}ms ${easing}`;
         frameEl.style.transform = `scaleY(${toScaleY})`;
-        contentEl.style.transform = `scaleY(${1 / toScaleY})`;
+        shieldEl.style.transform = `scaleY(${1 / toScaleY})`;
+        translateEl.style.transform = `translateY(${deltaCenterPx}px)`;
       });
 
       const onEnd = (event: TransitionEvent) => {
@@ -491,7 +550,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         if (finalizePaddingPercent !== null) {
           // Capture final transforms for the same reason as the WAAPI branch.
           frameEl.style.transform = `scaleY(${toScaleY})`;
-          contentEl.style.transform = `scaleY(${1 / toScaleY})`;
+          shieldEl.style.transform = `scaleY(${1 / toScaleY})`;
+          translateEl.style.transform = `translateY(${deltaCenterPx}px)`;
           shouldResetTransformsOnNextLayoutRef.current = true;
           setLayoutPaddingPercent(finalizePaddingPercent);
           return;
@@ -505,13 +565,31 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     useEffect(() => {
       return () => {
         const el = persistentPreviewFrameRef.current;
+        const shieldEl = persistentPreviewScaleShieldRef.current;
+        const translateEl = persistentPreviewTranslateLayerRef.current;
         ratioFrameAnimationRef.current?.cancel();
         ratioFrameAnimationRef.current = null;
-        ratioContentAnimationRef.current?.cancel();
-        ratioContentAnimationRef.current = null;
         if (el && transitionEndFallbackRef.current) {
           el.removeEventListener("transitionend", transitionEndFallbackRef.current);
           transitionEndFallbackRef.current = null;
+        }
+        // Ensure no stale transforms persist if the node unmounts mid-animation.
+        if (el) {
+          el.style.transform = "";
+          el.style.transition = "";
+          el.style.transformOrigin = "";
+          el.style.willChange = "";
+        }
+        if (shieldEl) {
+          shieldEl.style.transform = "";
+          shieldEl.style.transition = "";
+          shieldEl.style.transformOrigin = "";
+          shieldEl.style.willChange = "";
+        }
+        if (translateEl) {
+          translateEl.style.transform = "";
+          translateEl.style.transition = "";
+          translateEl.style.willChange = "";
         }
       };
     }, []);
@@ -895,6 +973,18 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       ]
       : null;
 
+    // Prime adaptive ratio immediately from known metadata (avoids waiting for <img>/<video> metadata events).
+    useEffect(() => {
+      if (!isPersistentPreview) return;
+      if (kind !== "image") return;
+      const width = Number(currentImage?.width);
+      const height = Number(currentImage?.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+      if (width <= 0 || height <= 0) return;
+      const percent = (height / width) * 100;
+      setAdaptivePaddingPercent(Math.max(0, Math.round(percent * 100) / 100));
+    }, [currentImage?.height, currentImage?.width, isPersistentPreview, kind]);
+
     const handleNavigateImages = useCallback(
       (delta: number) => {
         if (!galleryForRenderer?.length) return;
@@ -1045,6 +1135,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             duration={videoPreview.duration}
             frameless={appearance === "videoGenerator"}
             autoPlay={enableHoverAutoplay ? isPersistentPreviewHovered : undefined}
+            onMeta={handlePreviewMeta}
           />
         ) : kind === "audio" && audioPreview ? (
           <AudioPreview audioUrl={audioPreview.audioUrl} />
@@ -1055,6 +1146,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             onNavigate={handleNavigateImages}
             onSelect={handleSelectImage}
             onError={handleModalError}
+            onMeta={handlePreviewMeta}
             appearance={appearance}
           />
         ) : (
@@ -1239,34 +1331,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             }
           >
             {isPersistentPreview ? (
-              <div
-                ref={persistentPreviewContentRef}
-                className="absolute inset-0 relative"
-              >
-                {appearance === "default" && (
-                  <div className="absolute bottom-4 left-4 z-10">
-                    <OutputModal
-                      open={isLogsOpen}
-                      setOpen={setLogsOpen}
-                      disabled={false}
-                      nodeId={nodeId}
-                      outputName={outputName}
-                    >
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 rounded-full px-2 text-[11px]"
-                      >
-                        <ForwardedIconComponent
-                          name="FileText"
-                          className="mr-1 h-3 w-3"
-                        />
-                        Logs
-                      </Button>
-                    </OutputModal>
-                  </div>
-                )}
-
+              <div className="absolute inset-0">
+                <div ref={persistentPreviewScaleShieldRef} className="absolute inset-0">
+                  <div
+                    ref={persistentPreviewTranslateLayerRef}
+                    className="absolute inset-0"
+                  >
                 <div className={previewSurfaceClassName}>{inlinePreview}</div>
                 {showReferenceSelectionBadge && (
                   <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
@@ -1318,21 +1388,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                           <span>保存</span>
                         </button>
                       )}
-                      {(appearance === "default" ||
-                        appearance === "audioCreator") &&
-                        hasRenderablePreview && (
-                          <button
-                            type="button"
-                            aria-label="放大预览"
-                            onClick={openModal}
-                            className="group flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3C4258] shadow"
-                          >
-                            <ForwardedIconComponent
-                              name="Maximize2"
-                              className="h-4 w-4 text-current"
-                            />
-                          </button>
-                        )}
                     </div>
                   )
                 ) : (
@@ -1367,6 +1422,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                     <span>下载结果</span>
                   </button>
                 )}
+                  </div>
+                </div>
               </div>
             ) : (
               <>
@@ -1445,9 +1502,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                           <span>保存</span>
                         </button>
                       )}
-                      {(appearance === "default" ||
-                        appearance === "audioCreator") &&
-                        hasRenderablePreview && (
+                      {hasRenderablePreview && (
                           <button
                             type="button"
                             aria-label="放大预览"
@@ -1480,7 +1535,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                     )
                 )}
 
-                {appearance !== "imageCreator" && downloadInfo && !isAudioMinimal && (
+                {downloadInfo && !isAudioMinimal && (
                   <button
                     onClick={handleDownload}
                     className={cn(
@@ -1541,12 +1596,19 @@ export default DoubaoPreviewPanel;
 
 function inferExtensionFromSource(source: string, fallback: string): string {
   if (!source) return fallback;
+  const normalizeExt = (ext: string) => {
+    const normalized = ext.split("+")[0].toLowerCase();
+    // Backend may persist some media with a masked extension (e.g. ".mp_") even though the bytes are MP4.
+    if (normalized === "mp_") return "mp4";
+    if (normalized === "mov_") return "mov";
+    return normalized;
+  };
   if (source.startsWith("data:")) {
     const match = /^data:([^;]+)/.exec(source);
     const mimeType = match?.[1];
     if (mimeType) {
       const ext = mimeType.split("/").pop();
-      if (ext) return ext.split("+")[0];
+      if (ext) return normalizeExt(ext);
     }
     return fallback;
   }
@@ -1555,12 +1617,12 @@ function inferExtensionFromSource(source: string, fallback: string): string {
     const url = new URL(source);
     const pathExt = url.pathname.split(".").pop();
     if (pathExt && pathExt.length <= 5) {
-      return pathExt.toLowerCase();
+      return normalizeExt(pathExt);
     }
   } catch {
     const match = /\.([a-z0-9]+)(?:[\?#]|$)/i.exec(source);
     if (match?.[1]) {
-      return match[1].toLowerCase();
+      return normalizeExt(match[1]);
     }
   }
 
@@ -1572,7 +1634,9 @@ function isVideoCandidate(source: string | undefined, fileName?: string) {
   return (
     combined.includes(".mp4") ||
     combined.includes(".mov") ||
-    combined.includes(".webm")
+    combined.includes(".webm") ||
+    // Some uploads get stored with a "masked" extension (e.g. ".mp_") but are still MP4 content.
+    combined.includes(".mp_")
   );
 }
 
@@ -1704,12 +1768,10 @@ function EmptyPreview({
             type="button"
             disabled={Boolean(isBuilding || item.disabled)}
             className={cn(
-              // Keep these buttons visibly "button-like" in light mode too; otherwise they can blend
-              // into the preview surface and look like they're missing.
-              "flex w-full items-center gap-2 rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 py-2 text-[#2E3150] shadow-sm transition-colors duration-200 hover:bg-[#E9EEFF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B66FF]/25 dark:border-white/20 dark:bg-neutral-800/70 dark:text-slate-100 dark:hover:bg-neutral-800/80",
+              "flex w-full items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-[#3C4258] shadow-sm transition dark:border-white/10 dark:bg-white/5 dark:text-slate-100",
               isBuilding || item.disabled
                 ? "cursor-not-allowed opacity-60"
-                : "",
+                : "hover:border-slate-300 hover:bg-white dark:hover:border-white/20",
             )}
             onClick={(event) => {
               event.preventDefault();
@@ -1720,7 +1782,7 @@ function EmptyPreview({
           >
             <ForwardedIconComponent
               name={item.icon}
-              className="h-4 w-4 text-[#8D92A8] dark:text-slate-300"
+              className="h-4 w-4 text-muted-foreground"
             />
             <span>{item.label}</span>
           </button>
@@ -1770,7 +1832,7 @@ function EmptyPreview({
               onUploadClick && (
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 py-2 text-base font-medium text-[#1B66FF] shadow-sm transition-colors duration-200 hover:bg-[#E9EEFF] dark:border-white/20 dark:bg-neutral-800/70 dark:text-[#9BB8FF] dark:hover:bg-neutral-800/80"
+                  className="text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1816,7 +1878,7 @@ function EmptyPreview({
         </div>
         <button
           type="button"
-          className="mx-auto mt-4 inline-flex items-center justify-center rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 py-2 text-base font-medium text-[#1B66FF] shadow-sm transition-colors duration-200 hover:bg-[#E9EEFF] dark:border-white/20 dark:bg-neutral-800/70 dark:text-[#9BB8FF] dark:hover:bg-neutral-800/80"
+          className="mt-4 text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff] dark:hover:text-[#a6c4ff]"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();

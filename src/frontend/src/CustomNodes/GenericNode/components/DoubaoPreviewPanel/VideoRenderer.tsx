@@ -18,6 +18,7 @@ type VideoRendererProps = {
    * - undefined: no programmatic control (default behavior)
    */
   autoPlay?: boolean;
+  onMeta?: (meta: { width?: number; height?: number; aspectRatio?: number }) => void;
 };
 
 const SPEED_OPTIONS = [0.5, 1, 1.5, 2];
@@ -31,6 +32,7 @@ const VideoRenderer = ({
   showSpeedControl = false,
   onDownloadClick,
   autoPlay,
+  onMeta,
 }: VideoRendererProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -52,6 +54,14 @@ const VideoRenderer = ({
       const durationValue = video.duration || 0;
       setVideoDuration(durationValue);
       video.playbackRate = playbackRate;
+      onMeta?.({
+        width: video.videoWidth || undefined,
+        height: video.videoHeight || undefined,
+        aspectRatio:
+          video.videoWidth && video.videoHeight
+            ? video.videoWidth / video.videoHeight
+            : undefined,
+      });
       if (!videoUrl) return;
       if (durationValue > 0) return;
       if (retryCount >= 2) return;

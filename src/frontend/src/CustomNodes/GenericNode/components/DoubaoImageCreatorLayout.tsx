@@ -106,6 +106,13 @@ type DoubaoImageCreatorLayoutProps = {
   buildStatus: BuildStatus;
   selected?: boolean;
   onPreviewActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
+  onPersistentPreviewMotionStart?: (motion: {
+    deltaTopPx: number;
+    deltaCenterPx: number;
+    durationMs: number;
+    easing: string;
+  }) => void;
+  onPersistentPreviewMotionCommit?: () => void;
 };
 
 export default function DoubaoImageCreatorLayout({
@@ -115,6 +122,8 @@ export default function DoubaoImageCreatorLayout({
   buildStatus,
   selected = false,
   onPreviewActionsChange,
+  onPersistentPreviewMotionStart,
+  onPersistentPreviewMotionCommit,
 }: DoubaoImageCreatorLayoutProps) {
   const NODE_OFFSET_X = 1300;
   const uid = new ShortUniqueId({ length: 10 });
@@ -376,6 +385,71 @@ export default function DoubaoImageCreatorLayout({
   const [plusOffsetBySide, setPlusOffsetBySide] = useState<
     Record<PlusSide, { x: number; y: number }>
   >(DEFAULT_PLUS_OFFSET);
+
+  // Sync the external "+" handles with the preview frame aspect ratio animation (avoid end-of-animation jumps).
+  const leftHandleMotionRef = useRef<HTMLDivElement | null>(null);
+  const rightHandlesMotionRef = useRef<HTMLDivElement | null>(null);
+  const previewHandleAnimsRef = useRef<Animation[]>([]);
+  const clearPreviewHandleAnims = useCallback(() => {
+    previewHandleAnimsRef.current.forEach((anim) => {
+      try {
+        anim.cancel();
+      } catch {
+        // ignore
+      }
+    });
+    previewHandleAnimsRef.current = [];
+  }, []);
+
+  useEffect(() => clearPreviewHandleAnims, [clearPreviewHandleAnims]);
+
+  const handlePersistentPreviewMotionStart = useCallback(
+    (motion: {
+      deltaTopPx: number;
+      deltaCenterPx: number;
+      durationMs: number;
+      easing: string;
+    }) => {
+      clearPreviewHandleAnims();
+
+      const targets = [leftHandleMotionRef.current, rightHandlesMotionRef.current].filter(
+        Boolean,
+      ) as HTMLElement[];
+      if (!targets.length) return;
+
+      for (const el of targets) {
+        if (typeof el.animate !== "function") continue;
+        const anim = el.animate(
+          [{ transform: "translateY(0px)" }, { transform: `translateY(${motion.deltaCenterPx}px)` }],
+          { duration: motion.durationMs, easing: motion.easing, fill: "both" },
+        );
+        previewHandleAnimsRef.current.push(anim);
+        // Keep final transform until the preview panel commits its layout; we'll clear on commit callback.
+        anim.onfinish = () => {
+          el.style.transform = `translateY(${motion.deltaCenterPx}px)`;
+          try {
+            anim.cancel();
+          } catch {
+            // ignore
+          }
+        };
+      }
+
+      onPersistentPreviewMotionStart?.(motion);
+    },
+    [clearPreviewHandleAnims, onPersistentPreviewMotionStart],
+  );
+
+  const handlePersistentPreviewMotionCommit = useCallback(() => {
+    const targets = [leftHandleMotionRef.current, rightHandlesMotionRef.current].filter(
+      Boolean,
+    ) as HTMLElement[];
+    for (const el of targets) {
+      el.style.transform = "";
+    }
+    clearPreviewHandleAnims();
+    onPersistentPreviewMotionCommit?.();
+  }, [clearPreviewHandleAnims, onPersistentPreviewMotionCommit]);
 
   const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
   // Keep UI pixel size fixed while zoom >= 57%. Below that, allow it to shrink with the canvas.
@@ -2001,53 +2075,55 @@ export default function DoubaoImageCreatorLayout({
       <div className="relative flex flex-col gap-4 lg:flex-row">
         {referenceHandleMeta && (
           <div className="absolute left-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:block">
-            <HandleRenderComponent
-              left
-              tooltipTitle={referenceHandleMeta.tooltip}
-              id={referenceHandleMeta.id}
-              title={referenceHandleMeta.title}
-              nodeId={data.id}
-              myData={typeData}
-              colors={referenceHandleMeta.colors}
-              colorName={referenceHandleMeta.colorName}
-              setFilterEdge={setFilterEdge}
-              showNode={true}
-              testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
-              proxy={referenceHandleMeta.proxy}
-              uiVariant="plus"
-              visible={selected || visiblePlusSide === "left" || lockedPlusSide === "left"}
-              isTracking={activePlusSide === "left" || lockedPlusSide === "left"}
-              clickMode="menu"
-              onMenuRequest={({ x, y, kind }) => {
-                clearPlusTimers();
-                setVisiblePlusSide("left");
-                setActivePlusSide("left");
-                setQuickAddMenu({ x, y, kind });
-              }}
-              onPlusPointerEnter={(event) =>
-                lockedPlusSide
-                  ? undefined
-                  : showPlusForSide("left", event.clientX, event.clientY)
-              }
-              onPlusPointerMove={(event) =>
-                lockedPlusSide
-                  ? undefined
-                  : updatePlusOffset("left", event.clientX, event.clientY)
-              }
-              onPlusPointerLeave={(event) =>
-                lockedPlusSide
-                  ? undefined
-                  : startHidePlus("left", event.clientX, event.clientY)
-              }
-              // Keep the handle anchored on the preview edge (ghost origin),
-              // while rendering the visible "+" with the required gap.
-              // Requirement: gap (preview edge -> "+" outer edge) = 70px.
-              // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
-              visualOffset={{
-                x: plusOffsetBySide.left.x,
-                y: plusOffsetBySide.left.y,
-              }}
-            />
+            <div ref={leftHandleMotionRef}>
+              <HandleRenderComponent
+                left
+                tooltipTitle={referenceHandleMeta.tooltip}
+                id={referenceHandleMeta.id}
+                title={referenceHandleMeta.title}
+                nodeId={data.id}
+                myData={typeData}
+                colors={referenceHandleMeta.colors}
+                colorName={referenceHandleMeta.colorName}
+                setFilterEdge={setFilterEdge}
+                showNode={true}
+                testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
+                proxy={referenceHandleMeta.proxy}
+                uiVariant="plus"
+                visible={selected || visiblePlusSide === "left" || lockedPlusSide === "left"}
+                isTracking={activePlusSide === "left" || lockedPlusSide === "left"}
+                clickMode="menu"
+                onMenuRequest={({ x, y, kind }) => {
+                  clearPlusTimers();
+                  setVisiblePlusSide("left");
+                  setActivePlusSide("left");
+                  setQuickAddMenu({ x, y, kind });
+                }}
+                onPlusPointerEnter={(event) =>
+                  lockedPlusSide
+                    ? undefined
+                    : showPlusForSide("left", event.clientX, event.clientY)
+                }
+                onPlusPointerMove={(event) =>
+                  lockedPlusSide
+                    ? undefined
+                    : updatePlusOffset("left", event.clientX, event.clientY)
+                }
+                onPlusPointerLeave={(event) =>
+                  lockedPlusSide
+                    ? undefined
+                    : startHidePlus("left", event.clientX, event.clientY)
+                }
+                // Keep the handle anchored on the preview edge (ghost origin),
+                // while rendering the visible "+" with the required gap.
+                // Requirement: gap (preview edge -> "+" outer edge) = 70px.
+                // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
+                visualOffset={{
+                  x: plusOffsetBySide.left.x,
+                  y: plusOffsetBySide.left.y,
+                }}
+              />
+            </div>
           </div>
         )}
         <div ref={previewWrapRef} className="relative flex-1">
@@ -2096,7 +2172,13 @@ export default function DoubaoImageCreatorLayout({
             onRequestUpload={openUploadDialog}
             onSuggestionClick={handlePreviewSuggestionClickWithVideo}
             onActionsChange={onPreviewActionsChange}
-            aspectRatio={String(template.aspect_ratio?.value ?? "")}
+            aspectRatio={String(
+              template.aspect_ratio?.value ??
+                template.aspect_ratio?.default ??
+                "adaptive",
+            )}
+            onPersistentPreviewMotionStart={handlePersistentPreviewMotionStart}
+            onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
           />
         </div>
         {previewOutputHandles.length > 0 && (
@@ -2105,57 +2187,59 @@ export default function DoubaoImageCreatorLayout({
               "absolute right-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:flex lg:flex-col lg:items-start",
             )}
           >
-            {previewOutputHandles.map((handle, index) => (
-              <div
-                key={`${handle.id.name ?? "output"}-${index}`}
-                className="mb-3 last:mb-0"
-              >
-                <HandleRenderComponent
-                  left={false}
-                  tooltipTitle={handle.tooltip}
-                  id={handle.id}
-                  title={handle.title}
-                  nodeId={data.id}
-                  myData={typeData}
-                  colors={handle.colors}
-                  setFilterEdge={setFilterEdge}
-                  showNode={true}
-                  testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
-                  proxy={handle.proxy}
-                  colorName={handle.colorName}
-                  uiVariant="plus"
-                  visible={selected || visiblePlusSide === "right" || lockedPlusSide === "right"}
-                  isTracking={activePlusSide === "right" || lockedPlusSide === "right"}
-                  clickMode="menu"
-                  onMenuRequest={({ x, y, kind }) => {
-                    setVisiblePlusSide("right");
-                    setActivePlusSide("right");
-                    setQuickAddMenu({ x, y, kind });
-                  }}
-                  onPlusPointerEnter={(event) =>
-                    lockedPlusSide
-                      ? undefined
-                      : showPlusForSide("right", event.clientX, event.clientY)
-                  }
-                  onPlusPointerMove={(event) =>
-                    lockedPlusSide
-                      ? undefined
-                      : updatePlusOffset("right", event.clientX, event.clientY)
-                  }
-                  onPlusPointerLeave={(event) =>
-                    lockedPlusSide
-                      ? undefined
-                      : startHidePlus("right", event.clientX, event.clientY)
-                  }
-                  // Requirement: gap (preview edge -> "+" outer edge) = 70px.
-                  // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
-                  visualOffset={{
-                    x: plusOffsetBySide.right.x,
-                    y: plusOffsetBySide.right.y,
-                  }}
-                />
-              </div>
-            ))}
+            <div ref={rightHandlesMotionRef}>
+              {previewOutputHandles.map((handle, index) => (
+                <div
+                  key={`${handle.id.name ?? "output"}-${index}`}
+                  className="mb-3 last:mb-0"
+                >
+                  <HandleRenderComponent
+                    left={false}
+                    tooltipTitle={handle.tooltip}
+                    id={handle.id}
+                    title={handle.title}
+                    nodeId={data.id}
+                    myData={typeData}
+                    colors={handle.colors}
+                    setFilterEdge={setFilterEdge}
+                    showNode={true}
+                    testIdComplement={`${data.type?.toLowerCase()}-preview-output`}
+                    proxy={handle.proxy}
+                    colorName={handle.colorName}
+                    uiVariant="plus"
+                    visible={selected || visiblePlusSide === "right" || lockedPlusSide === "right"}
+                    isTracking={activePlusSide === "right" || lockedPlusSide === "right"}
+                    clickMode="menu"
+                    onMenuRequest={({ x, y, kind }) => {
+                      setVisiblePlusSide("right");
+                      setActivePlusSide("right");
+                      setQuickAddMenu({ x, y, kind });
+                    }}
+                    onPlusPointerEnter={(event) =>
+                      lockedPlusSide
+                        ? undefined
+                        : showPlusForSide("right", event.clientX, event.clientY)
+                    }
+                    onPlusPointerMove={(event) =>
+                      lockedPlusSide
+                        ? undefined
+                        : updatePlusOffset("right", event.clientX, event.clientY)
+                    }
+                    onPlusPointerLeave={(event) =>
+                      lockedPlusSide
+                        ? undefined
+                        : startHidePlus("right", event.clientX, event.clientY)
+                    }
+                    // Requirement: gap (preview edge -> "+" outer edge) = 70px.
+                    // "+" diameter is 72px (radius 36px), so center offset = 70 + 36 = 106.
+                    visualOffset={{
+                      x: plusOffsetBySide.right.x,
+                      y: plusOffsetBySide.right.y,
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
