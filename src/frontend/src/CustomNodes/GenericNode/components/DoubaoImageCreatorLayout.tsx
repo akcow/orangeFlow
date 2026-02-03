@@ -42,10 +42,12 @@ import {
 import HandleRenderComponent from "./handleRenderComponent";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
+import { computeAlignedNodeTopY } from "@/CustomNodes/helpers/previewCenterAlignment";
 import { useTypesStore } from "@/stores/typesStore";
 import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-colors";
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
 import { BASE_URL_API } from "@/constants/constants";
+import DoubaoImageCreatorResolutionAspectButton from "./DoubaoImageCreatorResolutionAspectButton";
 import {
   DoubaoParameterButton,
   type DoubaoControlConfig,
@@ -374,6 +376,7 @@ export default function DoubaoImageCreatorLayout({
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const [activePlusSide, setActivePlusSide] = useState<PlusSide | null>(null);
   const [visiblePlusSide, setVisiblePlusSide] = useState<PlusSide | null>(null);
+  // Note: we intentionally compute alignment at creation time to avoid extra renders (less jank).
   const DEFAULT_PLUS_OFFSET: Record<PlusSide, { x: number; y: number }> =
     useMemo(
       () => ({
@@ -736,19 +739,37 @@ export default function DoubaoImageCreatorLayout({
   }, [edgeImageCountLimit, template.image_count?.value, handleImageCountChange]);
 
   useEffect(() => {
-    // Nano Banana 模型不支持 image_size 参数，自动设置为 "Auto"
-    // 其他模型不支持 Auto 选项，切换到默认值 "2K（推荐）"
     const current = String(template.resolution?.value ?? "");
-    if (isNanoBanana) {
+    const options = Array.isArray(template.resolution?.options)
+      ? template.resolution.options
+      : [];
+    const supportsAuto = options.some((opt) => String(opt) === "Auto");
+
+    // Nano Banana doesn't support image_size; keep it at Auto (if Auto is available in options).
+    if (isNanoBanana && supportsAuto) {
       if (current !== "Auto") {
         handleResolutionChange({ value: "Auto" }, { skipSnapshot: true });
       }
-    } else {
-      if (current === "Auto") {
-        handleResolutionChange({ value: "2K（推荐）" }, { skipSnapshot: true });
+      return;
+    }
+
+    // If Auto is currently selected but the model doesn't offer it, move to a non-Auto fallback.
+    if (!isNanoBanana && current === "Auto" && !supportsAuto) {
+      const fallback =
+        template.resolution?.default ??
+        options.find((opt) => String(opt) !== "Auto") ??
+        options[0];
+      if (fallback !== undefined && fallback !== null && String(fallback) !== current) {
+        handleResolutionChange({ value: fallback }, { skipSnapshot: true });
       }
     }
-  }, [isNanoBanana, template.resolution?.value, handleResolutionChange]);
+  }, [
+    isNanoBanana,
+    template.resolution?.default,
+    template.resolution?.options,
+    template.resolution?.value,
+    handleResolutionChange,
+  ]);
 
   const handleRun = () => {
     clearFlowPoolForNodes([nodeIdForRun]);
@@ -784,9 +805,18 @@ export default function DoubaoImageCreatorLayout({
         options = buildRangeOptions(templateField);
       }
       if (field.name === "aspect_ratio") {
-        // Ensure "21:9", "4:5", "5:4", and "Adaptive" are in the list if not present
-        const extraRatios = ["21:9", "4:5", "5:4", "adaptive"];
-        options = Array.from(new Set([...options, ...extraRatios]));
+        // Add commonly supported ratios based on model capabilities (per docs / upstream support),
+        // but do not introduce unsupported knobs for models.
+        const extraRatios: Array<string> = [];
+        if (isGeminiImageModel) {
+          extraRatios.push("21:9", "4:5", "5:4");
+        }
+        if (isWanModel || isSeedreamImageModel || isKlingImageModel) {
+          extraRatios.push("21:9");
+        }
+        if (extraRatios.length) {
+          options = Array.from(new Set([...options, ...extraRatios]));
+        }
 
         // Nano Banana supports 4:5, 5:4.
         // Wan, Nano Banana, Seedream, Kling support 21:9.
@@ -814,17 +844,6 @@ export default function DoubaoImageCreatorLayout({
 
           if (optStr.toLowerCase() === "adaptive" && !isAdaptiveAllowed) {
             return false;
-          }
-          return true;
-        });
-      }
-      if (field.name === "resolution") {
-        // Auto 选项只在 Nano Banana 模型时显示
-        options = options.filter((opt) => {
-          const optStr = String(opt);
-          // 如果是 Auto 选项，只在 Nano Banana 模型时显示
-          if (optStr === "Auto") {
-            return isNanoBanana;
           }
           return true;
         });
@@ -872,7 +891,7 @@ export default function DoubaoImageCreatorLayout({
         if (field.name === "resolution") {
           // Nano Banana 不支持 image_size 参数，禁用所有分辨率选项
           // Nano Banana Pro 支持 image_size 参数，不禁用任何选项
-          return isNanoBanana ? options : undefined;
+          return isNanoBanana ? options.filter((opt) => String(opt) !== "Auto") : undefined;
         }
 
         return undefined;
@@ -909,6 +928,11 @@ export default function DoubaoImageCreatorLayout({
     isKlingImageModel,
     edgeImageCountLimit,
   ]);
+
+  const modelNameConfig = controlConfigs.find((config) => config.name === "model_name");
+  const resolutionConfig = controlConfigs.find((config) => config.name === "resolution");
+  const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
+  const imageCountConfig = controlConfigs.find((config) => config.name === "image_count");
 
   const multiTurnEnabled = Boolean(template?.[MULTI_TURN_FIELD]?.value);
   const onlineSearchEnabled = Boolean(template?.[ONLINE_SEARCH_FIELD]?.value);
@@ -1045,19 +1069,22 @@ export default function DoubaoImageCreatorLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
-    const downstreamIndex = forceNew
-      ? nodes.filter(
-        (node) =>
-          node.data?.type === "DoubaoImageCreator" &&
-          node.position.x > currentNode.position.x,
-      ).length
-      : 0;
+    const newNodeX = currentNode.position.x + NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoImageCreator",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newImageNode: GenericNodeType = {
       id: newImageNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x + NODE_OFFSET_X,
-        y: currentNode.position.y + (forceNew ? 280 * (downstreamIndex + 1) : 0),
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(imageComponentTemplate),
@@ -1190,12 +1217,22 @@ export default function DoubaoImageCreatorLayout({
     takeSnapshot();
 
     const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newNodeX = currentNode.position.x - NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: TEXT_COMPONENT_NAME,
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newTextNode: GenericNodeType = {
       id: newTextNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x - NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(textTemplate),
@@ -1317,7 +1354,15 @@ export default function DoubaoImageCreatorLayout({
       type: "genericNode",
       position: {
         x: currentNode.position.x + NODE_OFFSET_X,
-        y: currentNode.position.y,
+        y: computeAlignedNodeTopY({
+          anchorNodeId: data.id,
+          anchorNodeType: data.type,
+          targetNodeType: TEXT_COMPONENT_NAME,
+          targetX: currentNode.position.x + NODE_OFFSET_X,
+          fallbackTopY: currentNode.position.y,
+          stepY: 160,
+          avoidOverlap: true,
+        }),
       },
       data: {
         node: seededTextTemplate,
@@ -1466,7 +1511,15 @@ export default function DoubaoImageCreatorLayout({
       type: "genericNode",
       position: {
         x: currentNode.position.x + NODE_OFFSET_X,
-        y: currentNode.position.y,
+        y: computeAlignedNodeTopY({
+          anchorNodeId: data.id,
+          anchorNodeType: data.type,
+          targetNodeType: "DoubaoVideoGenerator",
+          targetX: currentNode.position.x + NODE_OFFSET_X,
+          fallbackTopY: currentNode.position.y,
+          stepY: 160,
+          avoidOverlap: true,
+        }),
       },
       data: {
         node: cloneDeep(videoTemplate),
@@ -1594,19 +1647,22 @@ export default function DoubaoImageCreatorLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
-    const upstreamIndex = forceNew
-      ? nodes.filter(
-        (node) =>
-          node.data?.type === "DoubaoImageCreator" &&
-          node.position.x < currentNode.position.x,
-      ).length
-      : 0;
+    const newNodeX = currentNode.position.x - NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoImageCreator",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newImageNode: GenericNodeType = {
       id: newImageNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x - NODE_OFFSET_X,
-        y: currentNode.position.y + (forceNew ? 280 * (upstreamIndex + 1) : 0),
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(imageTemplate),
@@ -2126,7 +2182,11 @@ export default function DoubaoImageCreatorLayout({
             </div>
           </div>
         )}
-        <div ref={previewWrapRef} className="relative flex-1">
+        <div
+          ref={previewWrapRef}
+          className="relative flex-1"
+          data-preview-wrap="doubao"
+        >
           {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
@@ -2292,9 +2352,32 @@ export default function DoubaoImageCreatorLayout({
             </div>
 
             <div className="flex flex-wrap gap-3">
-              {controlConfigs.map((config) => (
-                <DoubaoParameterButton key={config.name} data={data} config={config} />
-              ))}
+              {modelNameConfig && (
+                <DoubaoParameterButton data={data} config={modelNameConfig} />
+              )}
+
+              {resolutionConfig && aspectRatioConfig ? (
+                <DoubaoImageCreatorResolutionAspectButton
+                  data={data}
+                  resolutionConfig={resolutionConfig}
+                  aspectRatioConfig={aspectRatioConfig}
+                  disabled={isBusy}
+                  widthClass="basis-[150px]"
+                />
+              ) : (
+                <>
+                  {resolutionConfig && (
+                    <DoubaoParameterButton data={data} config={resolutionConfig} />
+                  )}
+                  {aspectRatioConfig && (
+                    <DoubaoParameterButton data={data} config={aspectRatioConfig} />
+                  )}
+                </>
+              )}
+
+              {imageCountConfig && (
+                <DoubaoParameterButton data={data} config={imageCountConfig} />
+              )}
 
               {supportsGeminiFeatureButtons && (
                 <>

@@ -41,6 +41,7 @@ import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-color
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
+import { computeAlignedNodeTopY } from "@/CustomNodes/helpers/previewCenterAlignment";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import { useTextCreationPreview } from "../../hooks/use-text-creation-preview";
 
@@ -120,6 +121,7 @@ export default function TextCreationLayout({
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const [activePlusSide, setActivePlusSide] = useState<PlusSide | null>(null);
   const [visiblePlusSide, setVisiblePlusSide] = useState<PlusSide | null>(null);
+  // Note: we intentionally compute alignment at creation time to avoid extra renders (less jank).
   const DEFAULT_PLUS_OFFSET: Record<PlusSide, { x: number; y: number }> =
     useMemo(
       () => ({
@@ -446,6 +448,16 @@ export default function TextCreationLayout({
     takeSnapshot();
 
     const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+    const newNodeX = currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoVideoGenerator",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const seededVideoComponent = cloneDeep(videoComponentTemplate);
     if (seededVideoComponent.template?.prompt) {
       seededVideoComponent.template.prompt.value = "根据文字描述生成视频";
@@ -454,8 +466,8 @@ export default function TextCreationLayout({
       id: newVideoNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: seededVideoComponent,
@@ -554,6 +566,16 @@ export default function TextCreationLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const newNodeX = currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoImageCreator",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const seededImageComponent = cloneDeep(imageComponentTemplate);
     if (seededImageComponent.template?.prompt) {
       seededImageComponent.template.prompt.value = "根据文字描述生成图片";
@@ -563,8 +585,8 @@ export default function TextCreationLayout({
       id: newImageNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: seededImageComponent,
@@ -789,12 +811,22 @@ export default function TextCreationLayout({
     takeSnapshot();
 
     const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newNodeX = currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: TEXT_COMPONENT_NAME,
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newTextNode: GenericNodeType = {
       id: newTextNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(textTemplate),
@@ -906,12 +938,22 @@ export default function TextCreationLayout({
     takeSnapshot();
 
     const newAudioNodeId = getNodeId("DoubaoTTS");
+    const newNodeX = currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoTTS",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newAudioNode: GenericNodeType = {
       id: newAudioNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x + DOWNSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(audioComponentTemplate),
@@ -1057,12 +1099,22 @@ export default function TextCreationLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const newNodeX = currentNode.position.x - IMAGE_UPSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoImageCreator",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newImageNode: GenericNodeType = {
       id: newImageNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x - IMAGE_UPSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(imageComponentTemplate),
@@ -1416,7 +1468,11 @@ export default function TextCreationLayout({
           </div>
         )}
 
-        <div ref={previewWrapRef} className="relative flex-1">
+        <div
+          ref={previewWrapRef}
+          className="relative flex-1"
+          data-preview-wrap="doubao"
+        >
           {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"

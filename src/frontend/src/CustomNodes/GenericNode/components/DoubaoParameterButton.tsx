@@ -5,7 +5,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
@@ -42,6 +42,7 @@ export function DoubaoParameterButton({
   config: DoubaoControlConfig;
 }) {
   const { name, icon, options, template, value, widthClass, tooltip, disabledOptions } = config;
+  const [open, setOpen] = useState(false);
   const { handleOnNewValue } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
@@ -142,8 +143,10 @@ export function DoubaoParameterButton({
 
   return (
     <DropdownMenu
-      onOpenChange={(open) => {
-        if (!open) {
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
           setTimeout(blurActiveElement, 0);
         }
       }}
@@ -177,7 +180,10 @@ export function DoubaoParameterButton({
             </span>
             <ForwardedIconComponent
               name="ChevronDown"
-              className="h-4 w-4 flex-shrink-0 text-[#8D94B3] dark:text-slate-400"
+              className={cn(
+                "h-4 w-4 flex-shrink-0 text-[#8D94B3] transition-transform duration-200 ease-out dark:text-slate-400",
+                open && "rotate-180",
+              )}
             />
           </button>
         </DropdownMenuTrigger>
@@ -244,6 +250,12 @@ export function formatControlValue(name: string, value: any): string {
     const match = raw.match(/^(1K|2K|4K)/i);
     if (match) return match[1]!.toUpperCase();
 
+    return raw;
+  }
+  if (name === "aspect_ratio") {
+    const raw = String(value).trim();
+    if (!raw) return "";
+    if (raw.toLowerCase() === "adaptive") return "自适应";
     return raw;
   }
   if (name === "image_count") {

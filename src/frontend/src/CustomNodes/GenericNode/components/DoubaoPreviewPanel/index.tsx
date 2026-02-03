@@ -644,10 +644,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-colors transition-shadow duration-200 ease-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
               // backdrop-filter can force repaints during transform/layout changes; disable it only while animating.
               isRatioTransitioning && "dark:backdrop-blur-none",
-               isNodeSelected &&
-                 (isRatioTransitioning
-                   ? "ring-2 ring-node-selected/25"
-                   : "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]"),
+              // Keep selected shadow/ring visible during the ratio animation so the selection
+              // styling tracks the frame as it scales, instead of popping at the end.
+              isNodeSelected &&
+                "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
              ),
             )
            : cn(
@@ -1109,6 +1109,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       onRequestUpload &&
       (shouldShowImageUploadOverlay || shouldShowVideoUploadOverlay),
     );
+    // Upload button is now in the node top bar for persistent previews; keep the overlay only for non-persistent panels.
+    const showUploadOverlayInFrame = showUploadOverlay && !isPersistentPreview;
     const uploadButtonLabel = "上传";
     const showReferenceSelectionBadge =
       appearance === "imageCreator" &&
@@ -1345,11 +1347,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 )}
 
                 {isMinimal ? (
-                  (showUploadOverlay ||
+                  (showUploadOverlayInFrame ||
                     hasRenderablePreview ||
                     (isAudioMinimal && downloadInfo)) && (
                     <div className="absolute top-4 right-4 flex items-center gap-2">
-                      {showUploadOverlay && (
+                      {showUploadOverlayInFrame && (
                         <button
                           type="button"
                           className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
@@ -1459,11 +1461,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 )}
 
                 {isMinimal ? (
-                  (showUploadOverlay ||
+                  (showUploadOverlayInFrame ||
                     hasRenderablePreview ||
                     (isAudioMinimal && downloadInfo)) && (
                     <div className="absolute top-4 right-4 flex items-center gap-2">
-                      {showUploadOverlay && (
+                      {showUploadOverlayInFrame && (
                         <button
                           type="button"
                           className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"

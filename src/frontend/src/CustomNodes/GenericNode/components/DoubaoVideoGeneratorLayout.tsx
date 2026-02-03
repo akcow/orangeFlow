@@ -25,6 +25,7 @@ import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-color
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
+import { computeAlignedNodeTopY } from "@/CustomNodes/helpers/previewCenterAlignment";
 import {
   DoubaoParameterButton,
   type DoubaoControlConfig,
@@ -430,6 +431,7 @@ export default function DoubaoVideoGeneratorLayout({
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const [activePlusSide, setActivePlusSide] = useState<PlusSide | null>(null);
   const [visiblePlusSide, setVisiblePlusSide] = useState<PlusSide | null>(null);
+  // Note: we intentionally compute alignment at creation time to avoid extra renders (less jank).
   const DEFAULT_PLUS_OFFSET: Record<PlusSide, { x: number; y: number }> =
     useMemo(
       () => ({
@@ -1815,6 +1817,19 @@ export default function DoubaoVideoGeneratorLayout({
     setFirstFrameDialogOpen(true);
   }, [isFirstFrameUploadPending]);
 
+  // Keep parity with the image creator: allow external UI (node top bar) to trigger the upload dialog.
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const customEvent = event as CustomEvent<{ nodeId?: string }>;
+      const requestedNodeId = customEvent?.detail?.nodeId;
+      if (requestedNodeId && requestedNodeId !== data.id) return;
+      if (!requestedNodeId && !selected) return;
+      openFirstFrameDialog();
+    };
+    window.addEventListener("doubao-preview-upload", listener);
+    return () => window.removeEventListener("doubao-preview-upload", listener);
+  }, [data.id, openFirstFrameDialog, selected]);
+
   const requestUploadDialogForNode = useCallback((nodeId: string) => {
     const uploadEvent = new CustomEvent("doubao-preview-upload", {
       detail: { nodeId },
@@ -1863,12 +1878,22 @@ export default function DoubaoVideoGeneratorLayout({
     takeSnapshot();
 
     const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newNodeX = currentNode.position.x - UPSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: TEXT_COMPONENT_NAME,
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newTextNode: GenericNodeType = {
       id: newTextNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(textTemplate),
@@ -1976,12 +2001,22 @@ export default function DoubaoVideoGeneratorLayout({
     takeSnapshot();
 
     const newAudioNodeId = getNodeId(AUDIO_COMPONENT_NAME);
+    const newNodeX = currentNode.position.x - UPSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: AUDIO_COMPONENT_NAME,
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newAudioNode: GenericNodeType = {
       id: newAudioNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y + UPSTREAM_NODE_OFFSET_Y / 4,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(audioTemplate),
@@ -2099,6 +2134,16 @@ export default function DoubaoVideoGeneratorLayout({
     takeSnapshot();
 
     const newTextNodeId = getNodeId(TEXT_COMPONENT_NAME);
+    const newNodeX = currentNode.position.x + UPSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: TEXT_COMPONENT_NAME,
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const seededTextTemplate = cloneDeep(textTemplate);
     const geminiModel = seededTextTemplate.template?.model_name?.options?.find((opt) =>
       String(opt).startsWith("gemini-"),
@@ -2111,8 +2156,8 @@ export default function DoubaoVideoGeneratorLayout({
       id: newTextNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x + UPSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: seededTextTemplate,
@@ -2234,12 +2279,22 @@ export default function DoubaoVideoGeneratorLayout({
     takeSnapshot();
 
     const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+    const newNodeX = currentNode.position.x + UPSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoVideoGenerator",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newVideoNode: GenericNodeType = {
       id: newVideoNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x + UPSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(videoTemplate),
@@ -2376,12 +2431,22 @@ export default function DoubaoVideoGeneratorLayout({
     takeSnapshot();
 
     const newImageNodeId = getNodeId("DoubaoImageCreator");
+    const newNodeX = currentNode.position.x - UPSTREAM_NODE_OFFSET_X;
+    const newNodeY = computeAlignedNodeTopY({
+      anchorNodeId: data.id,
+      anchorNodeType: data.type,
+      targetNodeType: "DoubaoImageCreator",
+      targetX: newNodeX,
+      fallbackTopY: currentNode.position.y,
+      stepY: 160,
+      avoidOverlap: true,
+    });
     const newImageNode: GenericNodeType = {
       id: newImageNodeId,
       type: "genericNode",
       position: {
-        x: currentNode.position.x - UPSTREAM_NODE_OFFSET_X,
-        y: currentNode.position.y,
+        x: newNodeX,
+        y: newNodeY,
       },
       data: {
         node: cloneDeep(imageTemplate),
@@ -3243,7 +3308,11 @@ export default function DoubaoVideoGeneratorLayout({
             />
           </div>
         )}
-        <div ref={previewWrapRef} className="relative flex-1">
+        <div
+          ref={previewWrapRef}
+          className="relative flex-1"
+          data-preview-wrap="doubao"
+        >
           {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"

@@ -117,6 +117,13 @@ function DoubaoImageCreatorTopBar({
     return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
   }, [canvasZoom]);
 
+  const handleUpload = useCallback(() => {
+    const uploadEvent = new CustomEvent("doubao-preview-upload", {
+      detail: { nodeId },
+    });
+    window.dispatchEvent(uploadEvent);
+  }, [nodeId]);
+
   return (
     <div
       ref={motionRef}
@@ -147,6 +154,16 @@ function DoubaoImageCreatorTopBar({
             <ForwardedIconComponent name="FileText" className="h-5 w-5" />
           </button>
         </OutputModal>
+
+        <button
+          type="button"
+          title="上传"
+          aria-label="上传"
+          onClick={handleUpload}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+        >
+          <ForwardedIconComponent name="Upload" className="h-5 w-5" />
+        </button>
 
         <button
           type="button"
@@ -250,6 +267,13 @@ function DoubaoVideoGeneratorTopBar({
     return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
   }, [canvasZoom]);
 
+  const handleUpload = useCallback(() => {
+    const uploadEvent = new CustomEvent("doubao-preview-upload", {
+      detail: { nodeId },
+    });
+    window.dispatchEvent(uploadEvent);
+  }, [nodeId]);
+
   return (
     <div
       ref={motionRef}
@@ -280,6 +304,16 @@ function DoubaoVideoGeneratorTopBar({
             <ForwardedIconComponent name="FileText" className="h-5 w-5" />
           </button>
         </OutputModal>
+
+        <button
+          type="button"
+          title="上传"
+          aria-label="上传"
+          onClick={handleUpload}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+        >
+          <ForwardedIconComponent name="Upload" className="h-5 w-5" />
+        </button>
 
         <button
           type="button"
@@ -530,6 +564,48 @@ function GenericNode({
   } | null>(null);
   const [persistentPreviewMotionCommitToken, setPersistentPreviewMotionCommitToken] =
     useState(0);
+
+  // Sync the in-node title row (e.g. "视频创作") with the persistent preview resize animation.
+  // The node is bottom-anchored, so the final layout commit adjusts the node y-position; without this
+  // the title visually "jumps" only at the end.
+  const titleMotionRef = useRef<HTMLDivElement | null>(null);
+  const titleMotionAnimRef = useRef<Animation | null>(null);
+  useEffect(() => {
+    if (!persistentPreviewMotionStart?.token) return;
+    const el = titleMotionRef.current;
+    if (!el) return;
+
+    titleMotionAnimRef.current?.cancel();
+    titleMotionAnimRef.current = null;
+
+    const { deltaTopPx, durationMs, easing } = persistentPreviewMotionStart.motion;
+    if (typeof el.animate !== "function") return;
+    const anim = el.animate(
+      [{ transform: "translateY(0px)" }, { transform: `translateY(${deltaTopPx}px)` }],
+      { duration: durationMs, easing, fill: "both" },
+    );
+    titleMotionAnimRef.current = anim;
+    anim.onfinish = () => {
+      el.style.transform = `translateY(${deltaTopPx}px)`;
+      try {
+        anim.cancel();
+      } catch {
+        // ignore
+      }
+      if (titleMotionAnimRef.current === anim) titleMotionAnimRef.current = null;
+    };
+    anim.oncancel = () => {
+      if (titleMotionAnimRef.current === anim) titleMotionAnimRef.current = null;
+    };
+  }, [persistentPreviewMotionStart?.token]);
+
+  useEffect(() => {
+    const el = titleMotionRef.current;
+    if (!el) return;
+    titleMotionAnimRef.current?.cancel();
+    titleMotionAnimRef.current = null;
+    el.style.transform = "";
+  }, [persistentPreviewMotionCommitToken]);
 
   const handlePersistentPreviewMotionStart = useCallback(
     // Layouts may include extra fields (e.g. deltaCenterPx) for syncing other UI; we only need deltaTopPx here.
@@ -1065,49 +1141,58 @@ function GenericNode({
           )}
         >
           {showNode && usesWideDoubaoLayout && isDoubaoImageCreator && selected && (
-            <DoubaoImageCreatorTopBar
-              nodeId={data.id}
-              isOpen={isImageCreatorLogsOpen}
-              setOpen={setImageCreatorLogsOpen}
-              onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
-              onDownload={() => imageCreatorPreviewActions?.download()}
-              canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
-              motionStart={persistentPreviewMotionStart}
-              motionCommitToken={persistentPreviewMotionCommitToken}
-            />
+            <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
+              <DoubaoImageCreatorTopBar
+                nodeId={data.id}
+                isOpen={isImageCreatorLogsOpen}
+                setOpen={setImageCreatorLogsOpen}
+                onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
+                onDownload={() => imageCreatorPreviewActions?.download()}
+                canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+                motionStart={persistentPreviewMotionStart}
+                motionCommitToken={persistentPreviewMotionCommitToken}
+              />
+            </div>
           )}
           {showNode && usesWideDoubaoLayout && isDoubaoVideoGenerator && selected && (
-            <DoubaoVideoGeneratorTopBar
-              nodeId={data.id}
-              isOpen={isVideoGeneratorLogsOpen}
-              setOpen={setVideoGeneratorLogsOpen}
-              onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
-              onDownload={() => videoGeneratorPreviewActions?.download()}
-              canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
-              motionStart={persistentPreviewMotionStart}
-              motionCommitToken={persistentPreviewMotionCommitToken}
-            />
+            <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
+              <DoubaoVideoGeneratorTopBar
+                nodeId={data.id}
+                isOpen={isVideoGeneratorLogsOpen}
+                setOpen={setVideoGeneratorLogsOpen}
+                onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
+                onDownload={() => videoGeneratorPreviewActions?.download()}
+                canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
+                motionStart={persistentPreviewMotionStart}
+                motionCommitToken={persistentPreviewMotionCommitToken}
+              />
+            </div>
           )}
           {showNode && usesWideDoubaoLayout && isDoubaoAudioGenerator && selected && (
-            <DoubaoAudioTopBar
-              nodeId={data.id}
-              isOpen={isAudioCreatorLogsOpen}
-              setOpen={setAudioCreatorLogsOpen}
-              onOpenPreview={() => audioCreatorPreviewActions?.openPreview()}
-              onDownload={() => audioCreatorPreviewActions?.download()}
-              canDownload={Boolean(audioCreatorPreviewActions?.canDownload)}
-            />
+            <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
+              <DoubaoAudioTopBar
+                nodeId={data.id}
+                isOpen={isAudioCreatorLogsOpen}
+                setOpen={setAudioCreatorLogsOpen}
+                onOpenPreview={() => audioCreatorPreviewActions?.openPreview()}
+                onDownload={() => audioCreatorPreviewActions?.download()}
+                canDownload={Boolean(audioCreatorPreviewActions?.canDownload)}
+              />
+            </div>
           )}
           {showNode && usesWideDoubaoLayout && isTextCreation && selected && (
-            <TextCreationTopBar
-              nodeId={data.id}
-              isOpen={isTextCreationLogsOpen}
-              setOpen={setTextCreationLogsOpen}
-              onOpenPreview={() => textCreationPreviewActions?.openPreview()}
-            />
+            <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
+              <TextCreationTopBar
+                nodeId={data.id}
+                isOpen={isTextCreationLogsOpen}
+                setOpen={setTextCreationLogsOpen}
+                onOpenPreview={() => textCreationPreviewActions?.openPreview()}
+              />
+            </div>
           )}
           <div
             data-testid={"div-generic-node"}
+            ref={titleMotionRef}
             className={cn(
               "flex w-full flex-1 items-center justify-between gap-2 overflow-hidden px-4 py-3",
             )}

@@ -220,7 +220,7 @@ describe("DoubaoPreviewPanel", () => {
     expect(await screen.findByText("第 1 / 2 张")).toBeInTheDocument();
   });
 
-  test("renders uploaded reference images and supports upload action", async () => {
+  test("renders uploaded reference images (upload button moved to top bar)", async () => {
     const mockUpload = jest.fn();
     (useDoubaoPreview as jest.Mock).mockReturnValue({
       preview: null,
@@ -245,9 +245,9 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    const uploadButton = await screen.findByText("上传");
-    fireEvent.click(uploadButton);
-    expect(mockUpload).toHaveBeenCalled();
+    expect(await screen.findByAltText("参考图 1")).toBeInTheDocument();
+    // Persistent preview no longer shows an upload overlay button; it lives in the node top bar.
+    expect(screen.queryByText("上传")).not.toBeInTheDocument();
   });
 
   test("fires suggestion click callback in image creator empty state", async () => {
