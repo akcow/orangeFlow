@@ -2,7 +2,7 @@ import io
 import json
 import zipfile
 from datetime import datetime, timezone
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 from urllib.parse import quote
 from uuid import UUID
 
@@ -230,6 +230,7 @@ async def read_project(
     params: Annotated[Params | None, Depends(custom_params)],
     page: Annotated[int | None, Query()] = None,
     size: Annotated[int | None, Query()] = None,
+    sort_order: Annotated[Literal["asc", "desc"], Query()] = "desc",
     is_component: bool = False,
     is_flow: bool = False,
     search: str = "",
@@ -256,7 +257,9 @@ async def read_project(
             stmt = select(Flow).where(Flow.folder_id == project_id)
 
             if Flow.updated_at is not None:
-                stmt = stmt.order_by(Flow.updated_at.desc())  # type: ignore[attr-defined]
+                stmt = stmt.order_by(
+                    Flow.updated_at.asc() if sort_order == "asc" else Flow.updated_at.desc()  # type: ignore[attr-defined]
+                )
             if is_component:
                 stmt = stmt.where(Flow.is_component == True)  # noqa: E712
             if is_flow:

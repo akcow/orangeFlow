@@ -11,6 +11,7 @@ import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
+import type { handleOnNewValueType } from "../../hooks/use-handle-new-value";
 
 export type DoubaoControlConfig = {
   name: string;
@@ -21,6 +22,9 @@ export type DoubaoControlConfig = {
   widthClass?: string;
   tooltip?: string;
   disabledOptions?: Array<string | number>;
+  handleOnNewValueOptions?: (
+    nextValue: string | number,
+  ) => Parameters<handleOnNewValueType>[1];
 };
 
 export const DOUBAO_CONFIG_TOOLTIP = "参数选择说明";
@@ -94,7 +98,10 @@ export function DoubaoParameterButton({
     if (disabledOptionSet.has(nextValue)) return;
     const parsed =
       typeof template.value === "number" ? Number(nextValue) : nextValue;
-    handleOnNewValue({ value: parsed });
+    handleOnNewValue(
+      { value: parsed },
+      config.handleOnNewValueOptions?.(parsed),
+    );
     // Defer so we run after Radix closes the menu and restores focus.
     setTimeout(blurActiveElement, 0);
   };
@@ -244,11 +251,14 @@ export function formatControlValue(name: string, value: any): string {
   if (name === "resolution") {
     const raw = String(value).trim();
     if (!raw) return "";
-    if (raw.toLowerCase() === "auto") return "Auto";
+    if (raw.toLowerCase().startsWith("auto")) return "Auto";
 
     // Keep only the leading "1K/2K/4K" label (strip any suffix like "（推荐）").
     const match = raw.match(/^(1K|2K|4K)/i);
     if (match) return match[1]!.toUpperCase();
+
+    // Video resolutions typically use "720p/1080p" labels; normalize to "720P/1080P".
+    if (/^\d+p$/i.test(raw)) return raw.toUpperCase();
 
     return raw;
   }

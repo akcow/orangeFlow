@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import io
 import mimetypes
 import os
 import time
+import wave
 
 import requests
 from pathlib import Path
@@ -22,6 +24,7 @@ from lfx.custom.custom_component.component import Component
 from lfx.schema.data import Data
 from lfx.components.doubao.shared_credentials import resolve_credentials
 from lfx.inputs.inputs import (
+    BoolInput,
     DataInput,
     DropdownInput,
     FileInput,
@@ -47,6 +50,10 @@ class DoubaoVideoGenerator(Component):
 
     # 模型配置映射：UI显示名称 -> API端点ID/分支
     MODEL_MAPPING = {
+        # New display names (preferred)
+        "Seedance 1.5 pro": "doubao-seedance-1-5-pro-251215",
+        "Seedance 1.0 pro": "doubao-seedance-1-0-pro-250528",
+        # Backward-compatible legacy display names (existing saved flows)
         "Doubao-Seedance-1.5-pro｜251215": "doubao-seedance-1-5-pro-251215",
         "Doubao-Seedance-1.0-pro｜250528": "doubao-seedance-1-0-pro-250528",
         "wan2.6": "wan2.6",
@@ -58,10 +65,42 @@ class DoubaoVideoGenerator(Component):
         "kling O1": "kling-video-o1",
     }
 
+    # What the dropdown shows (keep this list clean; legacy aliases are accepted but not shown).
+    MODEL_DISPLAY_OPTIONS = [
+        "Seedance 1.5 pro",
+        "Seedance 1.0 pro",
+        "wan2.6",
+        "wan2.5",
+        "VEO3.1",
+        "veo3.1-fast",
+        "sora-2",
+        "sora-2-pro",
+        "kling O1",
+    ]
+
+    MODEL_NAME_ALIASES = {
+        "Doubao-Seedance-1.5-pro｜251215": "Seedance 1.5 pro",
+        "Doubao-Seedance-1.0-pro｜250528": "Seedance 1.0 pro",
+    }
+
     MODEL_LIMITS = {
+        "Seedance 1.5 pro": {
+            "resolutions": ["480p", "720p", "1080p"],
+            "min_duration": 4,
+            "max_duration": 12,
+            "supports_last_frame": True,
+            "supports_reference_images": False,
+        },
         "Doubao-Seedance-1.5-pro｜251215": {
             "resolutions": ["480p", "720p", "1080p"],
             "min_duration": 4,
+            "max_duration": 12,
+            "supports_last_frame": True,
+            "supports_reference_images": False,
+        },
+        "Seedance 1.0 pro": {
+            "resolutions": ["480p", "720p", "1080p"],
+            "min_duration": 2,
             "max_duration": 12,
             "supports_last_frame": True,
             "supports_reference_images": False,
@@ -152,8 +191,8 @@ class DoubaoVideoGenerator(Component):
         DropdownInput(
             name="model_name",
             display_name="模型名称",
-            options=list(MODEL_MAPPING.keys()),
-            value="Doubao-Seedance-1.0-pro｜250528",  # 使用UI显示的模型名称作为默认值
+            options=MODEL_DISPLAY_OPTIONS,
+            value="Seedance 1.0 pro",
             required=True,
             real_time_refresh=True,
             info="选择视频创作模型，UI显示模型名称，API调用使用对应的端点ID。",
@@ -174,6 +213,18 @@ class DoubaoVideoGenerator(Component):
             required=False,
             value={},
             input_types=["Data"],
+        ),
+        BoolInput(
+            name="enable_audio",
+            display_name="生成音频",
+            show=True,
+            required=False,
+            value=True,
+            info=(
+                "仅 Wan 2.5/2.6 文生/图生视频支持："
+                "开启=不传 audio_url 时自动配音/音效；关闭=强制静音（即使上游提供了音频输入也会被忽略）。"
+                "参考生视频（r2v）不支持关闭生成音频。"
+            ),
         ),
         SecretStrInput(
             name="ak",
@@ -400,6 +451,8 @@ class DoubaoVideoGenerator(Component):
             return Data(data=payload, type="video")
 
         model_name = str(self.model_name or "").strip()
+        # Accept legacy Seedance display names from existing saved flows.
+        model_name = self.MODEL_NAME_ALIASES.get(model_name, model_name)
         if model_name not in self.MODEL_MAPPING:
             return self._error(f"模型已下线或不支持：{model_name}")
         endpoint_id = self.MODEL_MAPPING[model_name]
@@ -523,6 +576,7 @@ class DoubaoVideoGenerator(Component):
         resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
         duration = int(getattr(self, "duration", 5) or 5)
         aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+        enable_audio = bool(getattr(self, "enable_audio", True))
 
         entries = self._collect_multimodal_inputs("first_frame_image")
         resolved_img_url = None
@@ -582,17 +636,28 @@ class DoubaoVideoGenerator(Component):
         # If an upstream audio synthesis node is connected but fails, keep auto voice and surface the reason.
         self._wan_audio_input_error = None  # type: ignore[attr-defined]
         resolved_audio_url: str | None = None
+
         if mode == "i2v":
             request_input["img_url"] = img_url
-            resolved_audio_url = self._resolve_wan_audio_url(api_key=api_key, model=dashscope_model)
-            if resolved_audio_url:
-                request_input["audio_url"] = resolved_audio_url
-        elif mode == "t2v":
-            resolved_audio_url = self._resolve_wan_audio_url(api_key=api_key, model=dashscope_model)
-            if resolved_audio_url:
-                request_input["audio_url"] = resolved_audio_url
-        else:
+        if mode == "r2v":
             request_input["reference_video_urls"] = reference_urls[:3]
+
+        # Wan 2.5+ t2v/i2v: audio behavior is controlled via input.audio_url.
+        # - enable_audio=true: omit audio_url => auto audio; audio_input can override via audio_url.
+        # - enable_audio=false: force mute by uploading a silent WAV to temporary OSS and setting audio_url.
+        # Note: r2v docs do not expose audio_url; we do NOT attempt to mute r2v here.
+        if not enable_audio and mode in {"t2v", "i2v"}:
+            silent_bytes = self._build_silent_wav_bytes(duration_seconds=duration)
+            resolved_audio_url = self._dashscope_upload_bytes_to_temporary_oss(
+                api_key=api_key,
+                model=dashscope_model,
+                file_name=f"silent_{duration}s.wav",
+                content_bytes=silent_bytes,
+            )
+            if not resolved_audio_url:
+                return self._error("无法上传静音音频（用于关闭生成音频），请稍后重试。")
+            request_input["audio_url"] = resolved_audio_url
+        else:
             resolved_audio_url = self._resolve_wan_audio_url(api_key=api_key, model=dashscope_model)
             if resolved_audio_url:
                 request_input["audio_url"] = resolved_audio_url
@@ -787,6 +852,29 @@ class DoubaoVideoGenerator(Component):
             )
             return oss_url
         return None
+
+    @staticmethod
+    def _build_silent_wav_bytes(*, duration_seconds: int, sample_rate: int = 16000) -> bytes:
+        """Build a small valid WAV payload (PCM 16-bit mono) containing only silence.
+
+        Used to force "muted" output on providers where omitting audio_url triggers auto audio generation.
+        """
+
+        duration_seconds = int(duration_seconds or 1)
+        if duration_seconds < 1:
+            duration_seconds = 1
+        frames = int(sample_rate) * duration_seconds
+        if frames < 1:
+            frames = int(sample_rate)
+        silence = b"\x00\x00" * frames
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(int(sample_rate))
+            wf.writeframes(silence)
+        return buffer.getvalue()
 
     def _extract_audio_candidate_from_upstream(self) -> dict[str, Any] | None:
         audio_input = getattr(self, "audio_input", None)
@@ -2482,6 +2570,7 @@ class DoubaoVideoGenerator(Component):
             resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
             duration = int(getattr(self, "duration", 5) or 5)
             aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+            enable_audio = bool(getattr(self, "enable_audio", True))
 
             entries = self._collect_multimodal_inputs("first_frame_image")
             resolved_img_url: str | None = None
@@ -2528,13 +2617,21 @@ class DoubaoVideoGenerator(Component):
             if mode == "r2v" and reference_urls:
                 extra_body["reference_video_urls"] = reference_urls[:3]
 
-            # Optional audio_input: pass url directly; if bytes are provided, let the gateway upload to temporary OSS.
-            candidate = self._extract_audio_candidate_from_upstream()
-            if candidate and candidate.get("kind") == "http":
-                extra_body["audio_url"] = str(candidate.get("url"))
-            elif candidate and candidate.get("kind") == "bytes":
-                extra_body["audio_file_name"] = str(candidate.get("file_name") or "audio.wav")
-                extra_body["audio_bytes"] = bytes(candidate.get("content") or b"")
+            # Audio behavior (Wan 2.5+ t2v/i2v):
+            # - enable_audio=true: omit audio_url => auto audio; or use upstream audio_input if provided.
+            # - enable_audio=false: force mute by providing a silent audio file (ignore upstream audio_input).
+            # Note: r2v docs do not expose audio_url; we therefore do NOT attempt to mute r2v here.
+            if not enable_audio and mode in {"t2v", "i2v"}:
+                extra_body["audio_file_name"] = f"silent_{duration}s.wav"
+                extra_body["audio_bytes"] = self._build_silent_wav_bytes(duration_seconds=duration)
+            else:
+                # Optional audio_input: pass url directly; if bytes are provided, let the gateway upload to temporary OSS.
+                candidate = self._extract_audio_candidate_from_upstream()
+                if candidate and candidate.get("kind") == "http":
+                    extra_body["audio_url"] = str(candidate.get("url"))
+                elif candidate and candidate.get("kind") == "bytes":
+                    extra_body["audio_file_name"] = str(candidate.get("file_name") or "audio.wav")
+                    extra_body["audio_bytes"] = bytes(candidate.get("content") or b"")
 
             create = videos_create(
                 model=dashscope_model,
@@ -2841,6 +2938,7 @@ class DoubaoVideoGenerator(Component):
             resolution = str(getattr(self, "resolution", "1080p") or "1080p").strip()
             duration = int(getattr(self, "duration", 5) or 5)
             aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+            enable_audio = bool(getattr(self, "enable_audio", True))
 
             # Build an Ark-compatible content payload (text + optional frames).
             text_params = f"{prompt} --ratio {aspect_ratio} --dur {duration} --resolution {resolution}"
@@ -2887,10 +2985,18 @@ class DoubaoVideoGenerator(Component):
                  # Doubao-Video vs Seedance conflict? 
                  # Old code: "豆包模型不支持首尾帧同时输入"
                  pass
+            extra_body: dict[str, Any] = {"content": content}
+            # Seedance 1.5 pro supports structured audio generation switch via `generate_audio`.
+            if endpoint_id == "doubao-seedance-1-5-pro-251215":
+                extra_body["generate_audio"] = bool(enable_audio)
+                extra_body["watermark"] = False
+
             create = videos_create(
                 model=endpoint_id,
                 prompt=prompt,
-                extra_body={"content": content},
+                ratio=aspect_ratio,
+                duration=duration,
+                extra_body=extra_body,
                 user_id=str(getattr(self, "user_id", "") or "") or None,
             )
             task_id = str(create.get("id") or "").strip()

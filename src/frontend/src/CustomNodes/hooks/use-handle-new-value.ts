@@ -1,5 +1,5 @@
 import { useUpdateNodeInternals } from "@xyflow/react";
-import { cloneDeep, debounce } from "lodash";
+import { debounce } from "lodash";
 import { useCallback, useMemo, useRef } from "react";
 import { DEBOUNCE_FIELD_LIST } from "@/constants/constants";
 import { usePostTemplateValue } from "@/controllers/API/queries/nodes/use-post-template-value";
@@ -60,8 +60,10 @@ const useHandleOnNewValue = ({
       setNode(
         nodeId,
         (oldNode) => {
-          const newData = cloneDeep(oldNode.data);
-          newData.node = newNode;
+          // This runs for every parameter change (including model switching). Deep-cloning the
+          // entire `data` object causes noticeable jank on large graphs; we only need a shallow
+          // copy since we replace `data.node` entirely.
+          const newData: any = { ...(oldNode as any).data, node: newNode };
           return {
             ...oldNode,
             data: newData,
@@ -80,8 +82,11 @@ const useHandleOnNewValue = ({
 
   const handleOnNewValue: handleOnNewValueType = useCallback(
     async (changes, options?) => {
-      const newNode = cloneDeep(node);
-      const template = newNode.template;
+      // Avoid cloneDeep(node): model switching + parameter edits happen frequently and the node
+      // templates can be large. Use copy-on-write for the specific template field being edited.
+      const templateRaw = node.template;
+      const template = templateRaw ? { ...templateRaw } : null;
+      const newNode: APIClassType = { ...node, template: template ?? undefined };
 
       // Debounced tracking
       track("Component Edited", { nodeId });
@@ -95,12 +100,15 @@ const useHandleOnNewValue = ({
         return;
       }
 
-      const parameter = template[name];
+      const parameterRaw = template[name];
 
-      if (!parameter) {
+      if (!parameterRaw) {
         setErrorData({ title: "Parameter not found in the template" });
         return;
       }
+
+      const parameter = { ...parameterRaw };
+      template[name] = parameter;
 
       const shouldDebounce = DEBOUNCE_FIELD_LIST.includes(
         parameter?._input_type,

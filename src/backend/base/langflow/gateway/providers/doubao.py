@@ -85,7 +85,7 @@ class DoubaoProvider(ProviderAdapter):
 
         payload: dict[str, Any] = {
             "model": request.model,
-            "content": [content_item]
+            "content": [content_item],
         }
         if isinstance(request.extra_body, dict) and request.extra_body:
             # Ark's content_generation API supports a rich shape; allow passthrough.
@@ -94,13 +94,24 @@ class DoubaoProvider(ProviderAdapter):
         # Pass extra body (for unique params like ratio/duration if Ark supports sending them outside text)
         # Actually Ark `content_generation` API is complex.
         # To match the component exactly:
-        params_str = f"{request.prompt}"
-        if request.ratio:
-            params_str += f" --ratio {request.ratio}"
-        if request.duration:
-            params_str += f" --dur {request.duration}"
-            
-        content_item["text"] = params_str
+        model_lower = str(request.model or "").lower()
+        is_seedance = "seedance" in model_lower
+
+        # For Seedance, prefer structured fields (ratio/duration/generate_audio) over prompt flags.
+        if is_seedance:
+            if request.ratio:
+                payload["ratio"] = request.ratio
+            if request.duration:
+                payload["duration"] = request.duration
+            # `generate_audio` is passed via extra_body by the caller when needed.
+            content_item["text"] = f"{request.prompt}"
+        else:
+            params_str = f"{request.prompt}"
+            if request.ratio:
+                params_str += f" --ratio {request.ratio}"
+            if request.duration:
+                params_str += f" --dur {request.duration}"
+            content_item["text"] = params_str
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:

@@ -33,6 +33,7 @@ import {
   DOUBAO_CONTROL_HINTS,
   DOUBAO_CONFIG_TOOLTIP,
 } from "./DoubaoParameterButton";
+import DoubaoVideoGeneratorResolutionAspectDurationButton from "./DoubaoVideoGeneratorResolutionAspectDurationButton";
 import HandleRenderComponent from "./handleRenderComponent";
 import {
   Dialog,
@@ -54,7 +55,7 @@ import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { BASE_URL_API } from "@/constants/constants";
 
 const CONTROL_FIELDS = [
-  { name: "model_name", icon: "Sparkles", widthClass: "basis-[220px] grow" },
+  { name: "model_name", icon: "Sparkles", widthClass: "basis-[125px] grow" },
   { name: "resolution", icon: "Monitor", widthClass: "basis-[140px]" },
   { name: "aspect_ratio", icon: "RectangleHorizontal", widthClass: "basis-[150px]" },
   { name: "duration", icon: "Timer", widthClass: "basis-[110px]" },
@@ -66,6 +67,7 @@ const FIRST_FRAME_FIELD = "first_frame_image";
 const LAST_FRAME_FIELD = "last_frame_image";
 const ASPECT_RATIO_FIELD = "aspect_ratio";
 const AUDIO_INPUT_FIELD = "audio_input";
+const ENABLE_AUDIO_FIELD = "enable_audio";
 const DEFAULT_ASPECT_RATIO_OPTIONS = [
   "16:9",
   "4:3",
@@ -79,9 +81,21 @@ const MODEL_LIMITS: Record<
   string,
   { resolutions?: string[]; minDuration?: number; maxDuration?: number; enableLastFrame?: boolean }
 > = {
+  "Seedance 1.5 pro": {
+    resolutions: ["480p", "720p", "1080p"],
+    minDuration: 4,
+    maxDuration: 12,
+    enableLastFrame: true,
+  },
   "Doubao-Seedance-1.5-pro｜251215": {
     resolutions: ["480p", "720p", "1080p"],
     minDuration: 4,
+    maxDuration: 12,
+    enableLastFrame: true,
+  },
+  "Seedance 1.0 pro": {
+    resolutions: ["480p", "720p", "1080p"],
+    minDuration: 2,
     maxDuration: 12,
     enableLastFrame: true,
   },
@@ -269,7 +283,7 @@ export default function DoubaoVideoGeneratorLayout({
   const AUDIO_OUTPUT_NAME = "audio";
   const FIRST_FRAME_BUTTON_LABEL = "首帧生成视频";
   const FIRST_LAST_FRAME_BUTTON_LABEL = "首尾帧生成视频";
-  const DEFAULT_LAST_FRAME_MODEL = "Doubao-Seedance-1.0-pro｜250528";
+  const DEFAULT_LAST_FRAME_MODEL = "Seedance 1.0 pro";
   const template = data.node?.template ?? {};
   // Avoid resizing the node while the user is box-selecting; resizing can cause the
   // selection set to oscillate and look like "twitching".
@@ -281,10 +295,12 @@ export default function DoubaoVideoGeneratorLayout({
     (template.model_name?.options?.[0] as string | undefined) ??
     "";
   const normalizedModelName = selectedModel.toString().trim();
+
   const isWanModel = normalizedModelName.startsWith("wan2.");
   const isVeoFast = normalizedModelName === "veo3.1-fast";
   const isVeoModel = normalizedModelName === "VEO3.1" || isVeoFast;
   const isSoraModel = normalizedModelName === "sora-2" || normalizedModelName === "sora-2-pro";
+  const isSeedanceModel = normalizedModelName.toLowerCase().includes("seedance");
   const isKlingModel = normalizedModelName.toLowerCase().startsWith("kling");
   const klingReferType = String(
     template.kling_video_refer_type?.value ??
@@ -316,6 +332,7 @@ export default function DoubaoVideoGeneratorLayout({
     FIRST_FRAME_FIELD,
     LAST_FRAME_FIELD,
     AUDIO_INPUT_FIELD,
+    ENABLE_AUDIO_FIELD,
     ...CONTROL_FIELDS.map((item) => item.name),
     ...SENSITIVE_FIELDS,
   ]);
@@ -392,6 +409,67 @@ export default function DoubaoVideoGeneratorLayout({
     nodeId: data.id,
     name: "model_name",
   });
+  const handleModelNameChangePreserve = useCallback(
+    (nextValue: string, options?: Parameters<handleOnNewValueType>[1]) => {
+      const snapshotField = (field: any) => {
+        const value = field?.value;
+        const file_path = field?.file_path;
+        return {
+          value: Array.isArray(value) ? [...value] : value,
+          file_path: Array.isArray(file_path) ? [...file_path] : file_path,
+        };
+      };
+
+      const preserved = {
+        first: snapshotField(template?.[FIRST_FRAME_FIELD]),
+        last: snapshotField(template?.[LAST_FRAME_FIELD]),
+        reference: snapshotField(template?.reference_images),
+        audio: snapshotField(template?.[AUDIO_INPUT_FIELD]),
+        enableAudio: snapshotField(template?.[ENABLE_AUDIO_FIELD]),
+      };
+
+      handleModelNameChange(
+        { value: nextValue },
+        {
+          ...options,
+          setNodeClass: (newNodeClass) => {
+            const nextTemplate = newNodeClass?.template;
+            if (!nextTemplate) return;
+
+            const apply = (fieldName: string, payload: any) => {
+              const field = nextTemplate[fieldName];
+              if (!field) return;
+              if (payload.value !== undefined) field.value = payload.value;
+              if (payload.file_path !== undefined) field.file_path = payload.file_path;
+            };
+
+            apply(FIRST_FRAME_FIELD, preserved.first);
+            apply(LAST_FRAME_FIELD, preserved.last);
+            apply("reference_images", preserved.reference);
+            apply(AUDIO_INPUT_FIELD, preserved.audio);
+            apply(ENABLE_AUDIO_FIELD, preserved.enableAudio);
+
+            options?.setNodeClass?.(newNodeClass);
+          },
+        },
+      );
+    },
+    [handleModelNameChange, template],
+  );
+
+
+  // Migrate legacy Seedance display names (older saved flows) to the new dropdown labels.
+  useEffect(() => {
+    const legacyToNew: Record<string, string> = {
+      "Doubao-Seedance-1.5-proï½?51215": "Seedance 1.5 pro",
+      "Doubao-Seedance-1.0-proï½?50528": "Seedance 1.0 pro",
+    };
+    const next = legacyToNew[normalizedModelName];
+    if (!next) return;
+    const options: string[] = Array.isArray(template?.model_name?.options) ? template.model_name.options : [];
+    if (options.length && !options.includes(next)) return;
+    handleModelNameChangePreserve(next, { skipSnapshot: true });
+  }, [handleModelNameChangePreserve, normalizedModelName, template?.model_name?.options]);
   const { handleOnNewValue: handleDurationChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
@@ -406,6 +484,11 @@ export default function DoubaoVideoGeneratorLayout({
     node: data.node!,
     nodeId: data.id,
     name: ASPECT_RATIO_FIELD,
+  });
+  const { handleOnNewValue: handleKlingReferTypeChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "kling_video_refer_type",
   });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -719,8 +802,9 @@ export default function DoubaoVideoGeneratorLayout({
     });
   }, [edges, nodes, data.id]);
 
+  const supportsRoleLast = roleLimits.allowedRoles.includes("last");
   const hasRoleLastEdge = useMemo(() => {
-    if (!isVeoModel) return false;
+    if (!supportsRoleLast) return false;
     const roleEdges = edges.filter((edge) => {
       if (edge.target !== data.id) return false;
       const targetHandle =
@@ -732,7 +816,7 @@ export default function DoubaoVideoGeneratorLayout({
     return roleEdges.some(
       (edge) => resolveEdgeImageRole(edge, totalRoleEdges) === "last",
     );
-  }, [edges, data.id, isVeoModel]);
+  }, [FIRST_FRAME_FIELD, data.id, edges, supportsRoleLast]);
 
   const hasLastFrameEdge = useMemo(() => {
     return (
@@ -742,9 +826,9 @@ export default function DoubaoVideoGeneratorLayout({
           edge.data?.targetHandle ??
           (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
         return targetHandle?.fieldName === LAST_FRAME_FIELD;
-      }) || (isVeoModel && hasRoleLastEdge)
+      }) || hasRoleLastEdge
     );
-  }, [edges, data.id, hasRoleLastEdge, isVeoModel]);
+  }, [LAST_FRAME_FIELD, data.id, edges, hasRoleLastEdge]);
 
   const hasLastFrameValue = useMemo(() => {
     return (
@@ -797,6 +881,41 @@ export default function DoubaoVideoGeneratorLayout({
     return "t2v";
   }, [hasFirstFrameEdge, hasFirstFrameValue, hasReferenceVideosValue, isWanModel]);
 
+  // "参考图生视频" mode: a single incoming reference-role edge (no first/last, no tail-frame).
+  // When active, the model dropdown should only show models that support the "reference" role.
+  const isReferenceVideoMode = useMemo(() => {
+    const getTargetFieldName = (edge: EdgeType) => {
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      return targetHandle?.fieldName ?? targetHandle?.name;
+    };
+
+    const incomingFrameEdges = edges.filter((edge) => {
+      if (edge.target !== data.id) return false;
+      if (getTargetFieldName(edge) !== FIRST_FRAME_FIELD) return false;
+      const videoReferType = edge.data?.videoReferType;
+      if (videoReferType === "base" || videoReferType === "feature") return false;
+      return true;
+    });
+    if (!incomingFrameEdges.length) return false;
+
+    const totalRoleEdges = incomingFrameEdges.length;
+    const roles = incomingFrameEdges.map((edge) => resolveEdgeImageRole(edge, totalRoleEdges));
+    const hasReference = roles.includes("reference");
+    const hasFirst = roles.includes("first");
+    const hasLast = roles.includes("last");
+    if (!hasReference || hasFirst || hasLast) return false;
+
+    const hasDedicatedLastEdge = edges.some((edge) => {
+      if (edge.target !== data.id) return false;
+      return getTargetFieldName(edge) === LAST_FRAME_FIELD;
+    });
+    if (hasDedicatedLastEdge || hasLastFrameValue) return false;
+
+    return true;
+  }, [FIRST_FRAME_FIELD, LAST_FRAME_FIELD, data.id, edges, hasLastFrameValue]);
+
   const isFirstLastFrameMode = Boolean(
     forceFirstLastFrameMode || hasLastFrameEdge || hasLastFrameValue,
   );
@@ -827,8 +946,128 @@ export default function DoubaoVideoGeneratorLayout({
     if (!isFirstLastFrameMode) return;
     if (!isWanModel) return;
     const fallback = resolveSeedanceModelForFirstLastFrame();
-    handleModelNameChange({ value: fallback }, { skipSnapshot: true });
-  }, [handleModelNameChange, isFirstLastFrameMode, isWanModel, resolveSeedanceModelForFirstLastFrame]);
+    handleModelNameChangePreserve(fallback, { skipSnapshot: true });
+  }, [handleModelNameChangePreserve, isFirstLastFrameMode, isWanModel, resolveSeedanceModelForFirstLastFrame]);
+
+  // Keep tail-frame edges compatible while switching models.
+  useEffect(() => {
+    const getTargetFieldName = (edge: EdgeType) => {
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      return targetHandle?.fieldName ?? targetHandle?.name;
+    };
+
+    const firstFrameTemplateField = template[FIRST_FRAME_FIELD];
+    const lastFrameTemplateField = template[LAST_FRAME_FIELD];
+
+    // Seedance: tail frame is represented as a role-edge ("last") on first_frame_image.
+    if (isSeedanceModel && firstFrameTemplateField) {
+      const needsMigration = edges.some(
+        (edge) =>
+          edge.target === data.id && getTargetFieldName(edge) === LAST_FRAME_FIELD,
+      );
+      if (needsMigration) {
+        setEdges((currentEdges) =>
+          currentEdges.map((edge) => {
+            if (edge.target !== data.id) return edge;
+            if (getTargetFieldName(edge) !== LAST_FRAME_FIELD) return edge;
+            const targetHandle = {
+              inputTypes: firstFrameTemplateField.input_types,
+              type: firstFrameTemplateField.type,
+              id: data.id,
+              fieldName: FIRST_FRAME_FIELD,
+              ...(firstFrameTemplateField.proxy ? { proxy: firstFrameTemplateField.proxy } : {}),
+            };
+            return {
+              ...edge,
+              targetHandle: scapedJSONStringfy(targetHandle),
+              data: {
+                ...(edge.data ?? {}),
+                targetHandle,
+                imageRole: "last",
+              },
+            } as EdgeType;
+          }),
+        );
+      }
+      return;
+    }
+
+    // Kling: tail frame must use the dedicated last_frame_image input.
+    if (isKlingModel && lastFrameTemplateField) {
+      const roleLastEdges = edges.filter((edge) => {
+        if (edge.target !== data.id) return false;
+        if (getTargetFieldName(edge) !== FIRST_FRAME_FIELD) return false;
+        return edge.data?.imageRole === "last";
+      });
+      if (!roleLastEdges.length) return;
+
+      const hasDedicatedLast = edges.some(
+        (edge) => edge.target === data.id && getTargetFieldName(edge) === LAST_FRAME_FIELD,
+      ) || hasLastFrameValue;
+
+      const edgeToPromote = !hasDedicatedLast ? roleLastEdges[0] : null;
+      const edgeIdsToDemote = new Set(
+        (hasDedicatedLast ? roleLastEdges : roleLastEdges.slice(1)).map((edge) => edge.id),
+      );
+
+      setEdges((currentEdges) =>
+        currentEdges.map((edge) => {
+          if (edge.target !== data.id) return edge;
+          if (getTargetFieldName(edge) !== FIRST_FRAME_FIELD) return edge;
+          if (edge.data?.imageRole !== "last") return edge;
+
+          if (edgeToPromote && edge.id === edgeToPromote.id) {
+            const targetHandle = {
+              inputTypes: lastFrameTemplateField.input_types,
+              type: lastFrameTemplateField.type,
+              id: data.id,
+              fieldName: LAST_FRAME_FIELD,
+              ...(lastFrameTemplateField.proxy ? { proxy: lastFrameTemplateField.proxy } : {}),
+            };
+            return {
+              ...edge,
+              targetHandle: scapedJSONStringfy(targetHandle),
+              data: {
+                ...(edge.data ?? {}),
+                targetHandle,
+                imageRole: "last",
+              },
+            } as EdgeType;
+          }
+
+          if (edgeIdsToDemote.has(edge.id)) {
+            return {
+              ...edge,
+              data: {
+                ...(edge.data ?? {}),
+                imageRole: "reference",
+              },
+            } as EdgeType;
+          }
+
+          return edge;
+        }),
+      );
+
+      if (klingReferType === "base" && template.kling_video_refer_type) {
+        handleKlingReferTypeChange({ value: "feature" }, { skipSnapshot: true });
+      }
+    }
+  }, [
+    FIRST_FRAME_FIELD,
+    LAST_FRAME_FIELD,
+    data.id,
+    edges,
+    handleKlingReferTypeChange,
+    hasLastFrameValue,
+    isKlingModel,
+    isSeedanceModel,
+    klingReferType,
+    setEdges,
+    template,
+  ]);
 
   const nodeIdForRun = data.node?.flow?.data
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
@@ -1099,6 +1338,21 @@ export default function DoubaoVideoGeneratorLayout({
       if (field.name === "model_name" && disableSoraModelSelectionAfterFrameActions) {
         disabledOptions = [...(disabledOptions ?? []), "sora-2", "sora-2-pro"];
       }
+      if (field.name === "model_name" && isReferenceVideoMode) {
+        const allowed = new Set(
+          options
+            .map((option) => String(option ?? "").trim())
+            .filter((option) =>
+              getImageRoleLimits(option).allowedRoles.includes("reference"),
+            ),
+        );
+        if (allowed.size > 0) {
+          const extraDisabled = options.filter(
+            (option) => !allowed.has(String(option ?? "").trim()),
+          );
+          disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
+        }
+      }
       if (field.name === "model_name" && isFirstLastFrameMode) {
         const wanModels = options.filter((option) => String(option).trim().startsWith("wan2."));
         disabledOptions = [...(disabledOptions ?? []), ...wanModels];
@@ -1147,6 +1401,7 @@ export default function DoubaoVideoGeneratorLayout({
     hasIncomingVideoBridge,
     hasLastFrameEdge,
     hasLastFrameValue,
+    isReferenceVideoMode,
     isKlingModel,
     isFirstLastFrameMode,
     isSoraModel,
@@ -1159,6 +1414,62 @@ export default function DoubaoVideoGeneratorLayout({
     data.id,
     edges,
   ]);
+
+  const modelNameConfig = controlConfigs.find((config) => config.name === "model_name");
+  const resolutionConfig = controlConfigs.find((config) => config.name === "resolution");
+  const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
+  const durationConfig = controlConfigs.find((config) => config.name === "duration");
+  const enableAudioField = template?.[ENABLE_AUDIO_FIELD];
+  const isSeedance15 = normalizedModelName === "Seedance 1.5 pro" ||
+    normalizedModelName === "Doubao-Seedance-1.5-pro｜251215";
+  const showAudioToggle = Boolean(
+    enableAudioField &&
+      (isSeedance15 ||
+        // Wan t2v/i2v: `audio_url` controls audio behavior (omit => auto; set => use provided).
+        // Wan r2v docs do not expose audio_url, so we hide the toggle to avoid a placebo option.
+        ((normalizedModelName === "wan2.5" || normalizedModelName === "wan2.6") && wanMode !== "r2v")),
+  );
+
+  const modelNameConfigWithPreserve = useMemo(() => {
+    if (!modelNameConfig) return null;
+    return {
+      ...modelNameConfig,
+      handleOnNewValueOptions: () => {
+        const snapshotField = (field: any) => {
+          const value = field?.value;
+          const file_path = field?.file_path;
+          return {
+            value: Array.isArray(value) ? [...value] : value,
+            file_path: Array.isArray(file_path) ? [...file_path] : file_path,
+          };
+        };
+        const preserved = {
+          first: snapshotField(template?.[FIRST_FRAME_FIELD]),
+          last: snapshotField(template?.[LAST_FRAME_FIELD]),
+          reference: snapshotField(template?.reference_images),
+          audio: snapshotField(template?.[AUDIO_INPUT_FIELD]),
+          enableAudio: snapshotField(template?.[ENABLE_AUDIO_FIELD]),
+        };
+        return {
+          setNodeClass: (newNodeClass) => {
+            const nextTemplate = newNodeClass?.template;
+            if (!nextTemplate) return;
+            const apply = (fieldName: string, payload: any) => {
+              const field = nextTemplate[fieldName];
+              if (!field) return;
+              if (payload.value !== undefined) field.value = payload.value;
+              if (payload.file_path !== undefined) field.file_path = payload.file_path;
+            };
+            apply(FIRST_FRAME_FIELD, preserved.first);
+            apply(LAST_FRAME_FIELD, preserved.last);
+            apply("reference_images", preserved.reference);
+            apply(AUDIO_INPUT_FIELD, preserved.audio);
+            apply(ENABLE_AUDIO_FIELD, preserved.enableAudio);
+          },
+        };
+      },
+    } as DoubaoControlConfig;
+  }, [modelNameConfig, template]);
 
   const upstreamFirstFrameFields = useMemo<InputFieldType[]>(() => {
     const incomingEdges = edges?.filter(
@@ -2531,15 +2842,24 @@ export default function DoubaoVideoGeneratorLayout({
     const firstFrameTemplateField = template[FIRST_FRAME_FIELD];
     const lastFrameTemplateField = template[LAST_FRAME_FIELD];
     if (!firstFrameTemplateField) return;
-    if (!isVeoModel && !lastFrameTemplateField) return;
+    const useRoleEdgesForFirstLast = Boolean(isVeoModel || isSeedanceModel);
+    if (!useRoleEdgesForFirstLast && !lastFrameTemplateField) return;
 
     setForceFirstLastFrameMode(true);
     if (isWanModel) {
       const fallback = resolveSeedanceModelForFirstLastFrame();
-      handleModelNameChange({ value: fallback }, { skipSnapshot: true });
+      handleModelNameChangePreserve(fallback, { skipSnapshot: true });
+    }
+    if (
+      isKlingModel &&
+      klingReferType === "base" &&
+      template.kling_video_refer_type
+    ) {
+      // Kling video editing ("base") doesn't support tail-frame input. Switch to "feature"
+      // so the newly created tail-frame connection works as expected.
+      handleKlingReferTypeChange({ value: "feature" }, { skipSnapshot: true });
     }
 
-    const useRoleEdgesForFirstLast = isVeoModel;
     const roleEdges = useRoleEdgesForFirstLast
       ? edges.filter((edge) => {
           if (edge.target !== data.id) return false;
@@ -2733,8 +3053,12 @@ export default function DoubaoVideoGeneratorLayout({
     UPSTREAM_NODE_OFFSET_Y,
     data.id,
     edges,
+    handleKlingReferTypeChange,
     handleModelNameChange,
+    isKlingModel,
+    isSeedanceModel,
     isWanModel,
+    klingReferType,
     normalizedModelName,
     nodes,
     onConnect,
@@ -3471,9 +3795,34 @@ export default function DoubaoVideoGeneratorLayout({
               </div>
 
               <div className="flex flex-wrap gap-3">
-                {controlConfigs.map((config) => (
-                  <DoubaoParameterButton key={config.name} data={data} config={config} />
-                ))}
+                {modelNameConfigWithPreserve && (
+                  <DoubaoParameterButton data={data} config={modelNameConfigWithPreserve} />
+                )}
+
+                {(aspectRatioConfig || resolutionConfig || durationConfig) ? (
+                  <DoubaoVideoGeneratorResolutionAspectDurationButton
+                    data={data}
+                    aspectRatioConfig={aspectRatioConfig}
+                    resolutionConfig={resolutionConfig}
+                    durationConfig={durationConfig}
+                    enableAudioField={enableAudioField}
+                    showAudioToggle={showAudioToggle}
+                    disabled={isBusy}
+                    widthClass="basis-[260px]"
+                  />
+                ) : (
+                  <>
+                    {aspectRatioConfig && (
+                      <DoubaoParameterButton data={data} config={aspectRatioConfig} />
+                    )}
+                    {resolutionConfig && (
+                      <DoubaoParameterButton data={data} config={resolutionConfig} />
+                    )}
+                    {durationConfig && (
+                      <DoubaoParameterButton data={data} config={durationConfig} />
+                    )}
+                  </>
+                )}
 
                 <button
                   type="button"

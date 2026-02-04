@@ -23,6 +23,8 @@ interface HeaderComponentProps {
   setSearch: (search: string) => void;
   isEmptyFolder: boolean;
   selectedFlows: string[];
+  sortOrder?: "asc" | "desc";
+  onToggleSortOrder?: () => void;
 }
 
 const HeaderComponent = ({
@@ -34,6 +36,8 @@ const HeaderComponent = ({
   setSearch,
   isEmptyFolder,
   selectedFlows,
+  sortOrder = "desc",
+  onToggleSortOrder,
 }: HeaderComponentProps) => {
   const { t } = useTranslation();
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -230,26 +234,54 @@ const HeaderComponent = ({
                 </DeleteConfirmationModal>
               </div>
               {selectedFlows.length === 0 && (
-                <ShadTooltip content={t("New Flow")} side="bottom">
-                  <Button
-                    variant="default"
-                    size="iconMd"
-                    className="z-50 px-2.5 !text-mmd"
-                    onClick={handleCreateNewFlow}
-                    id="new-project-btn"
-                    data-testid="new-project-btn"
-                    loading={isCreatingFlow}
+                <div className="flex items-center gap-2">
+                  <ShadTooltip
+                    content={`${t("Sort by time")} (${sortOrder === "desc" ? t("Newest first") : t("Oldest first")})`}
+                    side="bottom"
                   >
-                    <ForwardedIconComponent
-                      name="Plus"
-                      aria-hidden="true"
-                      className="h-4 w-4"
-                    />
-                    <span className="hidden whitespace-nowrap font-semibold md:inline">
-                      {t("New Flow")}
-                    </span>
-                  </Button>
-                </ShadTooltip>
+                    <Button
+                      variant="outline"
+                      size="iconMd"
+                      className="h-8 w-8"
+                      onClick={onToggleSortOrder}
+                      data-testid="sort-by-time-btn"
+                      aria-label={t("Sort by time")}
+                      aria-pressed={sortOrder === "asc"}
+                      disabled={!onToggleSortOrder || isEmptyFolder}
+                    >
+                      <ForwardedIconComponent
+                        name={
+                          sortOrder === "desc"
+                            ? "ArrowDownNarrowWide"
+                            : "ArrowUpNarrowWide"
+                        }
+                        aria-hidden="true"
+                        className="h-4 w-4"
+                      />
+                    </Button>
+                  </ShadTooltip>
+
+                  <ShadTooltip content={t("New Flow")} side="bottom">
+                    <Button
+                      variant="default"
+                      size="iconMd"
+                      className="z-50 px-2.5 !text-mmd"
+                      onClick={handleCreateNewFlow}
+                      id="new-project-btn"
+                      data-testid="new-project-btn"
+                      loading={isCreatingFlow}
+                    >
+                      <ForwardedIconComponent
+                        name="Plus"
+                        aria-hidden="true"
+                        className="h-4 w-4"
+                      />
+                      <span className="hidden whitespace-nowrap font-semibold md:inline">
+                        {t("New Flow")}
+                      </span>
+                    </Button>
+                  </ShadTooltip>
+                </div>
               )}
             </div>
           </div>

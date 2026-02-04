@@ -12,6 +12,7 @@ interface IGetFolder {
   id: string;
   page?: number;
   size?: number;
+  sort_order?: "asc" | "desc";
   is_component?: boolean;
   is_flow?: boolean;
   search?: string;
@@ -57,6 +58,7 @@ export const useGetFolderQuery: useQueryFunctionType<
       {
         page: params.page,
         size: params.size,
+        sort_order: params.sort_order,
         is_component: params.is_component,
         is_flow: params.is_flow,
         search: params.search,

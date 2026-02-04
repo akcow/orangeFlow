@@ -30,6 +30,10 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   const [pageIndex, setPageIndex] = useState(1);
   const [pageSize, setPageSize] = useState(12);
   const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">(() => {
+    const saved = localStorage.getItem("flow_sort_order");
+    return saved === "asc" ? "asc" : "desc";
+  });
   const navigate = useCustomNavigate();
   const createBlankFlow = useCreateBlankFlow();
 
@@ -58,6 +62,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
     id: folderId ?? myCollectionId!,
     page: pageIndex,
     size: pageSize,
+    sort_order: sortOrder,
     is_component: flowType === "components",
     is_flow: flowType === "flows",
     search,
@@ -81,9 +86,19 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
     localStorage.setItem("view", view);
   }, [view]);
 
+  useEffect(() => {
+    localStorage.setItem("flow_sort_order", sortOrder);
+  }, [sortOrder]);
+
   const handlePageChange = useCallback((newPageIndex, newPageSize) => {
     setPageIndex(newPageIndex);
     setPageSize(newPageSize);
+  }, []);
+
+  const handleToggleSortOrder = useCallback(() => {
+    // Keep UX simple: toggles between newest-first and oldest-first, and resets pagination.
+    setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
+    setPageIndex(1);
   }, []);
 
   const onSearch = useCallback((newSearch) => {
@@ -274,6 +289,8 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                 setSearch={onSearch}
                 isEmptyFolder={isEmptyFolder}
                 selectedFlows={selectedFlows}
+                sortOrder={sortOrder}
+                onToggleSortOrder={handleToggleSortOrder}
               />
               {isEmptyFolder ? (
                 <EmptyFolder onCreateFlow={handleCreateNewFlow} />

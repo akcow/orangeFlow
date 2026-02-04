@@ -20,6 +20,54 @@ interface IPostTemplateValueParams {
   parameterId: string;
 }
 
+function normalizeTemplateBoolInputs(template: Record<string, any>): Record<string, any> {
+  // Some asset/workflow templates can contain BoolInput fields with `value: null`.
+  // The backend validates BoolInput.value strictly as boolean and will 400 on null/None.
+  // Keep this normalization cheap: copy-on-write only for the affected fields.
+  let changed = false;
+  const next: Record<string, any> = { ...template };
+
+  for (const [key, field] of Object.entries(template)) {
+    if (!field || typeof field !== "object") continue;
+    const inputType = (field as any)._input_type;
+    const type = (field as any).type;
+    const def = (field as any).default;
+    const inputTypeLower = typeof inputType === "string" ? inputType.trim().toLowerCase() : "";
+    const typeLower = typeof type === "string" ? type.trim().toLowerCase() : "";
+    // Be tolerant to asset/workflow serialization quirks (e.g. typos like "Boollnput").
+    // If it looks like a boolean input, normalize null/undefined values to a real boolean.
+    const isBool =
+      inputType === "BoolInput" ||
+      inputTypeLower.includes("bool") ||
+      typeLower === "bool" ||
+      typeof def === "boolean";
+    if (!isBool) continue;
+
+    const rawValue = (field as any).value;
+    let normalized: boolean | null = null;
+
+    if (rawValue === null || rawValue === undefined) {
+      normalized = typeof def === "boolean" ? def : false;
+    } else if (typeof rawValue === "boolean") {
+      normalized = rawValue;
+    } else if (rawValue === "true" || rawValue === "false") {
+      normalized = rawValue === "true";
+    } else if (rawValue === 1 || rawValue === 0) {
+      normalized = Boolean(rawValue);
+    } else {
+      // Unknown shape; leave as-is to avoid surprising coercions.
+      normalized = null;
+    }
+
+    if (normalized !== null && normalized !== rawValue) {
+      next[key] = { ...(field as any), value: normalized };
+      changed = true;
+    }
+  }
+
+  return changed ? next : template;
+}
+
 export const usePostTemplateValue: useMutationFunctionType<
   IPostTemplateValueParams,
   IPostTemplateValue,
@@ -32,15 +80,18 @@ export const usePostTemplateValue: useMutationFunctionType<
   const postTemplateValueFn = async (
     payload: IPostTemplateValue,
   ): Promise<APIClassType | undefined> => {
-    const template = node.template;
+    // Prefer the latest node from the store (the hook param can lag by a render).
+    const latestNode = getNode(nodeId)?.data?.node as APIClassType | undefined;
+    const template = latestNode?.template ?? node.template;
 
     if (!template) return;
+    const templateForRequest = normalizeTemplateBoolInputs(template as any);
     const lastUpdated = new Date().toISOString();
     const response = await api.post<APIClassType>(
       getURL("CUSTOM_COMPONENT", { update: "update" }),
       {
-        code: template.code.value,
-        template: template,
+        code: templateForRequest.code?.value ?? template.code?.value,
+        template: templateForRequest,
         field: parameterId,
         field_value: payload.value,
         tool_mode: payload.tool_mode,

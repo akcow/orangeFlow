@@ -14,6 +14,7 @@ type ResolutionAspectButtonProps = {
   data: NodeDataType;
   resolutionConfig: DoubaoControlConfig;
   aspectRatioConfig: DoubaoControlConfig;
+  isNanoBanana?: boolean;
   disabled?: boolean;
   widthClass?: string;
 };
@@ -70,6 +71,7 @@ export default function DoubaoImageCreatorResolutionAspectButton({
   data,
   resolutionConfig,
   aspectRatioConfig,
+  isNanoBanana = false,
   disabled = false,
   widthClass,
 }: ResolutionAspectButtonProps) {
@@ -131,7 +133,9 @@ export default function DoubaoImageCreatorResolutionAspectButton({
     [aspectRatioConfig, aspectRatio.enabledSet, aspectRatio.visible],
   );
 
-  const resolutionLabel = formatControlValue("resolution", effectiveResolutionValue);
+  const resolutionLabelRaw = formatControlValue("resolution", effectiveResolutionValue);
+  const resolutionLabel =
+    isNanoBanana && resolutionLabelRaw === "Auto" ? "Auto(1K)" : resolutionLabelRaw;
   const aspectRatioLabel = formatControlValue("aspect_ratio", effectiveAspectRatioValue);
   const triggerLabel =
     aspectRatioLabel && resolutionLabel
@@ -240,7 +244,7 @@ export default function DoubaoImageCreatorResolutionAspectButton({
                         disabled && "cursor-not-allowed opacity-60",
                       )}
                     >
-                      {label}
+                      {isNanoBanana && label === "Auto" ? "Auto(1K)" : label}
                     </button>
                   );
                 })}

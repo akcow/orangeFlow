@@ -7,12 +7,17 @@
     @apply border-border;
   }
 
+  /* Bump the whole UI up by ~one size step (Tailwind uses rem, so this scales most text). */
+  html {
+    font-size: 17px;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
-    font-family: Inter, system-ui, sans-serif;
+    font-family: var(--font-sans);
   }
 }
 

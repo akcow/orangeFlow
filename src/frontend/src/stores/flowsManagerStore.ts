@@ -1,4 +1,3 @@
-import { cloneDeep } from "lodash";
 import { create } from "zustand";
 import { SAVE_DEBOUNCE_TIME } from "@/constants/constants";
 import type { FlowType } from "../types/flow";
@@ -58,29 +57,30 @@ const useFlowsManagerStore = create<FlowsManagerStoreType>((set, get) => ({
   setIsLoading: (isLoading: boolean) => set({ isLoading }),
   takeSnapshot: () => {
     const currentFlowId = get().currentFlowId;
-    // push the current graph to the past state
+    // Push the current graph to the past state.
+    // IMPORTANT: keep this extremely cheap; this runs for every model/parameter change and during node creation.
+    // We rely on the app's immutable update patterns for nodes/edges (new references on change) so that
+    // history entries stay stable without deep cloning + JSON.stringify (which caused noticeable UI jank).
     const flowStore = useFlowStore.getState();
     const newState = {
-      nodes: cloneDeep(flowStore.nodes),
-      edges: cloneDeep(flowStore.edges),
+      nodes: flowStore.nodes,
+      edges: flowStore.edges,
     };
-    const pastLength = past[currentFlowId]?.length ?? 0;
-    if (
-      pastLength > 0 &&
-      JSON.stringify(past[currentFlowId][pastLength - 1]) ===
-        JSON.stringify(newState)
-    )
-      return;
-    if (pastLength > 0) {
-      past[currentFlowId] = past[currentFlowId].slice(
-        pastLength - defaultOptions.maxHistorySize + 1,
-        pastLength,
-      );
+    const pastList = past[currentFlowId] ?? [];
+    const last = pastList.length ? pastList[pastList.length - 1] : null;
+    // Avoid duplicate snapshots when multiple callers request a snapshot before any state changes.
+    if (last && last.nodes === newState.nodes && last.edges === newState.edges) return;
 
-      past[currentFlowId].push(newState);
-    } else {
-      past[currentFlowId] = [newState];
-    }
+    const nextPast = pastList.length
+      ? [
+          ...pastList.slice(
+            Math.max(pastList.length - defaultOptions.maxHistorySize + 1, 0),
+          ),
+          newState,
+        ]
+      : [newState];
+
+    past[currentFlowId] = nextPast;
 
     future[currentFlowId] = [];
   },

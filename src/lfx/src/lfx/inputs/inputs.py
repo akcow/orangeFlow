@@ -199,6 +199,9 @@ class MessageInput(StrInput, InputTraceMixin):
             return v
         if isinstance(v, str | AsyncIterator | Iterator):
             return Message(text=v)
+        if v is None:
+            # Legacy assets/flows may serialize empty Message inputs as null/None.
+            return Message(text="")
         msg = f"Invalid value type {type(v)}"
         raise ValueError(msg)
 
@@ -235,6 +238,10 @@ class MessageTextInput(StrInput, MetadataTraceMixin, InputTraceMixin, ToolModeMi
             v = Message(**v)
         if isinstance(v, str):
             value = v
+        elif v is None:
+            # Legacy assets/flows may serialize empty text inputs as null/None.
+            # Coerce to empty string so template updates don't fail validation.
+            value = ""
         elif isinstance(v, Message):
             value = v.text
         elif isinstance(v, Data):

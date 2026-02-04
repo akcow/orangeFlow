@@ -6,7 +6,12 @@
 
 @layer base {
   :root {
-    --font-sans: "Inter", sans-serif;
+    /*
+     * Prefer a rounder CJK UI font while keeping Inter for Latin glyphs.
+     * Note: Inter doesn't include most CJK glyphs, so the browser will naturally
+     * fall back to the first available CJK font in this list for Chinese text.
+     */
+    --font-sans: "Inter", "MiSans", "HarmonyOS Sans SC", "OPPO Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: "JetBrains Mono", monospace;
     --font-chivo: "Chivo", sans-serif;
 

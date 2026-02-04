@@ -848,6 +848,12 @@ export default function DoubaoImageCreatorLayout({
           return true;
         });
       }
+      if (field.name === "resolution" && isNanoBanana) {
+        // Nano Banana doesn't support image_size; we expose a single "Auto" toggle as UI affordance.
+        if (!options.some((opt) => String(opt) === "Auto")) {
+          options = ["Auto", ...options];
+        }
+      }
 
       const tooltipText =
         DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
@@ -925,6 +931,7 @@ export default function DoubaoImageCreatorLayout({
     hasAnyReferenceSelected,
     isGeminiImageModel,
     isNanoBanana,
+    isSeedreamImageModel,
     isKlingImageModel,
     edgeImageCountLimit,
   ]);
@@ -933,6 +940,76 @@ export default function DoubaoImageCreatorLayout({
   const resolutionConfig = controlConfigs.find((config) => config.name === "resolution");
   const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
   const imageCountConfig = controlConfigs.find((config) => config.name === "image_count");
+
+  // When references are present and the model supports "adaptive" aspect ratio,
+  // default to it (avoid overriding explicit user choices).
+  const prevHasAnyReferenceSelectedRef = useRef(false);
+  useEffect(() => {
+    const becameSelected =
+      hasAnyReferenceSelected && !prevHasAnyReferenceSelectedRef.current;
+    prevHasAnyReferenceSelectedRef.current = hasAnyReferenceSelected;
+    if (!hasAnyReferenceSelected) return;
+    if (!aspectRatioConfig) return;
+
+    const hasAdaptiveOption = aspectRatioConfig.options.some(
+      (opt) => String(opt).trim().toLowerCase() === "adaptive",
+    );
+    if (!hasAdaptiveOption) return;
+
+    const currentRaw = String(template.aspect_ratio?.value ?? "").trim();
+    if (currentRaw.toLowerCase() === "adaptive") return;
+
+    // Only auto-set when we're still effectively at the default (or unset), or when a model refresh
+    // produced an invalid value under the new option set.
+    const defaultRaw = String(
+      template.aspect_ratio?.default ?? aspectRatioConfig.options[0] ?? "",
+    ).trim();
+    const isUnset = currentRaw.length === 0;
+    const isDefault =
+      defaultRaw.length > 0 && currentRaw.length > 0 && currentRaw === defaultRaw;
+    const isFirstOption =
+      aspectRatioConfig.options.length > 0 &&
+      currentRaw.length > 0 &&
+      currentRaw === String(aspectRatioConfig.options[0]).trim();
+    const isInvalid =
+      currentRaw.length > 0 &&
+      !aspectRatioConfig.options.some((opt) => String(opt).trim() === currentRaw);
+
+    // If a reference was just added, only switch when the user is still on default-ish ratio.
+    if (becameSelected && !(isUnset || isDefault || isFirstOption)) return;
+
+    if (isUnset || isDefault || isFirstOption || isInvalid || becameSelected) {
+      handleAspectRatioChange({ value: "adaptive" }, { skipSnapshot: true });
+    }
+  }, [
+    aspectRatioConfig,
+    handleAspectRatioChange,
+    hasAnyReferenceSelected,
+    template.aspect_ratio?.default,
+    template.aspect_ratio?.value,
+  ]);
+
+  const modelNameConfigWithReferencePreserve = useMemo(() => {
+    if (!modelNameConfig) return null;
+    return {
+      ...modelNameConfig,
+      handleOnNewValueOptions: () => {
+        const currentReference = template?.[REFERENCE_FIELD];
+        const preserveValue = currentReference?.value;
+        const preserveFilePath = currentReference?.file_path;
+
+        return {
+          setNodeClass: (newNodeClass) => {
+            // Preserve uploaded reference images across model refresh (server returns a new template).
+            const nextRef = newNodeClass?.template?.[REFERENCE_FIELD];
+            if (!nextRef) return;
+            if (preserveValue !== undefined) nextRef.value = preserveValue;
+            if (preserveFilePath !== undefined) nextRef.file_path = preserveFilePath;
+          },
+        };
+      },
+    };
+  }, [modelNameConfig, template]);
 
   const multiTurnEnabled = Boolean(template?.[MULTI_TURN_FIELD]?.value);
   const onlineSearchEnabled = Boolean(template?.[ONLINE_SEARCH_FIELD]?.value);
@@ -1506,6 +1583,18 @@ export default function DoubaoImageCreatorLayout({
     takeSnapshot();
 
     const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+    const seededVideoTemplate = cloneDeep(videoTemplate);
+    // "参考图生视频": pick a model that supports the "reference" role.
+    if (imageRole === "reference") {
+      const modelField = seededVideoTemplate?.template?.model_name;
+      const modelOptions = Array.isArray(modelField?.options) ? modelField.options : [];
+      const preferred = modelOptions.find((option) =>
+        getImageRoleLimits(String(option ?? "")).allowedRoles.includes("reference"),
+      );
+      if (preferred && modelField) {
+        modelField.value = preferred;
+      }
+    }
     const newVideoNode: GenericNodeType = {
       id: newVideoNodeId,
       type: "genericNode",
@@ -1522,7 +1611,7 @@ export default function DoubaoImageCreatorLayout({
         }),
       },
       data: {
-        node: cloneDeep(videoTemplate),
+        node: seededVideoTemplate,
         showNode: !videoTemplate.minimized,
         type: "DoubaoVideoGenerator",
         id: newVideoNodeId,
@@ -1747,7 +1836,7 @@ export default function DoubaoImageCreatorLayout({
         return;
       }
       if (label === REFERENCE_VIDEO_LABEL || label === FIRST_FRAME_VIDEO_LABEL) {
-        const role = label === FIRST_FRAME_VIDEO_LABEL ? "first" : undefined;
+        const role: EdgeImageRole = label === FIRST_FRAME_VIDEO_LABEL ? "first" : "reference";
         handleCreateReferenceVideoDownstreamNode(role);
         return;
       }
@@ -2352,8 +2441,8 @@ export default function DoubaoImageCreatorLayout({
             </div>
 
             <div className="flex flex-wrap gap-3">
-              {modelNameConfig && (
-                <DoubaoParameterButton data={data} config={modelNameConfig} />
+              {modelNameConfigWithReferencePreserve && (
+                <DoubaoParameterButton data={data} config={modelNameConfigWithReferencePreserve} />
               )}
 
               {resolutionConfig && aspectRatioConfig ? (
@@ -2361,6 +2450,7 @@ export default function DoubaoImageCreatorLayout({
                   data={data}
                   resolutionConfig={resolutionConfig}
                   aspectRatioConfig={aspectRatioConfig}
+                  isNanoBanana={isNanoBanana}
                   disabled={isBusy}
                   widthClass="basis-[150px]"
                 />
