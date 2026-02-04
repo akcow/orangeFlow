@@ -50,6 +50,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview,
   onDownload,
   canDownload,
+  onCrop,
+  canCrop,
   motionStart,
   motionCommitToken,
 }: {
@@ -59,6 +61,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
+  onCrop?: () => void;
+  canCrop?: boolean;
   motionStart?: {
     token: number;
     motion: { deltaTopPx: number; durationMs: number; easing: string };
@@ -173,6 +177,22 @@ function DoubaoImageCreatorTopBar({
           className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
         >
           <ForwardedIconComponent name="Maximize2" className="h-5 w-5" />
+        </button>
+
+        <button
+          type="button"
+          title="裁剪"
+          aria-label="裁剪"
+          disabled={!canCrop}
+          onClick={onCrop}
+          className={cn(
+            "flex h-10 w-10 items-center justify-center rounded-full transition",
+            canCrop
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Crop" className="h-5 w-5" />
         </button>
 
         <button
@@ -1149,6 +1169,8 @@ function GenericNode({
                 onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
                 onDownload={() => imageCreatorPreviewActions?.download()}
                 canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+                onCrop={() => imageCreatorPreviewActions?.enterCrop()}
+                canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
                 motionStart={persistentPreviewMotionStart}
                 motionCommitToken={persistentPreviewMotionCommitToken}
               />

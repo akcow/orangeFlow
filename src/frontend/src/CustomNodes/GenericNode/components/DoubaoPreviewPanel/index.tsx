@@ -10,6 +10,7 @@ import {
   useEffect,
   useRef,
 } from "react";
+import { unstable_batchedUpdates } from "react-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,14 @@ import {
 import { sanitizePreviewDataUrl } from "./helpers";
 import useFlowStore from "@/stores/flowStore";
 import OutputModal from "../outputModal";
+import CropOverlay from "./CropOverlay";
+import { cloneDeep } from "lodash";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { useTypesStore } from "@/stores/typesStore";
+import { computeAlignedNodeTopY } from "@/CustomNodes/helpers/previewCenterAlignment";
+import { getNodeId, scapedJSONStringfy } from "@/utils/reactflowUtils";
+import type { EdgeType, GenericNodeType } from "@/types/flow";
+import { getAbsolutePosition, getNodeDimensions } from "@/utils/groupingUtils";
 
 const PANEL_BG = {
   // Dark mode: avoid translucent tinted backdrops here, otherwise they override the
@@ -98,6 +107,31 @@ function resolvePersistentPreviewPaddingPercent(
   return Math.max(0, Math.round(percent * 100) / 100);
 }
 
+function normalizePublicFilePreviewUrl(
+  source: unknown,
+  kind: "image" | "video" | "audio",
+): string | undefined {
+  if (typeof source !== "string") return undefined;
+  const trimmed = source.trim();
+  if (!trimmed) return undefined;
+  if (/^(data:|blob:)/i.test(trimmed)) return trimmed;
+
+  // Some components persist `/api/v1/files/public/{flow_id}/{file}?token=...` links
+  // (time-limited). For in-app previews we can use stable endpoints without tokens:
+  // - images: `/api/v1/files/images/{flow_id}/{file}`
+  // - media (video/audio): `/api/v1/files/media/{flow_id}/{file}`
+  const marker = "/api/v1/files/public/";
+  const idx = trimmed.indexOf(marker);
+  if (idx < 0) return trimmed;
+
+  const rest = trimmed.slice(idx + marker.length);
+  const withoutQuery = rest.split("?", 1)[0];
+  const prefix = trimmed.slice(0, idx);
+  const replacement =
+    kind === "image" ? "/api/v1/files/images/" : "/api/v1/files/media/";
+  return `${prefix}${replacement}${withoutQuery}`;
+}
+
 export type DoubaoReferenceImage = {
   id: string;
   imageSource: string;
@@ -114,6 +148,8 @@ export type DoubaoPreviewPanelActions = {
   openPreview: () => void;
   download: () => void;
   canDownload: boolean;
+  enterCrop: () => void;
+  canCrop: boolean;
 };
 
 type Props = {
@@ -177,6 +213,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     );
     const nodes = useFlowStore((state) => state.nodes);
     const setNode = useFlowStore((state) => state.setNode);
+    const setNodes = useFlowStore((state) => state.setNodes);
+    const setEdges = useFlowStore((state) => state.setEdges);
+    const reactFlowInstance = useFlowStore((state) => state.reactFlowInstance);
+    const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+    const templates = useTypesStore((state) => state.templates);
     const node = useMemo(
       () => (nodes.find((candidate) => candidate.id === nodeId)?.data as any)?.node,
       [nodes, nodeId],
@@ -775,6 +816,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     );
 
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
+    const [isCropOpen, setCropOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
@@ -795,12 +837,21 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             entry?.url ??
             entry?.edited_image_url ??
             entry?.original_image_url;
-          const resolvedSource = remoteSource ?? inlineSource ?? entry?.data_url;
+          const normalizedRemoteSource = normalizePublicFilePreviewUrl(
+            remoteSource,
+            "image",
+          );
+          // Prefer inline/base64 previews for rendering. Upstream `image_url` links can be short-lived
+          // (presigned) and may fail after a page reload.
+          const resolvedSource =
+            inlineSource ?? normalizedRemoteSource ?? entry?.data_url;
           if (!resolvedSource) return;
 
           galleryItems.push({
             imageSource: sanitizePreviewDataUrl(resolvedSource) ?? resolvedSource,
-            downloadSource: remoteSource ?? inlineSource ?? resolvedSource,
+            // For downloads prefer the original remote URL when available; fallback to inline/data URLs.
+            downloadSource:
+              normalizedRemoteSource ?? inlineSource ?? resolvedSource,
             size:
               entry?.size ??
               (entry?.width && entry?.height
@@ -829,15 +880,19 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         payload.edited_image_url ??
         payload.original_image_url ??
         null;
+      const normalizedRemoteFallback = normalizePublicFilePreviewUrl(
+        remoteFallback,
+        "image",
+      );
 
-      if (!inlineFallback && !remoteFallback) {
+      if (!inlineFallback && !normalizedRemoteFallback) {
         return null;
       }
 
       return [
         {
-          imageSource: inlineFallback ?? remoteFallback!,
-          downloadSource: remoteFallback ?? inlineFallback ?? "",
+          imageSource: inlineFallback ?? normalizedRemoteFallback!,
+          downloadSource: normalizedRemoteFallback ?? inlineFallback ?? "",
           size:
             payload.width && payload.height
               ? `${payload.width}x${payload.height}`
@@ -882,12 +937,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         // 优先使用 base64 编码的视频（避免认证问题）
         const videoBase64: string | undefined = resolvedPreview.payload?.video_base64;
         const videoUrl: string | undefined = resolvedPreview.payload?.video_url;
-        const finalVideoUrl = videoBase64 || videoUrl;
+        const finalVideoUrl =
+          videoBase64 || normalizePublicFilePreviewUrl(videoUrl, "video") || videoUrl;
         if (finalVideoUrl) {
           return {
             videoUrl: finalVideoUrl,
             poster:
               resolvedPreview.payload?.cover_preview_base64 ||
+              normalizePublicFilePreviewUrl(resolvedPreview.payload?.cover_url, "image") ||
               resolvedPreview.payload?.cover_url,
             duration: resolvedPreview.payload?.duration,
             extension: inferExtensionFromSource(finalVideoUrl, "mp4"),
@@ -905,7 +962,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         const src = candidate.imageSource || candidate.downloadSource || "";
         if (!src) return null;
         return {
-          videoUrl: src,
+          videoUrl: normalizePublicFilePreviewUrl(src, "video") || src,
           poster: undefined,
           duration: undefined,
           extension: inferExtensionFromSource(src, "mp4"),
@@ -1090,13 +1147,291 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [downloadInfo, showTransientBadge]);
 
+    const getPreviewCenterFlow = useCallback(
+      (targetNodeId: string) => {
+        const instance: any = reactFlowInstance as any;
+        if (typeof document === "undefined" || !instance?.screenToFlowPosition) return null;
+        const esc =
+          typeof CSS !== "undefined" && typeof CSS.escape === "function"
+            ? CSS.escape(targetNodeId)
+            : targetNodeId.replace(/["\\]/g, "\\$&");
+        const wrap = document.querySelector(
+          `.react-flow__node[data-id="${esc}"] [data-preview-wrap="doubao"]`,
+        ) as HTMLElement | null;
+        const rect = wrap?.getBoundingClientRect();
+        if (!rect) return null;
+        return instance.screenToFlowPosition({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        });
+      },
+      [reactFlowInstance],
+    );
+
+    const animateViewportTo = useCallback(
+      (to: { x: number; y: number; zoom: number }, durationMs: number) => {
+        const instance: any = reactFlowInstance as any;
+        if (!instance || typeof instance.setViewport !== "function") return;
+
+        // Prefer native animation if supported (usually smoother than a React-driven RAF loop).
+        try {
+          if (instance.setViewport.length >= 2) {
+            instance.setViewport(to, { duration: durationMs });
+            return;
+          }
+        } catch {
+          // fall through
+        }
+
+        const start =
+          typeof instance.getViewport === "function"
+            ? instance.getViewport()
+            : { x: 0, y: 0, zoom: 1 };
+        const from = {
+          x: Number(start?.x ?? 0),
+          y: Number(start?.y ?? 0),
+          zoom: Number(start?.zoom ?? 1),
+        };
+
+        // Throttle to ~30fps to reduce XYFlow work during heavy updates.
+        let lastFrameAt = 0;
+        const startedAt =
+          typeof performance !== "undefined" ? performance.now() : Date.now();
+        const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+        const step = (now: number) => {
+          if (now - lastFrameAt < 33) {
+            window.requestAnimationFrame(step);
+            return;
+          }
+          lastFrameAt = now;
+
+          const p = Math.max(0, Math.min(1, (now - startedAt) / durationMs));
+          const e = easeOutCubic(p);
+          instance.setViewport({
+            x: from.x + (to.x - from.x) * e,
+            y: from.y + (to.y - from.y) * e,
+            zoom: from.zoom + (to.zoom - from.zoom) * e,
+          });
+          if (p < 1) window.requestAnimationFrame(step);
+        };
+        window.requestAnimationFrame(step);
+      },
+      [reactFlowInstance],
+    );
+
+    const canCrop = Boolean(appearance === "imageCreator" && kind === "image" && currentImage?.imageSource);
+    const enterCrop = useCallback(() => {
+      if (!canCrop) return;
+      unstable_batchedUpdates(() => {
+        // Exit selection mode: cropping should not rely on node selection state.
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setCropOpen(true);
+      });
+
+      // Smoothly zoom the canvas to 135% and center the component on screen.
+      try {
+        const container =
+          (typeof document !== "undefined" &&
+            (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+          null;
+        const rect = container?.getBoundingClientRect();
+        const viewW = rect?.width ?? window.innerWidth;
+        const viewH = rect?.height ?? window.innerHeight;
+        const targetZoom = 1.35;
+
+        // Prefer centering on the persistent preview wrap (more visually accurate than node bounding box).
+        let target = getPreviewCenterFlow(nodeId);
+
+        if (!target) {
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const self: any = nodeById.get(nodeId);
+          if (self) {
+            const abs = getAbsolutePosition(self, nodeById as any);
+            const dim = getNodeDimensions(self);
+            target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+          }
+        }
+
+        if (target) {
+          const x = viewW / 2 - target.x * targetZoom;
+          const y = viewH / 2 - target.y * targetZoom;
+          animateViewportTo({ x, y, zoom: targetZoom }, 800);
+        }
+      } catch (e) {
+        // Non-fatal: cropping UI should still work without canvas animation.
+        console.warn("Failed to animate viewport for crop mode:", e);
+      }
+    }, [animateViewportTo, canCrop, getPreviewCenterFlow, nodeId, nodes, setNodes]);
+
+    // When the preview disappears (or switches kind), exit crop mode.
+    useEffect(() => {
+      if (!isCropOpen) return;
+      if (!canCrop) {
+        setCropOpen(false);
+      }
+    }, [canCrop, isCropOpen]);
+
     useEffect(() => {
       onActionsChange?.({
         openPreview: openModal,
         download: handleDownload,
         canDownload: Boolean(downloadInfo),
+        enterCrop,
+        canCrop,
       });
-    }, [downloadInfo, handleDownload, onActionsChange, openModal]);
+    }, [canCrop, downloadInfo, enterCrop, handleDownload, onActionsChange, openModal]);
+
+    const handleConfirmCrop = useCallback(
+      ({ dataUrl, fileName }: { dataUrl: string; fileName: string }) => {
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["DoubaoImageCreator"];
+        if (!template) return;
+
+        takeSnapshot?.();
+
+        const REFERENCE_FIELD = "reference_images";
+        const IMAGE_OUTPUT_NAME = "image";
+        const NODE_OFFSET_X = 1300;
+
+        const newImageNodeId = getNodeId("DoubaoImageCreator");
+        const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+        const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+        const newNodeX = abs.x + NODE_OFFSET_X;
+        const newNodeY = computeAlignedNodeTopY({
+          anchorNodeId: nodeId,
+          anchorNodeType: currentFlowNode.data?.type,
+          targetNodeType: "DoubaoImageCreator",
+          targetX: newNodeX,
+          fallbackTopY: abs.y,
+          avoidOverlap: false,
+        });
+
+        const newTemplate = cloneDeep(template);
+        const refField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        if (refField) {
+          const safeName = (fileName && String(fileName).trim()) || "crop.png";
+          refField.value = [safeName];
+          refField.file_path = [dataUrl];
+        }
+        // Ensure the new node doesn't show any cached/generated output from template defaults.
+        if ((newTemplate as any)?.template?.draft_output) {
+          delete (newTemplate as any).template.draft_output;
+        }
+
+        const newImageNode: GenericNodeType = {
+          id: newImageNodeId,
+          type: "genericNode",
+          position: { x: newNodeX, y: newNodeY },
+          data: {
+            node: newTemplate as any,
+            showNode: !(newTemplate as any).minimized,
+            type: "DoubaoImageCreator",
+            id: newImageNodeId,
+            cropPreviewOnly: true,
+          },
+          selected: false,
+        };
+
+        const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+        const outputDefinition =
+          sourceTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+          sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+          sourceTemplate?.outputs?.[0];
+        const sourceOutputTypes =
+          outputDefinition?.types && outputDefinition.types.length === 1
+            ? outputDefinition.types
+            : outputDefinition?.selected
+              ? [outputDefinition.selected]
+              : ["Data"];
+        const sourceHandle = {
+          outputTypes: sourceOutputTypes,
+          type: outputDefinition?.type,
+          id: nodeId,
+          name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        };
+
+        const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        const targetHandle = {
+          inputTypes: referenceTemplateField?.input_types ?? ["Data"],
+          type: referenceTemplateField?.type,
+          id: newImageNodeId,
+          fieldName: REFERENCE_FIELD,
+          ...(referenceTemplateField?.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+        };
+
+        const edge: EdgeType = {
+          id: `xy-edge__${nodeId}-${sourceHandle.name}-${newImageNodeId}-${REFERENCE_FIELD}`,
+          source: nodeId,
+          sourceHandle: scapedJSONStringfy(sourceHandle as any),
+          target: newImageNodeId,
+          targetHandle: scapedJSONStringfy(targetHandle as any),
+          type: "default",
+          data: {
+            sourceHandle,
+            targetHandle,
+            // Mark as a crop-derived connection so preview aggregation can ignore upstream refs.
+            cropLink: true,
+          },
+        } as any;
+
+        unstable_batchedUpdates(() => {
+          setNodes((currentNodes) => [...currentNodes, newImageNode]);
+          setEdges((currentEdges) => [...currentEdges, edge]);
+          setCropOpen(false);
+        });
+
+        // After creating the downstream node, zoom out to 48% and center it.
+        try {
+          const instance: any = reactFlowInstance as any;
+          if (!instance || typeof instance.setViewport !== "function") return;
+
+          const container =
+            (typeof document !== "undefined" &&
+              (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+            null;
+          const rect = container?.getBoundingClientRect();
+          const viewW = rect?.width ?? window.innerWidth;
+          const viewH = rect?.height ?? window.innerHeight;
+          const targetZoom = 0.48;
+
+          // Use the anchor preview center as a stable reference (avoid polling the new node DOM).
+          const anchorPreviewCenter = getPreviewCenterFlow(nodeId);
+          const anchorDim = getNodeDimensions(currentFlowNode);
+          const anchorCenterFallback = {
+            x: abs.x + anchorDim.width / 2,
+            y: abs.y + anchorDim.height / 2,
+          };
+          const anchorCenter = anchorPreviewCenter ?? anchorCenterFallback;
+
+          // Compute "preview center offset" relative to the anchor's top-left; reuse for the new node.
+          const offsetX = anchorCenter.x - abs.x;
+          const offsetY = anchorCenter.y - abs.y;
+          const targetFlowCenter = { x: newNodeX + offsetX, y: newNodeY + offsetY };
+
+          const viewportTo = {
+            x: viewW / 2 - targetFlowCenter.x * targetZoom,
+            y: viewH / 2 - targetFlowCenter.y * targetZoom,
+            zoom: targetZoom,
+          };
+
+          // Let the node/edge commit first; then animate (reduces jank during XYFlow updates).
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              animateViewportTo(viewportTo, 800);
+            });
+          });
+        } catch (e) {
+          console.warn("Failed to animate viewport to crop result node:", e);
+        }
+      },
+      [animateViewportTo, getPreviewCenterFlow, node, nodeId, nodes, reactFlowInstance, setEdges, setNodes, takeSnapshot, templates],
+    );
 
     const hasError = resolvedPreview?.error;
     const shouldShowImageUploadOverlay =
@@ -1112,10 +1447,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     // Upload button is now in the node top bar for persistent previews; keep the overlay only for non-persistent panels.
     const showUploadOverlayInFrame = showUploadOverlay && !isPersistentPreview;
     const uploadButtonLabel = "上传";
-    const showReferenceSelectionBadge =
-      appearance === "imageCreator" &&
-      referenceSelectionCount > 0 &&
-      !hasGeneratedImagePreview;
+    const showReferenceSelectionBadge = false;
 
     const inlinePreview = hasRenderablePreview ? (
       <Suspense
@@ -1316,22 +1648,23 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             </div>
           )}
 
-          <div
-            ref={persistentPreviewFrameRef}
-            className={previewFrameClassName}
-            style={appliedContainerStyle}
-            data-testid="doubao-preview-frame"
-            onMouseEnter={
-              enableHoverAutoplay
-                ? () => setIsPersistentPreviewHovered(true)
-                : undefined
-            }
-            onMouseLeave={
-              enableHoverAutoplay
-                ? () => setIsPersistentPreviewHovered(false)
-                : undefined
-            }
-          >
+          <div className="relative overflow-visible">
+            <div
+              ref={persistentPreviewFrameRef}
+              className={previewFrameClassName}
+              style={appliedContainerStyle}
+              data-testid="doubao-preview-frame"
+              onMouseEnter={
+                enableHoverAutoplay
+                  ? () => setIsPersistentPreviewHovered(true)
+                  : undefined
+              }
+              onMouseLeave={
+                enableHoverAutoplay
+                  ? () => setIsPersistentPreviewHovered(false)
+                  : undefined
+              }
+            >
             {isPersistentPreview ? (
               <div className="absolute inset-0">
                 <div ref={persistentPreviewScaleShieldRef} className="absolute inset-0">
@@ -1552,6 +1885,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                   </button>
                 )}
               </>
+            )}
+          </div>
+            {appearance === "imageCreator" && canCrop && currentImage?.imageSource && (
+              <CropOverlay
+                open={isCropOpen}
+                imageSource={currentImage.imageSource}
+                onCancel={() => setCropOpen(false)}
+                onConfirm={handleConfirmCrop}
+              />
             )}
           </div>
         </div>

@@ -268,12 +268,16 @@ export default function DoubaoImageCreatorLayout({
     };
   }, [referenceFieldRaw]);
   const upstreamReferenceFields = useMemo<InputFieldType[]>(() => {
+    // Crop-result nodes should only preview their local crop image.
+    if ((data as any)?.cropPreviewOnly) return [];
     const incomingEdges = edges?.filter(
       (edge) => edge.target === data.id && edge.targetHandle,
     );
     const collected: InputFieldType[] = [];
 
     incomingEdges?.forEach((edge) => {
+      // Crop tool creates a visual connection that should not contribute additional preview images.
+      if ((edge as any)?.data?.cropLink) return;
       try {
         const targetHandle = scapeJSONParse(edge.targetHandle!);
         const fieldName = targetHandle?.fieldName ?? targetHandle?.name;

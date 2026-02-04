@@ -6,6 +6,7 @@ import type { NodeDataType } from "@/types/flow";
 import { getLocalStorage, setLocalStorage } from "@/utils/local-storage-util";
 import { getWorkflowAsset, putWorkflowAsset, deleteWorkflowAsset } from "@/utils/workflowAssetsDb";
 import { getURL } from "@/controllers/API/helpers/constants";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import {
     getFilesDownloadUrl,
     guessWorkflowCoverFromSelection,
@@ -254,6 +255,43 @@ function deepCollectAssetRefs(value: any, out: Set<string>) {
     if (typeof value === "object") {
         Object.values(value).forEach((v) => deepCollectAssetRefs(v, out));
     }
+}
+
+async function uploadWorkflowAssetToCurrentFlow(params: {
+    blob: Blob;
+    fileName: string;
+    mimeType?: string;
+}): Promise<{ flowId: string; filePath: string; fileName: string } | null> {
+    const flowId = useFlowsManagerStore.getState().currentFlowId;
+    if (!flowId) return null;
+
+    // Ensure we always upload a File so the backend can infer extension + content-type.
+    const name = params.fileName?.trim() || "asset.bin";
+    const type = params.mimeType || (params.blob as any)?.type || "application/octet-stream";
+    const file = new File([params.blob], name, { type });
+
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await api.post<any>(`${getURL("FILES")}/upload/${flowId}`, formData);
+    const filePath = String(response?.data?.file_path || "");
+    if (!filePath) return null;
+    const uploadedName = filePath.split("/").filter(Boolean).pop() || name;
+    return { flowId, filePath, fileName: uploadedName };
+}
+
+function buildPreviewUrlFromUploaded(params: {
+    flowId: string;
+    fileName: string;
+    mimeType?: string;
+}): string {
+    const mime = String(params.mimeType || "").toLowerCase();
+    if (mime.startsWith("image/")) {
+        return `${getURL("FILES")}/images/${params.flowId}/${params.fileName}`;
+    }
+    if (mime.startsWith("video/") || mime.startsWith("audio/")) {
+        return `${getURL("FILES")}/media/${params.flowId}/${params.fileName}`;
+    }
+    return `${getURL("FILES")}/download/${params.flowId}/${params.fileName}`;
 }
 
 function persistAssets(assets: StoredAsset[]) {
@@ -524,6 +562,7 @@ export const useAssetsStore = create<AssetsStore>((set, get) => ({
 
         const data = cloneDeep(asset.data);
         const { getWorkflowAsset } = await import("@/utils/workflowAssetsDb");
+        const uploadedCache = new Map<string, { filePath: string; flowId: string; fileName: string; mimeType?: string }>();
 
         // 1. Restore template paths from AssetRefs
         const restoreTemplatePaths = async (template: any) => {
@@ -537,7 +576,26 @@ export const useAssetsStore = create<AssetsStore>((set, get) => ({
                         if (isAssetRef(value)) {
                             try {
                                 const record = await getWorkflowAsset(value.workflowAssetId);
-                                if (record) return URL.createObjectURL(record.blob);
+                                if (record) {
+                                    const cached = uploadedCache.get(value.workflowAssetId);
+                                    if (cached) return cached.filePath;
+                                    const uploaded = await uploadWorkflowAssetToCurrentFlow({
+                                        blob: record.blob,
+                                        fileName: record.name || value.name || "asset.bin",
+                                        mimeType: record.type,
+                                    });
+                                    if (!uploaded) {
+                                        // Fallback to the original value (keeps behavior, but won't survive reloads).
+                                        return value.originalPath ?? value;
+                                    }
+                                    uploadedCache.set(value.workflowAssetId, {
+                                        flowId: uploaded.flowId,
+                                        filePath: uploaded.filePath,
+                                        fileName: uploaded.fileName,
+                                        mimeType: record.type,
+                                    });
+                                    return uploaded.filePath;
+                                }
                             } catch { }
                         }
                         return value;
@@ -566,8 +624,38 @@ export const useAssetsStore = create<AssetsStore>((set, get) => ({
                 try {
                     const record = await getWorkflowAsset(assetId);
                     if (record) {
-                        const newUrl = URL.createObjectURL(record.blob);
-                        urlMap.set(oldUrl, newUrl);
+                        const cached = uploadedCache.get(assetId);
+                        if (cached) {
+                            urlMap.set(
+                                oldUrl,
+                                buildPreviewUrlFromUploaded({
+                                    flowId: cached.flowId,
+                                    fileName: cached.fileName,
+                                    mimeType: cached.mimeType,
+                                }),
+                            );
+                            continue;
+                        }
+                        const uploaded = await uploadWorkflowAssetToCurrentFlow({
+                            blob: record.blob,
+                            fileName: record.name || "asset.bin",
+                            mimeType: record.type,
+                        });
+                        if (!uploaded) continue;
+                        uploadedCache.set(assetId, {
+                            flowId: uploaded.flowId,
+                            filePath: uploaded.filePath,
+                            fileName: uploaded.fileName,
+                            mimeType: record.type,
+                        });
+                        urlMap.set(
+                            oldUrl,
+                            buildPreviewUrlFromUploaded({
+                                flowId: uploaded.flowId,
+                                fileName: uploaded.fileName,
+                                mimeType: record.type,
+                            }),
+                        );
                     }
                 } catch { }
             }
