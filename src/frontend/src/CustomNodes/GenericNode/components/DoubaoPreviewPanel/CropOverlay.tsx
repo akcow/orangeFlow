@@ -89,6 +89,7 @@ export default function CropOverlay({ open, imageSource, onCancel, onConfirm }: 
   const [cropRect, setCropRect] = useState<CropRect>({ x: 0, y: 0, w: 0, h: 0 });
   const dragRef = useRef<DragMode>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const [isConfirming, setConfirming] = useState(false);
 
   const originalRatio = useMemo(() => {
     const w = Number(naturalSize?.w);
@@ -311,9 +312,10 @@ export default function CropOverlay({ open, imageSource, onCancel, onConfirm }: 
     dragRef.current = null;
   }, []);
 
-  const doConfirm = useCallback(() => {
+  const doConfirm = useCallback(async () => {
     const img = imgRef.current;
     const bounds = getBounds();
+    if (isConfirming) return;
     if (!img) return;
     if (!bounds.width || !bounds.height) return;
 
@@ -345,9 +347,28 @@ export default function CropOverlay({ open, imageSource, onCancel, onConfirm }: 
     const drawY = (offsetY - cropRect.y) / scale;
     ctx.drawImage(img, drawX, drawY, nw, nh);
 
-    const dataUrl = canvas.toDataURL("image/png");
-    onConfirm({ dataUrl, fileName: "crop.png" });
-  }, [cropRect.h, cropRect.w, cropRect.x, cropRect.y, getBounds, onConfirm]);
+    setConfirming(true);
+    try {
+      // `toDataURL` base64 encoding can be a main-thread hotspot for large crops.
+      // Prefer `toBlob` + object URL to keep the UI responsive during viewport animation.
+      const blob: Blob | null = await new Promise((resolve) => {
+        try {
+          canvas.toBlob((b) => resolve(b), "image/png");
+        } catch {
+          resolve(null);
+        }
+      });
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        onConfirm({ dataUrl: url, fileName: "crop.png" });
+        return;
+      }
+      const dataUrl = canvas.toDataURL("image/png");
+      onConfirm({ dataUrl, fileName: "crop.png" });
+    } finally {
+      setConfirming(false);
+    }
+  }, [cropRect.h, cropRect.w, cropRect.x, cropRect.y, getBounds, isConfirming, onConfirm]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -487,9 +508,10 @@ export default function CropOverlay({ open, imageSource, onCancel, onConfirm }: 
               type="button"
               className="flex h-9 items-center gap-2 rounded-full bg-white px-4 text-sm font-medium text-black shadow"
               onClick={doConfirm}
+              disabled={isConfirming}
             >
               <ForwardedIconComponent name="Check" className="h-4 w-4" />
-              确认裁剪
+              {isConfirming ? "处理中..." : "确认裁剪"}
             </button>
           </div>
         </div>

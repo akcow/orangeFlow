@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AlertDropdown from "@/alerts/alertDropDown";
 import DataStaxLogo from "@/assets/DataStaxLogo.svg?react";
@@ -14,16 +15,25 @@ import { ENABLE_DATASTAX_LANGFLOW } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import useTheme from "@/customization/hooks/use-custom-theme";
 import useAlertStore from "@/stores/alertStore";
+import { cn } from "@/utils/utils";
 import FlowMenu from "./components/FlowMenu";
 
 export default function AppHeader(): JSX.Element {
   const { t } = useTranslation();
   const notificationCenter = useAlertStore((state) => state.notificationCenter);
   const navigate = useCustomNavigate();
+  const location = useLocation();
   const [activeState, setActiveState] = useState<"notifications" | null>(null);
   const notificationRef = useRef<HTMLButtonElement | null>(null);
   const notificationContentRef = useRef<HTMLDivElement | null>(null);
   useTheme();
+
+  const topNavActive = useMemo(() => {
+    const path = location.pathname || "/";
+    if (path.startsWith("/community/tv")) return "tv";
+    if (path.startsWith("/community/workflows")) return "workflows";
+    return "workspace";
+  }, [location.pathname]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -77,6 +87,37 @@ export default function AppHeader(): JSX.Element {
             <CustomOrgSelector />
             <CustomProductSelector />
           </>
+        )}
+        {!ENABLE_DATASTAX_LANGFLOW && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant={topNavActive === "tv" ? "secondary" : "ghost"}
+              size="sm"
+              className={cn("h-8 px-3 font-normal", topNavActive !== "tv" && "text-muted-foreground")}
+              onClick={() => navigate("/community/tv")}
+            >
+              TV
+            </Button>
+            <Button
+              variant={topNavActive === "workflows" ? "secondary" : "ghost"}
+              size="sm"
+              className={cn("h-8 px-3 font-normal", topNavActive !== "workflows" && "text-muted-foreground")}
+              onClick={() => navigate("/community/workflows")}
+            >
+              工作流
+            </Button>
+            <Button
+              variant={topNavActive === "workspace" ? "secondary" : "ghost"}
+              size="sm"
+              className={cn(
+                "h-8 px-3 font-normal",
+                topNavActive !== "workspace" && "text-muted-foreground",
+              )}
+              onClick={() => navigate("/")}
+            >
+              工作空间
+            </Button>
+          </div>
         )}
       </div>
 

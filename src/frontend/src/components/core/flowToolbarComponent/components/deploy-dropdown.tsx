@@ -3,6 +3,7 @@ import { useHref } from "react-router-dom";
 import IconComponent from "@/components/common/genericIconComponent";
 import ShadTooltipComponent from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +23,7 @@ import useAuthStore from "@/stores/authStore";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { cn } from "@/utils/utils";
+import TVPublishForm from "@/pages/Community/TVPublishForm";
 
 type PublishDropdownProps = {
   openApiModal: boolean;
@@ -35,6 +37,7 @@ export default function PublishDropdown({
   const location = useHref("/");
   const domain = window.location.origin + location;
   const [openEmbedModal, setOpenEmbedModal] = useState(false);
+  const [openTvPublish, setOpenTvPublish] = useState(false);
   const currentFlow = useFlowsManagerStore((state) => state.currentFlow);
   const flowId = currentFlow?.id;
   const flowName = currentFlow?.name;
@@ -104,6 +107,17 @@ export default function PublishDropdown({
           align="end"
           className="w-full min-w-[275px]"
         >
+          <DropdownMenuItem
+            className="deploy-dropdown-item group"
+            disabled={!flowId}
+            onClick={() => {
+              if (!flowId) return;
+              setOpenTvPublish(true);
+            }}
+          >
+            <IconComponent name="Tv" className={`icon-size mr-2`} />
+            <span>在TV上发布</span>
+          </DropdownMenuItem>
           <DropdownMenuItem
             className="deploy-dropdown-item group"
             onClick={() => setOpenApiModal(true)}
@@ -207,6 +221,18 @@ export default function PublishDropdown({
         activeTweaks={false}
       ></EmbedModal>
       <ExportModal open={openExportModal} setOpen={setOpenExportModal} />
+
+      <Dialog open={openTvPublish} onOpenChange={setOpenTvPublish}>
+        <DialogContent className="max-w-3xl p-0" closeButtonClassName="hidden">
+          {flowId ? (
+            <TVPublishForm
+              flowId={flowId}
+              onClose={() => setOpenTvPublish(false)}
+              onSuccess={() => setOpenTvPublish(false)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -74,6 +74,7 @@ export default function DoubaoVideoGeneratorMoreActionsMenu({
             value={"添加为资产"}
             icon={"Save"}
             dataTestId="save-as-asset-button-modal"
+            shortcut={""}
           />
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -133,4 +134,3 @@ export default function DoubaoVideoGeneratorMoreActionsMenu({
     </DropdownMenu>
   );
 }
-

@@ -72,6 +72,7 @@ export default function DoubaoImageCreatorMoreActionsMenu({
             value={"添加为资产"}
             icon={"Save"}
             dataTestId="save-as-asset-button-modal"
+            shortcut={""}
           />
         </DropdownMenuItem>
         <DropdownMenuItem

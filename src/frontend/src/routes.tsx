@@ -23,6 +23,9 @@ import { CustomRoutesStorePages } from "./customization/utils/custom-routes-stor
 import { AppAuthenticatedPage } from "./pages/AppAuthenticatedPage";
 import { AppInitPage } from "./pages/AppInitPage";
 import { AppWrapperPage } from "./pages/AppWrapperPage";
+import TVPage from "./pages/Community/TVPage";
+import TVPublishPage from "./pages/Community/TVPublishPage";
+import WorkflowsPage from "./pages/Community/WorkflowsPage";
 import FlowPage from "./pages/FlowPage";
 import LoginPage from "./pages/LoginPage";
 import FilesPage from "./pages/MainPage/pages/filesPage";
@@ -68,6 +71,12 @@ const router = createBrowserRouter(
     >
       <Route path="" element={<AppInitPage />}>
         <Route path="" element={<AppWrapperPage />}>
+          <Route path="community" element={<CustomDashboardWrapperPage />}>
+            <Route index element={<CustomNavigate replace to={"tv"} />} />
+            <Route path="tv" element={<TVPage />} />
+            <Route path="tv/publish" element={<TVPublishPage />} />
+            <Route path="workflows" element={<WorkflowsPage />} />
+          </Route>
           <Route
             path=""
             element={

@@ -63,8 +63,8 @@ const CONTROL_FIELDS = [
 
 const PROMPT_NAME = "prompt";
 const DEFAULT_DURATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15];
-const FIRST_FRAME_FIELD = "first_frame_image";
-const LAST_FRAME_FIELD = "last_frame_image";
+const FIRST_FRAME_FIELD = "first_frame_image" as const;
+const LAST_FRAME_FIELD = "last_frame_image" as const;
 const ASPECT_RATIO_FIELD = "aspect_ratio";
 const AUDIO_INPUT_FIELD = "audio_input";
 const ENABLE_AUDIO_FIELD = "enable_audio";
@@ -4534,18 +4534,13 @@ function buildFirstFramePreviewItemsFromFields(
   return dedupePreviews(previews);
 }
 
-function mergeReferencePreviewLists(
-  base: DoubaoReferenceImage[],
-  extras: DoubaoReferenceImage[],
-): DoubaoReferenceImage[] {
+function mergeReferencePreviewLists<T extends DoubaoReferenceImage>(base: T[], extras: T[]): T[] {
   return dedupePreviews([...base, ...extras]);
 }
 
-function dedupePreviews(
-  previews: DoubaoReferenceImage[],
-): DoubaoReferenceImage[] {
+function dedupePreviews<T extends DoubaoReferenceImage>(previews: T[]): T[] {
   const seen = new Set<string>();
-  const result: DoubaoReferenceImage[] = [];
+  const result: T[] = [];
 
   previews.forEach((preview) => {
     const baseKey = preview.imageSource ?? preview.downloadSource ?? preview.id;

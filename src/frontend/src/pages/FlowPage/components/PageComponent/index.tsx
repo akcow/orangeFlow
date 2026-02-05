@@ -290,7 +290,7 @@ export default function Page({
 
     const targetAbs = absPosById.get(targetGroupId)!;
 
-    let nextNodes = currentNodes.map((n) => {
+    let nextNodes: AllNodeType[] = currentNodes.map((n) => {
       if (n.id === targetGroupId) {
         return { ...n, selected: true };
       }
@@ -309,7 +309,7 @@ export default function Page({
       delete moved.extent;
       delete moved.expandParent;
       return moved;
-    });
+    }) as AllNodeType[];
 
     // Make sure the target container fits the (possibly expanded) set of children.
     nextNodes = fitGroupToChildren(targetGroupId, nextNodes);
@@ -346,7 +346,7 @@ export default function Page({
         absPosById.set(n.id, getAbsolutePosition(n, nodeById));
       }
 
-      let nextNodes = currentNodes
+      let nextNodes: AllNodeType[] = currentNodes
         .filter((n) => n.id !== targetId)
         .map((n) => ({ ...n, selected: false }));
 
@@ -429,7 +429,7 @@ export default function Page({
   }
 
   function handleGroup(e: KeyboardEvent) {
-    if (selectionMenuVisible && lastSelection?.nodes?.length > 1) {
+    if (selectionMenuVisible && (lastSelection?.nodes?.length ?? 0) > 1) {
       e.preventDefault();
       (e as unknown as Event).stopImmediatePropagation();
       handleCreateOrMergeGroup();

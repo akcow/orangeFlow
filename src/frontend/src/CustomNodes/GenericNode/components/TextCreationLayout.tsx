@@ -1393,13 +1393,16 @@ export default function TextCreationLayout({
 
   const openPreview = useCallback(() => setPreviewModalOpen(true), []);
   const noopDownload = useCallback(() => undefined, []);
+  const noopEnterCrop = useCallback(() => undefined, []);
   useEffect(() => {
     onPreviewActionsChange?.({
       openPreview,
       download: noopDownload,
       canDownload: false,
+      enterCrop: noopEnterCrop,
+      canCrop: false,
     });
-  }, [noopDownload, onPreviewActionsChange, openPreview]);
+  }, [noopDownload, noopEnterCrop, onPreviewActionsChange, openPreview]);
 
   return (
     <div className="relative flex flex-col gap-4 px-4 pb-4 transition-all duration-300 ease-in-out">

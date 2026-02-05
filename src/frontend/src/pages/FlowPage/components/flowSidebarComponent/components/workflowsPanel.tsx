@@ -7,9 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { NODE_WIDTH } from "@/constants/constants";
+import { api } from "@/controllers/API/api";
+import { getURL } from "@/controllers/API/helpers/constants";
+import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import useAlertStore from "@/stores/alertStore";
+import useAuthStore from "@/stores/authStore";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { useFolderStore } from "@/stores/foldersStore";
 import { useWorkflowsStore } from "@/stores/workflowsStore";
 import { cn } from "@/utils/utils";
 
@@ -49,8 +54,11 @@ export default function WorkflowsPanel({
   onRequestClose?: () => void;
 }) {
   const storeApi = useStoreApi();
+  const navigate = useCustomNavigate();
   const setNoticeData = useAlertStore((s) => s.setNoticeData);
   const setErrorData = useAlertStore((s) => s.setErrorData);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const myCollectionId = useFolderStore((s) => s.myCollectionId);
 
   const nodes = useFlowStore((s) => s.nodes);
   const edges = useFlowStore((s) => s.edges);
@@ -101,6 +109,7 @@ export default function WorkflowsPanel({
   const [formCover, setFormCover] = useState<any>({ kind: "default" });
   const [tagInput, setTagInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Prime object URLs for cover assets (best-effort).
   useEffect(() => {
@@ -293,6 +302,118 @@ export default function WorkflowsPanel({
       setIsSaving(false);
     }
   }, [draft, editingId, formCover, formName, formNote, formTags, saveDraftAsWorkflow, setErrorData, updateWorkflowMeta, view]);
+
+  const handlePublish = useCallback(async () => {
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+    if (view !== "edit" || !editingId) return;
+
+    const wf = workflows.find((w) => w.id === editingId);
+    if (!wf) {
+      setErrorData({ title: "未找到工作流" });
+      return;
+    }
+
+    setIsPublishing(true);
+    try {
+      const name = formName.trim() || wf.name;
+      const note = formNote ?? wf.note ?? "";
+      const tags = normalizeTags(formTags.length ? formTags : (wf.tags ?? []));
+
+      // Persist local metadata so "我的工作流"列表与本次投稿一致。
+      updateWorkflowMeta(editingId, { name, note, tags, cover: formCover });
+
+      const viewport = { zoom: 1, x: 0, y: 0 };
+      const initialData = {
+        nodes: wf.selection?.nodes ?? [],
+        edges: wf.selection?.edges ?? [],
+        viewport,
+      };
+
+      // 1) Create a new Flow that will represent this template in the community.
+      const created = await api.post<any>(`${getURL("FLOWS")}/`, {
+        name,
+        data: initialData,
+        description: note,
+        is_component: false,
+        folder_id: myCollectionId || null,
+        icon: null,
+        gradient: null,
+        endpoint_name: null,
+        tags: null,
+        mcp_enabled: null,
+      });
+      const newFlowId = created?.data?.id as string | undefined;
+      if (!newFlowId) throw new Error("创建 Flow 失败（缺少 id）");
+
+      // 2) Upload any referenced assets (files embedded in template fields) into the new flow and rewrite paths.
+      const materialized = await materializeSelectionForUse({
+        workflowId: wf.id,
+        currentFlowId: newFlowId,
+      });
+      if (materialized) {
+        await api.patch(`${getURL("FLOWS")}/${newFlowId}`, {
+          data: { nodes: materialized.nodes, edges: materialized.edges, viewport },
+          description: note,
+        });
+      }
+
+      // 3) Upload cover (best-effort) if it's stored as a workflow asset.
+      let coverPath: string | null = null;
+      if (formCover?.kind === "asset" && formCover?.assetId) {
+        try {
+          const { getWorkflowAsset } = await import("@/utils/workflowAssetsDb");
+          const record = await getWorkflowAsset(String(formCover.assetId));
+          if (record?.blob) {
+            const file = new File([record.blob], record.name || "cover.png", {
+              type: record.type || record.blob.type || "image/png",
+            });
+            const fd = new FormData();
+            fd.append("file", file);
+            const up = await api.post<any>(`${getURL("FILES")}/upload/${newFlowId}`, fd);
+            coverPath = up?.data?.file_path ?? null;
+          }
+        } catch {
+          // ignore cover upload failure
+        }
+      }
+
+      // 4) Create community item (UNREVIEWED by default).
+      await api.post(`${getURL("COMMUNITY")}/items`, {
+        type: "WORKFLOW",
+        flow_id: newFlowId,
+        title: name,
+        description: note || null,
+        cover_path: coverPath,
+        media_path: null,
+        public_canvas: true,
+        status: "UNREVIEWED",
+      });
+
+      setNoticeData({ title: "已提交审核" });
+    } catch (e: any) {
+      setErrorData({ title: e?.message ?? "投稿失败" });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [
+    editingId,
+    formCover,
+    formName,
+    formNote,
+    formTags,
+    isAuthenticated,
+    materializeSelectionForUse,
+    myCollectionId,
+    navigate,
+    setErrorData,
+    setNoticeData,
+    updateWorkflowMeta,
+    view,
+    workflows,
+  ]);
 
   const handleUse = useCallback(
     async (id: string) => {
@@ -525,6 +646,15 @@ export default function WorkflowsPanel({
                 >
                   {isSaving ? "保存中..." : "保存"}
                 </Button>
+                {view === "edit" && (
+                  <Button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={isSaving || isPublishing}
+                  >
+                    {isPublishing ? "投稿中..." : "发布并投稿"}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

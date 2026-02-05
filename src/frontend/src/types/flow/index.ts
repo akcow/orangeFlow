@@ -81,6 +81,8 @@ export type NodeDataType = {
   selected_output_type?: string;
   buildStatus?: BuildStatus;
   selected_output?: string;
+  // Used by specialized nodes/layouts to indicate the node is a lightweight preview-only helper.
+  cropPreviewOnly?: boolean;
 };
 
 export type EdgeType = Edge<EdgeDataType, "default">;
