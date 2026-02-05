@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useParams } from "react-router-dom";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useShallow } from "zustand/react/shallow";
 import { DefaultEdge } from "@/CustomEdges";
@@ -79,6 +80,8 @@ import DoubaoVideoGeneratorMoreActionsMenu from "./components/doubao-video-gener
 import DoubaoAudioMoreActionsMenu from "./components/doubao-audio-more-actions-menu";
 import TextCreationMoreActionsMenu from "./components/text-creation-more-actions-menu";
 import HelperLines from "./components/helper-lines";
+import CanvasMiniMap from "@/components/core/canvasMiniMapComponent/CanvasMiniMap";
+import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import {
   getHelperLines,
   getSnapPosition,
@@ -114,6 +117,7 @@ export default function Page({
   view?: boolean;
   setIsLoading: (isLoading: boolean) => void;
 }): JSX.Element {
+  const { id } = useParams();
   const uploadFlow = useUploadFlow();
   const autoSaveFlow = useAutoSaveFlow();
   const types = useTypesStore((state) => state.types);
@@ -864,8 +868,12 @@ export default function Page({
       event.preventDefault();
       if (isLocked) return;
 
-      // Doubao image creator: show menu at cursor, and do NOT change selection.
-      if (node.type === "genericNode" && node.data?.type === "DoubaoImageCreator") {
+      // Image nodes (creator + user upload): show menu at cursor, and do NOT change selection.
+      if (
+        node.type === "genericNode" &&
+        (node.data?.type === "DoubaoImageCreator" ||
+          node.data?.type === "UserUploadImage")
+      ) {
         setRightClickedNodeId(null);
         setImageCreatorMoreActionsMenu({
           nodeId: node.id,
@@ -878,8 +886,12 @@ export default function Page({
         return;
       }
 
-      // Doubao video generator: same cursor-anchored menu behavior as image creator.
-      if (node.type === "genericNode" && node.data?.type === "DoubaoVideoGenerator") {
+      // Video nodes (creator + user upload): same cursor-anchored menu behavior as image creator.
+      if (
+        node.type === "genericNode" &&
+        (node.data?.type === "DoubaoVideoGenerator" ||
+          node.data?.type === "UserUploadVideo")
+      ) {
         setRightClickedNodeId(null);
         setVideoGeneratorMoreActionsMenu({
           nodeId: node.id,
@@ -892,8 +904,11 @@ export default function Page({
         return;
       }
 
-      // Doubao audio generator: same cursor-anchored menu behavior as image creator.
-      if (node.type === "genericNode" && node.data?.type === "DoubaoTTS") {
+      // Audio nodes (creator + user upload): same cursor-anchored menu behavior as image creator.
+      if (
+        node.type === "genericNode" &&
+        (node.data?.type === "DoubaoTTS" || node.data?.type === "UserUploadAudio")
+      ) {
         setRightClickedNodeId(null);
         setAudioCreatorMoreActionsMenu({
           nodeId: node.id,
@@ -1071,21 +1086,23 @@ export default function Page({
     maxZoom: MAX_ZOOM,
   };
 
+  // Always start with the minimap closed on each flow/view entry.
+  useEffect(() => {
+    useCanvasUiStore.getState().setMiniMapOpen(false);
+  }, [id, view]);
+
   return (
     <div className="h-full w-full bg-canvas" ref={reactFlowWrapper}>
       {showCanvas ? (
         <>
           <div id="react-flow-id" className="h-full w-full bg-canvas relative">
-            {!view && (
-              <>
-                <MemoizedCanvasControls
-                  setIsAddingNote={setIsAddingNote}
-                  shadowBoxWidth={shadowBoxWidth}
-                  shadowBoxHeight={shadowBoxHeight}
-                />
-                <FlowToolbar />
-              </>
-            )}
+            <MemoizedCanvasControls
+              view={view}
+              setIsAddingNote={setIsAddingNote}
+              shadowBoxWidth={shadowBoxWidth}
+              shadowBoxHeight={shadowBoxHeight}
+            />
+            {!view && <FlowToolbar />}
             <SelectionMenu
               lastSelection={lastSelection}
               isVisible={selectionMenuVisible}
@@ -1205,6 +1222,7 @@ export default function Page({
               <UpdateAllComponents />
               <MemoizedBackground />
               {helperLineEnabled && <HelperLines helperLines={helperLines} />}
+              <CanvasMiniMap />
             </ReactFlow>
           </div>
           <div

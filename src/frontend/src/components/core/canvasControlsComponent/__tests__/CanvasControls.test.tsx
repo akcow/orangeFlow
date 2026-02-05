@@ -48,6 +48,11 @@ jest.mock("../HelpDropdown", () => ({
   default: (props: any) => <div data-testid="help-dropdown" {...props} />,
 }));
 
+jest.mock("../MiniMapToggle", () => ({
+  __esModule: true,
+  default: (props: any) => <div data-testid="minimap-toggle" {...props} />,
+}));
+
 describe("CanvasControls", () => {
   it("renders panel and separators when children present", () => {
     render(
@@ -60,6 +65,19 @@ describe("CanvasControls", () => {
     expect(seps.length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId("controls-dropdown")).toBeInTheDocument();
     expect(screen.getByTestId("help-dropdown")).toBeInTheDocument();
+    expect(screen.getByTestId("minimap-toggle")).toBeInTheDocument();
+
+    const container = screen.getByTestId("main_canvas_controls");
+    const idsInOrder = Array.from(
+      container.querySelectorAll("[data-testid]"),
+    ).map((el) => el.getAttribute("data-testid"));
+
+    expect(idsInOrder.indexOf("minimap-toggle")).toBeLessThan(
+      idsInOrder.indexOf("help-dropdown"),
+    );
+    expect(idsInOrder.indexOf("help-dropdown")).toBeLessThan(
+      idsInOrder.indexOf("controls-dropdown"),
+    );
   });
 
   it("updates reactFlow state based on flow lock status", () => {

@@ -39,6 +39,11 @@ import DoubaoImageCreatorLayout from "./components/DoubaoImageCreatorLayout";
 import DoubaoVideoGeneratorLayout from "./components/DoubaoVideoGeneratorLayout";
 import DoubaoAudioLayout from "./components/DoubaoAudioLayout";
 import TextCreationLayout from "./components/TextCreationLayout";
+import {
+  UserUploadAudioLayout,
+  UserUploadImageLayout,
+  UserUploadVideoLayout,
+} from "./components/UserUploadLayouts";
 import OutputModal from "./components/outputModal";
 import { isDoubaoComponent } from "../hooks/use-doubao-preview";
 import { useBuildStatus } from "./hooks/use-get-build-status";
@@ -681,11 +686,17 @@ function GenericNode({
   const isDoubaoVideoGenerator = data.type === "DoubaoVideoGenerator";
   const isDoubaoAudioGenerator = data.type === "DoubaoTTS";
   const isTextCreation = data.type === "TextCreation";
+  const isUserUploadImage = data.type === "UserUploadImage";
+  const isUserUploadVideo = data.type === "UserUploadVideo";
+  const isUserUploadAudio = data.type === "UserUploadAudio";
   const usesWideDoubaoLayout =
     isDoubaoImageCreator ||
     isDoubaoVideoGenerator ||
     isDoubaoAudioGenerator ||
-    isTextCreation;
+    isTextCreation ||
+    isUserUploadImage ||
+    isUserUploadVideo ||
+    isUserUploadAudio;
   const nodeWidthClass = useMemo(() => {
     if (!showNode) return "w-48";
     if (isTextCreation) return "w-[520px]";
@@ -976,7 +987,15 @@ function GenericNode({
     const isSelectedSingle = selected && selectedNodesCount === 1;
     // Creator nodes use a cursor-anchored context menu instead of a fixed "more actions" button.
     const shouldShowToolbar =
-      !(isDoubaoImageCreator || isDoubaoVideoGenerator || isDoubaoAudioGenerator || isTextCreation) &&
+      !(
+        isDoubaoImageCreator ||
+        isDoubaoVideoGenerator ||
+        isDoubaoAudioGenerator ||
+        isTextCreation ||
+        isUserUploadImage ||
+        isUserUploadVideo ||
+        isUserUploadAudio
+      ) &&
       (isSelectedSingle || isRightClicked);
 
     return shouldShowToolbar ? (
@@ -1010,7 +1029,15 @@ function GenericNode({
             openDropdownOnRightClick={isRightClicked}
           />
         </div>
-        {!(isDoubaoImageCreator || isDoubaoVideoGenerator || isDoubaoAudioGenerator || isTextCreation) && (
+        {!(
+          isDoubaoImageCreator ||
+          isDoubaoVideoGenerator ||
+          isDoubaoAudioGenerator ||
+          isTextCreation ||
+          isUserUploadImage ||
+          isUserUploadVideo ||
+          isUserUploadAudio
+        ) && (
           <div>
             <Button
               unstyled
@@ -1066,8 +1093,12 @@ function GenericNode({
     isOutdated,
     isUserEdited,
     isDoubaoImageCreator,
+    isDoubaoVideoGenerator,
     isDoubaoAudioGenerator,
     isTextCreation,
+    isUserUploadImage,
+    isUserUploadVideo,
+    isUserUploadAudio,
     selected,
     shortcuts,
     editNameDescription,
@@ -1105,7 +1136,10 @@ function GenericNode({
             (isDoubaoImageCreator ||
               isDoubaoVideoGenerator ||
               isDoubaoAudioGenerator ||
-              isTextCreation) &&
+              isTextCreation ||
+              isUserUploadImage ||
+              isUserUploadVideo ||
+              isUserUploadAudio) &&
             showNode
           ) &&
             borderColor,
@@ -1114,7 +1148,10 @@ function GenericNode({
           (isDoubaoImageCreator ||
             isDoubaoVideoGenerator ||
             isDoubaoAudioGenerator ||
-            isTextCreation) &&
+            isTextCreation ||
+            isUserUploadImage ||
+            isUserUploadVideo ||
+            isUserUploadAudio) &&
             showNode
             ? "rounded-none border-0 bg-transparent shadow-none"
             : "rounded-xl border shadow-sm hover:shadow-md",
@@ -1160,7 +1197,10 @@ function GenericNode({
               : "relative",
           )}
         >
-          {showNode && usesWideDoubaoLayout && isDoubaoImageCreator && selected && (
+          {showNode &&
+            usesWideDoubaoLayout &&
+            (isDoubaoImageCreator || isUserUploadImage) &&
+            selected && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
               <DoubaoImageCreatorTopBar
                 nodeId={data.id}
@@ -1176,7 +1216,10 @@ function GenericNode({
               />
             </div>
           )}
-          {showNode && usesWideDoubaoLayout && isDoubaoVideoGenerator && selected && (
+          {showNode &&
+            usesWideDoubaoLayout &&
+            (isDoubaoVideoGenerator || isUserUploadVideo) &&
+            selected && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
               <DoubaoVideoGeneratorTopBar
                 nodeId={data.id}
@@ -1190,7 +1233,10 @@ function GenericNode({
               />
             </div>
           )}
-          {showNode && usesWideDoubaoLayout && isDoubaoAudioGenerator && selected && (
+          {showNode &&
+            usesWideDoubaoLayout &&
+            (isDoubaoAudioGenerator || isUserUploadAudio) &&
+            selected && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
               <DoubaoAudioTopBar
                 nodeId={data.id}
@@ -1226,7 +1272,10 @@ function GenericNode({
               {!isTextCreation &&
                 !isDoubaoImageCreator &&
                 !isDoubaoVideoGenerator &&
-                !isDoubaoAudioGenerator && (
+                !isDoubaoAudioGenerator &&
+                !isUserUploadImage &&
+                !isUserUploadVideo &&
+                !isUserUploadAudio && (
                 <MemoizedNodeIcon
                   dataType={data.type}
                   icon={data.node?.icon}
@@ -1239,7 +1288,10 @@ function GenericNode({
                   (isTextCreation ||
                     isDoubaoImageCreator ||
                     isDoubaoVideoGenerator ||
-                    isDoubaoAudioGenerator) &&
+                    isDoubaoAudioGenerator ||
+                    isUserUploadImage ||
+                    isUserUploadVideo ||
+                    isUserUploadAudio) &&
                     "ml-0",
                 )}
               >
@@ -1261,7 +1313,10 @@ function GenericNode({
                     isDoubaoImageCreator ||
                     isDoubaoVideoGenerator ||
                     isDoubaoAudioGenerator ||
-                    isTextCreation
+                    isTextCreation ||
+                    isUserUploadImage ||
+                    isUserUploadVideo ||
+                    isUserUploadAudio
                       ? "text-xl"
                       : undefined
                   }
@@ -1350,6 +1405,19 @@ function GenericNode({
                   }
                   onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
                 />
+              ) : isUserUploadImage ? (
+                <UserUploadImageLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  selected={selected ?? false}
+                  onPreviewActionsChange={setImageCreatorPreviewActions}
+                  onPersistentPreviewMotionStart={({ deltaTopPx, durationMs, easing }) =>
+                    handlePersistentPreviewMotionStart({ deltaTopPx, durationMs, easing })
+                  }
+                  onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
+                />
               ) : isDoubaoVideoGenerator ? (
                 <DoubaoVideoGeneratorLayout
                   data={data}
@@ -1363,8 +1431,30 @@ function GenericNode({
                   }
                   onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
                 />
+              ) : isUserUploadVideo ? (
+                <UserUploadVideoLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  selected={selected ?? false}
+                  onPreviewActionsChange={setVideoGeneratorPreviewActions}
+                  onPersistentPreviewMotionStart={({ deltaTopPx, durationMs, easing }) =>
+                    handlePersistentPreviewMotionStart({ deltaTopPx, durationMs, easing })
+                  }
+                  onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
+                />
               ) : isDoubaoAudioGenerator ? (
                 <DoubaoAudioLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  selected={selected ?? false}
+                  onPreviewActionsChange={setAudioCreatorPreviewActions}
+                />
+              ) : isUserUploadAudio ? (
+                <UserUploadAudioLayout
                   data={data}
                   types={types}
                   isToolMode={isToolMode}

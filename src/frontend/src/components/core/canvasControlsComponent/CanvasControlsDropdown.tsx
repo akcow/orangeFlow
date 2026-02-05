@@ -87,7 +87,7 @@ const CanvasControlsDropdown = () => {
           data-testid="canvas_controls_dropdown"
           className="group rounded-none px-2 py-2 hover:bg-muted"
           unstyled
-          title={t("Canvas Controls")}
+          title="画布放大"
         >
           <div className="flex items-center justify-center ">
             <div className="text-sm pr-1 text-muted-foreground">
@@ -103,7 +103,7 @@ const CanvasControlsDropdown = () => {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"
-        align="end"
+        align="start"
         className="flex flex-col w-full"
       >
         <DropdownControlButton

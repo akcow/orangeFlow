@@ -8,8 +8,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Separator } from "@/components/ui/separator";
 import SkeletonGroup from "@/components/ui/skeletonGroup";
 import { t } from "@/i18n/t";
+import useSaveFlow from "@/hooks/flows/use-save-flow";
 import { nodeColors } from "@/utils/styleUtils";
 import { removeCountFromString } from "@/utils/utils";
+import { createFileUpload } from "@/helpers/create-file-upload";
+import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
+import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
+import useAlertStore from "@/stores/alertStore";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { getNodeId } from "@/utils/reactflowUtils";
 import useFlowStore from "../../../../stores/flowStore";
 import { useTypesStore } from "../../../../stores/typesStore";
 import type { APIClassType } from "../../../../types/api";
@@ -154,6 +161,176 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [pendingCreateGroupId, setPendingCreateGroupId] = useState<string | null>(null);
 
+  const templates = useTypesStore((state) => state.templates);
+  const nodes = useFlowStore((state) => state.nodes);
+  const setNodes = useFlowStore((state) => state.setNodes);
+  const reactFlowInstance = useFlowStore((state) => state.reactFlowInstance);
+  const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+  const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
+  const saveFlow = useSaveFlow();
+  const setErrorData = useAlertStore((state) => state.setErrorData);
+  const { validateFileSize } = useFileSizeValidator();
+  const { mutateAsync: uploadFile } = usePostUploadFile();
+
+  const getNextUserUploadIndex = useCallback(() => {
+    let max = 0;
+    for (const node of nodes as any[]) {
+      const type = (node as any)?.data?.type;
+      if (
+        type !== "UserUploadImage" &&
+        type !== "UserUploadVideo" &&
+        type !== "UserUploadAudio"
+      ) {
+        continue;
+      }
+      const name = String((node as any)?.data?.node?.display_name ?? "");
+      const match = /^用户上传(\d+)$/.exec(name);
+      if (!match) continue;
+      const value = Number(match[1]);
+      if (Number.isFinite(value)) max = Math.max(max, value);
+    }
+    return max + 1;
+  }, [nodes]);
+
+  const getViewportCenterPosition = useCallback(() => {
+    const instance: any = reactFlowInstance as any;
+    if (instance?.getViewport) {
+      const view = instance.getViewport();
+      const zoom = Number(view?.zoom ?? 1) || 1;
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      // Convert viewport center to flow coords: (screen - viewport translate) / zoom.
+      return {
+        x: (cx - (Number(view?.x ?? 0) || 0)) / zoom,
+        y: (cy - (Number(view?.y ?? 0) || 0)) / zoom,
+      };
+    }
+    // Fallback: place near origin.
+    return { x: 0, y: 0 };
+  }, [reactFlowInstance]);
+
+  const handleUploadResource = useCallback(async () => {
+    try {
+      // Ensure the flow exists in backend (and snapshots capture the node addition for undo).
+      await saveFlow();
+
+      const files = await createFileUpload({
+        multiple: false,
+        accept: "image/*,video/*,audio/*",
+      });
+      const file = files[0];
+      if (!file) return;
+
+      try {
+        validateFileSize(file);
+      } catch (e) {
+        if (e instanceof Error) setErrorData({ title: e.message });
+        return;
+      }
+
+      const mime = String(file.type || "").toLowerCase();
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      const isImage =
+        mime.startsWith("image/") ||
+        ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"].includes(ext);
+      const isVideo =
+        mime.startsWith("video/") || ["mp4", "mov", "webm"].includes(ext);
+      const isAudio =
+        mime.startsWith("audio/") ||
+        ["mp3", "wav", "m4a", "aac", "ogg", "flac"].includes(ext);
+
+      const nodeType = isImage
+        ? "UserUploadImage"
+        : isVideo
+          ? "UserUploadVideo"
+          : isAudio
+            ? "UserUploadAudio"
+            : null;
+
+      if (!nodeType) {
+        setErrorData({
+          title: "文件类型不支持",
+          list: ["请选择图片 / 视频 / 音频文件。"],
+        });
+        return;
+      }
+
+      const flowId = useFlowsManagerStore.getState().currentFlowId || currentFlowId;
+      if (!flowId) {
+        setErrorData({
+          title: "无法上传资源",
+          list: ["请先创建/保存流程后再上传。"],
+        });
+        return;
+      }
+
+      const resp = await uploadFile({ file, id: flowId });
+      const serverPath = (resp as any)?.file_path;
+      if (!serverPath) {
+        throw new Error("缺少文件路径");
+      }
+
+      const template = templates?.[nodeType];
+      if (!template) {
+        setErrorData({
+          title: "组件模板不存在",
+          list: [`未找到 ${nodeType} 的模板，请刷新页面或检查后端组件索引。`],
+        });
+        return;
+      }
+
+      const nextIndex = getNextUserUploadIndex();
+      const seeded = cloneDeep(template);
+      seeded.display_name = `用户上传${nextIndex}`;
+      if (seeded.template?.file) {
+        seeded.template.file.value = file.name;
+        seeded.template.file.file_path = serverPath;
+      }
+
+      const newNodeId = getNodeId(nodeType);
+      const position = getViewportCenterPosition();
+
+      const newNode: any = {
+        id: newNodeId,
+        type: "genericNode",
+        position,
+        data: {
+          node: seeded,
+          showNode: !seeded.minimized,
+          type: nodeType,
+          id: newNodeId,
+        },
+        selected: true,
+      };
+
+      takeSnapshot();
+      setNodes((current) => [
+        ...(current ?? []).map((n: any) => ({ ...n, selected: false })),
+        newNode,
+      ]);
+
+      // Close popover so user can immediately see the new node.
+      setComponentsOpen(false);
+    } catch (e: any) {
+      setErrorData({
+        title: "上传失败",
+        list: [e?.message ?? "网络异常，请稍后重试。"],
+      });
+    }
+  }, [
+    currentFlowId,
+    getNextUserUploadIndex,
+    getViewportCenterPosition,
+    saveFlow,
+    setComponentsOpen,
+    setErrorData,
+    setNodes,
+    takeSnapshot,
+    templates,
+    uploadFile,
+    validateFileSize,
+  ]);
+
   // Allow other parts of the app (e.g. selection menu) to open workflows panel.
   useEffect(() => {
     const handler = (event: Event) => {
@@ -221,11 +398,11 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
             >
               <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <div className="flex items-center gap-2 text-sm font-semibold">
-                  <ForwardedIconComponent name="component" className="h-4 w-4" />
                   <span>添加节点</span>
                 </div>
               </div>
               <Separator />
+
               <div className="flex-1 overflow-auto p-3 pr-2">
                 {filterName !== "" && filterDescription !== "" && (
                   <div className="mb-2">
@@ -300,6 +477,35 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                       })}
                   </div>
                 )}
+
+                <div className="mt-4">
+                  <div className="mb-2 text-xs font-semibold text-muted-foreground">
+                    添加资源
+                  </div>
+                  <div
+                    tabIndex={0}
+                    className="rounded-md outline-none ring-ring focus-visible:ring-1"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleUploadResource();
+                      }
+                    }}
+                  >
+                    <div
+                      className="group/draggable flex w-full cursor-pointer items-center gap-4 rounded-xl bg-muted px-4 py-2.5 text-foreground hover:bg-secondary-hover/75"
+                      onClick={handleUploadResource}
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background/60 ring-1 ring-border/60">
+                        <ForwardedIconComponent name="Upload" className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-1 items-center overflow-hidden">
+                        <span className="truncate text-base font-normal">上传</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </PopoverContent>
           </Popover>

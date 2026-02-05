@@ -148,7 +148,9 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    expect(screen.getByText("预览失败")).toBeInTheDocument();
+    // Error badge in the preview header was intentionally removed (no red warning in the corner).
+    expect(screen.getByText("实时预览")).toBeInTheDocument();
+    expect(screen.queryByText("预览失败")).not.toBeInTheDocument();
   });
 
   test("renders image preview when image data is available", async () => {

@@ -38,7 +38,7 @@ export const HelpDropdownView = ({
           variant="ghost"
           size="icon"
           className="group flex items-center justify-center px-2 rounded-none"
-          title={t("Help")}
+          title="帮助"
         >
           <IconComponent
             name="Circle-Help"
@@ -49,7 +49,7 @@ export const HelpDropdownView = ({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"
-        align="end"
+        align="start"
         className="flex flex-col w-full"
       >
         <DropdownControlButton

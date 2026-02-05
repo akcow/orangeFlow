@@ -79,6 +79,8 @@ describe("HelpDropdownView", () => {
       />,
     );
 
+    expect(screen.getByTitle("帮助")).toBeInTheDocument();
+
     fireEvent.click(screen.getByTestId("canvas_controls_dropdown_docs"));
     expect(openLink).toHaveBeenCalledWith("https://docs");
 

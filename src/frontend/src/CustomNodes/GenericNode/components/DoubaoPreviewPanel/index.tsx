@@ -26,6 +26,7 @@ import {
   parseDoubaoPreviewData,
   useDoubaoPreview,
 } from "../../../hooks/use-doubao-preview";
+import type { DoubaoPreviewDescriptor } from "../../../hooks/use-doubao-preview";
 import { sanitizePreviewDataUrl } from "./helpers";
 import useFlowStore from "@/stores/flowStore";
 import OutputModal from "../outputModal";
@@ -50,12 +51,18 @@ const DOUBAO_KIND: Record<string, "image" | "video" | "audio"> = {
   DoubaoImageCreator: "image",
   DoubaoVideoGenerator: "video",
   DoubaoTTS: "audio",
+  UserUploadImage: "image",
+  UserUploadVideo: "video",
+  UserUploadAudio: "audio",
 };
 
 const OUTPUT_NAME_BY_COMPONENT: Record<string, string> = {
   DoubaoImageCreator: "image",
   DoubaoVideoGenerator: "video",
   DoubaoTTS: "audio",
+  UserUploadImage: "image",
+  UserUploadVideo: "video",
+  UserUploadAudio: "audio",
 };
 
 type DoubaoPreviewAppearance =
@@ -161,6 +168,8 @@ type Props = {
   onSuggestionClick?: (label: string) => void;
   onActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
   aspectRatio?: string;
+  // Used by "user upload" nodes to preview uploaded assets without requiring a build/run.
+  previewOverride?: DoubaoPreviewDescriptor | null;
   // Used by parent layouts to sync UI (e.g. "+" handles) with the persistent preview resize animation.
   onPersistentPreviewMotionStart?: (motion: {
     deltaTopPx: number;
@@ -202,15 +211,17 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       onSuggestionClick,
       onActionsChange,
       aspectRatio,
+      previewOverride = null,
       onPersistentPreviewMotionStart,
       onPersistentPreviewMotionCommit,
     },
     forwardedRef,
   ) => {
-    const { preview, isBuilding, rawMessage } = useDoubaoPreview(
+    const { preview: hookPreview, isBuilding, rawMessage } = useDoubaoPreview(
       nodeId,
       componentName,
     );
+    const preview = previewOverride ?? hookPreview;
     const nodes = useFlowStore((state) => state.nodes);
     const setNode = useFlowStore((state) => state.setNode);
     const setNodes = useFlowStore((state) => state.setNodes);
@@ -1634,11 +1645,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                {hasError && (
-                  <Badge variant="destructive" className="text-xs">
-                    预览失败
-                  </Badge>
-                )}
                 {transientBadge && (
                   <Badge variant="secondary" className="text-xs">
                     {transientBadge}
