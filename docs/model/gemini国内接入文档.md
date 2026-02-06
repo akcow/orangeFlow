@@ -1,4 +1,4 @@
-# Gemini Generate Content
+ # Gemini Generate Content
 Google Gemini API 支持使用图片、音频、代码、工具等生成内容。支持文本生成、视觉理解、音频处理、长上下文、代码执行、JSON 模式、函数调用等多种功能。
 
 官方文档：Google Gemini Generating content API

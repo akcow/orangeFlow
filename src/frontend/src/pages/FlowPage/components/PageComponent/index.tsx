@@ -81,7 +81,10 @@ import DoubaoAudioMoreActionsMenu from "./components/doubao-audio-more-actions-m
 import TextCreationMoreActionsMenu from "./components/text-creation-more-actions-menu";
 import HelperLines from "./components/helper-lines";
 import CanvasMiniMap from "@/components/core/canvasMiniMapComponent/CanvasMiniMap";
+import CanvasAssistantDrawer from "@/components/core/canvasAssistantComponent/CanvasAssistantDrawer";
+import CanvasAssistantLauncher from "@/components/core/canvasAssistantComponent/CanvasAssistantLauncher";
 import { useCanvasUiStore } from "@/stores/canvasUiStore";
+import { useCanvasAssistantStore } from "@/stores/canvasAssistantStore";
 import {
   getHelperLines,
   getSnapPosition,
@@ -118,6 +121,9 @@ export default function Page({
   setIsLoading: (isLoading: boolean) => void;
 }): JSX.Element {
   const { id } = useParams();
+  const setCanvasAssistantActiveFlowId = useCanvasAssistantStore(
+    (s) => s.setActiveFlowId,
+  );
   const uploadFlow = useUploadFlow();
   const autoSaveFlow = useAutoSaveFlow();
   const types = useTypesStore((state) => state.types);
@@ -169,6 +175,10 @@ export default function Page({
   const [lastSelection, setLastSelection] =
     useState<OnSelectionChangeParams | null>(null);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
+
+  useEffect(() => {
+    setCanvasAssistantActiveFlowId(id ?? null);
+  }, [id, setCanvasAssistantActiveFlowId]);
 
   useEffect(() => {
     if (currentFlowId !== "") {
@@ -1223,6 +1233,8 @@ export default function Page({
               <MemoizedBackground />
               {helperLineEnabled && <HelperLines helperLines={helperLines} />}
               <CanvasMiniMap />
+              <CanvasAssistantLauncher />
+              <CanvasAssistantDrawer />
             </ReactFlow>
           </div>
           <div

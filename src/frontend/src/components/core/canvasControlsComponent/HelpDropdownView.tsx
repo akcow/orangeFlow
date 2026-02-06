@@ -38,7 +38,7 @@ export const HelpDropdownView = ({
           variant="ghost"
           size="icon"
           className="group flex items-center justify-center px-2 rounded-none"
-          title="帮助"
+          title="\u5e2e\u52a9"
         >
           <IconComponent
             name="Circle-Help"
