@@ -1,4 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { useStoreApi } from "@xyflow/react";
+import { cloneDeep } from "lodash";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,11 @@ import {
   type CanvasAssistantMessage,
   type CanvasAssistantSession,
 } from "@/stores/canvasAssistantStore";
+import useFlowStore from "@/stores/flowStore";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { useTypesStore } from "@/stores/typesStore";
+import { GROUP_HEADER_HEIGHT, GROUP_PADDING, fitGroupToChildren, getNodeDimensions } from "@/utils/groupingUtils";
+import { getNodeId } from "@/utils/reactflowUtils";
 import { cn } from "@/utils/utils";
 
 type ConversationMode = CanvasAssistantConversationMode;
@@ -118,7 +125,27 @@ function tryParseStoryboard(text: string): StoryboardJson | null {
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== "object") return null;
     if ((obj as any).type !== "storyboard") return null;
-    return obj as StoryboardJson;
+
+    const normalized = obj as StoryboardJson;
+    if (typeof normalized.video?.duration_sec === "number" && Number.isFinite(normalized.video.duration_sec)) {
+      normalized.video.duration_sec = Math.max(1, Math.round(normalized.video.duration_sec));
+    }
+    if (Array.isArray(normalized.shots)) {
+      normalized.shots = normalized.shots.map((s, idx) => {
+        const next: any = { ...s };
+        if (typeof next.id === "number" && Number.isFinite(next.id)) {
+          next.id = Math.max(1, Math.round(next.id));
+        } else if (next.id == null) {
+          next.id = idx + 1;
+        }
+        if (typeof next.duration_sec === "number" && Number.isFinite(next.duration_sec)) {
+          next.duration_sec = Math.max(1, Math.round(next.duration_sec));
+        }
+        return next;
+      });
+    }
+
+    return normalized;
   } catch {
     return null;
   }
@@ -133,6 +160,176 @@ function ShotRow({ label, value }: { label: string; value: string | null | undef
       <div className="min-w-0 flex-1 whitespace-pre-wrap break-words">{v}</div>
     </div>
   );
+}
+
+function buildShotCopyText(shot: NonNullable<StoryboardJson["shots"]>[number]): string {
+  const duration =
+    typeof shot.duration_sec === "number" && Number.isFinite(shot.duration_sec)
+      ? `${Math.max(1, Math.round(shot.duration_sec))}s`
+      : "";
+
+  const camera = [
+    shot.camera?.angle,
+    shot.camera?.movement,
+    shot.camera?.lens_mm ? `镜头：${shot.camera.lens_mm}` : "",
+    shot.camera?.focus ? `对焦：${shot.camera.focus}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  const scene = [shot.scene?.location, shot.scene?.time_of_day, shot.scene?.lighting]
+    .filter(Boolean)
+    .join(" / ");
+
+  const lines: string[] = [];
+  if (shot.summary) lines.push(`概述：${String(shot.summary).trim()}`);
+  if (shot.time_range || duration) lines.push(`时长：${[shot.time_range, duration].filter(Boolean).join(" / ")}`);
+  if (shot.shot_size) lines.push(`景别：${String(shot.shot_size).trim()}`);
+  if (scene) lines.push(`场景：${scene}`);
+  if (camera) lines.push(`相机：${camera}`);
+  if (shot.visual) lines.push(`画面：${String(shot.visual).trim()}`);
+  if (shot.audio?.dialogue_or_vo) lines.push(`对白/旁白：${String(shot.audio.dialogue_or_vo).trim()}`);
+  if (shot.audio?.sfx) lines.push(`音效：${String(shot.audio.sfx).trim()}`);
+  if (shot.audio?.music) lines.push(`音乐：${String(shot.audio.music).trim()}`);
+  if (shot.on_screen_text) lines.push(`屏幕文字：${String(shot.on_screen_text).trim()}`);
+  if (shot.transition_in) lines.push(`入场转场：${String(shot.transition_in).trim()}`);
+  if (shot.transition_out) lines.push(`出场转场：${String(shot.transition_out).trim()}`);
+  if (shot.vfx) lines.push(`特效：${String(shot.vfx).trim()}`);
+  if (shot.notes) lines.push(`备注：${String(shot.notes).trim()}`);
+  return lines.join("\n").trim();
+}
+
+function buildShotPrompt(args: {
+  storyboard: StoryboardJson;
+  shot: NonNullable<StoryboardJson["shots"]>[number];
+  shotIndex: number;
+}): string {
+  const { storyboard, shot, shotIndex } = args;
+
+  const tone = Array.isArray(storyboard.creative?.tone_keywords)
+    ? storyboard.creative?.tone_keywords.filter(Boolean).join("，")
+    : "";
+  const style = String(storyboard.creative?.visual_style ?? "").trim();
+  const colorLight = String(storyboard.creative?.color_light ?? "").trim();
+
+  const camera = [
+    shot.camera?.angle,
+    shot.camera?.movement,
+    shot.camera?.lens_mm ? `镜头：${shot.camera.lens_mm}` : "",
+    shot.camera?.focus ? `对焦：${shot.camera.focus}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  const scene = [shot.scene?.location, shot.scene?.time_of_day, shot.scene?.lighting]
+    .filter(Boolean)
+    .join(" / ");
+
+  const header = `分镜${shotIndex}：${String(shot.summary ?? "").trim() || "镜头"}`.trim();
+
+  return [
+    header,
+    String(storyboard.creative?.logline ?? "").trim() ? `题眼：${String(storyboard.creative?.logline ?? "").trim()}` : "",
+    tone ? `情绪关键词：${tone}` : "",
+    style ? `视觉风格：${style}` : "",
+    colorLight ? `色彩/光线：${colorLight}` : "",
+    scene ? `场景：${scene}` : "",
+    camera ? `相机：${camera}` : "",
+    String(shot.visual ?? "").trim() ? `画面：${String(shot.visual ?? "").trim()}` : "",
+    // Keep a small hint so generations stay consistent across a set.
+    "要求：黑白线稿/分镜感（清晰构图、主体突出、画面干净），不要出现文字水印。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function pickAspectRatioOption(options: string[], desired: string): string | null {
+  const d = desired.trim();
+  if (!d) return null;
+  const exact = options.find((o) => String(o).trim() === d);
+  if (exact) return exact;
+  // Fallback: allow variations like "16:9 (Landscape)" etc.
+  const loose = options.find((o) => String(o).includes(d));
+  return loose ?? null;
+}
+
+function parseStoryboardIndexFromName(name: string): number | null {
+  const m = /^分镜(\d+)\s*$/.exec(String(name ?? "").trim());
+  if (!m) return null;
+  const n = Number.parseInt(m[1]!, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseAspectRatioValue(raw: string): number | null {
+  const s = String(raw ?? "").trim();
+  const m = s.match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return null;
+  return a / b;
+}
+
+function layoutGroupChildrenAsGrid(args: {
+  groupId: string;
+  nodes: any[];
+  cols: number;
+  gapX: number;
+  gapY: number;
+}): any[] {
+  const { groupId, nodes, cols, gapX, gapY } = args;
+  const group = nodes.find((n) => n.id === groupId);
+  if (!group) return nodes;
+
+  const children = nodes.filter((n) => n.parentId === groupId);
+  if (children.length === 0) return nodes;
+
+  const sorted = children
+    .slice()
+    .sort((a, b) => {
+      const ai = parseStoryboardIndexFromName(a?.data?.node?.display_name ?? "");
+      const bi = parseStoryboardIndexFromName(b?.data?.node?.display_name ?? "");
+      if (ai != null && bi != null) return ai - bi;
+      return String(a?.data?.node?.display_name ?? "").localeCompare(String(b?.data?.node?.display_name ?? ""));
+    });
+
+  // Use the max measured size so spacing is sufficient even when the selected aspect ratio expands the node.
+  let cellW = 0;
+  let cellH = 0;
+  for (const n of sorted) {
+    const { width, height } = getNodeDimensions(n as any);
+    cellW = Math.max(cellW, width);
+    cellH = Math.max(cellH, height);
+  }
+  cellW = Math.max(420, cellW);
+  cellH = Math.max(520, cellH);
+
+  const nextById = new Map<string, any>();
+  nodes.forEach((n) => nextById.set(n.id, n));
+
+  sorted.forEach((n, i) => {
+    const col = i % Math.max(1, cols);
+    const row = Math.floor(i / Math.max(1, cols));
+    const x = GROUP_PADDING + col * (cellW + gapX);
+    const y = GROUP_HEADER_HEIGHT + GROUP_PADDING + row * (cellH + gapY);
+    nextById.set(n.id, { ...n, position: { x, y } });
+  });
+
+  return nodes.map((n) => nextById.get(n.id) ?? n);
+}
+
+function normalizeModelLabel(opt: string): { value: string; label: string; groupKey?: string } {
+  const raw = String(opt ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (lower.includes("seedream")) {
+    if (/4[\._-]?5/.test(lower)) return { value: raw, label: "Seedream 4.5", groupKey: "seedream_45" };
+    if (/4[\._-]?0/.test(lower) || /\bseedream\b.*\b4\b/.test(lower)) {
+      return { value: raw, label: "Seedream 4.0", groupKey: "seedream_40" };
+    }
+    // Default to 4.0 naming if the source string is ambiguous.
+    return { value: raw, label: "Seedream 4.0", groupKey: "seedream_40" };
+  }
+  return { value: raw, label: raw };
 }
 
 function nowId(): string {
@@ -206,6 +403,7 @@ function sessionTitle(session: CanvasAssistantSession): string {
 }
 
 export default function CanvasAssistantDrawer(): JSX.Element | null {
+  const storeApi = useStoreApi();
   const open = useCanvasAssistantStore((s) => s.open);
   const setOpen = useCanvasAssistantStore((s) => s.setOpen);
   const drawerWidth = useCanvasAssistantStore((s) => s.drawerWidth);
@@ -231,6 +429,15 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
   const addPendingAttachments = useCanvasAssistantStore((s) => s.addPendingAttachments);
   const removePendingAttachment = useCanvasAssistantStore((s) => s.removePendingAttachment);
   const clearPendingAttachments = useCanvasAssistantStore((s) => s.clearPendingAttachments);
+  const nextInsertOffsetIndex = useCanvasAssistantStore((s) => s.nextInsertOffsetIndex);
+  const storyboardImageModel = useCanvasAssistantStore((s) => s.storyboardImageModel);
+  const setStoryboardImageModel = useCanvasAssistantStore((s) => s.setStoryboardImageModel);
+
+  const templates = useTypesStore((s) => s.templates);
+  const canvasNodes = useFlowStore((s) => s.nodes);
+  const setCanvasNodes = useFlowStore((s) => s.setNodes);
+  const buildFlow = useFlowStore((s) => s.buildFlow);
+  const takeSnapshot = useFlowsManagerStore((s) => s.takeSnapshot);
 
   const username = useAuthStore((s) => s.userData?.username) ?? "朋友";
   const [storyboardExamplesSeed, setStoryboardExamplesSeed] = useState<number>(0);
@@ -243,6 +450,295 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
     if (conversationMode !== "storyboard") return;
     setStoryboardExamplesSeed(Date.now());
   }, [conversationMode]);
+
+  const storyboardModelOptions = useMemo<string[]>(() => {
+    const t = (templates as any)?.DoubaoImageCreator;
+    const field = t?.template?.model_name;
+    const opts = Array.isArray(field?.options) ? field.options : [];
+    const normalized = opts
+      .map((x: any) => String(x))
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0);
+
+    // Deduplicate seedream variants into two display names (Seedream 4.5 / 4.0),
+    // while preserving the first encountered underlying value for each.
+    const out: Array<{ value: string; label: string }> = [];
+    const seenValue = new Set<string>();
+    const seedreamPicked = new Map<string, { value: string; label: string }>();
+
+    for (const opt of normalized) {
+      const n = normalizeModelLabel(opt);
+      if (n.groupKey) {
+        if (!seedreamPicked.has(n.groupKey)) seedreamPicked.set(n.groupKey, { value: n.value, label: n.label });
+        continue;
+      }
+      if (!seenValue.has(n.value)) {
+        seenValue.add(n.value);
+        out.push({ value: n.value, label: n.label });
+      }
+    }
+
+    // Keep Seedream options near the top (after non-seedream if present).
+    for (const k of ["seedream_45", "seedream_40"]) {
+      const v = seedreamPicked.get(k);
+      if (v && !seenValue.has(v.value)) {
+        seenValue.add(v.value);
+        out.push(v);
+      }
+    }
+
+    // Store as "value|label" strings to avoid refactors; split where used.
+    return out.map((x) => `${x.value}||${x.label}`);
+  }, [templates]);
+
+  const storyboardModelChoices = useMemo<Array<{ value: string; label: string }>>(() => {
+    return storyboardModelOptions
+      .map((s) => {
+        const [value, label] = String(s).split("||");
+        return { value: String(value ?? "").trim(), label: String(label ?? "").trim() };
+      })
+      .filter((x) => x.value.length > 0);
+  }, [storyboardModelOptions]);
+
+  const effectiveStoryboardModel = useMemo<string>(() => {
+    const t = (templates as any)?.DoubaoImageCreator;
+    const field = t?.template?.model_name;
+    const first = storyboardModelOptions[0] ?? "";
+    const firstValue = String(first.split("||")[0] ?? "").trim();
+    const fallback = String(field?.value ?? field?.default ?? firstValue ?? "").trim();
+    const cur = String(storyboardImageModel ?? "").trim();
+    const allowedValues = storyboardModelOptions.map((s) => String(s.split("||")[0] ?? "").trim());
+    if (cur && allowedValues.includes(cur)) return cur;
+    return fallback;
+  }, [storyboardImageModel, storyboardModelOptions, templates]);
+
+  // NOTE: must be declared after `effectiveStoryboardModel` to avoid TDZ at runtime
+  // (this file is part of the production bundle too).
+  const effectiveStoryboardModelLabel = useMemo<string>(() => {
+    const found = storyboardModelChoices.find((c) => c.value === effectiveStoryboardModel);
+    return found?.label ?? effectiveStoryboardModel;
+  }, [effectiveStoryboardModel, storyboardModelChoices]);
+
+  useEffect(() => {
+    if (!effectiveStoryboardModel) return;
+    if (String(storyboardImageModel ?? "").trim() === effectiveStoryboardModel) return;
+    // Keep a stable selected model once templates are ready.
+    setStoryboardImageModel(effectiveStoryboardModel);
+  }, [effectiveStoryboardModel, setStoryboardImageModel, storyboardImageModel]);
+
+  const [insertingStoryboardMsgIds, setInsertingStoryboardMsgIds] = useState<Record<string, boolean>>({});
+
+  const insertStoryboardToCanvas = useCallback(
+    async (args: { messageId: string; storyboard: StoryboardJson }) => {
+      const { messageId, storyboard } = args;
+      const flowId = activeFlowId;
+      if (!flowId) {
+        setErrorText("未找到当前画布（Flow ID）。请刷新后重试。");
+        return;
+      }
+      if (insertingStoryboardMsgIds[messageId]) return;
+
+      const imageTemplate = (templates as any)?.DoubaoImageCreator;
+      if (!imageTemplate?.template) {
+        setErrorText("未加载到“图片创作组件（DoubaoImageCreator）”模板。请等待组件列表加载完成后再试。");
+        return;
+      }
+
+      const shots = Array.isArray(storyboard.shots) ? storyboard.shots : [];
+      if (shots.length === 0) {
+        setErrorText("分镜中没有 shots，无法生成到画布。");
+        return;
+      }
+
+      setErrorText(null);
+      setInsertingStoryboardMsgIds((prev) => ({ ...prev, [messageId]: true }));
+
+      try {
+        takeSnapshot();
+
+        const offsetIndex = nextInsertOffsetIndex(flowId);
+        const offset = 48 * offsetIndex;
+
+        const total = shots.length;
+        const cols = Math.max(1, Math.min(4, total));
+        const rows = Math.ceil(total / cols);
+
+        // DoubaoImageCreator can render wider/taller than the generic node defaults,
+        // especially when aspect ratio changes. Use a conservative grid size and then
+        // re-fit the group to measured children after render.
+        const fmt = String(storyboard.video?.format ?? "").trim();
+        const ratio = parseAspectRatioValue(fmt);
+
+        let tileW = 560;
+        let tileH = 760;
+        if (fmt === "9:16") tileH = 980;
+        if (fmt === "16:9") tileH = 680;
+        if (fmt === "1:1") tileH = 820;
+        if (ratio) {
+          if (ratio > 2.2) tileW = 920;
+          else if (ratio > 1.7) tileW = 760;
+          if (ratio < 0.6) tileH = 1040;
+          else if (ratio < 0.75) tileH = 940;
+        }
+        const gapX = 64;
+        const gapY = 64;
+
+        const groupW = GROUP_PADDING * 2 + cols * tileW + (cols - 1) * gapX;
+        const groupH =
+          GROUP_HEADER_HEIGHT +
+          GROUP_PADDING * 2 +
+          rows * tileH +
+          (rows - 1) * gapY;
+
+        const { height, width, transform } = storeApi.getState();
+        const [transformX, transformY, zoomLevel] = transform;
+        const zoomMultiplier = 1 / zoomLevel;
+        const centerX = -transformX * zoomMultiplier + (width * zoomMultiplier) / 2;
+        const centerY = -transformY * zoomMultiplier + (height * zoomMultiplier) / 2;
+
+        const groupAbsX = centerX - groupW / 2 + offset;
+        const groupAbsY = centerY - groupH / 2 + offset;
+
+        const groupId = getNodeId("group");
+        const groupNode: any = {
+          id: groupId,
+          type: "groupNode",
+          position: { x: groupAbsX, y: groupAbsY },
+          data: {
+            id: groupId,
+            type: "GroupContainer",
+            label: "分镜创作",
+            backgroundColor: "blue",
+            padding: GROUP_PADDING,
+          },
+          width: groupW,
+          height: groupH,
+          draggable: true,
+          selectable: true,
+          zIndex: -100,
+          style: { zIndex: -100 },
+        };
+
+        const maxExisting = canvasNodes.reduce((max, n: any) => {
+          const name = n?.data?.node?.display_name;
+          const idx = parseStoryboardIndexFromName(String(name ?? ""));
+          return idx ? Math.max(max, idx) : max;
+        }, 0);
+        const startIndex = maxExisting + 1;
+
+        const selectedModel = effectiveStoryboardModel;
+        const aspectRaw = String(storyboard.video?.format ?? "").trim();
+
+        const imageNodes: any[] = shots.map((shot, i) => {
+          const shotIndex = startIndex + i;
+          const newId = getNodeId("DoubaoImageCreator");
+
+          const nodeClass = cloneDeep(imageTemplate);
+          nodeClass.display_name = `分镜${shotIndex}`;
+
+          const prompt = buildShotPrompt({ storyboard, shot, shotIndex });
+          if (nodeClass.template?.prompt) {
+            nodeClass.template.prompt.value = prompt;
+          }
+
+          if (nodeClass.template?.model_name && selectedModel) {
+            nodeClass.template.model_name.value = selectedModel;
+          }
+
+          if (nodeClass.template?.image_count) {
+            nodeClass.template.image_count.value = 1;
+          }
+
+          if (nodeClass.template?.aspect_ratio && aspectRaw) {
+            const opts = Array.isArray(nodeClass.template.aspect_ratio.options)
+              ? nodeClass.template.aspect_ratio.options.map((x: any) => String(x))
+              : [];
+            const desired = parseAspectRatioValue(aspectRaw) ? aspectRaw : "";
+            const picked = desired ? pickAspectRatioOption(opts, desired) : null;
+            if (picked) nodeClass.template.aspect_ratio.value = picked;
+          }
+
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const x = GROUP_PADDING + col * (tileW + gapX);
+          const y =
+            GROUP_HEADER_HEIGHT + GROUP_PADDING + row * (tileH + gapY);
+
+          return {
+            id: newId,
+            type: "genericNode",
+            position: { x, y },
+            parentId: groupId,
+            width: tileW,
+            height: tileH,
+            data: {
+              node: nodeClass,
+              showNode: !nodeClass.minimized,
+              type: "DoubaoImageCreator",
+              id: newId,
+            },
+            selected: false,
+          };
+        });
+
+        setCanvasNodes((old: any[]) => {
+          const next = [...old, groupNode, ...imageNodes];
+          return next;
+        });
+
+        // After nodes render and sizes are measured, refit the group so it fully wraps children.
+        // Run it twice because measurement updates can arrive after async image runs.
+        setTimeout(() => {
+          try {
+            setCanvasNodes((nodes: any[]) => {
+              const laidOut = layoutGroupChildrenAsGrid({ groupId, nodes, cols, gapX, gapY });
+              return fitGroupToChildren(groupId, laidOut as any) as any;
+            });
+          } catch {
+            // ignore
+          }
+        }, 600);
+        setTimeout(() => {
+          try {
+            setCanvasNodes((nodes: any[]) => {
+              const laidOut = layoutGroupChildrenAsGrid({ groupId, nodes, cols, gapX, gapY });
+              return fitGroupToChildren(groupId, laidOut as any) as any;
+            });
+          } catch {
+            // ignore
+          }
+        }, 1600);
+
+        // Auto-run each image creator node (sequentially to avoid build status collisions).
+        for (const n of imageNodes) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await buildFlow({ startNodeId: n.id, silent: true });
+          } catch {
+            // ignore individual failures; user can rerun on-node.
+          }
+        }
+      } finally {
+        setInsertingStoryboardMsgIds((prev) => {
+          const next = { ...prev };
+          delete next[messageId];
+          return next;
+        });
+      }
+    },
+    [
+      activeFlowId,
+      buildFlow,
+      canvasNodes,
+      effectiveStoryboardModel,
+      insertingStoryboardMsgIds,
+      nextInsertOffsetIndex,
+      setCanvasNodes,
+      storeApi,
+      takeSnapshot,
+      templates,
+    ],
+  );
 
   const sessions = useMemo(() => {
     if (!activeFlowId) return [];
@@ -757,8 +1253,8 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                       <div key={m.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
                         <div
                           className={cn(
-                            "max-w-[90%] rounded-2xl text-sm break-words",
-                            storyboard ? "px-2 py-2" : "px-3 py-2 whitespace-pre-wrap",
+                            "rounded-2xl text-sm break-words",
+                            storyboard ? "w-[90%] px-2 py-2" : "max-w-[90%] px-3 py-2 whitespace-pre-wrap",
                             isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
                           )}
                         >
@@ -813,7 +1309,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                                                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                                                   {s.time_range && <span>{s.time_range}</span>}
                                                   {typeof s.duration_sec === "number" && s.duration_sec > 0 && (
-                                                    <span>{s.duration_sec}s</span>
+                                                    <span>{Math.max(1, Math.round(s.duration_sec))}s</span>
                                                   )}
                                                   {s.shot_size && <span>{s.shot_size}</span>}
                                                 </div>
@@ -821,38 +1317,73 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                                             </div>
                                           </AccordionTrigger>
                                           <AccordionContent className="px-3 pb-3">
-                                            <div className="space-y-2">
-                                              <ShotRow label="概述" value={s.summary} />
-                                              <ShotRow label="画面" value={s.visual} />
-                                              <ShotRow
-                                                label="相机"
-                                                value={[
-                                                  s.camera?.angle,
-                                                  s.camera?.movement,
-                                                  s.camera?.lens_mm ? `镜头：${s.camera?.lens_mm}` : "",
-                                                  s.camera?.focus ? `对焦：${s.camera?.focus}` : "",
-                                                ]
-                                                  .filter(Boolean)
-                                                  .join(" / ")}
-                                              />
-                                              <ShotRow
-                                                label="场景"
-                                                value={[
-                                                  s.scene?.location,
-                                                  s.scene?.time_of_day,
-                                                  s.scene?.lighting,
-                                                ]
-                                                  .filter(Boolean)
-                                                  .join(" / ")}
-                                              />
-                                              <ShotRow label="对白/旁白" value={s.audio?.dialogue_or_vo} />
-                                              <ShotRow label="音效" value={s.audio?.sfx} />
-                                              <ShotRow label="音乐" value={s.audio?.music} />
-                                              <ShotRow label="屏幕文字" value={s.on_screen_text} />
-                                              <ShotRow label="入场转场" value={s.transition_in} />
-                                              <ShotRow label="出场转场" value={s.transition_out} />
-                                              <ShotRow label="特效" value={s.vfx} />
-                                              <ShotRow label="备注" value={s.notes} />
+                                            <div className="relative">
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="absolute right-0 top-0 h-7 w-7 rounded-lg"
+                                                title="复制镜头详情"
+                                                onClick={async () => {
+                                                  const text = buildShotCopyText(s);
+                                                  if (!text) return;
+                                                  try {
+                                                    await navigator.clipboard.writeText(text);
+                                                  } catch {
+                                                    // Best-effort fallback.
+                                                    try {
+                                                      const ta = document.createElement("textarea");
+                                                      ta.value = text;
+                                                      ta.style.position = "fixed";
+                                                      ta.style.left = "-9999px";
+                                                      ta.style.top = "0";
+                                                      document.body.appendChild(ta);
+                                                      ta.focus();
+                                                      ta.select();
+                                                      document.execCommand("copy");
+                                                      document.body.removeChild(ta);
+                                                    } catch {
+                                                      // ignore
+                                                    }
+                                                  }
+                                                }}
+                                              >
+                                                <IconComponent name="Copy" className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                                              </Button>
+
+                                              <div className="space-y-2 pr-8">
+                                                <ShotRow label="概述" value={s.summary} />
+                                                <ShotRow label="画面" value={s.visual} />
+                                                <ShotRow
+                                                  label="相机"
+                                                  value={[
+                                                    s.camera?.angle,
+                                                    s.camera?.movement,
+                                                    s.camera?.lens_mm ? `镜头：${s.camera?.lens_mm}` : "",
+                                                    s.camera?.focus ? `对焦：${s.camera?.focus}` : "",
+                                                  ]
+                                                    .filter(Boolean)
+                                                    .join(" / ")}
+                                                />
+                                                <ShotRow
+                                                  label="场景"
+                                                  value={[
+                                                    s.scene?.location,
+                                                    s.scene?.time_of_day,
+                                                    s.scene?.lighting,
+                                                  ]
+                                                    .filter(Boolean)
+                                                    .join(" / ")}
+                                                />
+                                                <ShotRow label="对白/旁白" value={s.audio?.dialogue_or_vo} />
+                                                <ShotRow label="音效" value={s.audio?.sfx} />
+                                                <ShotRow label="音乐" value={s.audio?.music} />
+                                                <ShotRow label="屏幕文字" value={s.on_screen_text} />
+                                                <ShotRow label="入场转场" value={s.transition_in} />
+                                                <ShotRow label="出场转场" value={s.transition_out} />
+                                                <ShotRow label="特效" value={s.vfx} />
+                                                <ShotRow label="备注" value={s.notes} />
+                                              </div>
                                             </div>
                                           </AccordionContent>
                                         </AccordionItem>
@@ -861,6 +1392,78 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                                   </Accordion>
                                 </div>
                               )}
+
+                              <div className="mt-3 flex items-center justify-between gap-2">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      className="group h-9 gap-2 rounded-full border border-border bg-background/40 px-3 hover:bg-muted"
+                                      title="选择图片创作模型"
+                                      disabled={storyboardModelChoices.length === 0}
+                                    >
+                                      <IconComponent name="Sparkles" className="h-4 w-4" aria-hidden="true" />
+                                      <span className="max-w-[220px] truncate text-sm">
+                                        {effectiveStoryboardModelLabel || "选择模型"}
+                                      </span>
+                                      <IconComponent
+                                        name="ChevronDown"
+                                        className={cn(
+                                          "h-4 w-4 opacity-70 transition-transform duration-200",
+                                          "group-data-[state=open]:rotate-180",
+                                        )}
+                                        aria-hidden="true"
+                                      />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    side="top"
+                                    align="start"
+                                    className="min-w-[260px] max-h-[320px] overflow-y-auto rounded-2xl p-2"
+                                  >
+                                    <DropdownMenuLabel>图片创作模型</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    {storyboardModelChoices.map((opt) => (
+                                      <DropdownMenuItem
+                                        key={opt.value}
+                                        className="rounded-xl"
+                                        onClick={() => setStoryboardImageModel(opt.value)}
+                                      >
+                                        <span className="truncate">{opt.label}</span>
+                                        {opt.value === effectiveStoryboardModel && (
+                                          <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                        )}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+
+                                <Button
+                                  type="button"
+                                  className="h-9 rounded-full"
+                                  onClick={() => void insertStoryboardToCanvas({ messageId: m.id, storyboard })}
+                                  disabled={
+                                    insertingStoryboardMsgIds[m.id] ||
+                                    (storyboard.shots?.length ?? 0) === 0 ||
+                                    !effectiveStoryboardModel
+                                  }
+                                  title="根据分镜生成图片创作组件到画布，并自动运行"
+                                >
+                                  {insertingStoryboardMsgIds[m.id] ? (
+                                    <>
+                                      <IconComponent
+                                        name="LoaderCircle"
+                                        className="mr-2 h-4 w-4 animate-spin"
+                                        aria-hidden="true"
+                                      />
+                                      生成中...
+                                    </>
+                                  ) : (
+                                    "生成到画布"
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           ) : (
                             <div>{m.content}</div>
@@ -913,28 +1516,40 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
               )}
 
               <div className="rounded-2xl border bg-background p-3">
-                {conversationMode === "storyboard" && draft.trim().length === 0 && pendingFiles.length === 0 && (
-                  <div className="mb-2">
-                    <div className="text-xs text-muted-foreground">您可以这样提问</div>
-                    <div className="mt-2 space-y-1">
-                      {storyboardExamples.map((ex, idx) => (
-                        <button
-                          key={`${idx}-${ex.slice(0, 8)}`}
-                          type="button"
-                          className="flex w-full items-start gap-2 rounded-xl p-2 text-left text-sm hover:bg-muted"
-                          onClick={() => {
-                            setDraft(ex);
-                            setTimeout(() => inputRef.current?.focus(), 0);
-                          }}
-                          title="点击填入示例"
-                        >
-                          <IconComponent name="ArrowUpRight" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                          <span className="line-clamp-2 leading-relaxed">{ex}</span>
-                        </button>
-                      ))}
-                    </div>
+                <div
+                  className={cn(
+                    "mb-2 overflow-hidden transition-all duration-300 ease-in-out",
+                    conversationMode === "storyboard" &&
+                    messages.length === 0 &&
+                    draft.trim().length === 0 &&
+                    pendingFiles.length === 0
+                      ? "max-h-[280px] opacity-100 translate-y-0"
+                      : "max-h-0 opacity-0 -translate-y-1 pointer-events-none",
+                  )}
+                >
+                  <div className="text-xs text-muted-foreground">您可以这样提问</div>
+                  <div className="mt-2 space-y-1">
+                    {storyboardExamples.map((ex, idx) => (
+                      <button
+                        key={`${idx}-${ex.slice(0, 8)}`}
+                        type="button"
+                        className="flex w-full items-start gap-2 rounded-xl p-2 text-left text-sm hover:bg-muted"
+                        onClick={() => {
+                          setDraft(ex);
+                          setTimeout(() => inputRef.current?.focus(), 0);
+                        }}
+                        title="点击填入示例"
+                      >
+                        <IconComponent
+                          name="ArrowUpRight"
+                          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <span className="line-clamp-2 leading-relaxed">{ex}</span>
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
                 <Textarea
                   ref={inputRef}
                   value={draft}

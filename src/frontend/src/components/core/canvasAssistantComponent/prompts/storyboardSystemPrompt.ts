@@ -65,6 +65,7 @@ JSON Schema（可扩展，但请保持这些顶层字段）：
 
 质量检查：
 - shots 的 time_range 与 duration_sec 总和应接近 video.duration_sec（允许少量误差）。
+- video.duration_sec 与每个 shot.duration_sec 都必须为整数（秒）。
 - summary 用一句话概括镜头（建议 10-30 字），用于 UI 列表标题；不要写太长的段落。
 - 每个镜头的 visual 要包含：主体/动作/构图/景深或焦点。
 - notes 建议写清：节奏锚点/情绪重点/剪辑点（如卡点、反应镜头、信息露出时机）。

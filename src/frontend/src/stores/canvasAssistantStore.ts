@@ -89,6 +89,10 @@ type CanvasAssistantStore = {
 
   insertCountByFlowId: Record<string, number>;
   nextInsertOffsetIndex: (flowId: string) => number;
+
+  // Storyboard -> image generation settings (used by Canvas Assistant storyboard card).
+  storyboardImageModel: string | null;
+  setStoryboardImageModel: (model: string | null) => void;
 };
 
 const MAX_MESSAGES_PER_FLOW = 100;
@@ -278,4 +282,7 @@ export const useCanvasAssistantStore = create<CanvasAssistantStore>((set, get) =
     }));
     return current;
   },
+
+  storyboardImageModel: null,
+  setStoryboardImageModel: (storyboardImageModel) => set({ storyboardImageModel }),
 }));

@@ -531,13 +531,21 @@ def setup_static_files(app: FastAPI, static_files_dir: Path) -> None:
     )
 
     @app.exception_handler(404)
-    async def custom_404_handler(_request, _exc):
+    async def custom_404_handler(request, _exc):
+        # SPA fallback: only serve index.html for "app routes".
+        # Do NOT serve index.html for missing static assets (e.g. /assets/*.js),
+        # otherwise browsers may cache HTML at a JS URL and produce confusing runtime errors.
+        path_str = str(getattr(request, "url", "").path if getattr(request, "url", None) else "")
+        if path_str.startswith("/assets/") or ("." in Path(path_str).name):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
         path = anyio.Path(static_files_dir) / "index.html"
 
         if not await path.exists():
             msg = f"File at path {path} does not exist."
             raise RuntimeError(msg)
-        return FileResponse(path)
+        # Force revalidation for HTML so clients pick up the latest hashed bundle.
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
 
 
 def get_static_files_dir():
