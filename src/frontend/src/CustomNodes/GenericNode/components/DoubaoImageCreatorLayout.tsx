@@ -64,7 +64,8 @@ import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_constants";
 
 const CONTROL_FIELDS = [
-  { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px] grow-[2]" },
+  // Requirement: model selector button width -100px.
+  { name: "model_name", icon: "Sparkles", widthClass: "basis-[170px] grow-[2]" },
   { name: "resolution", icon: "Monitor", widthClass: "basis-[150px]" },
   { name: "aspect_ratio", icon: "Square", widthClass: "basis-[110px]" },
   { name: "image_count", icon: "Layers", widthClass: "basis-[90px]" },
@@ -2456,7 +2457,7 @@ export default function DoubaoImageCreatorLayout({
                   aspectRatioConfig={aspectRatioConfig}
                   isNanoBanana={isNanoBanana}
                   disabled={isBusy}
-                  widthClass="basis-[150px]"
+                  widthClass="basis-[210px]"
                 />
               ) : (
                 <>

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
+from sqlmodel import select
 from langflow.memory import (
     aadd_messages,
     aadd_messagetables,
@@ -22,6 +23,7 @@ from langflow.schema.properties import Properties, Source
 from langflow.services.database.models.message import MessageCreate, MessageRead
 from langflow.services.database.models.message.model import MessageTable
 from langflow.services.deps import session_scope
+from langflow.services.deps import get_settings_service
 from langflow.services.tracing.utils import convert_to_langchain_type
 
 
@@ -99,6 +101,32 @@ async def test_aadd_messagetables(async_session):
     added_messages = await aadd_messagetables(messages, async_session)
     assert len(added_messages) == 1
     assert added_messages[0].text == "New Test message"
+
+
+@pytest.mark.usefixtures("client")
+async def test_messages_retention_per_flow():
+    settings_service = get_settings_service()
+    # Keep this test small to avoid long runtimes.
+    settings_service.settings.max_messages_to_keep_per_flow = 5
+
+    flow_id = uuid4()
+    async with session_scope() as session:
+        batch = [
+            MessageTable(
+                text=f"msg {i}",
+                sender="User",
+                sender_name="User",
+                session_id="retention_session",
+                flow_id=flow_id,
+            )
+            for i in range(8)
+        ]
+        await aadd_messagetables(batch, session)
+
+        remaining = (
+            await session.exec(select(MessageTable).where(MessageTable.flow_id == flow_id))
+        ).all()
+        assert len(remaining) == 5
 
 
 @pytest.mark.usefixtures("client")

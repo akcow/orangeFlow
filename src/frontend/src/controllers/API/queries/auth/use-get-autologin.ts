@@ -38,6 +38,15 @@ export const useGetAutoLogin: useQueryFunctionType<undefined, undefined> = (
 
   async function getAutoLoginFn(): Promise<null> {
     try {
+      // Manual-login mode: don't hit the backend auto_login endpoint.
+      if (!IS_AUTO_LOGIN) {
+        setAutoLogin(false);
+        if (!isLoginPage) {
+          await handleAutoLoginError();
+        }
+        return null;
+      }
+
       const response = await api.get<Users>(`${getURL("AUTOLOGIN")}`);
       const user = response.data;
       if (user && user["access_token"]) {

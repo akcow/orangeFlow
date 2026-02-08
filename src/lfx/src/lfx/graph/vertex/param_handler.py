@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import os
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -147,10 +148,34 @@ class ParameterHandler:
                         file_path = [file_path]
                     for p in file_path:
                         flow_id, file_name = os.path.split(p)
+                        # Enforce auth only for the "{uuid}/{filename}" storage scheme.
+                        # Allow arbitrary local paths (e.g. "/tmp/a.txt") for backwards compatibility.
+                        prefix_uuid = None
+                        try:
+                            prefix_uuid = uuid.UUID(str(flow_id))
+                        except ValueError:
+                            prefix_uuid = None
+                        if prefix_uuid is not None:
+                            graph_flow_id = getattr(self.vertex.graph, "flow_id", None)
+                            graph_user_id = getattr(self.vertex.graph, "user_id", None)
+                            allowed = {str(graph_flow_id), str(graph_user_id)}
+                            if str(prefix_uuid) not in allowed:
+                                raise ValueError("Unauthorized file path prefix")
                         path = self.storage_service.build_full_path(flow_id, file_name)
                         full_path.append(path)
                 else:
                     flow_id, file_name = os.path.split(file_path)
+                    prefix_uuid = None
+                    try:
+                        prefix_uuid = uuid.UUID(str(flow_id))
+                    except ValueError:
+                        prefix_uuid = None
+                    if prefix_uuid is not None:
+                        graph_flow_id = getattr(self.vertex.graph, "flow_id", None)
+                        graph_user_id = getattr(self.vertex.graph, "user_id", None)
+                        allowed = {str(graph_flow_id), str(graph_user_id)}
+                        if str(prefix_uuid) not in allowed:
+                            raise ValueError("Unauthorized file path prefix")
                     full_path = self.storage_service.build_full_path(flow_id, file_name)
             except ValueError as e:
                 if "too many values to unpack" in str(e):

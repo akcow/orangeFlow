@@ -17,6 +17,7 @@ from sqlmodel import col, select
 from langflow.api.schemas import UploadFileResponse
 from langflow.api.utils import CurrentActiveUser, DbSession
 from langflow.services.database.models.file.model import File as UserFile
+from langflow.services.database.models.flow.model import Flow
 from langflow.services.deps import get_settings_service, get_storage_service
 from langflow.services.settings.service import SettingsService
 from langflow.services.storage.service import StorageService
@@ -67,6 +68,29 @@ async def fetch_file_object(file_id: uuid.UUID, current_user: CurrentActiveUser,
         raise HTTPException(status_code=403, detail="You don't have access to this file")
 
     return file
+
+
+def _split_storage_path(file_path: str) -> tuple[uuid.UUID, str]:
+    """Split a storage file_path into (prefix_uuid, filename...).
+
+    file_path is expected to be in the form "{uuid}/{filename...}".
+    """
+    normalized = (file_path or "").lstrip("/")
+    if not normalized or "/" not in normalized:
+        msg = "Invalid file path"
+        raise HTTPException(status_code=400, detail=msg)
+    prefix, rest = normalized.split("/", 1)
+    try:
+        prefix_uuid = uuid.UUID(prefix)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid file path") from exc
+    if not rest:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    # Basic traversal guard: StorageService expects a relative filename under the folder.
+    p = Path(rest)
+    if p.is_absolute() or ".." in p.parts or "\\" in rest:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    return prefix_uuid, rest
 
 
 async def save_file_routine(file, storage_service, current_user: CurrentActiveUser, file_content=None, file_name=None):
@@ -183,7 +207,7 @@ async def upload_user_file(
         # Optionally, you could also delete the file from disk if the DB insert fails.
         raise HTTPException(status_code=500, detail=f"Database error: {e}") from e
 
-    return UploadFileResponse(id=new_file.id, name=new_file.name, path=Path(new_file.path), size=new_file.size)
+    return UploadFileResponse(id=new_file.id, name=new_file.name, path=new_file.path, size=new_file.size)
 
 
 async def get_file_by_name(
@@ -271,6 +295,47 @@ async def list_files(
         raise HTTPException(status_code=500, detail=f"Error listing files: {e}") from e
 
 
+@router.get("/download/{file_path:path}", status_code=HTTPStatus.OK)
+async def download_file_by_path(
+    file_path: str,
+    current_user: CurrentActiveUser,
+    session: DbSession,
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+):
+    """Download a file by its storage path, with auth.
+
+    Supports both:
+    - user files: "{current_user.id}/{filename...}"
+    - flow files: "{flow_id}/{filename...}" where flow.user_id == current_user.id
+    """
+    prefix_uuid, file_name = _split_storage_path(file_path)
+
+    # User files are stored under flow_id == user_id
+    if prefix_uuid == current_user.id:
+        flow_id = str(current_user.id)
+    else:
+        # Otherwise treat prefix as a flow_id and verify ownership.
+        flow = await session.get(Flow, prefix_uuid)
+        if not flow or flow.user_id != current_user.id:
+            # Hide existence details
+            raise HTTPException(status_code=404, detail="File not found")
+        flow_id = str(prefix_uuid)
+
+    try:
+        file_stream = await storage_service.get_file(flow_id=flow_id, file_name=file_name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found") from None
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading file: {e}") from e
+
+    byte_stream = byte_stream_generator(file_stream)
+    return StreamingResponse(
+        byte_stream,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{Path(file_name).name}"'},
+    )
+
+
 @router.delete("/batch/", status_code=HTTPStatus.OK)
 async def delete_files_batch(
     file_ids: list[uuid.UUID],
@@ -290,7 +355,7 @@ async def delete_files_batch(
 
         # Delete all files from the storage service
         for file in files:
-            await storage_service.delete_file(flow_id=str(current_user.id), file_name=file.path)
+            await storage_service.delete_file(flow_id=str(current_user.id), file_name=file.path.split("/")[-1])
             await session.delete(file)
 
         # Delete all files from the database
@@ -488,7 +553,7 @@ async def delete_file(
             raise HTTPException(status_code=404, detail="File not found")
 
         # Delete the file from the storage service
-        await storage_service.delete_file(flow_id=str(current_user.id), file_name=file_to_delete.path)
+        await storage_service.delete_file(flow_id=str(current_user.id), file_name=file_to_delete.path.split("/")[-1])
 
         # Delete from the database
         await session.delete(file_to_delete)
@@ -520,7 +585,7 @@ async def delete_all_files(
 
         # Delete all files from the storage service
         for file in files:
-            await storage_service.delete_file(flow_id=str(current_user.id), file_name=file.path)
+            await storage_service.delete_file(flow_id=str(current_user.id), file_name=file.path.split("/")[-1])
             await session.delete(file)
 
         # Delete all files from the database

@@ -69,6 +69,34 @@
   }
 }
 
+@keyframes ca-thinking-wave {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+  65% {
+    transform: translateY(0);
+  }
+}
+
+.ca-thinking-letter {
+  display: inline-block;
+  animation: ca-thinking-wave 1.25s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-thinking-letter {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 @layer components {
   .round-buttons-position {
     @apply fixed right-4;

@@ -79,6 +79,11 @@ type CanvasAssistantStore = {
   startNewSession: (flowId: string) => void;
   switchSession: (flowId: string, sessionId: string) => void;
   appendMessage: (flowId: string, message: CanvasAssistantMessage) => void;
+  updateMessage: (
+    flowId: string,
+    messageId: string,
+    updater: (message: CanvasAssistantMessage) => CanvasAssistantMessage,
+  ) => void;
   setSessionTitle: (flowId: string, sessionId: string, title: string) => void;
   setSessionTitleStatus: (
     flowId: string,
@@ -229,6 +234,19 @@ export const useCanvasAssistantStore = create<CanvasAssistantStore>((set, get) =
       const nextSessions = sessions.map((s) => {
         if (s.id !== activeId) return s;
         const nextMessages = (s.messages ?? []).concat(message).slice(-MAX_MESSAGES_PER_FLOW);
+        return { ...s, messages: nextMessages };
+      });
+      return { sessionsByFlowId: { ...state.sessionsByFlowId, [flowId]: nextSessions } };
+    }),
+
+  updateMessage: (flowId, messageId, updater) =>
+    set((state) => {
+      const sessions = state.sessionsByFlowId[flowId] ?? [];
+      const activeId = state.activeSessionIdByFlowId[flowId] ?? sessions[0]?.id ?? null;
+      if (!activeId) return {};
+      const nextSessions = sessions.map((s) => {
+        if (s.id !== activeId) return s;
+        const nextMessages = (s.messages ?? []).map((m) => (m.id === messageId ? updater(m) : m));
         return { ...s, messages: nextMessages };
       });
       return { sessionsByFlowId: { ...state.sessionsByFlowId, [flowId]: nextSessions } };

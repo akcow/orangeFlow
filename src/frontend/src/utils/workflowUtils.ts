@@ -151,5 +151,10 @@ export function guessWorkflowCoverFromSelection(nodes: AllNodeType[]): string | 
 }
 
 export function getFilesDownloadUrl(filePath: string): string {
-  return `${getURL("FILES")}/download/${filePath}`;
+  const normalized = String(filePath || "").replace(/^\/+/, "");
+  const encoded = normalized
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `${getURL("FILES_V2_DOWNLOAD_BY_PATH", {}, true)}/${encoded}`;
 }

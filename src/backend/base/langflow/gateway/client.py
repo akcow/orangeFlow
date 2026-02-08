@@ -182,6 +182,8 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
         _n, provider = resolve_provider("sora-2")
     elif provider_name == "veo":
         _n, provider = resolve_provider("veo-3.1-generate-preview")
+    elif provider_name == "vidu":
+        _n, provider = resolve_provider("viduq3-pro")
     elif provider_name == "kling":
         _n, provider = resolve_provider("kling-video-o1")
     else:
@@ -206,6 +208,12 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
             video_url = result.get("video_url") if isinstance(result.get("video_url"), str) else None
         elif provider_name == "veo":
             video_url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
+        elif provider_name == "vidu":
+            # Vidu returns a list of creations with `url`.
+            creations = result.get("creations") if isinstance(result.get("creations"), list) else []
+            if creations:
+                first = creations[0] if isinstance(creations[0], dict) else {}
+                video_url = first.get("url") if isinstance(first.get("url"), str) else None
         elif provider_name == "kling":
             data = result.get("data") if isinstance(result.get("data"), dict) else None
             task_result = data.get("task_result") if isinstance(data, dict) else None

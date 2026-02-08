@@ -1467,6 +1467,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             isBuilding={isBuilding}
             kind={kind}
             appearance={appearance}
+            modelName={selectedModelName}
             onUploadClick={onRequestUpload}
             onSuggestionClick={handleSuggestionClick}
             disabledSuggestions={disabledSuggestions}
@@ -1499,6 +1500,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             isBuilding={isBuilding}
             kind={kind}
             appearance={appearance}
+            modelName={selectedModelName}
             onUploadClick={onRequestUpload}
             onSuggestionClick={handleSuggestionClick}
             disabledSuggestions={disabledSuggestions}
@@ -1510,6 +1512,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         isBuilding={hasError ? false : isBuilding}
         kind={kind}
         appearance={appearance}
+        modelName={selectedModelName}
         onUploadClick={onRequestUpload}
         onSuggestionClick={handleSuggestionClick}
         disabledSuggestions={disabledSuggestions}
@@ -1541,7 +1544,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         case "video":
           return videoPreview ? (
             <Suspense
-              fallback={<EmptyPreview isBuilding={false} kind={kind} />}
+              fallback={<EmptyPreview isBuilding={false} kind={kind} modelName={selectedModelName} />}
             >
               <VideoPreview
                 videoUrl={videoPreview.videoUrl}
@@ -1556,7 +1559,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         case "audio":
           return audioPreview ? (
             <Suspense
-              fallback={<EmptyPreview isBuilding={false} kind={kind} />}
+              fallback={<EmptyPreview isBuilding={false} kind={kind} modelName={selectedModelName} />}
             >
               <AudioPreview
                 audioUrl={audioPreview.audioUrl}
@@ -2096,6 +2099,7 @@ function EmptyPreview({
   onUploadClick,
   onSuggestionClick,
   disabledSuggestions,
+  modelName,
 }: {
   isBuilding: boolean;
   kind: "image" | "video" | "audio";
@@ -2103,6 +2107,7 @@ function EmptyPreview({
   onUploadClick?: () => void;
   onSuggestionClick?: (label: string) => void;
   disabledSuggestions?: string[];
+  modelName?: string;
 }) {
   const renderSuggestionButtons = (
     items: Array<{ label: string; icon: string; disabled?: boolean }>,
@@ -2154,17 +2159,23 @@ function EmptyPreview({
 
   if (isMinimal) {
     if (appearance === "videoGenerator") {
+      const isViduModel = String(modelName ?? "").toLowerCase().startsWith("vidu");
       const suggestions = [
         {
           label: "首帧生成视频",
           icon: "Clapperboard",
           disabled: disabledSuggestions?.includes("首帧生成视频"),
         },
-        {
-          label: "首尾帧生成视频",
-          icon: "Clapperboard",
-          disabled: disabledSuggestions?.includes("首尾帧生成视频"),
-        },
+        // Vidu q3-pro does not support start-end2video; hide the action entirely.
+        ...(!isViduModel
+          ? [
+              {
+                label: "首尾帧生成视频",
+                icon: "Clapperboard",
+                disabled: disabledSuggestions?.includes("首尾帧生成视频"),
+              },
+            ]
+          : []),
       ];
       return (
         // The persistent preview frame (outer container) already provides border/radius/bg.

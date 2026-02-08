@@ -278,6 +278,7 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   onPlusPointerEnter,
   onPlusPointerMove,
   onPlusPointerLeave,
+  disablePointerEvents = false,
   clickMode = "filter",
   onMenuRequest,
 }: {
@@ -303,6 +304,7 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
   onPlusPointerEnter?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPlusPointerMove?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPlusPointerLeave?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  disablePointerEvents?: boolean;
   clickMode?: "filter" | "menu" | "none";
   onMenuRequest?: (payload: {
     x: number;
@@ -488,7 +490,8 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
 
   const resolvedVisible = visible ?? true;
   const hasAnyInteraction = Boolean(filterPresent) || openHandle || ownHandle || isHovered;
-  const shouldAllowPointerEvents = !isLocked && (resolvedVisible || hasAnyInteraction);
+  const shouldAllowPointerEvents =
+    !disablePointerEvents && !isLocked && (resolvedVisible || hasAnyInteraction);
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent) => {

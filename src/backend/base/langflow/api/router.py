@@ -26,6 +26,7 @@ from langflow.api.v1 import (
 )
 from langflow.api.v1.voice_mode import router as voice_mode_router
 from langflow.api.v2 import files_router as files_router_v2
+from langflow.api.v2 import library_router as library_router_v2
 from langflow.api.v2 import mcp_router as mcp_router_v2
 
 router_v1 = APIRouter(
@@ -60,6 +61,7 @@ router_v1.include_router(openai_responses_router)
 router_v1.include_router(provider_credentials_router)
 
 router_v2.include_router(files_router_v2)
+router_v2.include_router(library_router_v2)
 router_v2.include_router(mcp_router_v2)
 
 router = APIRouter(

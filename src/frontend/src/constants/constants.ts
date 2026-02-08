@@ -8,7 +8,13 @@ import { customDefaultShortcuts } from "../customization/constants";
 import type { languageMap } from "../types/components";
 
 const getEnvVar = (key: string, defaultValue: any = undefined) => {
-  if (typeof process !== "undefined" && process.env) {
+  // In Vite/Browser builds, `process.env` may exist as an empty shim.
+  // Only prefer it when the key is actually present; otherwise fall through to import.meta.env.
+  if (
+    typeof process !== "undefined" &&
+    process.env &&
+    Object.prototype.hasOwnProperty.call(process.env, key)
+  ) {
     return process.env[key] ?? defaultValue;
   }
   try {

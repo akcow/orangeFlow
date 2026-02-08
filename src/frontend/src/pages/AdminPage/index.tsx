@@ -9,6 +9,7 @@ import {
 } from "@/controllers/API/queries/auth";
 import CustomLoader from "@/customization/components/custom-loader";
 import { t } from "@/i18n/t";
+import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import IconComponent from "../../components/common/genericIconComponent";
 import ShadTooltip from "../../components/common/shadTooltipComponent";
 import { Button } from "../../components/ui/button";
@@ -46,6 +47,7 @@ import type { UserInputType } from "../../types/components";
 
 export default function AdminPage() {
   const [inputValue, setInputValue] = useState("");
+  const navigate = useCustomNavigate();
 
   const [size, setPageSize] = useState(PAGINATION_SIZE);
   const [index, setPageIndex] = useState(PAGINATION_PAGE);
@@ -286,7 +288,7 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-            <div>
+            <div className="flex items-center gap-2">
               <UserManagementModal
                 title={t("New User")}
                 titleHeader={t("Add a new user")}
@@ -300,6 +302,10 @@ export default function AdminPage() {
               >
                 <Button variant="primary">{t("New User")}</Button>
               </UserManagementModal>
+
+              <Button variant="secondary" onClick={() => navigate("/admin/community")}>
+                投稿审核
+              </Button>
             </div>
           </div>
           {isPending || isIdle ? (

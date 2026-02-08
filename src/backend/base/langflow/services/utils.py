@@ -12,6 +12,7 @@ from sqlmodel import col, select
 from langflow.services.auth.utils import create_super_user, verify_password
 from langflow.services.cache.base import ExternalAsyncBaseCacheService
 from langflow.services.cache.factory import CacheServiceFactory
+from langflow.services.database.models.message.model import MessageTable
 from langflow.services.database.models.transactions.model import TransactionTable
 from langflow.services.database.models.vertex_builds.model import VertexBuildTable
 from langflow.services.database.utils import initialize_database
@@ -223,6 +224,40 @@ async def clean_vertex_builds(settings_service: SettingsService, session: AsyncS
         # Don't re-raise since this is a cleanup task
 
 
+async def clean_messages(settings_service: SettingsService, session: AsyncSession) -> None:
+    """Clean up old messages from the database (per flow).
+
+    This is a best-effort startup cleanup. Ongoing retention is also enforced at write-time.
+    """
+    try:
+        limit = getattr(settings_service.settings, "max_messages_to_keep_per_flow", 1000) or 1000
+        limit = max(1, int(limit))
+
+        flow_ids = (
+            await session.exec(
+                select(MessageTable.flow_id).where(MessageTable.flow_id != None).distinct()  # noqa: E711
+            )
+        ).all()
+
+        for flow_id in [f for f in flow_ids if f]:
+            delete_stmt = delete(MessageTable).where(
+                col(MessageTable.id).in_(
+                    select(MessageTable.id)
+                    .where(MessageTable.flow_id == flow_id)
+                    .order_by(col(MessageTable.timestamp).desc())
+                    .offset(limit)
+                )
+            )
+            await session.exec(delete_stmt)
+
+        await session.commit()
+        logger.debug("Successfully cleaned up old messages")
+    except (sqlalchemy_exc.SQLAlchemyError, asyncio.TimeoutError) as exc:
+        logger.error(f"Error cleaning up messages: {exc!s}")
+        await session.rollback()
+        # Don't re-raise since this is a cleanup task
+
+
 def register_all_service_factories() -> None:
     """Register all available service factories with the service manager."""
     # Import all service factories
@@ -285,9 +320,10 @@ async def initialize_services(*, fix_migration: bool = False) -> None:
     async with session_scope() as session:
         settings_service = get_service(ServiceType.SETTINGS_SERVICE)
         await setup_superuser(settings_service, session)
+        await clean_transactions(settings_service, session)
+        await clean_vertex_builds(settings_service, session)
+        await clean_messages(settings_service, session)
     try:
         await get_db_service().assign_orphaned_flows_to_superuser()
     except sqlalchemy_exc.IntegrityError as exc:
         await logger.awarning(f"Error assigning orphaned flows to the superuser: {exc!s}")
-    await clean_transactions(settings_service, session)
-    await clean_vertex_builds(settings_service, session)

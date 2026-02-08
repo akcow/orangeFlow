@@ -20,6 +20,17 @@ export default defineConfig(({ mode }) => {
 
   const envLangflow = envLangflowResult.parsed || {};
 
+  // Prefer real environment variables (e.g. from start_service_admin.py) over values
+  // read from the repo-level `.env`. `dotenv.config()` won't override existing env
+  // vars by default, so this enables launcher-driven builds (AUTO_LOGIN on/off).
+  const getLangflowEnv = (key: string, fallback: unknown) => {
+    const fromProcess = process.env[key];
+    if (fromProcess !== undefined) return fromProcess;
+    const fromFile = (envLangflow as Record<string, unknown>)[key];
+    if (fromFile !== undefined) return fromFile;
+    return fallback;
+  };
+
   const apiRoutes = API_ROUTES || ["^/api/v1/", "^/api/v2/", "/health"];
 
   const target =
@@ -44,17 +55,17 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       "import.meta.env.BACKEND_URL": JSON.stringify(
-        envLangflow.BACKEND_URL ?? "http://localhost:7860",
+        getLangflowEnv("BACKEND_URL", "http://localhost:7860"),
       ),
       "import.meta.env.ACCESS_TOKEN_EXPIRE_SECONDS": JSON.stringify(
-        envLangflow.ACCESS_TOKEN_EXPIRE_SECONDS ?? 60,
+        getLangflowEnv("ACCESS_TOKEN_EXPIRE_SECONDS", 60),
       ),
-      "import.meta.env.CI": JSON.stringify(envLangflow.CI ?? false),
+      "import.meta.env.CI": JSON.stringify(getLangflowEnv("CI", false)),
       "import.meta.env.LANGFLOW_AUTO_LOGIN": JSON.stringify(
-        envLangflow.LANGFLOW_AUTO_LOGIN ?? true,
+        getLangflowEnv("LANGFLOW_AUTO_LOGIN", true),
       ),
       "import.meta.env.LANGFLOW_MCP_COMPOSER_ENABLED": JSON.stringify(
-        envLangflow.LANGFLOW_MCP_COMPOSER_ENABLED ?? "true",
+        getLangflowEnv("LANGFLOW_MCP_COMPOSER_ENABLED", "true"),
       ),
     },
     plugins: [react(), svgr(), tsconfigPaths()],

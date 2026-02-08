@@ -1,4 +1,4 @@
-import { Popover, PopoverContentWithoutPortal, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useEffect, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
@@ -79,6 +79,45 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     nodeId: data.id,
     name: "enable_audio",
   });
+  const { handleOnNewValue: handleViduIsRecChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "vidu_is_rec",
+  });
+  const { handleOnNewValue: handleViduAudioChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "vidu_audio",
+  });
+
+  const template: any = (data.node as any)?.template ?? {};
+  const modelRaw = String(template?.model_name?.value ?? template?.model_name?.default ?? "")
+    .trim()
+    .toLowerCase();
+  const isVidu = modelRaw.startsWith("vidu");
+  const firstFrameField = template?.first_frame_image ?? null;
+  const hasFirstFrame = (() => {
+    const values = firstFrameField?.value;
+    const filePaths = firstFrameField?.file_path;
+    const anyNonEmpty = (v: any) => {
+      if (v === undefined || v === null) return false;
+      if (typeof v === "string") return v.trim().length > 0;
+      if (typeof v === "object") {
+        const maybeUrl = v?.url ?? v?.image_url ?? v?.value;
+        if (typeof maybeUrl === "string" && maybeUrl.trim()) return true;
+      }
+      return false;
+    };
+    if (Array.isArray(values) && values.some(anyNonEmpty)) return true;
+    if (anyNonEmpty(values)) return true;
+    if (Array.isArray(filePaths) && filePaths.some(anyNonEmpty)) return true;
+    if (anyNonEmpty(filePaths)) return true;
+    return false;
+  })();
+  const viduIsRecField = template?.vidu_is_rec ?? null;
+  const viduAudioField = template?.vidu_audio ?? null;
+  const viduIsRecValue = Boolean(viduIsRecField?.value ?? viduIsRecField?.default ?? false);
+  const viduAudioValue = Boolean(viduAudioField?.value ?? viduAudioField?.default ?? true);
 
   const aspectRatio = useMemo(() => buildOptionSets(aspectRatioConfig), [aspectRatioConfig]);
   const resolution = useMemo(() => buildOptionSets(resolutionConfig), [resolutionConfig]);
@@ -155,9 +194,12 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     [durationConfig, duration.enabledSet, duration.visible],
   );
 
-  const aspectRatioLabel = aspectRatioConfig
-    ? formatControlValue("aspect_ratio", effectiveAspectRatioValue)
-    : "";
+  const aspectRatioLabel =
+    isVidu && hasFirstFrame
+      ? "自适应"
+      : aspectRatioConfig
+        ? formatControlValue("aspect_ratio", effectiveAspectRatioValue)
+        : "";
   const resolutionLabel = resolutionConfig
     ? formatControlValue("resolution", effectiveResolutionValue)
     : "";
@@ -210,6 +252,10 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   const currentDuration = Number(durationConfig?.value ?? durationConfig?.template?.value ?? "");
 
   const supportsAudioUi = showAudioToggle && enableAudioField;
+  const supportsViduRecUi = isVidu && hasFirstFrame && Boolean(viduIsRecField);
+  const supportsViduAudioUi = isVidu && Boolean(viduAudioField);
+  const showAudioIcon = supportsAudioUi || supportsViduAudioUi;
+  const audioIconEnabled = supportsAudioUi ? audioEnabled : viduAudioValue;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -233,13 +279,13 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
                 className="h-4 w-4 text-[#7D85A8] dark:text-slate-300"
               />
               <span className="truncate">{triggerLabel}</span>
-              {supportsAudioUi && (
+              {showAudioIcon && (
                 <span className="relative inline-flex items-center justify-center text-[#7D85A8] dark:text-slate-300">
                   <ForwardedIconComponent
                     name="Music"
                     className={cn(
                       "h-4 w-4 flex-shrink-0 transition-opacity duration-200 ease-out",
-                      !audioEnabled && "opacity-80",
+                      !audioIconEnabled && "opacity-80",
                     )}
                   />
                   {/* When audio is disabled, show an animated diagonal slash (top-left -> bottom-right). */}
@@ -250,7 +296,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
                     <span
                       className={cn(
                         "block h-[2px] w-[18px] rounded-full bg-current transition-[transform,opacity] duration-400 ease-out will-change-transform",
-                        audioEnabled ? "scale-x-0 opacity-0" : "scale-x-100 opacity-100",
+                        audioIconEnabled ? "scale-x-0 opacity-0" : "scale-x-100 opacity-100",
                       )}
                       style={{ transformOrigin: "left" }}
                     />
@@ -269,12 +315,13 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
         </PopoverTrigger>
       </ShadTooltip>
 
-      <PopoverContentWithoutPortal
+      <PopoverContent
         side="top"
         align="start"
         sideOffset={10}
         className={cn(
           "noflow nowheel nopan nodelete nodrag",
+          "z-[10000]",
           "w-[460px] rounded-[24px] border border-[#E6E9F4] bg-white p-5 shadow-[0_25px_50px_rgba(15,23,42,0.15)]",
           "dark:border-white/20 dark:bg-neutral-800/90 dark:backdrop-blur-2xl dark:shadow-[0_25px_50px_rgba(0,0,0,0.35)]",
         )}
@@ -288,55 +335,178 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
               <div className="text-sm font-medium text-[#2E3150] dark:text-white/90">
                 比例
               </div>
-              <div className="grid grid-flow-row-dense grid-cols-5 gap-2 auto-rows-[58px]">
-                {aspectOptions.map(({ raw, opt, label, ratio, isAdaptive }) => {
-                const selected = raw === currentAspectRaw;
-                const boxSize = 18;
-                let w = boxSize;
-                let h = boxSize;
-                if (ratio) {
-                  if (ratio.w >= ratio.h) {
-                    w = boxSize;
-                    h = Math.max(6, Math.round((boxSize * ratio.h) / ratio.w));
-                  } else {
-                    h = boxSize;
-                    w = Math.max(6, Math.round((boxSize * ratio.w) / ratio.h));
-                  }
-                }
-                return (
-                  <button
-                    key={raw}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => {
-                      if (disabled) return;
-                      handleAspectRatioChange({ value: opt });
-                    }}
-                    className={cn(
-                      "flex flex-col items-center justify-center gap-1 rounded-[14px] px-2 py-2 text-xs transition",
-                      "bg-[#F4F6FB] text-[#2E3150] hover:bg-[#E9EEFF] dark:bg-white/10 dark:text-white/90 dark:hover:bg-white/15",
-                      selected && "ring-2 ring-[#2E7BFF] dark:ring-[#6AA6FF]",
-                      isAdaptive && "row-span-2",
-                      disabled && "cursor-not-allowed opacity-60",
-                    )}
-                  >
-                    {ratio ? (
-                      <div
-                        className="rounded-[3px] border border-current opacity-70"
-                        style={{ width: `${w}px`, height: `${h}px` }}
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <div
-                        className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border border-dashed border-current opacity-70"
-                        aria-hidden="true"
-                      />
-                    )}
-                    <div className="leading-none">{label}</div>
-                  </button>
-                );
-                })}
-              </div>
+              {isVidu && hasFirstFrame ? (
+                <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled
+                      className={cn(
+                        "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                        "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]",
+                      )}
+                    >
+                      自适应
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-flow-row-dense grid-cols-5 gap-2 auto-rows-[58px]">
+                  {aspectOptions.map(({ raw, opt, label, ratio, isAdaptive }) => {
+                    const selected = raw === currentAspectRaw;
+                    const boxSize = 18;
+                    let w = boxSize;
+                    let h = boxSize;
+                    if (ratio) {
+                      if (ratio.w >= ratio.h) {
+                        w = boxSize;
+                        h = Math.max(6, Math.round((boxSize * ratio.h) / ratio.w));
+                      } else {
+                        h = boxSize;
+                        w = Math.max(6, Math.round((boxSize * ratio.w) / ratio.h));
+                      }
+                    }
+                    return (
+                      <button
+                        key={raw}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleAspectRatioChange({ value: opt });
+                        }}
+                        className={cn(
+                          "flex flex-col items-center justify-center gap-1 rounded-[14px] px-2 py-2 text-xs transition",
+                          "bg-[#F4F6FB] text-[#2E3150] hover:bg-[#E9EEFF] dark:bg-white/10 dark:text-white/90 dark:hover:bg-white/15",
+                          selected && "ring-2 ring-[#2E7BFF] dark:ring-[#6AA6FF]",
+                          isAdaptive && "row-span-2",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        {ratio ? (
+                          <div
+                            className="rounded-[3px] border border-current opacity-70"
+                            style={{ width: `${w}px`, height: `${h}px` }}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <div
+                            className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] border border-dashed border-current opacity-70"
+                            aria-hidden="true"
+                          />
+                        )}
+                        <div className="leading-none">{label}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {(supportsViduRecUi || supportsViduAudioUi) && (
+            <div className="space-y-3">
+              {supportsViduRecUi && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
+                    推荐提示词
+                    <ShadTooltip content="开启后将忽略自定义 prompt，由系统自动推荐提示词（仅图生视频）。">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[11px] opacity-60">
+                        ?
+                      </span>
+                    </ShadTooltip>
+                  </div>
+                  <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleViduIsRecChange({ value: true });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          viduIsRecValue
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        开启
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleViduIsRecChange({ value: false });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          !viduIsRecValue
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {supportsViduAudioUi && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
+                    生成音频
+                    <ShadTooltip content="Vidu：开启=输出带台词/背景音；关闭=输出静音视频。">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[11px] opacity-60">
+                        ?
+                      </span>
+                    </ShadTooltip>
+                  </div>
+                  <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleViduAudioChange({ value: true });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          viduAudioValue
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        开启
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleViduAudioChange({ value: false });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          !viduAudioValue
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -471,7 +641,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
             </div>
           )}
         </div>
-      </PopoverContentWithoutPortal>
+      </PopoverContent>
     </Popover>
   );
 }

@@ -103,6 +103,36 @@ def test_process_file_field(parameter_handler):
     assert params["file_field"] == []
 
 
+def test_process_file_field_uuid_prefix_authorization(parameter_handler, mock_vertex):
+    """UUID-prefixed file paths must match graph.flow_id or graph.user_id."""
+    mock_vertex.graph.flow_id = "11111111-1111-1111-1111-111111111111"
+    mock_vertex.graph.user_id = "22222222-2222-2222-2222-222222222222"
+
+    # Allowed: flow_id prefix
+    params = parameter_handler.process_file_field(
+        "file_field",
+        {"type": "file", "file_path": f"{mock_vertex.graph.flow_id}/file.txt"},
+        {},
+    )
+    assert params["file_field"] == "/mocked/full/path"
+
+    # Allowed: user_id prefix (user file library)
+    params = parameter_handler.process_file_field(
+        "file_field",
+        {"type": "file", "file_path": f"{mock_vertex.graph.user_id}/file.txt"},
+        {},
+    )
+    assert params["file_field"] == "/mocked/full/path"
+
+    # Denied: other UUID prefix
+    with pytest.raises(ValueError, match="Unauthorized file path prefix"):
+        parameter_handler.process_file_field(
+            "file_field",
+            {"type": "file", "file_path": "33333333-3333-3333-3333-333333333333/file.txt"},
+            {},
+        )
+
+
 def test_should_skip_field(parameter_handler):
     """Test field skipping logic."""
     # Test with field in params

@@ -149,7 +149,8 @@ ignore-regex = '.*(Stati Uniti|Tense=Pres).*'
 
 [tool.pytest.ini_options]
 timeout = 150
-timeout_method = "signal"
+# NOTE: "signal" uses SIGALRM and breaks on Windows; "thread" works cross-platform.
+timeout_method = "thread"
 minversion = "6.0"
 testpaths = ["src/backend/tests", "src/lfx/tests"]
 console_output_style = "progress"

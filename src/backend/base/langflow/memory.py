@@ -13,7 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from langflow.schema.message import Message
 from langflow.services.database.models.message.model import MessageRead, MessageTable
-from langflow.services.deps import session_scope
+from langflow.services.deps import get_settings_service, session_scope
 
 
 def _get_variable_query(
@@ -202,6 +202,31 @@ async def aadd_messagetables(messages: list[MessageTable], session: AsyncSession
     except Exception as e:
         await logger.aexception(e)
         raise
+
+    # Best-effort retention cleanup (per flow) after a successful commit.
+    # We run it after refresh to avoid breaking the caller when a large batch is inserted.
+    try:
+        settings = get_settings_service().settings
+        limit = getattr(settings, "max_messages_to_keep_per_flow", 1000) or 1000
+        limit = max(1, int(limit))
+
+        flow_ids = {m.flow_id for m in messages if getattr(m, "flow_id", None)}
+        for flow_id in flow_ids:
+            delete_stmt = delete(MessageTable).where(
+                col(MessageTable.id).in_(
+                    select(MessageTable.id)
+                    .where(MessageTable.flow_id == flow_id)
+                    .order_by(col(MessageTable.timestamp).desc())
+                    .offset(limit)
+                )
+            )
+            await session.exec(delete_stmt)
+        if flow_ids:
+            await session.commit()
+    except Exception as e:  # noqa: BLE001
+        # Don't fail message ingestion because of cleanup.
+        await logger.aexception(f"Error cleaning up old messages: {e!s}")
+        await session.rollback()
 
     new_messages = []
     for msg in messages:

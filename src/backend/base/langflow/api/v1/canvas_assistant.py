@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import os
 import base64
+import json
 from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from lfx.utils.provider_credentials import get_provider_credentials
 
 from langflow.api.utils import CurrentActiveUser
+from langflow.api.v1.schemas import StreamData
 from langflow.services.deps import get_settings_service
 
 
@@ -117,6 +120,166 @@ def _extract_gemini_text(payload: object) -> str:
             texts.append(text.strip())
 
     return "\n".join(texts).strip()
+
+
+def _extract_gemini_error(payload: object) -> str:
+    # Gemini error shape usually: {"error":{"message":...}}
+    if not isinstance(payload, dict):
+        return ""
+    err = payload.get("error")
+    if isinstance(err, dict):
+        msg = err.get("message")
+        if isinstance(msg, str) and msg.strip():
+            return msg.strip()
+    msg = payload.get("message")
+    if isinstance(msg, str) and msg.strip():
+        return msg.strip()
+    return ""
+
+
+async def _stream_gemini_sse(
+    *,
+    url: str,
+    headers: dict,
+    params: dict,
+    req_json: dict,
+) -> object:
+    """Yield StreamData SSE events with {"chunk": "..."} payloads."""
+    emitted_any = False
+    try:
+        # Streaming responses can be long; avoid a strict read timeout.
+        timeout = httpx.Timeout(60.0, read=None)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, headers=headers, params=params, json=req_json) as resp:
+                if resp.status_code != 200:
+                    detail = ""
+                    try:
+                        data = await resp.json()
+                        detail = _extract_gemini_error(data)
+                    except Exception:
+                        detail = ""
+                    if not detail:
+                        body = (await resp.aread()).decode("utf-8", errors="replace").strip()
+                        detail = f"Gemini 上游返回 HTTP {resp.status_code}" + (f": {body[:500]}" if body else "")
+                    yield str(StreamData(event="error", data={"error": detail}))
+                    return
+
+                # The upstream uses SSE frames. We parse full frames (event + data lines) and
+                # re-emit only text chunks. Some Gemini deployments may send the full accumulated
+                # text each frame; we de-duplicate by emitting only the delta suffix.
+                block_lines: list[str] = []
+                last_text = ""
+
+                def parse_frame(raw: str) -> tuple[bool, str | None]:
+                    nonlocal last_text
+                    raw = raw.strip()
+                    if not raw:
+                        return False, None
+                    if raw == "[DONE]":
+                        return True, None
+                    try:
+                        payload = json.loads(raw)
+                    except Exception:
+                        return False, None
+
+                    text = _extract_gemini_text(payload)
+                    if not text:
+                        return False, None
+
+                    if last_text and text.startswith(last_text):
+                        delta = text[len(last_text) :]
+                    else:
+                        delta = text
+                    last_text = text
+                    return False, (delta or None)
+
+                def parse_sse_block(lines: list[str]) -> tuple[bool, str | None]:
+                    """Parse an SSE block and return (done, delta_text).
+
+                    Be tolerant of upstream/proxy formatting: if JSON is pretty-printed
+                    across multiple lines without repeating `data:`, we treat subsequent
+                    non-prefixed lines as continuation.
+                    """
+                    data_chunks: list[str] = []
+                    for ln in lines:
+                        if not ln:
+                            continue
+                        if ln.startswith("event:"):
+                            continue
+                        if ln.startswith(":"):
+                            # comment line
+                            continue
+                        if ln.startswith("data:"):
+                            data_chunks.append(ln.split(":", 1)[1].lstrip())
+                            continue
+                        # Non-standard continuation (pretty JSON etc.)
+                        if data_chunks:
+                            data_chunks.append(ln)
+                    raw = "\n".join(data_chunks).strip()
+                    return parse_frame(raw)
+
+                async for line in resp.aiter_lines():
+                    # Blank line separates SSE blocks.
+                    if line == "":
+                        if not block_lines:
+                            continue
+                        done, delta = parse_sse_block(block_lines)
+                        block_lines.clear()
+
+                        if delta:
+                            emitted_any = True
+                            yield str(StreamData(event="message", data={"chunk": delta}))
+                        if done:
+                            break
+                        continue
+
+                    block_lines.append(line)
+
+                # Flush any final frame (in case the stream ends without a trailing blank line).
+                if block_lines:
+                    done, delta = parse_sse_block(block_lines)
+                    if delta:
+                        emitted_any = True
+                        yield str(StreamData(event="message", data={"chunk": delta}))
+                    if done:
+                        return
+    except httpx.RequestError as exc:
+        yield str(StreamData(event="error", data={"error": f"上游请求失败: {exc}"}))
+    finally:
+        # If we couldn't parse any streamed content, fall back to a non-streaming request
+        # so the UI doesn't show "empty reply" even when upstream did generate content.
+        if not emitted_any:
+            try:
+                timeout = httpx.Timeout(60.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    fallback_url = url.replace(":streamGenerateContent", ":generateContent")
+                    fallback_params = {k: v for k, v in (params or {}).items() if k != "alt"}
+                    fallback_resp = await client.post(
+                        fallback_url, headers=headers, params=fallback_params, json=req_json
+                    )
+                    if fallback_resp.status_code == 200:
+                        payload = fallback_resp.json()
+                        text = _extract_gemini_text(payload)
+                        if text:
+                            yield str(StreamData(event="message", data={"chunk": text}))
+                        else:
+                            yield str(StreamData(event="error", data={"error": "模型返回为空。"}))
+                    else:
+                        detail = ""
+                        try:
+                            detail = _extract_gemini_error(fallback_resp.json())
+                        except Exception:
+                            detail = fallback_resp.text[:500] if fallback_resp.text else ""
+                        yield str(
+                            StreamData(
+                                event="error",
+                                data={"error": detail or f"Gemini 上游返回 HTTP {fallback_resp.status_code}"},
+                            )
+                        )
+            except Exception:
+                # Don't mask original stream errors; just proceed to close.
+                pass
+        yield str(StreamData(event="close", data={"message": "Stream closed"}))
 
 
 @router.post("/chat", response_model=CanvasAssistantChatResponse)
@@ -264,3 +427,130 @@ async def canvas_assistant_chat(
         )
 
     return CanvasAssistantChatResponse(content=text)
+
+
+@router.post("/chat/stream", response_class=StreamingResponse)
+async def canvas_assistant_chat_stream(
+    payload: CanvasAssistantChatRequest,
+    _: CurrentActiveUser,
+) -> StreamingResponse:
+    """Stream Gemini output as SSE (text/event-stream).
+
+    Each SSE message uses the shared StreamData format:
+      event: message
+      data: {"chunk":"..."}
+
+    and ends with:
+      event: close
+    """
+    model = (payload.model or "").strip()
+    if not model.startswith("gemini-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="仅支持 gemini-* 文本模型。",
+        )
+
+    api_key = _resolve_gemini_api_key()
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未配置 Gemini API Key。",
+        )
+
+    base_url = (
+        os.getenv("GEMINI_API_BASE")
+        or os.getenv("GEMINI_API_BASE_URL")
+        or "https://cdn.12ai.org/v1beta"
+    ).rstrip("/")
+
+    system_texts = [m.content.strip() for m in payload.messages if m.role == "system" and m.content.strip()]
+    system_text = "\n".join(system_texts).strip() if system_texts else None
+
+    max_attachment_bytes = int(os.getenv("CANVAS_ASSISTANT_MAX_ATTACHMENT_BYTES", str(15 * 1024 * 1024)))
+    max_total_attachment_bytes = int(os.getenv("CANVAS_ASSISTANT_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
+
+    contents: list[dict] = []
+    total_attachment_bytes = 0
+    for msg in payload.messages:
+        if msg.role == "system":
+            continue
+        text = (msg.content or "").strip()
+        attachments = msg.attachments or []
+        parts: list[dict] = []
+
+        for att in attachments:
+            mime = (att.mimeType or "").strip()
+            if not (mime.startswith("image/") or mime.startswith("video/")):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="仅支持图片/视频附件（image/*, video/*）。",
+                )
+
+            declared_size = int(att.size or 0)
+            if declared_size > max_attachment_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"单个附件过大（>{max_attachment_bytes} bytes）。",
+                )
+
+            data_b64 = _normalize_key(att.dataBase64) or ""
+            if not data_b64:
+                continue
+            try:
+                decoded = base64.b64decode(data_b64, validate=True)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="附件 base64 数据无效。",
+                ) from exc
+
+            decoded_size = len(decoded)
+            if decoded_size > max_attachment_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"单个附件过大（>{max_attachment_bytes} bytes）。",
+                )
+            total_attachment_bytes += decoded_size
+            if total_attachment_bytes > max_total_attachment_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"附件总大小超过上限（>{max_total_attachment_bytes} bytes）。",
+                )
+
+            parts.append({"inlineData": {"mimeType": mime, "data": data_b64}})
+
+        if text:
+            parts.append({"text": text})
+        if not parts:
+            continue
+        role = "user" if msg.role == "user" else "model"
+        contents.append({"role": role, "parts": parts})
+
+    if not contents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="消息不能为空。",
+        )
+
+    req_body: dict = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": payload.temperature if payload.temperature is not None else 0.7,
+        },
+    }
+    if system_text:
+        req_body["systemInstruction"] = {"parts": [{"text": system_text}]}
+
+    url = f"{base_url}/models/{model}:streamGenerateContent"
+    params = {"key": api_key, "alt": "sse"}
+    headers = {"Content-Type": "application/json"}
+
+    return StreamingResponse(
+        _stream_gemini_sse(url=url, headers=headers, params=params, req_json=req_body),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Hint for some reverse proxies (e.g. nginx) to disable response buffering for SSE.
+            "X-Accel-Buffering": "no",
+        },
+    )

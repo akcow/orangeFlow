@@ -259,12 +259,14 @@ class Settings(BaseSettings):
     """The maximum file size for the upload in MB."""
     deactivate_tracing: bool = False
     """If set to True, tracing will be deactivated."""
-    max_transactions_to_keep: int = 3000
+    max_transactions_to_keep: int = 1000
     """The maximum number of transactions to keep in the database."""
-    max_vertex_builds_to_keep: int = 3000
+    max_vertex_builds_to_keep: int = 1000
     """The maximum number of vertex builds to keep in the database."""
-    max_vertex_builds_per_vertex: int = 2
+    max_vertex_builds_per_vertex: int = 5
     """The maximum number of builds to keep per vertex. Older builds will be deleted."""
+    max_messages_to_keep_per_flow: int = 1000
+    """The maximum number of messages to keep per flow. Older messages will be deleted."""
     webhook_polling_interval: int = 5000
     """The polling interval for the webhook in ms."""
     fs_flows_polling_interval: int = 10000

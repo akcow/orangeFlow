@@ -63,6 +63,8 @@ class DoubaoVideoGenerator(Component):
         "sora-2": "sora-2",
         "sora-2-pro": "sora-2-pro",
         "kling O1": "kling-video-o1",
+        # Vidu (direct API)
+        "viduq3-pro": "viduq3-pro",
     }
 
     # What the dropdown shows (keep this list clean; legacy aliases are accepted but not shown).
@@ -76,6 +78,7 @@ class DoubaoVideoGenerator(Component):
         "sora-2",
         "sora-2-pro",
         "kling O1",
+        "viduq3-pro",
     ]
 
     MODEL_NAME_ALIASES = {
@@ -170,9 +173,18 @@ class DoubaoVideoGenerator(Component):
             "supports_reference_videos": True,
             "supported_ratios": ["16:9", "9:16", "1:1"],
         },
+        "viduq3-pro": {
+            "resolutions": ["540p", "720p", "1080p"],
+            "min_duration": 1,
+            "max_duration": 16,
+            "supports_last_frame": False,  # q3-pro does not support start-end2video
+            "supports_reference_images": False,
+        },
     }
 
     SUPPORTED_RATIOS = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"]
+    VIDU_SUPPORTED_RATIOS = ["16:9", "9:16", "4:3", "3:4", "1:1"]
+    VIDU_SUPPORTED_RESOLUTIONS_Q3 = ["540p", "720p", "1080p"]
     VEO_SUPPORTED_RATIOS = ["16:9", "9:16"]
     VEO_SUPPORTED_DURATIONS = [4, 6, 8]
     VEO_SUPPORTED_RESOLUTIONS = ["720p", "1080p"]
@@ -329,6 +341,131 @@ class DoubaoVideoGenerator(Component):
             info="可选：覆盖模型所需的 API Key。\n- Doubao/Ark 模型：使用 ARK_API_KEY\n- wan/DashScope 模型：使用 DASHSCOPE_API_KEY\n- Sora 模型：使用 OPENAI_API_KEY（Settings-Provider Credentials-OpenAI）\n- Veo 模型：使用 GEMINI_API_KEY/GOOGLE_API_KEY",
             load_from_db=False,
         ),
+        BoolInput(
+            name="vidu_is_rec",
+            display_name="Vidu 推荐提示词",
+            required=False,
+            value=False,
+            show=False,
+            info="仅 Vidu 图生视频（img2video）。开启后将忽略 prompt，由系统推荐提示词（每任务额外消耗积分）。",
+        ),
+        IntInput(
+            name="vidu_seed",
+            display_name="Vidu Seed",
+            required=False,
+            value=0,
+            show=False,
+            advanced=True,
+            info="随机种子。不传/传 0 为随机；手动传参则固定种子。",
+        ),
+        DropdownInput(
+            name="vidu_movement_amplitude",
+            display_name="Vidu 运动幅度",
+            options=["auto", "small", "medium", "large"],
+            value="auto",
+            required=False,
+            show=False,
+            advanced=True,
+            info="Vidu 运动幅度。注意：官方文档提示 q2/q3 可能不生效。",
+        ),
+        BoolInput(
+            name="vidu_bgm",
+            display_name="Vidu 背景音乐",
+            required=False,
+            value=False,
+            show=False,
+            advanced=True,
+            info="是否添加背景音乐。注意：官方文档提示 q3 可能不生效。",
+        ),
+        BoolInput(
+            name="vidu_audio",
+            display_name="生成音频",
+            required=False,
+            value=True,
+            show=False,
+            info="是否输出带音频的视频。官方文档：q3 支持音视频直出；false 为静音视频。",
+        ),
+        StrInput(
+            name="vidu_voice_id",
+            display_name="Vidu Voice ID",
+            value="",
+            required=False,
+            show=False,
+            advanced=True,
+            info="仅图生视频（img2video）在 audio=true 时可用。官方文档提示 q3 可能不生效。",
+        ),
+        BoolInput(
+            name="vidu_off_peak",
+            display_name="Vidu 错峰模式",
+            required=False,
+            value=False,
+            show=False,
+            advanced=True,
+            info="错峰生成（积分更低）。注意：官方文档提示音视频直出可能不支持错峰。",
+        ),
+        BoolInput(
+            name="vidu_watermark",
+            display_name="Vidu 水印",
+            required=False,
+            value=False,
+            show=False,
+            advanced=True,
+            info="是否添加水印（内容固定为「内容由AI生成」）。",
+        ),
+        IntInput(
+            name="vidu_wm_position",
+            display_name="Vidu 水印位置",
+            required=False,
+            value=3,
+            show=False,
+            advanced=True,
+            info="水印位置：1 左上 / 2 右上 / 3 右下 / 4 左下",
+        ),
+        StrInput(
+            name="vidu_wm_url",
+            display_name="Vidu 水印图片 URL",
+            value="",
+            required=False,
+            show=False,
+            advanced=True,
+            info="水印图片 URL，不传则使用默认水印。",
+        ),
+        MultilineInput(
+            name="vidu_payload",
+            display_name="Vidu Payload 透传",
+            required=False,
+            value="",
+            show=False,
+            advanced=True,
+            info="透传参数（字符串），不做处理，仅传输。最大 1048576 字符。",
+        ),
+        MultilineInput(
+            name="vidu_meta_data",
+            display_name="Vidu Meta Data",
+            required=False,
+            value="",
+            show=False,
+            advanced=True,
+            info="元数据标识（JSON 字符串），透传字段；为空则使用平台默认。",
+        ),
+        StrInput(
+            name="vidu_callback_url",
+            display_name="Vidu Callback URL",
+            value="",
+            required=False,
+            show=False,
+            advanced=True,
+            info="回调地址（POST），任务状态变更时推送（可选）。",
+        ),
+        IntInput(
+            name="vidu_max_wait_seconds",
+            display_name="Vidu 最大等待时间",
+            value=900,
+            required=False,
+            show=False,
+            advanced=True,
+            info="轮询任务最大等待时间（秒）。超过后返回超时错误。",
+        ),
         StrInput(
             name="sora_api_base",
             display_name="Sora API Base",
@@ -425,7 +562,12 @@ class DoubaoVideoGenerator(Component):
 
     def build_video(self) -> Data:
         merged_prompt = self._merge_prompt(self.prompt)
-        if not merged_prompt:
+        model_name = str(self.model_name or "").strip()
+        # Accept legacy Seedance display names from existing saved flows.
+        model_name = self.MODEL_NAME_ALIASES.get(model_name, model_name)
+
+        # Vidu allows "prompt" to be optional for img2video when is_rec=true.
+        if not merged_prompt and not self._is_vidu_model(model_name):
             draft = getattr(self, "draft_output", None)
             if isinstance(draft, Data):
                 payload = draft.data
@@ -450,12 +592,12 @@ class DoubaoVideoGenerator(Component):
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
             return Data(data=payload, type="video")
 
-        model_name = str(self.model_name or "").strip()
-        # Accept legacy Seedance display names from existing saved flows.
-        model_name = self.MODEL_NAME_ALIASES.get(model_name, model_name)
         if model_name not in self.MODEL_MAPPING:
             return self._error(f"模型已下线或不支持：{model_name}")
         endpoint_id = self.MODEL_MAPPING[model_name]
+
+        if self._is_vidu_model(model_name):
+            return self._build_video_vidu_gateway(prompt=(merged_prompt or ""), model_name=model_name)
 
         # All provider calls go through the hosted gateway (server-managed credentials).
         if model_name.startswith("wan2."):
@@ -487,6 +629,7 @@ class DoubaoVideoGenerator(Component):
             model_value = ""
 
         is_kling = model_value.lower().startswith("kling")
+        is_vidu = self._is_vidu_model(model_value)
         refer_type = str((build_config.get("kling_video_refer_type") or {}).get("value") or "feature").strip().lower()
 
         # Helper to restore a field back to its static definition (keeps current value).
@@ -539,14 +682,266 @@ class DoubaoVideoGenerator(Component):
                     "视频编辑（refer_type=base）时输出与输入视频时长一致，此参数无效。"
                 )
 
-        else:
-            # Restore defaults when switching away from Kling.
+            # Ensure Vidu-only controls are hidden when switching to Kling.
+            for field in (
+                "vidu_is_rec",
+                "vidu_seed",
+                "vidu_movement_amplitude",
+                "vidu_bgm",
+                "vidu_audio",
+                "vidu_voice_id",
+                "vidu_off_peak",
+                "vidu_watermark",
+                "vidu_wm_position",
+                "vidu_wm_url",
+                "vidu_payload",
+                "vidu_meta_data",
+                "vidu_callback_url",
+                "vidu_max_wait_seconds",
+            ):
+                _restore_field_defaults(field)
+
+            _restore_field_defaults("enable_audio")
+            _restore_field_defaults("audio_input")
+
+        elif is_vidu:
+            # Vidu q3-pro: show Vidu-specific knobs, clamp duration/ratio/resolution.
             if "resolution" in build_config:
                 build_config["resolution"]["show"] = True
+                build_config["resolution"]["options"] = list(self.VIDU_SUPPORTED_RESOLUTIONS_Q3)
+                build_config["resolution"]["options_metadata"] = []
+                current = str(build_config["resolution"].get("value") or "").strip()
+                if current not in self.VIDU_SUPPORTED_RESOLUTIONS_Q3:
+                    build_config["resolution"]["value"] = "720p"
+                build_config["resolution"]["info"] = "Vidu q3-pro：仅支持 540p / 720p / 1080p。"
+
+            if "aspect_ratio" in build_config:
+                build_config["aspect_ratio"]["show"] = True
+                # Per doc: img2video does not accept aspect_ratio; output ratio follows the first-frame image.
+                ff_cfg = build_config.get("first_frame_image") or {}
+                ff_value = ff_cfg.get("value")
+                ff_paths = ff_cfg.get("file_path")
+
+                def _has_any(v: Any) -> bool:
+                    if v is None:
+                        return False
+                    if isinstance(v, str):
+                        return bool(v.strip())
+                    if isinstance(v, dict):
+                        for k in ("url", "image_url", "value", "path", "file_path"):
+                            vv = v.get(k)
+                            if isinstance(vv, str) and vv.strip():
+                                return True
+                        return bool(v)
+                    if isinstance(v, (list, tuple)):
+                        return any(_has_any(x) for x in v)
+                    return True
+
+                has_first_frame = _has_any(ff_value) or _has_any(ff_paths)
+                build_config["aspect_ratio"]["options_metadata"] = []
+                if has_first_frame:
+                    build_config["aspect_ratio"]["options"] = ["adaptive"]
+                    build_config["aspect_ratio"]["value"] = "adaptive"
+                    build_config["aspect_ratio"]["info"] = "Vidu q3-pro 图生视频：比例由首帧图决定（自适应）。"
+                else:
+                    build_config["aspect_ratio"]["options"] = list(self.VIDU_SUPPORTED_RATIOS)
+                    ratio_value = str(build_config["aspect_ratio"].get("value") or "16:9").strip()
+                    if ratio_value.lower() == "adaptive" or ratio_value not in self.VIDU_SUPPORTED_RATIOS:
+                        build_config["aspect_ratio"]["value"] = "16:9"
+                    build_config["aspect_ratio"]["info"] = "Vidu q3-pro：仅支持 16:9 / 9:16 / 4:3 / 3:4 / 1:1。"
+
+            if "duration" in build_config:
+                build_config["duration"]["show"] = True
+                build_config["duration"]["range_spec"] = {"min": 1, "max": 16, "step": 1, "step_type": "int"}
+                try:
+                    dur = int(build_config["duration"].get("value") or 5)
+                except Exception:
+                    dur = 5
+                if dur < 1:
+                    dur = 1
+                if dur > 16:
+                    dur = 16
+                build_config["duration"]["value"] = dur
+                build_config["duration"]["info"] = "Vidu q3-pro：时长支持 1-16 秒（默认 5 秒）。"
+
+            # q3-pro only supports img2video (1 image). Hide last frame to avoid confusion.
+            if "last_frame_image" in build_config:
+                build_config["last_frame_image"]["show"] = False
+                build_config["last_frame_image"]["info"] = "Vidu q3-pro 不支持首尾帧（start-end2video）。"
+
+            # Wan-specific audio switch is irrelevant for Vidu.
+            if "enable_audio" in build_config:
+                build_config["enable_audio"]["show"] = False
+            if "audio_input" in build_config:
+                build_config["audio_input"]["show"] = False
+
+            # Show Vidu knobs (some are advanced in definition; we still surface them when Vidu is selected).
+            for field in (
+                "vidu_is_rec",
+                "vidu_seed",
+                "vidu_movement_amplitude",
+                "vidu_bgm",
+                "vidu_audio",
+                "vidu_voice_id",
+                "vidu_off_peak",
+                "vidu_watermark",
+                "vidu_wm_position",
+                "vidu_wm_url",
+                "vidu_payload",
+                "vidu_meta_data",
+                "vidu_callback_url",
+                "vidu_max_wait_seconds",
+            ):
+                if field in build_config:
+                    # Keep the main UI clean: these two are surfaced inside the "画面参数" dropdown in frontend.
+                    if field in {"vidu_is_rec", "vidu_audio"}:
+                        build_config[field]["show"] = False
+                    else:
+                        build_config[field]["show"] = True
+
+        else:
+            # Restore defaults when switching away from Kling/Vidu.
+            _restore_field_defaults("resolution")
             _restore_field_defaults("aspect_ratio")
             _restore_field_defaults("duration")
 
+            if "last_frame_image" in build_config:
+                build_config["last_frame_image"]["show"] = True
+            if "enable_audio" in build_config:
+                build_config["enable_audio"]["show"] = True
+            if "audio_input" in build_config:
+                build_config["audio_input"]["show"] = True
+
+            for field in (
+                "vidu_is_rec",
+                "vidu_seed",
+                "vidu_movement_amplitude",
+                "vidu_bgm",
+                "vidu_audio",
+                "vidu_voice_id",
+                "vidu_off_peak",
+                "vidu_watermark",
+                "vidu_wm_position",
+                "vidu_wm_url",
+                "vidu_payload",
+                "vidu_meta_data",
+                "vidu_callback_url",
+                "vidu_max_wait_seconds",
+            ):
+                _restore_field_defaults(field)
+
         return build_config
+
+    @staticmethod
+    def _is_vidu_model(model_name: str) -> bool:
+        return str(model_name or "").strip().lower().startswith("vidu")
+
+    def _build_video_vidu_gateway(self, *, prompt: str, model_name: str) -> Data:
+        """Generate video via Hosted Gateway for Vidu models (credentials server-side)."""
+        try:
+            from langflow.gateway.client import videos_create
+
+            resolution = str(getattr(self, "resolution", "") or "720p").strip()
+            duration = int(getattr(self, "duration", 5) or 5)
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
+            if not aspect_ratio:
+                aspect_ratio = "16:9"
+
+            # Collect first-frame image for img2video mode (Vidu q3-pro only supports 1 image).
+            entries = self._collect_multimodal_inputs("first_frame_image")
+            first_image: str | None = None
+            for entry in entries:
+                url = entry.get("url")
+                if not url or self._is_video_url(url):
+                    continue
+                if entry.get("role") == "first":
+                    first_image = url
+                    break
+                if not first_image:
+                    first_image = url
+
+            # text2video: Vidu requires an explicit aspect_ratio; img2video follows the image ratio.
+            if aspect_ratio.lower() == "adaptive" and not first_image:
+                return self._error("Vidu 文生视频不支持“自适应”宽高比，请选择具体比例（如 16:9 / 9:16 / 4:3 / 3:4 / 1:1）。")
+
+            if getattr(self, "last_frame_image", None):
+                # Keep it non-fatal: users might have a shared template.
+                self.status = "提示：Vidu q3-pro 不支持尾帧输入，已忽略 last_frame_image。"
+
+            try:
+                seed = int(getattr(self, "vidu_seed", 0) or 0)
+            except Exception:
+                seed = 0
+
+            movement_amplitude = str(getattr(self, "vidu_movement_amplitude", "auto") or "auto").strip() or "auto"
+            bgm = bool(getattr(self, "vidu_bgm", False))
+            generate_audio = bool(getattr(self, "vidu_audio", True))
+            voice_id = str(getattr(self, "vidu_voice_id", "") or "").strip()
+            is_rec = bool(getattr(self, "vidu_is_rec", False))
+            off_peak = bool(getattr(self, "vidu_off_peak", False))
+            watermark = bool(getattr(self, "vidu_watermark", False))
+            try:
+                wm_position = int(getattr(self, "vidu_wm_position", 3) or 3)
+            except Exception:
+                wm_position = 3
+            wm_url = str(getattr(self, "vidu_wm_url", "") or "").strip()
+            payload = str(getattr(self, "vidu_payload", "") or "").strip()
+            meta_data = str(getattr(self, "vidu_meta_data", "") or "").strip()
+            callback_url = str(getattr(self, "vidu_callback_url", "") or "").strip()
+
+            extra_body: dict[str, Any] = {
+                "resolution": resolution,
+                "seed": seed,
+                "movement_amplitude": movement_amplitude,
+                "bgm": bgm,
+                "audio": generate_audio,
+                "off_peak": off_peak,
+                "watermark": watermark,
+                "wm_position": wm_position,
+            }
+            if first_image:
+                extra_body["images"] = [first_image]
+                extra_body["is_rec"] = bool(is_rec)
+                if voice_id and generate_audio:
+                    extra_body["voice_id"] = voice_id
+            if wm_url:
+                extra_body["wm_url"] = wm_url
+            if payload:
+                extra_body["payload"] = payload
+            if meta_data:
+                extra_body["meta_data"] = meta_data
+            if callback_url:
+                extra_body["callback_url"] = callback_url
+
+            create = videos_create(
+                model=model_name,
+                prompt=str(prompt or ""),
+                ratio=aspect_ratio,
+                duration=duration,
+                extra_body=extra_body,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+            task_id = str(create.get("id") or "").strip()
+            if not task_id:
+                return self._error(f"网关未返回任务 ID: {create}")
+
+            try:
+                max_wait = int(getattr(self, "vidu_max_wait_seconds", 900) or 900)
+            except Exception:
+                max_wait = 900
+
+            return self._poll_gateway_video(
+                task_id=task_id,
+                prompt=str(prompt or ""),
+                endpoint_id=model_name,
+                model_display_name=model_name,
+                resolution=resolution,
+                duration=duration,
+                aspect_ratio=aspect_ratio,
+                max_wait=max_wait,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway vidu video failed: {exc}")
 
     def _build_video_dashscope(self, *, prompt: str, model_name: str) -> Data:
         creds = resolve_credentials(

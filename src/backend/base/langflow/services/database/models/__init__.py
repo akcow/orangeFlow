@@ -6,6 +6,8 @@ from .folder import Folder
 from .message import MessageTable
 from .transactions import TransactionTable
 from .user import User
+from .user_asset import UserAsset
+from .user_workflow import UserWorkflow
 from .variable import Variable
 
 __all__ = [
@@ -17,5 +19,7 @@ __all__ = [
     "MessageTable",
     "TransactionTable",
     "User",
+    "UserAsset",
+    "UserWorkflow",
     "Variable",
 ]

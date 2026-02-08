@@ -15,6 +15,8 @@ import useAlertStore from "../../../../stores/alertStore";
 import { GROUP_COLOR_OPTIONS } from "../../../../constants/constants";
 import { GradientGroup } from "../../../../icons/GradientSparkles";
 import useFlowStore from "../../../../stores/flowStore";
+import { api } from "@/controllers/API/api";
+import { getURL } from "@/controllers/API/helpers/constants";
 import { cn } from "../../../../utils/utils";
 
 const DEFAULT_COVER_URL = new URL(
@@ -157,7 +159,6 @@ export default function SelectionMenu({
     let cancelled = false;
     (async () => {
       if (!updateOpen) return;
-      const { getWorkflowAsset } = await import("@/utils/workflowAssetsDb");
       const assetIds = new Set<string>();
       workflows.forEach((wf: any) => {
         if ((wf.cover as any)?.kind === "asset" && (wf.cover as any).assetId) {
@@ -168,9 +169,10 @@ export default function SelectionMenu({
         if (cancelled) return;
         if (coverUrlCache.current.has(assetId)) continue;
         try {
-          const record = await getWorkflowAsset(assetId);
-          if (!record) continue;
-          const url = URL.createObjectURL(record.blob);
+          const res = await api.get(`${getURL("FILES", {}, true)}/${assetId}`, {
+            responseType: "blob",
+          });
+          const url = URL.createObjectURL(res.data as Blob);
           coverUrlCache.current.set(assetId, url);
         } catch {
         }

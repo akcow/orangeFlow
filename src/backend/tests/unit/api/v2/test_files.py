@@ -12,8 +12,10 @@ from langflow.api.v2.mcp import get_mcp_file
 from langflow.main import create_app
 from langflow.services.auth.utils import get_password_hash
 from langflow.services.database.models.api_key.model import ApiKey
+from langflow.services.database.models.flow.model import Flow
 from langflow.services.database.models.user.model import User, UserRead
 from langflow.services.deps import get_db_service
+from langflow.services.deps import get_storage_service
 from lfx.services.deps import session_scope
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
@@ -154,6 +156,71 @@ async def test_download_file(files_client, files_created_api_key):
 
     assert response.status_code == 200
     assert response.content == b"test content"
+
+
+async def test_download_file_by_path_user_prefix(files_client, files_created_api_key):
+    headers = {"x-api-key": files_created_api_key.api_key}
+
+    # Upload a user file (v2)
+    response = await files_client.post(
+        "api/v2/files",
+        files={"file": ("test.txt", b"hello")},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    upload_response = response.json()
+    path = upload_response["path"]
+
+    # Download by storage path (v2)
+    response = await files_client.get(f"api/v2/files/download/{path}", headers=headers)
+    assert response.status_code == 200
+    assert response.content == b"hello"
+
+
+async def test_download_file_by_path_flow_prefix_with_ownership_check(files_client, files_created_api_key, files_active_user):
+    headers = {"x-api-key": files_created_api_key.api_key}
+
+    # Create a flow owned by the current user
+    async with session_scope() as session:
+        flow = Flow(name="test-flow", user_id=files_active_user.id)
+        session.add(flow)
+        await session.commit()
+        await session.refresh(flow)
+
+    # Save a file directly into the flow's storage folder
+    storage = get_storage_service()
+    await storage.save_file(flow_id=str(flow.id), file_name="flowfile.txt", data=b"flow-data")
+
+    # Download by path (prefix is flow.id)
+    response = await files_client.get(f"api/v2/files/download/{flow.id}/flowfile.txt", headers=headers)
+    assert response.status_code == 200
+    assert response.content == b"flow-data"
+
+
+async def test_download_file_by_path_flow_prefix_denies_other_users(files_client, files_created_api_key):
+    headers = {"x-api-key": files_created_api_key.api_key}
+
+    async with session_scope() as session:
+        other_user = User(
+            username="files_other_user",
+            password=get_password_hash("testpassword"),
+            is_active=True,
+            is_superuser=False,
+        )
+        session.add(other_user)
+        await session.commit()
+        await session.refresh(other_user)
+
+        other_flow = Flow(name="other-flow", user_id=other_user.id)
+        session.add(other_flow)
+        await session.commit()
+        await session.refresh(other_flow)
+
+    storage = get_storage_service()
+    await storage.save_file(flow_id=str(other_flow.id), file_name="secret.txt", data=b"nope")
+
+    response = await files_client.get(f"api/v2/files/download/{other_flow.id}/secret.txt", headers=headers)
+    assert response.status_code in {403, 404}
 
 
 async def test_list_files(files_client, files_created_api_key):

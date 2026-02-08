@@ -26,6 +26,7 @@ from langflow.gateway.providers.sora import SoraProvider
 from langflow.gateway.providers.veo import VeoProvider
 from langflow.gateway.providers.qwen import QwenProvider
 from langflow.gateway.providers.kling import KlingProvider
+from langflow.gateway.providers.vidu import ViduProvider
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
@@ -184,6 +185,21 @@ def resolve_provider(model: str) -> tuple[str, Any]:
                 f"Key for model {model} not configured. Set OPENAI_API_KEY, or save provider credentials 'openai'.",
             )
         return "sora", SoraProvider(api_key=api_key)
+
+    # Vidu models (video).
+    if model.startswith("vidu"):
+        api_key = _resolve_api_key(
+            env_vars=["VIDU_API_KEY"],
+            provider_cred_keys=["vidu"],
+        )
+        base_url = os.getenv("VIDU_API_BASE", "https://api.vidu.cn")
+        if not api_key:
+            raise GatewayError(
+                401,
+                "PROVIDER_KEY_MISSING",
+                f"Key for model {model} not configured. Set VIDU_API_KEY, or save provider credentials 'vidu'.",
+            )
+        return "vidu", ViduProvider(api_key=api_key, base_url=base_url)
 
     # Kling models (video).
     if model.startswith("kling"):
@@ -410,6 +426,8 @@ async def get_video_status(
         _n, provider = resolve_provider("sora-2")
     elif provider_name == "veo":
         _n, provider = resolve_provider("veo-3.1-generate-preview")
+    elif provider_name == "vidu":
+        _n, provider = resolve_provider("viduq3-pro")
     elif provider_name == "kling":
         _n, provider = resolve_provider("kling-video-o1")
     else:
@@ -437,6 +455,11 @@ async def get_video_status(
         elif provider_name == "veo":
             # Veo content is always served from /content.
             video_url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
+        elif provider_name == "vidu":
+            creations = result.get("creations") if isinstance(result.get("creations"), list) else []
+            if isinstance(creations, list) and creations:
+                first = creations[0] if isinstance(creations[0], dict) else {}
+                video_url = first.get("url") if isinstance(first.get("url"), str) else None
         elif provider_name == "kling":
             data = result.get("data") if isinstance(result.get("data"), dict) else None
             task_result = data.get("task_result") if isinstance(data, dict) else None

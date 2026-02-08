@@ -11,6 +11,8 @@ import useAlertStore from "@/stores/alertStore";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useAssetsStore } from "@/stores/assetsStore";
+import { api } from "@/controllers/API/api";
+import { getURL } from "@/controllers/API/helpers/constants";
 import { cn } from "@/utils/utils";
 import {
     Select,
@@ -116,7 +118,6 @@ export default function AssetsPanel({
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            const { getWorkflowAsset } = await import("@/utils/workflowAssetsDb");
             const assetIds = new Set<string>();
             assets.forEach((a) => {
                 if ((a.cover as any)?.kind === "asset" && (a.cover as any).assetId) {
@@ -133,9 +134,11 @@ export default function AssetsPanel({
                 if (cancelled) return;
                 if (coverUrlCache.current.has(assetId)) continue;
                 try {
-                    const record = await getWorkflowAsset(assetId);
-                    if (!record) continue;
-                    const url = URL.createObjectURL(record.blob);
+                    const res = await api.get(
+                        `${getURL("FILES", {}, true)}/${assetId}`,
+                        { responseType: "blob" },
+                    );
+                    const url = URL.createObjectURL(res.data as Blob);
                     coverUrlCache.current.set(assetId, url);
                 } catch {
                 }
@@ -187,16 +190,10 @@ export default function AssetsPanel({
             const file = input.files?.[0];
             if (!file) return;
             try {
-                const { putWorkflowAsset } = await import("@/utils/workflowAssetsDb");
-                const assetId = `acover_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
-                await putWorkflowAsset({
-                    id: assetId,
-                    blob: file,
-                    name: file.name || "cover.png",
-                    type: file.type || "image/png",
-                    size: file.size,
-                    createdAt: new Date().toISOString(),
-                });
+                const formData = new FormData();
+                formData.append("file", file);
+                const uploaded = await api.post<any>(getURL("FILES", {}, true), formData);
+                const assetId = String(uploaded?.data?.id);
                 const url = URL.createObjectURL(file);
                 coverUrlCache.current.set(assetId, url);
                 setFormCover({ kind: "asset", assetId });
@@ -215,7 +212,7 @@ export default function AssetsPanel({
             const tags = normalizeTags(formTags);
 
             if (view === "create") {
-                const id = saveDraftAsAsset({
+                const id = await saveDraftAsAsset({
                     name,
                     category: formCategory,
                     tags,
@@ -225,7 +222,7 @@ export default function AssetsPanel({
                 setView("list");
                 setEditingId(null);
             } else if (view === "edit" && editingId) {
-                updateAssetMeta(editingId, { name, category: formCategory, tags, cover: formCover });
+                await updateAssetMeta(editingId, { name, category: formCategory, tags, cover: formCover });
                 setView("list");
                 setEditingId(null);
             }
@@ -478,7 +475,7 @@ export default function AssetsPanel({
                                             <Button size="sm" className="rounded-full" onClick={() => handleUse(asset.id)}>使用</Button>
                                         </div>
                                         <div className="absolute right-1 top-1 opacity-0 transition group-hover:opacity-100">
-                                            <Button size="icon" variant="destructive" className="h-6 w-6 rounded-md shadow-sm" onClick={(e) => { e.stopPropagation(); deleteAsset(asset.id); }}>
+                                            <Button size="icon" variant="destructive" className="h-6 w-6 rounded-md shadow-sm" onClick={(e) => { e.stopPropagation(); void deleteAsset(asset.id); }}>
                                                 <ForwardedIconComponent name="Trash2" className="h-3 w-3" />
                                             </Button>
                                         </div>

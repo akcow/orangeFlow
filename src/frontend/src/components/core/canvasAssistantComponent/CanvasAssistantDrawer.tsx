@@ -47,6 +47,30 @@ const MAX_FILES = 10;
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB per file (base64 expansion happens later)
 const MAX_TOTAL_BYTES = 25 * 1024 * 1024; // 25MB total (rough safeguard)
 
+function ThinkingWaveText({
+  text = "Thinking . . .",
+  stepSec = 0.08,
+}: {
+  text?: string;
+  stepSec?: number;
+}) {
+  const chars = useMemo(() => Array.from(String(text)), [text]);
+  return (
+    <span className="inline-flex items-baseline" aria-label={text}>
+      {chars.map((ch, idx) => (
+        <span
+          // eslint-disable-next-line react/no-array-index-key
+          key={`${idx}-${ch}`}
+          className="ca-thinking-letter"
+          style={{ animationDelay: `${idx * stepSec}s` }}
+        >
+          {ch === " " ? "\u00A0" : ch}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 const STORYBOARD_EXAMPLE_POOL: string[] = [
   "请把“防晒霜”做成 30 秒电商短视频分镜：卖点是“清爽不黏”和“高倍防护”，画幅 9:16，节奏快，字幕要卡点出现。",
   "帮我把一个 45 秒的新品手机广告拆成 12–16 个镜头：主打“夜景拍摄”和“防抖”，风格冷酷未来感，平台 YouTube 16:9。",
@@ -422,6 +446,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
   const startNewSession = useCanvasAssistantStore((s) => s.startNewSession);
   const switchSession = useCanvasAssistantStore((s) => s.switchSession);
   const appendMessage = useCanvasAssistantStore((s) => s.appendMessage);
+  const updateMessage = useCanvasAssistantStore((s) => s.updateMessage);
   const setSessionTitle = useCanvasAssistantStore((s) => s.setSessionTitle);
   const setSessionTitleStatus = useCanvasAssistantStore((s) => s.setSessionTitleStatus);
   const clearHistory = useCanvasAssistantStore((s) => s.clearHistory);
@@ -440,6 +465,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
   const takeSnapshot = useFlowsManagerStore((s) => s.takeSnapshot);
 
   const username = useAuthStore((s) => s.userData?.username) ?? "朋友";
+  const accessToken = useAuthStore((s) => s.accessToken);
   const [storyboardExamplesSeed, setStoryboardExamplesSeed] = useState<number>(0);
   const storyboardExamples = useMemo(() => {
     // seed forces re-pick when user re-enters storyboard mode, but stays stable during typing.
@@ -1012,6 +1038,11 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
 
     // Keep UI responsive: append immediately, then call API.
     appendMessage(flowId, userMsg);
+    // Clear the input immediately after sending (even if the request later fails),
+    // so the chat experience matches typical messaging apps.
+    setDraft("");
+
+    let assistantId: string | null = null;
 
     try {
       const attachmentsPayload: AttachmentPayload[] = hasFiles
@@ -1034,33 +1065,115 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
         ...(attachmentsPayload.length > 0 ? { attachments: attachmentsPayload } : {}),
       } as any);
 
-      const resp = await api.post(`${BASE_URL_API}canvas-assistant/chat`, {
-        model: selectedModel,
-        messages: requestMessages,
-        temperature: 0.7,
+      assistantId = nowId();
+      appendMessage(flowId, {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        mode: conversationMode,
+        createdAt: Date.now(),
       });
 
-      const text = String(resp?.data?.content ?? "").trim();
-      if (!text) throw new Error("模型返回为空。");
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      };
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-       appendMessage(flowId, {
-          id: nowId(),
-          role: "assistant",
-          content: text,
-          mode: conversationMode,
-          createdAt: Date.now(),
-        });
+      const resp = await fetch(`${BASE_URL_API}canvas-assistant/chat/stream`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: requestMessages,
+          temperature: 0.7,
+        }),
+      });
 
-        // Best-effort: generate a short topic title for this session (helps the history dropdown).
-        // Use the current input as the seed so we don't depend on store refresh timing.
-        void maybeGenerateTitle(flowId, activeSessionId, content);
+      if (!resp.ok) {
+        let detail = "";
+        try {
+          const data = await resp.json();
+          detail = String((data as any)?.detail ?? "").trim();
+        } catch {
+          detail = (await resp.text().catch(() => "")).trim();
+        }
+        throw new Error(detail || `HTTP ${resp.status}`);
+      }
+      if (!resp.body) {
+        throw new Error("浏览器不支持流式响应。");
+      }
 
-      setDraft("");
+      const decoder = new TextDecoder("utf-8");
+      const reader = resp.body.getReader();
+      let buffer = "";
+      let assistantText = "";
+
+      const flushEventBlock = (block: string) => {
+        const lines = block.split("\n").map((l) => l.trimEnd());
+        let eventName = "message";
+        const dataLines: string[] = [];
+        for (const line of lines) {
+          if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+          if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trim());
+        }
+        const dataRaw = dataLines.join("\n").trim();
+        if (!dataRaw) return;
+
+        let obj: any;
+        try {
+          obj = JSON.parse(dataRaw);
+        } catch {
+          // Ignore malformed/partial SSE frames (should be rare).
+          return;
+        }
+        if (eventName === "message" && typeof obj?.chunk === "string" && obj.chunk) {
+          assistantText += obj.chunk;
+          updateMessage(flowId, assistantId, (m) => ({ ...m, content: (m.content ?? "") + obj.chunk }));
+          return;
+        }
+        if (eventName === "error") {
+          const msg = String(obj?.error ?? "").trim() || "流式输出失败。";
+          throw new Error(msg);
+        }
+      };
+
+      while (true) {
+        // eslint-disable-next-line no-await-in-loop
+        const { value, done } = await reader.read();
+        if (done) break;
+        // Some deployments/proxies may normalize SSE newlines to CRLF. We normalize to LF so that
+        // frame splitting by "\n\n" works reliably.
+        buffer += decoder.decode(value, { stream: true }).replace(/\r/g, "");
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          if (!block.trim()) continue;
+          flushEventBlock(block);
+        }
+      }
+      if (buffer.trim()) flushEventBlock(buffer);
+
+      const finalText = assistantText.trim();
+      if (!finalText) throw new Error("模型返回为空。");
+
+      // Best-effort: generate a short topic title for this session (helps the history dropdown).
+      // Use the current input as the seed so we don't depend on store refresh timing.
+      void maybeGenerateTitle(flowId, activeSessionId, content);
+
       clearPendingAttachments(flowId);
     } catch (e: any) {
       const detail =
         String(e?.response?.data?.detail ?? e?.message ?? "").trim() ||
         "请求失败，请稍后再试。";
+      if (assistantId) {
+        updateMessage(flowId, assistantId, (m) => {
+          const prev = String(m.content ?? "");
+          const next = prev.trim() ? `${prev}\n\n（${detail}）` : `（${detail}）`;
+          return { ...m, content: next };
+        });
+      }
       setErrorText(detail);
     } finally {
       setIsSending(false);
@@ -1068,6 +1181,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
   }, [
     activeFlowId,
     appendMessage,
+    updateMessage,
     clearPendingAttachments,
     conversationMode,
     draft,
@@ -1076,6 +1190,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
     maybeGenerateTitle,
     pendingFiles,
     selectedModel,
+    accessToken,
     activeSessionId,
   ]);
 
@@ -1249,6 +1364,12 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                   {messages.map((m) => {
                     const isUser = m.role === "user";
                     const storyboard = !isUser ? tryParseStoryboard(m.content) : null;
+                    const isPendingAssistant =
+                      !isUser &&
+                      !storyboard &&
+                      !String(m.content ?? "").trim() &&
+                      isSending &&
+                      m.id === messages[messages.length - 1]?.id;
                     return (
                       <div key={m.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
                         <div
@@ -1466,7 +1587,15 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                               </div>
                             </div>
                           ) : (
-                            <div>{m.content}</div>
+                            <div>
+                              {isPendingAssistant ? (
+                                <div className="py-1 text-2xl font-semibold leading-none tracking-tight text-foreground/90">
+                                  <ThinkingWaveText />
+                                </div>
+                              ) : (
+                                <div>{m.content}</div>
+                              )}
+                            </div>
                           )}
                           {m.attachments && m.attachments.length > 0 && (
                             <div className={cn("mt-2 text-xs", isUser ? "text-primary-foreground/80" : "text-muted-foreground")}>
@@ -1477,20 +1606,6 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                       </div>
                     );
                   })}
-                  {isSending && conversationMode === "storyboard" && (
-                    <div className="flex justify-start">
-                      <div className="max-w-[90%] rounded-2xl bg-muted px-3 py-2 text-sm text-foreground">
-                        <div className="flex items-center gap-2">
-                          <IconComponent
-                            name="LoaderCircle"
-                            className="h-4 w-4 animate-spin text-muted-foreground"
-                            aria-hidden="true"
-                          />
-                          <div className="text-muted-foreground">正在推敲分镜...</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>

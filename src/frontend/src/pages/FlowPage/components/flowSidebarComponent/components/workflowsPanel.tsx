@@ -115,7 +115,6 @@ export default function WorkflowsPanel({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { getWorkflowAsset } = await import("@/utils/workflowAssetsDb");
       const assetIds = new Set<string>();
       workflows.forEach((wf) => {
         if ((wf.cover as any)?.kind === "asset" && (wf.cover as any).assetId) {
@@ -132,9 +131,10 @@ export default function WorkflowsPanel({
         if (cancelled) return;
         if (coverUrlCache.current.has(assetId)) continue;
         try {
-          const record = await getWorkflowAsset(assetId);
-          if (!record) continue;
-          const url = URL.createObjectURL(record.blob);
+          const res = await api.get(`${getURL("FILES", {}, true)}/${assetId}`, {
+            responseType: "blob",
+          });
+          const url = URL.createObjectURL(res.data as Blob);
           coverUrlCache.current.set(assetId, url);
         } catch {
         }
@@ -254,16 +254,10 @@ export default function WorkflowsPanel({
       const file = input.files?.[0];
       if (!file) return;
       try {
-        const { putWorkflowAsset } = await import("@/utils/workflowAssetsDb");
-        const assetId = `wfcover_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
-        await putWorkflowAsset({
-          id: assetId,
-          blob: file,
-          name: file.name || "cover.png",
-          type: file.type || "image/png",
-          size: file.size,
-          createdAt: new Date().toISOString(),
-        });
+        const formData = new FormData();
+        formData.append("file", file);
+        const uploaded = await api.post<any>(getURL("FILES", {}, true), formData);
+        const assetId = String(uploaded?.data?.id);
         const url = URL.createObjectURL(file);
         coverUrlCache.current.set(assetId, url);
         setFormCover({ kind: "asset", assetId });
@@ -282,7 +276,7 @@ export default function WorkflowsPanel({
       const tags = normalizeTags(formTags);
 
       if (view === "create") {
-        const id = saveDraftAsWorkflow({
+        const id = await saveDraftAsWorkflow({
           name,
           note: formNote,
           tags,
@@ -292,7 +286,7 @@ export default function WorkflowsPanel({
         setView("list");
         setEditingId(null);
       } else if (view === "edit" && editingId) {
-        updateWorkflowMeta(editingId, { name, note: formNote, tags, cover: formCover });
+        await updateWorkflowMeta(editingId, { name, note: formNote, tags, cover: formCover });
         setView("list");
         setEditingId(null);
       }
@@ -323,7 +317,7 @@ export default function WorkflowsPanel({
       const tags = normalizeTags(formTags.length ? formTags : (wf.tags ?? []));
 
       // Persist local metadata so "我的工作流"列表与本次投稿一致。
-      updateWorkflowMeta(editingId, { name, note, tags, cover: formCover });
+      await updateWorkflowMeta(editingId, { name, note, tags, cover: formCover });
 
       const viewport = { zoom: 1, x: 0, y: 0 };
       const initialData = {
@@ -364,17 +358,17 @@ export default function WorkflowsPanel({
       let coverPath: string | null = null;
       if (formCover?.kind === "asset" && formCover?.assetId) {
         try {
-          const { getWorkflowAsset } = await import("@/utils/workflowAssetsDb");
-          const record = await getWorkflowAsset(String(formCover.assetId));
-          if (record?.blob) {
-            const file = new File([record.blob], record.name || "cover.png", {
-              type: record.type || record.blob.type || "image/png",
-            });
-            const fd = new FormData();
-            fd.append("file", file);
-            const up = await api.post<any>(`${getURL("FILES")}/upload/${newFlowId}`, fd);
-            coverPath = up?.data?.file_path ?? null;
-          }
+          const downloaded = await api.get(`${getURL("FILES", {}, true)}/${String(formCover.assetId)}`, {
+            responseType: "blob",
+          });
+          const blob = downloaded.data as Blob;
+          const file = new File([blob], "cover.png", {
+            type: (blob as any)?.type || "image/png",
+          });
+          const fd = new FormData();
+          fd.append("file", file);
+          const up = await api.post<any>(`${getURL("FILES")}/upload/${newFlowId}`, fd);
+          coverPath = up?.data?.file_path ?? null;
         } catch {
           // ignore cover upload failure
         }

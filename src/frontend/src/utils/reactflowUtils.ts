@@ -107,14 +107,30 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
   const isVeoFast = normalized === "veo3.1-fast";
   const isSoraModel = normalized === "sora-2" || normalized === "sora-2-pro";
   const isWanModel = normalizedLower.startsWith("wan2.");
-  const isSeedanceModel = normalizedLower.startsWith("doubao-seedance-");
+  // Seedance models support a "first + last" two-keyframe mode. Names include:
+  // - "Seedance 1.0 pro" / "Seedance 1.5 pro"
+  // - "Doubao-Seedance-1.5-pro｜..."
+  const isSeedanceModel =
+    normalizedLower.includes("seedance") ||
+    normalizedLower.includes("seedream") ||
+    normalized.includes("即梦");
   const isKlingModel = normalizedLower.startsWith("kling");
+  const isViduModel = normalizedLower.startsWith("vidu");
 
   if (isSoraModel) {
     return {
       allowedRoles: ["reference"],
       maxTotal: 1,
       maxReference: 1,
+    };
+  }
+
+  if (isViduModel) {
+    return {
+      // Vidu q3-pro: img2video supports 1 start image; no reference/last roles.
+      allowedRoles: ["first"],
+      maxTotal: 1,
+      maxReference: 0,
     };
   }
 
@@ -145,7 +161,10 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
 
   if (isKlingModel) {
     return {
-      allowedRoles: ["first", "reference"],
+      // Kling O1 supports a dedicated `last_frame_image` input. We still allow selecting
+      // "last" on role-edges so users can fix/migrate older flows where tail frames were
+      // connected via `first_frame_image` (role-edge) instead of the dedicated input.
+      allowedRoles: ["first", "reference", "last"],
       maxTotal: KLING_MAX_UPLOADS,
       maxReference: Math.max(KLING_MAX_UPLOADS - 1, 1),
     };

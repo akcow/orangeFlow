@@ -5,6 +5,7 @@ export const URLs = {
   API_KEY: `api_key`,
   FILES: `files`,
   FILE_MANAGEMENT: `files`,
+  FILES_V2_DOWNLOAD_BY_PATH: `files/download`,
   VERSION: `version`,
   MESSAGES: `monitor/messages`,
   BUILDS: `monitor/builds`,
@@ -32,6 +33,8 @@ export const URLs = {
   KNOWLEDGE_BASES: `knowledge_bases`,
   PROVIDER_CREDENTIALS: "provider-credentials",
   COMMUNITY: "community",
+  ASSETS_LIBRARY: "library/assets",
+  WORKFLOWS_LIBRARY: "library/workflows",
 } as const;
 
 // IMPORTANT: FOLDERS endpoint now points to 'projects' for backward compatibility

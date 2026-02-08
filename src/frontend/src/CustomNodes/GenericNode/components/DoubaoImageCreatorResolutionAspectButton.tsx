@@ -1,10 +1,11 @@
-import { Popover, PopoverContentWithoutPortal, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useEffect, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
+import { Switch } from "@/components/ui/switch";
 import {
   formatControlValue,
   type DoubaoControlConfig,
@@ -85,6 +86,46 @@ export default function DoubaoImageCreatorResolutionAspectButton({
     nodeId: data.id,
     name: "aspect_ratio",
   });
+  const { handleOnNewValue: handleViduIsRecChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "vidu_is_rec",
+  });
+  const { handleOnNewValue: handleViduAudioChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "vidu_audio",
+  });
+
+  const template: any = (data.node as any)?.template ?? {};
+  const modelRaw = String(template?.model_name?.value ?? template?.model_name?.default ?? "")
+    .trim()
+    .toLowerCase();
+  const isVidu = modelRaw.startsWith("vidu");
+  const viduIsRecField = template?.vidu_is_rec ?? null;
+  const viduAudioField = template?.vidu_audio ?? null;
+  const viduIsRecValue = Boolean(viduIsRecField?.value ?? viduIsRecField?.default ?? false);
+  const viduAudioValue = Boolean(viduAudioField?.value ?? viduAudioField?.default ?? true);
+
+  const firstFrameField = template?.first_frame_image ?? null;
+  const hasFirstFrame = (() => {
+    const values = firstFrameField?.value;
+    const filePaths = firstFrameField?.file_path;
+    const anyNonEmpty = (v: any) => {
+      if (v === undefined || v === null) return false;
+      if (typeof v === "string") return v.trim().length > 0;
+      if (typeof v === "object") {
+        const maybeUrl = v?.url ?? v?.image_url ?? v?.value;
+        if (typeof maybeUrl === "string" && maybeUrl.trim()) return true;
+      }
+      return false;
+    };
+    if (Array.isArray(values) && values.some(anyNonEmpty)) return true;
+    if (anyNonEmpty(values)) return true;
+    if (Array.isArray(filePaths) && filePaths.some(anyNonEmpty)) return true;
+    if (anyNonEmpty(filePaths)) return true;
+    return false;
+  })();
 
   const resolution = useMemo(() => buildVisibleOptions(resolutionConfig), [resolutionConfig]);
   const aspectRatio = useMemo(() => buildVisibleOptions(aspectRatioConfig), [aspectRatioConfig]);
@@ -204,12 +245,13 @@ export default function DoubaoImageCreatorResolutionAspectButton({
         </PopoverTrigger>
       </ShadTooltip>
 
-      <PopoverContentWithoutPortal
+      <PopoverContent
         side="top"
         align="start"
         sideOffset={10}
         className={cn(
           "noflow nowheel nopan nodelete nodrag",
+          "z-[10000]",
           "w-[440px] rounded-[24px] border border-[#E6E9F4] bg-white p-5 shadow-[0_25px_50px_rgba(15,23,42,0.15)]",
           "dark:border-white/20 dark:bg-neutral-800/90 dark:backdrop-blur-2xl dark:shadow-[0_25px_50px_rgba(0,0,0,0.35)]",
         )}
@@ -306,8 +348,84 @@ export default function DoubaoImageCreatorResolutionAspectButton({
               })}
             </div>
           </div>
+
+          {isVidu && (viduIsRecField || viduAudioField) && (
+            <div className="space-y-3 border-t border-[#E6E9F4] pt-4 dark:border-white/10">
+              <div className="text-sm font-medium text-[#2E3150] dark:text-white/90">
+                生成配置
+              </div>
+
+              {viduIsRecField && (
+                <div
+                  className={cn(
+                    "flex items-center justify-between rounded-[14px] bg-[#F4F6FB] px-4 py-3 dark:bg-white/10",
+                    (disabled || !hasFirstFrame) && "opacity-70",
+                  )}
+                >
+                  <ShadTooltip
+                    content={
+                      <span className="whitespace-pre-wrap text-xs">
+                        {String(viduIsRecField?.info || "仅 Vidu 图生视频（img2video）生效，需要先上传首帧图。")}
+                      </span>
+                    }
+                  >
+                    <div className="min-w-0 pr-3">
+                      <div className="truncate text-sm font-medium text-[#2E3150] dark:text-white/90">
+                        {String(viduIsRecField?.display_name || "推荐提示词")}
+                      </div>
+                      <div className="truncate text-xs text-[#7D85A8] dark:text-slate-300">
+                        {hasFirstFrame ? "仅图生视频生效（将忽略 prompt）" : "需要先上传首帧图"}
+                      </div>
+                    </div>
+                  </ShadTooltip>
+                  <Switch
+                    checked={viduIsRecValue}
+                    disabled={disabled || !hasFirstFrame}
+                    onCheckedChange={(next) => {
+                      if (disabled || !hasFirstFrame) return;
+                      handleViduIsRecChange({ value: next });
+                    }}
+                  />
+                </div>
+              )}
+
+              {viduAudioField && (
+                <div
+                  className={cn(
+                    "flex items-center justify-between rounded-[14px] bg-[#F4F6FB] px-4 py-3 dark:bg-white/10",
+                    disabled && "opacity-70",
+                  )}
+                >
+                  <ShadTooltip
+                    content={
+                      <span className="whitespace-pre-wrap text-xs">
+                        {String(viduAudioField?.info || "是否输出带音频的视频。")}
+                      </span>
+                    }
+                  >
+                    <div className="min-w-0 pr-3">
+                      <div className="truncate text-sm font-medium text-[#2E3150] dark:text-white/90">
+                        {String(viduAudioField?.display_name || "生成音频")}
+                      </div>
+                      <div className="truncate text-xs text-[#7D85A8] dark:text-slate-300">
+                        {viduAudioValue ? "输出带音频" : "输出静音视频"}
+                      </div>
+                    </div>
+                  </ShadTooltip>
+                  <Switch
+                    checked={viduAudioValue}
+                    disabled={disabled}
+                    onCheckedChange={(next) => {
+                      if (disabled) return;
+                      handleViduAudioChange({ value: next });
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      </PopoverContentWithoutPortal>
+      </PopoverContent>
     </Popover>
   );
 }

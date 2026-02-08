@@ -28,7 +28,7 @@ from langflow.services.database.models.user.model import User, UserCreate, UserR
 from langflow.services.database.models.vertex_builds.crud import delete_vertex_builds_by_flow_id
 from langflow.services.database.utils import session_getter
 from langflow.services.deps import get_db_service, session_scope
-from lfx.components.input_output import ChatInput
+from lfx.base.io.chat import ChatComponent
 from lfx.graph import Graph
 from lfx.log.logger import logger
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -41,6 +41,18 @@ from typer.testing import CliRunner
 from tests.api_keys import get_openai_api_key
 
 load_dotenv()
+
+
+# Minimal ChatInput implementation for tests.
+# The production ChatInput component is dynamically loaded from component templates; in tests we just need a
+# concrete Component subclass to build a tiny graph/flow.
+class ChatInput(ChatComponent):
+    display_name = "Chat Input"
+    name = "ChatInput"
+    minimized = True
+
+    def build(self, input_value: str = "") -> str:  # noqa: ARG002
+        return input_value
 
 
 # TODO: Revert this to True once bb.functions[func].can_block_in("http/client.py", "_safe_read") is fixed
