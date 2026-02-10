@@ -524,11 +524,26 @@ def setup_static_files(app: FastAPI, static_files_dir: Path) -> None:
         app (FastAPI): FastAPI app.
         static_files_dir (str): Path to the static files directory.
     """
-    app.mount(
-        "/",
-        StaticFiles(directory=static_files_dir, html=True),
-        name="static",
-    )
+    # IMPORTANT: Prevent aggressive caching of `index.html`.
+    # Bundled assets are hashed (safe to cache), but `index.html` must revalidate so
+    # clients pick up the latest hashed filenames after a rebuild.
+    index_path = anyio.Path(static_files_dir) / "index.html"
+
+    @app.get("/", include_in_schema=False)
+    async def serve_root_index():
+        if not await index_path.exists():
+            msg = f"File at path {index_path} does not exist."
+            raise RuntimeError(msg)
+        return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/index.html", include_in_schema=False)
+    async def serve_index_html():
+        if not await index_path.exists():
+            msg = f"File at path {index_path} does not exist."
+            raise RuntimeError(msg)
+        return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    app.mount("/", StaticFiles(directory=static_files_dir, html=True), name="static")
 
     @app.exception_handler(404)
     async def custom_404_handler(request, _exc):
@@ -539,7 +554,7 @@ def setup_static_files(app: FastAPI, static_files_dir: Path) -> None:
         if path_str.startswith("/assets/") or ("." in Path(path_str).name):
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
-        path = anyio.Path(static_files_dir) / "index.html"
+        path = index_path
 
         if not await path.exists():
             msg = f"File at path {path} does not exist."

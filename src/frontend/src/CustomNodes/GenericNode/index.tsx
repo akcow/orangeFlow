@@ -1399,7 +1399,7 @@ function GenericNode({
               hideRunButton={usesWideDoubaoLayout}
             />
           </div>
-          {showNode && (hasDescription || editNameDescription) && (
+          {showNode && !isProCamera && (hasDescription || editNameDescription) && (
             <div className={cn("px-4 pb-3", usesWideDoubaoLayout && "px-6")}>
               <MemoizedNodeDescription
                 description={effectiveDescription}

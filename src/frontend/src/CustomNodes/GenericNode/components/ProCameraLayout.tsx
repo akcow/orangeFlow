@@ -244,7 +244,7 @@ function WheelPickerColumn({
 
       {/* iOS-like wheel selector: center highlighted, top/bottom faded. */}
       <div
-        className="nodrag relative h-[260px] overflow-hidden rounded-2xl bg-background/40 ring-1 ring-border/60"
+        className="nodrag relative h-[340px] overflow-hidden rounded-2xl bg-background/40 ring-1 ring-border/60"
         role="button"
         tabIndex={0}
         aria-label={`${label} 选择器`}
@@ -298,7 +298,7 @@ function WheelPickerColumn({
               >
                 <div
                   className={cn(
-                    "flex items-center justify-center rounded-2xl px-3 py-2",
+                    "flex items-center justify-center rounded-2xl px-3 py-1.5",
                     "transition-all duration-150",
                     isCenter
                       ? "bg-background/80 ring-1 ring-border/70 shadow-sm"
@@ -314,7 +314,7 @@ function WheelPickerColumn({
                         alt={item.value}
                         className={cn(
                           "rounded-xl bg-muted/30 object-contain ring-1 ring-border/50",
-                          isCenter ? "h-[100px] w-[100px]" : "h-[64px] w-[64px]",
+                          isCenter ? "h-[140px] w-[140px]" : "h-[96px] w-[96px]",
                         )}
                         onError={() => onImageBroken?.(usableImageUrl)}
                         draggable={false}
@@ -324,7 +324,7 @@ function WheelPickerColumn({
                     <div
                       className={cn(
                         "flex shrink-0 items-center justify-center rounded-xl bg-muted/30 ring-1 ring-border/50",
-                        isCenter ? "h-[100px] w-[100px]" : "h-[64px] w-[64px]",
+                        isCenter ? "h-[140px] w-[140px]" : "h-[96px] w-[96px]",
                       )}
                     >
                       {imageUrlForOption ? (
@@ -355,7 +355,7 @@ function WheelPickerColumn({
       </div>
 
       {/* Selected value (must be fully visible; no ellipsis). */}
-      <div className="mt-3 text-center text-sm font-semibold text-foreground break-words">
+      <div className="mt-3 text-center text-base font-semibold text-foreground break-words">
         {String(value ?? "")}
       </div>
     </div>
