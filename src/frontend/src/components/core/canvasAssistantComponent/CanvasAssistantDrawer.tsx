@@ -1589,7 +1589,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                           ) : (
                             <div>
                               {isPendingAssistant ? (
-                                <div className="py-1 text-2xl font-semibold leading-none tracking-tight text-foreground/90">
+                                <div className="py-0.5 text-sm font-medium leading-snug text-foreground/90">
                                   <ThinkingWaveText />
                                 </div>
                               ) : (

@@ -125,9 +125,28 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
     };
   }
 
-  if (isViduModel) {
+  if (normalizedLower === "viduq3-pro") {
     return {
       // Vidu q3-pro: img2video supports 1 start image; no reference/last roles.
+      allowedRoles: ["first"],
+      maxTotal: 1,
+      maxReference: 0,
+    };
+  }
+
+  if (normalizedLower === "viduq2-pro") {
+    return {
+      // Vidu q2-pro supports: img2video (first), start-end2video (last), reference2video (reference images + videos).
+      allowedRoles: ["first", "reference", "last"],
+      // Docs: reference images allow 1-7 (when no videos); when videos exist, images are limited to 1-4.
+      // Keep the role-edge limit permissive here; the upload UI and backend will enforce mode-specific caps.
+      maxTotal: 7,
+      maxReference: 6,
+    };
+  }
+
+  if (isViduModel) {
+    return {
       allowedRoles: ["first"],
       maxTotal: 1,
       maxReference: 0,

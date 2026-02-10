@@ -2034,6 +2034,11 @@ class Graph:
         for frontend_data in self._vertices:
             if frontend_data.get("type") == NodeTypeEnum.NoteNode:
                 continue
+            # Some canvas-only nodes may accidentally be included in payloads. They don't have
+            # `data.node` and would crash graph creation (KeyError('node')). Skip them.
+            vertex_data = frontend_data.get("data") or {}
+            if not isinstance(vertex_data, dict) or "node" not in vertex_data:
+                continue
             try:
                 vertex_instance = self.get_vertex(frontend_data["id"])
             except ValueError:

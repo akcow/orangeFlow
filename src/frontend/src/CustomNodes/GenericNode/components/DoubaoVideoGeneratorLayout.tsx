@@ -59,6 +59,8 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { BASE_URL_API } from "@/constants/constants";
+import KlingElementPickerButton from "@/components/kling/KlingElementPickerButton";
+import type { KlingElement } from "@/stores/klingElementsStore";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "flex-none basis-[170px]" },
@@ -157,6 +159,13 @@ const MODEL_LIMITS: Record<
     maxDuration: 16,
     enableLastFrame: false,
   },
+  "viduq2-pro": {
+    // Mode-dependent in backend (t2v/i2v: 1-10, start-end: 1-8, reference2video: 0-10).
+    // Keep this permissive here; backend range_spec will drive the actual UI options.
+    minDuration: 0,
+    maxDuration: 10,
+    enableLastFrame: true,
+  },
 };
 
 function hasVideoInFileInput(field: any): boolean {
@@ -175,6 +184,7 @@ function hasVideoInFileInput(field: any): boolean {
       return (
         s.endsWith(".mp4") ||
         s.endsWith(".mov") ||
+        s.endsWith(".avi") ||
         s.endsWith(".webm") ||
         s.endsWith(".mp_")
       );
@@ -316,7 +326,18 @@ export default function DoubaoVideoGeneratorLayout({
     normalizedModelName.toLowerCase().includes("seedream") ||
     normalizedModelName.includes("即梦");
   const isKlingModel = normalizedModelName.toLowerCase().startsWith("kling");
+  const klingElementIdsValue = String(template.kling_element_ids?.value ?? "").trim();
+  const selectedKlingElementIds = useMemo(() => {
+    const raw = String(klingElementIdsValue || "");
+    const hits = raw.match(/\d+/g) ?? [];
+    const ids = hits
+      .map((x) => Number(x))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return Array.from(new Set(ids));
+  }, [klingElementIdsValue]);
+  const klingElementApplied = isKlingModel && selectedKlingElementIds.length > 0;
   const isViduModel = normalizedModelName.toLowerCase().startsWith("vidu");
+  const isViduQ2Pro = normalizedModelName === "viduq2-pro";
   const klingReferType = String(
     template.kling_video_refer_type?.value ??
     template.kling_video_refer_type?.default ??
@@ -341,8 +362,10 @@ export default function DoubaoVideoGeneratorLayout({
         ? VEO_MAX_UPLOADS
         : isKlingModel
           ? KLING_MAX_UPLOADS
-          : isViduModel
-            ? 1
+          : isViduQ2Pro
+            ? 6
+            : isViduModel
+              ? 1
             : FIRST_FRAME_MAX_UPLOADS;
   const customFields = new Set<string>([
     PROMPT_NAME,
@@ -513,6 +536,62 @@ export default function DoubaoVideoGeneratorLayout({
   const { validateFileSize } = useFileSizeValidator();
 
   const [isRunHovering, setRunHovering] = useState(false);
+
+  const stripElementTokens = useCallback((prompt: string) => {
+    let next = String(prompt ?? "");
+    next = next.replace(/^\s*<<<element_\d+>>>\s*$(\r?\n)?/gim, "");
+    next = next.replace(/<<<element_\d+>>>/g, "");
+    next = next.replace(/^\s*\r?\n/g, "");
+    return next;
+  }, []);
+
+  const applyKlingElement = useCallback(
+    (elements: KlingElement[], options?: { skipSnapshot?: boolean }) => {
+      if (!isKlingModel) return;
+      if (!options?.skipSnapshot) useFlowsManagerStore.getState().takeSnapshot();
+      useFlowStore.getState().setNodes((currentNodes) =>
+        (currentNodes ?? []).map((node) => {
+          if (node.id !== data.id) return node;
+          const nodeData: any = (node as any).data ?? {};
+          const nodeClass: any = nodeData.node;
+          if (!nodeClass) return node;
+
+          const templateRaw: any = nodeClass.template ?? {};
+          const nextTemplate: any = { ...templateRaw };
+
+          const patchValue = (fieldName: string, value: any) => {
+            const field = nextTemplate?.[fieldName];
+            if (!field || typeof field !== "object") return;
+            nextTemplate[fieldName] = { ...field, value };
+          };
+
+          const currentPrompt = String(nextTemplate[PROMPT_NAME]?.value ?? "");
+          const cleaned = stripElementTokens(currentPrompt);
+
+          const ids = (elements ?? []).map((el) => el.element_id).filter((x) => typeof x === "number");
+          const idsValue = ids.join(",");
+          const tokens = ids.map((_id, idx) => `<<<element_${idx + 1}>>>`).join("\n");
+          const nextPrompt = tokens
+            ? cleaned.trim().length
+              ? `${tokens}\n${cleaned.trimStart()}`
+              : tokens
+            : cleaned;
+
+          patchValue("kling_element_ids", idsValue);
+          patchValue(PROMPT_NAME, nextPrompt);
+
+          return {
+            ...node,
+            data: {
+              ...nodeData,
+              node: { ...nodeClass, template: nextTemplate },
+            },
+          };
+        }),
+      );
+    },
+    [data.id, isKlingModel, stripElementTokens],
+  );
   const [quickAddMenu, setQuickAddMenu] = useState<{
     x: number;
     y: number;
@@ -1166,6 +1245,10 @@ export default function DoubaoVideoGeneratorLayout({
     const klingHasVideoInput = isKlingModel
       ? hasVideoInFileInput(firstFrameField) || hasIncomingVideoBridge
       : false;
+    const viduHasVideoInput = isViduQ2Pro
+      ? hasVideoInFileInput(firstFrameField) || hasIncomingVideoBridge
+      : false;
+    const viduHasLastFrameAny = Boolean(isViduQ2Pro && (hasLastFrameEdge || hasLastFrameValue));
     return CONTROL_FIELDS.map((field) => {
       const templateField = template[field.name];
       if (!templateField) return null;
@@ -1187,6 +1270,17 @@ export default function DoubaoVideoGeneratorLayout({
       if (field.name === "duration") {
         const rangeOptions = buildRangeOptions(templateField);
         options = rangeOptions.length ? rangeOptions : DEFAULT_DURATION_OPTIONS;
+
+        // Vidu q2-pro duration is mode-dependent; infer mode from current inputs so the UI exposes 0=auto only in r2v.
+        if (isViduQ2Pro) {
+          if (viduHasVideoInput) {
+            options = Array.from({ length: 11 }, (_, idx) => idx); // 0..10
+          } else if (viduHasLastFrameAny) {
+            options = Array.from({ length: 8 }, (_, idx) => idx + 1); // 1..8
+          } else {
+            options = Array.from({ length: 10 }, (_, idx) => idx + 1); // 1..10
+          }
+        }
         const minDuration = modelLimits?.minDuration ?? Math.min(...DEFAULT_DURATION_OPTIONS);
         const maxDuration = modelLimits?.maxDuration ?? Math.max(...DEFAULT_DURATION_OPTIONS);
         const disabled = options.filter((option) => {
@@ -1403,11 +1497,12 @@ export default function DoubaoVideoGeneratorLayout({
       }
       if (field.name === "model_name" && isFirstLastFrameMode) {
         const wanModels = options.filter((option) => String(option).trim().startsWith("wan2."));
-        const viduModels = options.filter((option) => String(option).trim().toLowerCase().startsWith("vidu"));
+        // Vidu: q3-pro doesn't support start-end2video, but q2-pro does.
+        const viduModels = options.filter((option) => String(option).trim().toLowerCase() === "viduq3-pro");
         disabledOptions = [...(disabledOptions ?? []), ...wanModels, ...viduModels];
       }
       if (field.name === "model_name" && hasIncomingVideoBridge) {
-        const allowed = new Set<string>(["kling o1", "kling-video-o1", "wan2.6"]);
+        const allowed = new Set<string>(["kling o1", "kling-video-o1", "wan2.6", "viduq2-pro"]);
         const extraDisabled = options.filter((option) => !allowed.has(String(option).trim().toLowerCase()));
         disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
         const normalizedValue = String(value ?? "").trim().toLowerCase();
@@ -1415,6 +1510,7 @@ export default function DoubaoVideoGeneratorLayout({
           const normalizedOptions = options.map((opt) => String(opt).trim());
           if (normalizedOptions.some((opt) => opt.toLowerCase() === "kling o1")) value = "kling O1";
           else if (normalizedOptions.some((opt) => opt.toLowerCase() === "wan2.6")) value = "wan2.6";
+          else if (normalizedOptions.some((opt) => opt.toLowerCase() === "viduq2-pro")) value = "viduq2-pro";
         }
       }
 
@@ -2025,10 +2121,71 @@ export default function DoubaoVideoGeneratorLayout({
   const klingCanUploadVideo = Boolean(isKlingModel && klingTotalVideosNow === 0 && klingTotalImagesNow <= 4);
   const klingCanUploadImage = Boolean(isKlingModel && klingTotalImagesNow < klingMaxImagesTotal);
   const klingCanUploadAny = Boolean(isKlingModel && (klingCanUploadImage || klingCanUploadVideo));
+
+  const viduIncomingMediaCounts = useMemo(() => {
+    if (!isViduQ2Pro) return { imageEdges: 0, videoEdges: 0 };
+    let imageEdges = 0;
+    let videoEdges = 0;
+    edges.forEach((edge) => {
+      if (edge.target !== data.id) return;
+      let targetHandle: any = null;
+      if (edge.data?.targetHandle) {
+        targetHandle = edge.data.targetHandle;
+      } else if (edge.targetHandle) {
+        try {
+          targetHandle = scapeJSONParse(edge.targetHandle);
+        } catch {
+          targetHandle = null;
+        }
+      }
+      const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      if (fieldName !== FIRST_FRAME_FIELD) return;
+
+      const edgeVideoReferType = edge.data?.videoReferType;
+      if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") {
+        videoEdges += 1;
+        return;
+      }
+
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      if (sourceNode?.data?.type === "DoubaoVideoGenerator") {
+        videoEdges += 1;
+      } else {
+        imageEdges += 1;
+      }
+    });
+    return { imageEdges, videoEdges };
+  }, [data.id, edges, isViduQ2Pro, nodes]);
+
+  const viduLocalMediaCounts = useMemo(() => {
+    if (!isViduQ2Pro) return { images: 0, videos: 0 };
+    let images = 0;
+    let videos = 0;
+    firstFrameEntries.forEach((entry) => {
+      if (isVideoCandidate(entry.path, entry.name)) videos += 1;
+      else images += 1;
+    });
+    return { images, videos };
+  }, [firstFrameEntries, isViduQ2Pro]);
+
+  const viduTotalVideosNow = isViduQ2Pro
+    ? viduIncomingMediaCounts.videoEdges + viduLocalMediaCounts.videos
+    : 0;
+  const viduTotalImagesNow = isViduQ2Pro
+    ? viduIncomingMediaCounts.imageEdges + viduLocalMediaCounts.images
+    : 0;
+  const viduHasReferenceVideoNow = Boolean(isViduQ2Pro && viduTotalVideosNow > 0);
+  const viduMaxVideosTotal = 2;
+  const viduMaxImagesTotal = viduHasReferenceVideoNow ? 4 : 1;
+  const viduCanUploadVideo = Boolean(isViduQ2Pro && viduTotalVideosNow < viduMaxVideosTotal);
+  const viduCanUploadImage = Boolean(isViduQ2Pro && viduTotalImagesNow < viduMaxImagesTotal);
+  const viduCanUploadAny = Boolean(isViduQ2Pro && (viduCanUploadImage || viduCanUploadVideo));
   const canUploadMoreFirstFrames = isSoraModel
     ? firstFrameCount < firstFrameMaxUploads
     : isKlingModel
       ? klingCanUploadAny
+      : isViduQ2Pro
+        ? viduCanUploadAny
       : localFirstFrameCount < firstFrameMaxUploads;
   const veoHasFirstOrLastLocally = useMemo(() => {
     if (!isVeoModel) return false;
@@ -2056,10 +2213,10 @@ export default function DoubaoVideoGeneratorLayout({
     return source.map((ext) => ext.replace(/^\./, "").toLowerCase());
   }, [firstFrameFileTypes]);
   const canUploadReferenceVideos =
-    (isWanModel && normalizedModelName === "wan2.6") || isKlingModel;
+    (isWanModel && normalizedModelName === "wan2.6") || isKlingModel || isViduQ2Pro;
   const firstFrameUploadAllowedExtensions = useMemo(() => {
     if (canUploadReferenceVideos) return firstFrameAllowedExtensions;
-    return firstFrameAllowedExtensions.filter((ext) => ext !== "mp4" && ext !== "mov");
+    return firstFrameAllowedExtensions.filter((ext) => ext !== "mp4" && ext !== "mov" && ext !== "avi");
   }, [canUploadReferenceVideos, firstFrameAllowedExtensions]);
   const firstFrameFilePickerAccept = useMemo(
     () => firstFrameUploadAllowedExtensions.map((ext) => `.${ext}`).join(","),
@@ -3232,6 +3389,8 @@ export default function DoubaoVideoGeneratorLayout({
         list: [
           isKlingModel
             ? "kling O1：有参考视频时图片最多 4 张、无参考视频时图片最多 7 张（参考视频最多 1 段）。请删除多余素材后再上传。"
+            : isViduQ2Pro
+              ? "Vidu q2-pro：无参考视频时图片最多 1 张；有参考视频时视频最多 2 段、图片最多 4 张。请删除多余素材后再上传。"
             : "已达到候选素材上限，请删除不需要的图片后再上传。",
         ],
       });
@@ -3257,6 +3416,12 @@ export default function DoubaoVideoGeneratorLayout({
           hasLastFrame: klingHasLastFrameAny,
         }
         : null,
+      viduLimits: isViduQ2Pro
+        ? {
+          incomingImageEdges: viduIncomingMediaCounts.imageEdges,
+          incomingVideoEdges: viduIncomingMediaCounts.videoEdges,
+        }
+        : null,
     });
   }, [
     firstFrameField,
@@ -3266,6 +3431,9 @@ export default function DoubaoVideoGeneratorLayout({
     klingIncomingMediaCounts.imageEdges,
     klingIncomingMediaCounts.videoEdges,
     klingHasLastFrameAny,
+    isViduQ2Pro,
+    viduIncomingMediaCounts.imageEdges,
+    viduIncomingMediaCounts.videoEdges,
     firstFrameFilePickerAccept,
     firstFrameUploadAllowedExtensions,
     currentFlowId,
@@ -3823,26 +3991,28 @@ export default function DoubaoVideoGeneratorLayout({
                 : startHidePlus("right", event.clientX, event.clientY)
             }
           />
-          <DoubaoPreviewPanel
-            nodeId={data.id}
-            componentName={data.type}
-            appearance="videoGenerator"
-            referenceImages={combinedFirstFramePreviews}
-            onRequestUpload={openFirstFrameDialog}
-            onSuggestionClick={handlePreviewSuggestionClick}
-            onActionsChange={onPreviewActionsChange}
-            aspectRatio={
-              isViduModel && normalizedFirstFramePreviews.length > 0
+            <DoubaoPreviewPanel
+              nodeId={data.id}
+              componentName={data.type}
+              appearance="videoGenerator"
+              referenceImages={combinedFirstFramePreviews}
+              onRequestUpload={openFirstFrameDialog}
+              onSuggestionClick={handlePreviewSuggestionClick}
+              onActionsChange={onPreviewActionsChange}
+              aspectRatio={
+              isViduModel &&
+              normalizedFirstFramePreviews.length > 0 &&
+              !(isViduQ2Pro && (hasIncomingVideoBridge || hasVideoInFileInput(firstFrameField)))
                 ? "adaptive"
                 : String(
                   template.aspect_ratio?.value ??
                   template.aspect_ratio?.default ??
                   "adaptive",
                 )
-            }
-            onPersistentPreviewMotionStart={handlePersistentPreviewMotionStart}
-            onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
-          />
+              }
+              onPersistentPreviewMotionStart={handlePersistentPreviewMotionStart}
+              onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
+            />
         </div>
         {previewOutputHandles.length > 0 && (
           <div className="absolute right-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:flex lg:flex-col lg:items-start">
@@ -3919,7 +4089,9 @@ export default function DoubaoVideoGeneratorLayout({
               <div
                 className={cn(
                   "rounded-[12px] p-3",
-                  "[&_.primary-input]:bg-transparent",
+                  klingElementApplied
+                    ? "[&_.primary-input]:bg-[#FFF7D6] dark:[&_.primary-input]:bg-amber-500/15"
+                    : "[&_.primary-input]:bg-transparent",
                   "[&_.primary-input]:text-[#1C202D]",
                   "[&_.primary-input]:text-sm",
                   "[&_.primary-input]:placeholder:text-[#9CA3C0]",
@@ -3977,28 +4149,38 @@ export default function DoubaoVideoGeneratorLayout({
                   </>
                 )}
 
-                <button
-                  type="button"
-                  disabled={disableRun}
-                  className={cn(
-                    "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
-                    "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
-                    disableRun
-                      ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
-                      : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                <div className="ml-auto flex items-center gap-3">
+                  {isKlingModel && (
+                    <KlingElementPickerButton
+                      disabled={isBusy}
+                      selectedElementIds={selectedKlingElementIds}
+                      onPick={applyKlingElement}
+                    />
                   )}
-                  onClick={handleRun}
-                  onMouseEnter={() => setRunHovering(true)}
-                  onMouseLeave={() => setRunHovering(false)}
-                >
-                  <ForwardedIconComponent
-                    name={runIconName}
+
+                  <button
+                    type="button"
+                    disabled={disableRun}
                     className={cn(
-                      "h-4 w-4",
-                      runIconName === "Loader2" && "animate-spin",
+                      "flex h-11 w-11 items-center justify-center rounded-full text-white",
+                      "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                      disableRun
+                        ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                        : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
                     )}
-                  />
-                </button>
+                    onClick={handleRun}
+                    onMouseEnter={() => setRunHovering(true)}
+                    onMouseLeave={() => setRunHovering(false)}
+                  >
+                    <ForwardedIconComponent
+                      name={runIconName}
+                      className={cn(
+                        "h-4 w-4",
+                        runIconName === "Loader2" && "animate-spin",
+                      )}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -4397,6 +4579,7 @@ async function handleFirstFrameUpload({
   enableRoles,
   maxReferenceImages,
   klingLimits,
+  viduLimits,
 }: {
   referenceField: InputFieldType;
   accept: string;
@@ -4413,6 +4596,7 @@ async function handleFirstFrameUpload({
   enableRoles: boolean;
   maxReferenceImages: number | null;
   klingLimits: { incomingImageEdges: number; incomingVideoEdges: number; hasLastFrame: boolean } | null;
+  viduLimits: { incomingImageEdges: number; incomingVideoEdges: number } | null;
 }) {
   if (!currentFlowId) {
     setErrorData({
@@ -4498,6 +4682,55 @@ async function handleFirstFrameUpload({
         list: [
           `kling O1 图片数量限制：有参考视频时最多 4 张、无参考视频时最多 7 张。${hint}`,
           "请删除多余图片/尾帧后再上传。",
+        ],
+      });
+      return;
+    }
+  } else if (viduLimits) {
+    const incomingVideoEdges = Number(viduLimits.incomingVideoEdges || 0);
+    const incomingImageEdges = Number(viduLimits.incomingImageEdges || 0);
+
+    const existingLocalVideos = existingEntries.filter((entry) =>
+      isVideoCandidate(entry.path, entry.name),
+    ).length;
+    const existingLocalImages = Math.max(existingEntries.length - existingLocalVideos, 0);
+
+    const newVideos = files.filter((file) => {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      return ext === "mp4" || ext === "mov" || ext === "avi" || ext === "webm";
+    }).length;
+    const newImages = Math.max(files.length - newVideos, 0);
+
+    const totalVideosAfter = incomingVideoEdges + existingLocalVideos + newVideos;
+    if (totalVideosAfter > 2) {
+      setErrorData({
+        title: "参考视频数量超限",
+        list: ["Vidu q2-pro 参考生视频最多支持 2 段参考视频（MP4/MOV/AVI）。请删除多余视频后再试。"],
+      });
+      return;
+    }
+
+    const hasVideoAfter = totalVideosAfter > 0;
+    const maxImagesTotal = hasVideoAfter ? 4 : 1;
+    const totalImagesAfter = incomingImageEdges + existingLocalImages + newImages;
+
+    if (hasVideoAfter && totalImagesAfter < 1) {
+      setErrorData({
+        title: "缺少参考图",
+        list: ["Vidu q2-pro 参考生视频需要至少 1 张参考图（上传视频时可同时选择图片）。"],
+      });
+      return;
+    }
+
+    if (totalImagesAfter > maxImagesTotal) {
+      const hint = hasVideoAfter
+        ? "当前已包含参考视频：参考图最多 4 张。"
+        : "当前无参考视频：首帧图最多 1 张。";
+      setErrorData({
+        title: "参考图片数量超限",
+        list: [
+          `Vidu q2-pro 图片数量限制：无参考视频时最多 1 张；有参考视频时最多 4 张。${hint}`,
+          "请删除多余图片后再上传。",
         ],
       });
       return;
@@ -4869,6 +5102,7 @@ function isVideoCandidate(source: string | undefined, fileName?: string) {
   return (
     combined.includes(".mp4") ||
     combined.includes(".mov") ||
+    combined.includes(".avi") ||
     combined.includes(".webm") ||
     combined.includes(".mp_")
   );

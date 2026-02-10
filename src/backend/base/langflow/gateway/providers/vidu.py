@@ -10,7 +10,7 @@ from langflow.gateway.schemas import VideoGenerationRequest
 
 
 class ViduProvider(ProviderAdapter):
-    """Adapter for Vidu (viduq3-pro text2video/img2video)."""
+    """Adapter for Vidu (text2video/img2video/start-end2video/reference2video)."""
 
     def __init__(self, api_key: str, base_url: str | None = None):
         super().__init__(api_key, base_url)
@@ -36,18 +36,40 @@ class ViduProvider(ProviderAdapter):
             images = []
         images = [str(v).strip() for v in images if isinstance(v, str) and v.strip()]
 
-        is_i2v = bool(images)
-        path = "/ent/v2/img2video" if is_i2v else "/ent/v2/text2video"
+        videos = extra.get("videos") or []
+        if isinstance(videos, str):
+            videos = [videos]
+        if not isinstance(videos, list):
+            videos = []
+        videos = [str(v).strip() for v in videos if isinstance(v, str) and v.strip()]
+
+        # Auto-route:
+        # - reference2video when reference videos are provided
+        # - start-end2video when 2+ images are provided
+        # - img2video when 1 image is provided
+        # - text2video otherwise
+        if videos:
+            path = "/ent/v2/reference2video"
+        elif len(images) >= 2:
+            path = "/ent/v2/start-end2video"
+        elif len(images) == 1:
+            path = "/ent/v2/img2video"
+        else:
+            path = "/ent/v2/text2video"
         url = f"{self.base_url}{path}"
 
         # Common knobs (kept minimal + passthrough friendly).
-        duration = int(request.duration or 5)
+        # Note: Vidu reference2video supports duration=0 (auto); preserve 0.
+        duration = 5 if request.duration is None else int(request.duration)
         ratio = (request.ratio or "16:9").strip()
         resolution = str(extra.get("resolution") or "720p").strip() or "720p"
         seed = int(extra.get("seed") or 0)
         movement_amplitude = str(extra.get("movement_amplitude") or "auto").strip() or "auto"
         bgm = bool(extra.get("bgm", False))
-        audio = bool(extra.get("audio", True))
+        model_lower = str(request.model or "").strip().lower()
+        is_q3 = "viduq3" in model_lower or model_lower.startswith("q3")
+        # Docs: audio default false; q3 defaults true.
+        audio = bool(extra["audio"]) if "audio" in extra else bool(is_q3)
         voice_id = str(extra.get("voice_id") or "").strip()
         is_rec = bool(extra.get("is_rec", False))
         off_peak = bool(extra.get("off_peak", False))
@@ -69,23 +91,44 @@ class ViduProvider(ProviderAdapter):
             "wm_position": wm_position,
         }
 
-        if is_i2v:
+        if path == "/ent/v2/img2video":
             # img2video: only 1 image is supported per doc.
             body["images"] = images[:1]
-            body["audio"] = audio
             body["is_rec"] = is_rec
             if not is_rec:
                 body["prompt"] = str(request.prompt or "")
-            if voice_id and audio:
-                body["voice_id"] = voice_id
-            # bgm is accepted by API but may not be effective for some models/durations.
             body["bgm"] = bgm
+            # Audio/direct-out: available, but off_peak is only supported by q3 when audio=true.
+            body["audio"] = audio
+            if audio and not is_q3:
+                body["off_peak"] = False
+            if voice_id and audio and not is_q3:
+                body["voice_id"] = voice_id
+        elif path == "/ent/v2/start-end2video":
+            # start-end2video: exactly 2 images (start, end)
+            body["images"] = images[:2]
+            body["is_rec"] = is_rec
+            if not is_rec:
+                body["prompt"] = str(request.prompt or "")
+            body["bgm"] = bgm
+            # Docs: no audio/voice_id for start-end2video.
+        elif path == "/ent/v2/reference2video":
+            # reference2video (non-subject/video generation): docs do NOT include `audio`/`voice_id`.
+            # For viduq2-pro, when providing videos, images are limited to 1-4.
+            if model_lower == "viduq2-pro" and videos:
+                body["images"] = images[:4]
+            else:
+                body["images"] = images[:7]
+            body["videos"] = videos[:2]
+            body["prompt"] = str(request.prompt or "")
+            body["bgm"] = bgm
+            body["aspect_ratio"] = ratio
         else:
             # text2video requires prompt + aspect_ratio
             body["prompt"] = str(request.prompt or "")
             body["aspect_ratio"] = ratio
             body["bgm"] = bgm
-            body["audio"] = audio
+            # Docs: audio isn't supported outside q3; keep it out of the request for t2v.
 
         if wm_url:
             body["wm_url"] = wm_url
@@ -120,4 +163,3 @@ class ViduProvider(ProviderAdapter):
                 return resp.json()
         except httpx.RequestError as exc:
             raise UpstreamError(f"Request failed: {exc}", provider="vidu")
-

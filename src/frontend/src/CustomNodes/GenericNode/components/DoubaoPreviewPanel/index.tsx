@@ -31,9 +31,11 @@ import { sanitizePreviewDataUrl } from "./helpers";
 import useFlowStore from "@/stores/flowStore";
 import OutputModal from "../outputModal";
 import CropOverlay from "./CropOverlay";
+import OutpaintOverlay from "./OutpaintOverlay";
 import { cloneDeep } from "lodash";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useTypesStore } from "@/stores/typesStore";
+import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import { computeAlignedNodeTopY } from "@/CustomNodes/helpers/previewCenterAlignment";
 import { getNodeId, scapedJSONStringfy } from "@/utils/reactflowUtils";
 import type { EdgeType, GenericNodeType } from "@/types/flow";
@@ -157,6 +159,9 @@ export type DoubaoPreviewPanelActions = {
   canDownload: boolean;
   enterCrop: () => void;
   canCrop: boolean;
+  enterOutpaint: () => void;
+  canOutpaint: boolean;
+  isOutpaintOpen: boolean;
 };
 
 type Props = {
@@ -226,8 +231,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const setNode = useFlowStore((state) => state.setNode);
     const setNodes = useFlowStore((state) => state.setNodes);
     const setEdges = useFlowStore((state) => state.setEdges);
+    const buildFlow = useFlowStore((state) => state.buildFlow);
+    const clearFlowPoolForNodes = useFlowStore((state) => state.clearFlowPoolForNodes);
     const reactFlowInstance = useFlowStore((state) => state.reactFlowInstance);
     const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+    const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
+    const { mutateAsync: uploadReferenceFile } = usePostUploadFile();
     const templates = useTypesStore((state) => state.templates);
     const node = useMemo(
       () => (nodes.find((candidate) => candidate.id === nodeId)?.data as any)?.node,
@@ -828,6 +837,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
     const [isCropOpen, setCropOpen] = useState(false);
+    const [isOutpaintOpen, setOutpaintOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
@@ -1204,14 +1214,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           zoom: Number(start?.zoom ?? 1),
         };
 
-        // Throttle to ~30fps to reduce XYFlow work during heavy updates.
+        // Prefer smooth motion. XYFlow's internal updates can be heavy, but 60fps generally looks
+        // much better than 30fps for viewport animations.
         let lastFrameAt = 0;
         const startedAt =
           typeof performance !== "undefined" ? performance.now() : Date.now();
         const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 
         const step = (now: number) => {
-          if (now - lastFrameAt < 33) {
+          if (now - lastFrameAt < 16) {
             window.requestAnimationFrame(step);
             return;
           }
@@ -1231,7 +1242,54 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [reactFlowInstance],
     );
 
-    const canCrop = Boolean(appearance === "imageCreator" && kind === "image" && currentImage?.imageSource);
+    const canCrop = Boolean(
+      appearance === "imageCreator" && kind === "image" && currentImage?.imageSource,
+    );
+    const canOutpaint = Boolean(
+      appearance === "imageCreator" && kind === "image" && currentImage?.imageSource,
+    );
+
+    const outpaintWorkspace = useMemo(() => {
+      const baseTemplate = (templates as any)?.["DoubaoImageCreator"]?.template ?? {};
+
+      const normalizeOptions = (value: any): string[] => {
+        if (!Array.isArray(value)) return [];
+        return value.map((v) => String(v)).filter((v) => v.trim().length > 0);
+      };
+
+      const modelOptions = normalizeOptions(baseTemplate?.model_name?.options);
+      const resolutionOptions = normalizeOptions(baseTemplate?.resolution?.options);
+      const aspectRatioOptions = normalizeOptions(baseTemplate?.aspect_ratio?.options);
+
+      const nodeTemplate = (node as any)?.template ?? {};
+      const initialModelName = String(
+        nodeTemplate?.model_name?.value ??
+          baseTemplate?.model_name?.value ??
+          modelOptions[0] ??
+          "",
+      ).trim();
+      const initialResolution = String(
+        nodeTemplate?.resolution?.value ??
+          baseTemplate?.resolution?.value ??
+          resolutionOptions[0] ??
+          "",
+      ).trim();
+      const initialAspectRatio = String(
+        nodeTemplate?.aspect_ratio?.value ??
+          baseTemplate?.aspect_ratio?.value ??
+          aspectRatioOptions[0] ??
+          "1:1",
+      ).trim();
+
+      return {
+        modelOptions,
+        resolutionOptions,
+        aspectRatioOptions,
+        initialModelName,
+        initialResolution,
+        initialAspectRatio,
+      };
+    }, [node, templates]);
     const enterCrop = useCallback(() => {
       if (!canCrop) return;
       unstable_batchedUpdates(() => {
@@ -1279,6 +1337,53 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [animateViewportTo, canCrop, getPreviewCenterFlow, nodeId, nodes, setNodes]);
 
+    const enterOutpaint = useCallback(() => {
+      if (!canOutpaint) return;
+      unstable_batchedUpdates(() => {
+        // Exit selection mode: tool overlays should not rely on node selection state.
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setOutpaintOpen(true);
+      });
+
+      // Smoothly zoom the canvas to 67% and center the component on screen.
+      try {
+        const container =
+          (typeof document !== "undefined" &&
+            (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+          null;
+        const rect = container?.getBoundingClientRect();
+        const viewW = rect?.width ?? window.innerWidth;
+        const viewH = rect?.height ?? window.innerHeight;
+        const targetZoom = 0.67;
+
+        // Prefer centering on the persistent preview wrap (more visually accurate than node bounding box).
+        let target = getPreviewCenterFlow(nodeId);
+
+        if (!target) {
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const self: any = nodeById.get(nodeId);
+          if (self) {
+            const abs = getAbsolutePosition(self, nodeById as any);
+            const dim = getNodeDimensions(self);
+            target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+          }
+        }
+
+        if (target) {
+          const x = viewW / 2 - target.x * targetZoom;
+          const y = viewH / 2 - target.y * targetZoom;
+          animateViewportTo({ x, y, zoom: targetZoom }, 800);
+        }
+      } catch (e) {
+        // Non-fatal: tool UI should still work without canvas animation.
+        console.warn("Failed to animate viewport for outpaint mode:", e);
+      }
+    }, [animateViewportTo, canOutpaint, getPreviewCenterFlow, nodeId, nodes, setNodes]);
+
     // When the preview disappears (or switches kind), exit crop mode.
     useEffect(() => {
       if (!isCropOpen) return;
@@ -1287,6 +1392,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [canCrop, isCropOpen]);
 
+    // When the preview disappears (or switches kind), exit outpaint mode.
+    useEffect(() => {
+      if (!isOutpaintOpen) return;
+      if (!canOutpaint) {
+        setOutpaintOpen(false);
+      }
+    }, [canOutpaint, isOutpaintOpen]);
+
     useEffect(() => {
       onActionsChange?.({
         openPreview: openModal,
@@ -1294,8 +1407,21 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         canDownload: Boolean(downloadInfo),
         enterCrop,
         canCrop,
+        enterOutpaint,
+        canOutpaint,
+        isOutpaintOpen,
       });
-    }, [canCrop, downloadInfo, enterCrop, handleDownload, onActionsChange, openModal]);
+    }, [
+      canCrop,
+      canOutpaint,
+      downloadInfo,
+      enterCrop,
+      enterOutpaint,
+      handleDownload,
+      isOutpaintOpen,
+      onActionsChange,
+      openModal,
+    ]);
 
     const handleConfirmCrop = useCallback(
       ({ dataUrl, fileName }: { dataUrl: string; fileName: string }) => {
@@ -1442,6 +1568,246 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         }
       },
       [animateViewportTo, getPreviewCenterFlow, node, nodeId, nodes, reactFlowInstance, setEdges, setNodes, takeSnapshot, templates],
+    );
+
+    const handleConfirmOutpaint = useCallback(
+      async ({
+        dataUrl,
+        fileName,
+        modelName,
+        aspectRatio,
+        resolution,
+      }: {
+        dataUrl: string;
+        fileName: string;
+        modelName: string;
+        aspectRatio: string;
+        resolution: string;
+      }) => {
+        if (!currentFlowId) {
+          showTransientBadge("请先保存画布后再生成");
+          return;
+        }
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["DoubaoImageCreator"];
+        if (!template) return;
+
+        takeSnapshot?.();
+
+        const REFERENCE_FIELD = "reference_images";
+        const IMAGE_OUTPUT_NAME = "image";
+        const NODE_OFFSET_X = 1300;
+        const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+
+        const newImageNodeId = getNodeId("DoubaoImageCreator");
+        const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+        const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+        const newNodeX = abs.x + NODE_OFFSET_X;
+        const newNodeY = computeAlignedNodeTopY({
+          anchorNodeId: nodeId,
+          anchorNodeType: currentFlowNode.data?.type,
+          targetNodeType: "DoubaoImageCreator",
+          targetX: newNodeX,
+          fallbackTopY: abs.y,
+          avoidOverlap: false,
+        });
+
+        const newTemplate = cloneDeep(template);
+        const refField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        if (refField) {
+          const safeName = (fileName && String(fileName).trim()) || "outpaint.png";
+          try {
+            const blob = await fetch(dataUrl).then((r) => r.blob());
+            const file = new File([blob], safeName, { type: blob.type || "image/png" });
+            const response = await uploadReferenceFile({ file, id: currentFlowId });
+            const uploadedPath = response?.file_path ? String(response.file_path) : "";
+            if (!uploadedPath.trim()) {
+              showTransientBadge("上传失败");
+              return;
+            }
+            refField.value = [safeName];
+            refField.file_path = [uploadedPath.trim()];
+
+            // Release the temporary object URL we created in the overlay (if any).
+            if (typeof dataUrl === "string" && dataUrl.startsWith("blob:")) {
+              try {
+                URL.revokeObjectURL(dataUrl);
+              } catch {
+                // ignore
+              }
+            }
+          } catch (error) {
+            console.error("Failed to upload outpaint reference image:", error);
+            showTransientBadge("上传失败");
+            return;
+          }
+        }
+
+        // Apply outpaint workspace selections (only if provided; otherwise keep template defaults).
+        const safeModelName = String(modelName ?? "").trim();
+        const safeAspectRatio = String(aspectRatio ?? "").trim();
+        const safeResolution = String(resolution ?? "").trim();
+        if (safeModelName && (newTemplate as any)?.template?.model_name) {
+          (newTemplate as any).template.model_name.value = safeModelName;
+        }
+        if (safeAspectRatio && (newTemplate as any)?.template?.aspect_ratio) {
+          (newTemplate as any).template.aspect_ratio.value = safeAspectRatio;
+        }
+        if (safeResolution && (newTemplate as any)?.template?.resolution) {
+          (newTemplate as any).template.resolution.value = safeResolution;
+        }
+
+        // Ensure we actually request an AI outpaint from the selected model:
+        // - carry over the user's prompt if present
+        // - otherwise provide a safe default instruction for seamless outpainting.
+        const sourcePrompt = String(sourceTemplate?.template?.prompt?.value ?? "").trim();
+        const fallbackOutpaintPrompt =
+          "请保持原图主体不变，对画布空白区域进行自然扩图补全，风格一致，避免出现明显接缝或重复元素。";
+        if ((newTemplate as any)?.template?.prompt) {
+          (newTemplate as any).template.prompt.value = sourcePrompt || fallbackOutpaintPrompt;
+        }
+
+        // Ensure the new node doesn't show any cached/generated output from template defaults.
+        if ((newTemplate as any)?.template?.draft_output) {
+          delete (newTemplate as any).template.draft_output;
+        }
+
+        const newImageNode: GenericNodeType = {
+          id: newImageNodeId,
+          type: "genericNode",
+          position: { x: newNodeX, y: newNodeY },
+          data: {
+            node: newTemplate as any,
+            showNode: !(newTemplate as any).minimized,
+            type: "DoubaoImageCreator",
+            id: newImageNodeId,
+            // Reuse crop-preview behavior: show only the local tool-produced image in the preview panel.
+            cropPreviewOnly: true,
+          },
+          selected: false,
+        };
+
+        const outputDefinition =
+          sourceTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+          sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+          sourceTemplate?.outputs?.[0];
+        const sourceOutputTypes =
+          outputDefinition?.types && outputDefinition.types.length === 1
+            ? outputDefinition.types
+            : outputDefinition?.selected
+              ? [outputDefinition.selected]
+              : ["Data"];
+        const sourceHandle = {
+          outputTypes: sourceOutputTypes,
+          type: outputDefinition?.type,
+          id: nodeId,
+          name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        };
+
+        const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        const targetHandle = {
+          inputTypes: referenceTemplateField?.input_types ?? ["Data"],
+          type: referenceTemplateField?.type,
+          id: newImageNodeId,
+          fieldName: REFERENCE_FIELD,
+          ...(referenceTemplateField?.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+        };
+
+        const edge: EdgeType = {
+          id: `xy-edge__${nodeId}-${sourceHandle.name}-${newImageNodeId}-${REFERENCE_FIELD}-outpaint`,
+          source: nodeId,
+          sourceHandle: scapedJSONStringfy(sourceHandle as any),
+          target: newImageNodeId,
+          targetHandle: scapedJSONStringfy(targetHandle as any),
+          type: "default",
+          data: {
+            sourceHandle,
+            targetHandle,
+            // Mark as a tool-derived connection so preview aggregation can ignore upstream refs.
+            cropLink: true,
+          },
+        } as any;
+
+        unstable_batchedUpdates(() => {
+          setNodes((currentNodes) => [...currentNodes, newImageNode]);
+          setEdges((currentEdges) => [...currentEdges, edge]);
+          setOutpaintOpen(false);
+        });
+
+        // Fire the actual model request automatically (outpaint "生成").
+        // Edges marked with `cropLink` are ignored during build (see flowStore), so this does not
+        // pull in upstream nodes and will use the locally prepared reference image.
+        window.requestAnimationFrame(() => {
+          try {
+            clearFlowPoolForNodes([newImageNodeId]);
+            void buildFlow({ stopNodeId: newImageNodeId });
+          } catch (e) {
+            console.warn("Failed to start outpaint build:", e);
+          }
+        });
+
+        // After creating the downstream node, zoom out to 48% and center it (match crop behavior).
+        try {
+          const instance: any = reactFlowInstance as any;
+          if (!instance || typeof instance.setViewport !== "function") return;
+
+          const container =
+            (typeof document !== "undefined" &&
+              (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+            null;
+          const rect = container?.getBoundingClientRect();
+          const viewW = rect?.width ?? window.innerWidth;
+          const viewH = rect?.height ?? window.innerHeight;
+          const targetZoom = 0.48;
+
+          // Use the anchor preview center as a stable reference (avoid polling the new node DOM).
+          const anchorPreviewCenter = getPreviewCenterFlow(nodeId);
+          const anchorDim = getNodeDimensions(currentFlowNode);
+          const anchorCenterFallback = {
+            x: abs.x + anchorDim.width / 2,
+            y: abs.y + anchorDim.height / 2,
+          };
+          const anchorCenter = anchorPreviewCenter ?? anchorCenterFallback;
+
+          // Compute "preview center offset" relative to the anchor's top-left; reuse for the new node.
+          const offsetX = anchorCenter.x - abs.x;
+          const offsetY = anchorCenter.y - abs.y;
+          const targetFlowCenter = { x: newNodeX + offsetX, y: newNodeY + offsetY };
+
+          const viewportTo = {
+            x: viewW / 2 - targetFlowCenter.x * targetZoom,
+            y: viewH / 2 - targetFlowCenter.y * targetZoom,
+            zoom: targetZoom,
+          };
+
+          // Let the node/edge commit first; then animate (reduces jank during XYFlow updates).
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              animateViewportTo(viewportTo, 800);
+            });
+          });
+        } catch (e) {
+          console.warn("Failed to animate viewport to outpaint result node:", e);
+        }
+      },
+      [
+        animateViewportTo,
+        buildFlow,
+        clearFlowPoolForNodes,
+        currentFlowId,
+        getPreviewCenterFlow,
+        node,
+        nodeId,
+        nodes,
+        reactFlowInstance,
+        setEdges,
+        setNodes,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+        uploadReferenceFile,
+      ],
     );
 
     const hasError = resolvedPreview?.error;
@@ -1904,6 +2270,20 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 onConfirm={handleConfirmCrop}
               />
             )}
+            {appearance === "imageCreator" && canOutpaint && currentImage?.imageSource && (
+              <OutpaintOverlay
+                open={isOutpaintOpen}
+                imageSource={currentImage.imageSource}
+                modelOptions={outpaintWorkspace.modelOptions}
+                resolutionOptions={outpaintWorkspace.resolutionOptions}
+                aspectRatioOptions={outpaintWorkspace.aspectRatioOptions}
+                initialModelName={outpaintWorkspace.initialModelName}
+                initialResolution={outpaintWorkspace.initialResolution}
+                initialAspectRatio={outpaintWorkspace.initialAspectRatio}
+                onCancel={() => setOutpaintOpen(false)}
+                onConfirm={handleConfirmOutpaint}
+              />
+            )}
           </div>
         </div>
 
@@ -2157,17 +2537,19 @@ function EmptyPreview({
         : "暂无结果，上传图片作为视频封面"
       : "暂无结果，请上传图片";
 
-  if (isMinimal) {
-    if (appearance === "videoGenerator") {
-      const isViduModel = String(modelName ?? "").toLowerCase().startsWith("vidu");
+    if (isMinimal) {
+      if (appearance === "videoGenerator") {
+      const normalizedModel = String(modelName ?? "").trim().toLowerCase();
+      const isViduModel = normalizedModel.startsWith("vidu");
+      const hideStartEndSuggestion = normalizedModel === "viduq3-pro";
       const suggestions = [
         {
           label: "首帧生成视频",
           icon: "Clapperboard",
           disabled: disabledSuggestions?.includes("首帧生成视频"),
         },
-        // Vidu q3-pro does not support start-end2video; hide the action entirely.
-        ...(!isViduModel
+        // Vidu q3-pro does not support start-end2video; hide the action entirely (q2-pro supports it).
+        ...(!isViduModel || !hideStartEndSuggestion
           ? [
               {
                 label: "首尾帧生成视频",

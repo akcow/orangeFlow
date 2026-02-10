@@ -36,6 +36,7 @@ import DoubaoPreviewPanel, {
   type DoubaoPreviewPanelActions,
 } from "./components/DoubaoPreviewPanel";
 import DoubaoImageCreatorLayout from "./components/DoubaoImageCreatorLayout";
+import ProCameraLayout from "./components/ProCameraLayout";
 import DoubaoVideoGeneratorLayout from "./components/DoubaoVideoGeneratorLayout";
 import DoubaoAudioLayout from "./components/DoubaoAudioLayout";
 import TextCreationLayout from "./components/TextCreationLayout";
@@ -57,6 +58,8 @@ function DoubaoImageCreatorTopBar({
   canDownload,
   onCrop,
   canCrop,
+  onOutpaint,
+  canOutpaint,
   motionStart,
   motionCommitToken,
 }: {
@@ -68,6 +71,8 @@ function DoubaoImageCreatorTopBar({
   canDownload: boolean;
   onCrop?: () => void;
   canCrop?: boolean;
+  onOutpaint?: () => void;
+  canOutpaint?: boolean;
   motionStart?: {
     token: number;
     motion: { deltaTopPx: number; durationMs: number; easing: string };
@@ -147,6 +152,25 @@ function DoubaoImageCreatorTopBar({
         )}
         style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
       >
+        <button
+          type="button"
+          title="扩图"
+          aria-label="扩图"
+          disabled={!canOutpaint}
+          onClick={onOutpaint}
+          className={cn(
+            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            canOutpaint
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Expand" className="h-5 w-5" />
+          <span>扩图</span>
+        </button>
+
+        <div className="mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15" />
+
         <OutputModal
           open={isOpen}
           setOpen={setOpen}
@@ -686,6 +710,7 @@ function GenericNode({
   const isDoubaoVideoGenerator = data.type === "DoubaoVideoGenerator";
   const isDoubaoAudioGenerator = data.type === "DoubaoTTS";
   const isTextCreation = data.type === "TextCreation";
+  const isProCamera = data.type === "ProCamera";
   const isUserUploadImage = data.type === "UserUploadImage";
   const isUserUploadVideo = data.type === "UserUploadVideo";
   const isUserUploadAudio = data.type === "UserUploadAudio";
@@ -694,15 +719,18 @@ function GenericNode({
     isDoubaoVideoGenerator ||
     isDoubaoAudioGenerator ||
     isTextCreation ||
+    isProCamera ||
     isUserUploadImage ||
     isUserUploadVideo ||
     isUserUploadAudio;
+  const hideTitleRow = isDoubaoImageCreator && Boolean(imageCreatorPreviewActions?.isOutpaintOpen);
   const nodeWidthClass = useMemo(() => {
     if (!showNode) return "w-48";
     if (isTextCreation) return "w-[520px]";
+    if (isProCamera) return "w-[1200px]";
     if (usesWideDoubaoLayout) return "w-[760px]";
     return "w-80";
-  }, [showNode, usesWideDoubaoLayout, isTextCreation]);
+  }, [showNode, usesWideDoubaoLayout, isTextCreation, isProCamera]);
 
   const getValidationStatus = useCallback((data) => {
     setValidationStatus(data);
@@ -992,6 +1020,7 @@ function GenericNode({
         isDoubaoVideoGenerator ||
         isDoubaoAudioGenerator ||
         isTextCreation ||
+        isProCamera ||
         isUserUploadImage ||
         isUserUploadVideo ||
         isUserUploadAudio
@@ -1034,6 +1063,7 @@ function GenericNode({
           isDoubaoVideoGenerator ||
           isDoubaoAudioGenerator ||
           isTextCreation ||
+          isProCamera ||
           isUserUploadImage ||
           isUserUploadVideo ||
           isUserUploadAudio
@@ -1202,20 +1232,22 @@ function GenericNode({
             (isDoubaoImageCreator || isUserUploadImage) &&
             selected && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
-              <DoubaoImageCreatorTopBar
-                nodeId={data.id}
-                isOpen={isImageCreatorLogsOpen}
-                setOpen={setImageCreatorLogsOpen}
-                onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
-                onDownload={() => imageCreatorPreviewActions?.download()}
-                canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
-                onCrop={() => imageCreatorPreviewActions?.enterCrop()}
-                canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
-                motionStart={persistentPreviewMotionStart}
-                motionCommitToken={persistentPreviewMotionCommitToken}
-              />
-            </div>
-          )}
+                <DoubaoImageCreatorTopBar
+                  nodeId={data.id}
+                  isOpen={isImageCreatorLogsOpen}
+                  setOpen={setImageCreatorLogsOpen}
+                  onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
+                  onDownload={() => imageCreatorPreviewActions?.download()}
+                  canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+                  onCrop={() => imageCreatorPreviewActions?.enterCrop()}
+                  canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
+                  onOutpaint={() => imageCreatorPreviewActions?.enterOutpaint()}
+                  canOutpaint={Boolean(imageCreatorPreviewActions?.canOutpaint)}
+                  motionStart={persistentPreviewMotionStart}
+                  motionCommitToken={persistentPreviewMotionCommitToken}
+                />
+              </div>
+            )}
           {showNode &&
             usesWideDoubaoLayout &&
             (isDoubaoVideoGenerator || isUserUploadVideo) &&
@@ -1263,6 +1295,7 @@ function GenericNode({
             ref={titleMotionRef}
             className={cn(
               "flex w-full flex-1 items-center justify-between gap-2 overflow-hidden px-4 py-3",
+              hideTitleRow && "hidden",
             )}
           >
             <div
@@ -1417,6 +1450,14 @@ function GenericNode({
                     handlePersistentPreviewMotionStart({ deltaTopPx, durationMs, easing })
                   }
                   onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
+                />
+              ) : isProCamera ? (
+                <ProCameraLayout
+                  data={data}
+                  types={types}
+                  isToolMode={isToolMode}
+                  buildStatus={buildStatus}
+                  selected={selected ?? false}
                 />
               ) : isDoubaoVideoGenerator ? (
                 <DoubaoVideoGeneratorLayout

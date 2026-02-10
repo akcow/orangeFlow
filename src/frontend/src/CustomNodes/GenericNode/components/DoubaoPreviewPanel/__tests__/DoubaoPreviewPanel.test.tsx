@@ -2,6 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import DoubaoPreviewPanel from "../index";
 import { useDoubaoPreview } from "../../../../hooks/use-doubao-preview";
 
+jest.mock("@/controllers/API/queries/files/use-post-upload-file", () => ({
+  __esModule: true,
+  usePostUploadFile: () => ({
+    mutateAsync: jest.fn().mockResolvedValue({ file_path: "files/images/mock-flow/outpaint.png" }),
+  }),
+}));
+
 jest.mock("../../../../hooks/use-doubao-preview", () => {
   const mock = jest.fn();
   return {

@@ -146,6 +146,7 @@ async def _stream_gemini_sse(
 ) -> object:
     """Yield StreamData SSE events with {"chunk": "..."} payloads."""
     emitted_any = False
+    error_detail: str | None = None
     try:
         # Streaming responses can be long; avoid a strict read timeout.
         timeout = httpx.Timeout(60.0, read=None)
@@ -161,7 +162,7 @@ async def _stream_gemini_sse(
                     if not detail:
                         body = (await resp.aread()).decode("utf-8", errors="replace").strip()
                         detail = f"Gemini 上游返回 HTTP {resp.status_code}" + (f": {body[:500]}" if body else "")
-                    yield str(StreamData(event="error", data={"error": detail}))
+                    error_detail = detail
                     return
 
                 # The upstream uses SSE frames. We parse full frames (event + data lines) and
@@ -244,7 +245,9 @@ async def _stream_gemini_sse(
                     if done:
                         return
     except httpx.RequestError as exc:
-        yield str(StreamData(event="error", data={"error": f"上游请求失败: {exc}"}))
+        # Don't emit an error event immediately; we may still be able to fall back to a
+        # non-streaming request, and the frontend currently treats `event:error` as fatal.
+        error_detail = f"上游请求失败: {exc}"
     finally:
         # If we couldn't parse any streamed content, fall back to a non-streaming request
         # so the UI doesn't show "empty reply" even when upstream did generate content.
@@ -263,7 +266,12 @@ async def _stream_gemini_sse(
                         if text:
                             yield str(StreamData(event="message", data={"chunk": text}))
                         else:
-                            yield str(StreamData(event="error", data={"error": "模型返回为空。"}))
+                            yield str(
+                                StreamData(
+                                    event="error",
+                                    data={"error": error_detail or "模型返回为空。"},
+                                )
+                            )
                     else:
                         detail = ""
                         try:
@@ -273,12 +281,21 @@ async def _stream_gemini_sse(
                         yield str(
                             StreamData(
                                 event="error",
-                                data={"error": detail or f"Gemini 上游返回 HTTP {fallback_resp.status_code}"},
+                                data={
+                                    "error": detail
+                                    or error_detail
+                                    or f"Gemini 上游返回 HTTP {fallback_resp.status_code}"
+                                },
                             )
                         )
             except Exception:
-                # Don't mask original stream errors; just proceed to close.
-                pass
+                # If even the fallback can't be reached, surface the original request error.
+                yield str(
+                    StreamData(
+                        event="error",
+                        data={"error": error_detail or "上游请求失败。"},
+                    )
+                )
         yield str(StreamData(event="close", data={"message": "Stream closed"}))
 
 

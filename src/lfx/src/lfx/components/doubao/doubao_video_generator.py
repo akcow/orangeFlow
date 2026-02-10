@@ -64,6 +64,7 @@ class DoubaoVideoGenerator(Component):
         "sora-2-pro": "sora-2-pro",
         "kling O1": "kling-video-o1",
         # Vidu (direct API)
+        "viduq2-pro": "viduq2-pro",
         "viduq3-pro": "viduq3-pro",
     }
 
@@ -78,6 +79,7 @@ class DoubaoVideoGenerator(Component):
         "sora-2",
         "sora-2-pro",
         "kling O1",
+        "viduq2-pro",
         "viduq3-pro",
     ]
 
@@ -179,6 +181,19 @@ class DoubaoVideoGenerator(Component):
             "max_duration": 16,
             "supports_last_frame": False,  # q3-pro does not support start-end2video
             "supports_reference_images": False,
+        },
+        "viduq2-pro": {
+            "resolutions": ["540p", "720p", "1080p"],
+            # Vidu q2-pro:
+            # - text2video/img2video: 1-10s
+            # - start-end2video: 1-8s
+            # - reference2video: 0-10s (0=auto)
+            "min_duration": 0,
+            "max_duration": 10,
+            "supports_last_frame": True,
+            "supports_reference_images": True,
+            "supports_reference_videos": True,
+            "supported_ratios": ["16:9", "9:16", "4:3", "3:4", "1:1"],
         },
     }
 
@@ -319,7 +334,7 @@ class DoubaoVideoGenerator(Component):
             display_name="首帧图输入",
             is_list=True,
             list_add_label="继续添加候选图",
-            file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "mp4", "mov"],
+            file_types=["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "mp4", "mov", "avi"],
             input_types=["Data"],
             info="可选：上传图片或视频，或连接上游图片节点。\n- Doubao/Seedance: 首帧/尾帧\n- wan: 首帧（不支持尾帧）\n- Veo: 首帧/尾帧/参考图\n- Sora: 参考图片",
         ),
@@ -705,7 +720,46 @@ class DoubaoVideoGenerator(Component):
             _restore_field_defaults("audio_input")
 
         elif is_vidu:
-            # Vidu q3-pro: show Vidu-specific knobs, clamp duration/ratio/resolution.
+            model_lower = model_value.strip().lower()
+            is_vidu_q3 = model_lower == "viduq3-pro"
+            is_vidu_q2_pro = model_lower == "viduq2-pro"
+
+            def _has_any(v: Any) -> bool:
+                if v is None:
+                    return False
+                if isinstance(v, str):
+                    return bool(v.strip())
+                if isinstance(v, dict):
+                    for k in ("url", "image_url", "video_url", "value", "path", "file_path"):
+                        vv = v.get(k)
+                        if isinstance(vv, str) and vv.strip():
+                            return True
+                    if isinstance(v.get("videos"), list) and v.get("videos"):
+                        return True
+                    return bool(v)
+                if isinstance(v, (list, tuple)):
+                    return any(_has_any(x) for x in v)
+                return True
+
+            def _has_video(v: Any) -> bool:
+                if v is None:
+                    return False
+                if isinstance(v, str):
+                    return self._is_video_url(v)
+                if isinstance(v, dict):
+                    for k in ("video_url", "url", "value", "path", "file_path"):
+                        vv = v.get(k)
+                        if isinstance(vv, str) and self._is_video_url(vv):
+                            return True
+                    nested = v.get("videos")
+                    if isinstance(nested, list) and any(isinstance(x, str) and self._is_video_url(x) for x in nested):
+                        return True
+                    return False
+                if isinstance(v, (list, tuple)):
+                    return any(_has_video(x) for x in v)
+                return False
+
+            # Vidu: clamp duration/ratio/resolution based on model + inferred mode.
             if "resolution" in build_config:
                 build_config["resolution"]["show"] = True
                 build_config["resolution"]["options"] = list(self.VIDU_SUPPORTED_RESOLUTIONS_Q3)
@@ -713,61 +767,88 @@ class DoubaoVideoGenerator(Component):
                 current = str(build_config["resolution"].get("value") or "").strip()
                 if current not in self.VIDU_SUPPORTED_RESOLUTIONS_Q3:
                     build_config["resolution"]["value"] = "720p"
-                build_config["resolution"]["info"] = "Vidu q3-pro：仅支持 540p / 720p / 1080p。"
+                build_config["resolution"]["info"] = (
+                    "Vidu：支持 540p / 720p / 1080p。"
+                    + ("（q3-pro / q2-pro）" if (is_vidu_q3 or is_vidu_q2_pro) else "")
+                )
 
             if "aspect_ratio" in build_config:
                 build_config["aspect_ratio"]["show"] = True
-                # Per doc: img2video does not accept aspect_ratio; output ratio follows the first-frame image.
                 ff_cfg = build_config.get("first_frame_image") or {}
                 ff_value = ff_cfg.get("value")
                 ff_paths = ff_cfg.get("file_path")
-
-                def _has_any(v: Any) -> bool:
-                    if v is None:
-                        return False
-                    if isinstance(v, str):
-                        return bool(v.strip())
-                    if isinstance(v, dict):
-                        for k in ("url", "image_url", "value", "path", "file_path"):
-                            vv = v.get(k)
-                            if isinstance(vv, str) and vv.strip():
-                                return True
-                        return bool(v)
-                    if isinstance(v, (list, tuple)):
-                        return any(_has_any(x) for x in v)
-                    return True
+                lf_cfg = build_config.get("last_frame_image") or {}
+                lf_value = lf_cfg.get("value")
+                lf_paths = lf_cfg.get("file_path")
 
                 has_first_frame = _has_any(ff_value) or _has_any(ff_paths)
+                has_last_frame = _has_any(lf_value) or _has_any(lf_paths)
+                has_reference_videos = _has_video(ff_value) or _has_video(ff_paths)
+
+                # Inference (Mode A):
+                # - videos exist -> reference2video
+                # - last frame exists -> start-end2video
+                # - first frame exists -> img2video
+                # - no frames -> text2video
+                is_reference_mode = bool(is_vidu_q2_pro and has_reference_videos)
+                should_force_adaptive_ratio = bool((has_first_frame or has_last_frame) and not is_reference_mode)
                 build_config["aspect_ratio"]["options_metadata"] = []
-                if has_first_frame:
+                if should_force_adaptive_ratio:
                     build_config["aspect_ratio"]["options"] = ["adaptive"]
                     build_config["aspect_ratio"]["value"] = "adaptive"
-                    build_config["aspect_ratio"]["info"] = "Vidu q3-pro 图生视频：比例由首帧图决定（自适应）。"
+                    build_config["aspect_ratio"]["info"] = "Vidu：图生/首尾帧模式下比例由输入图片决定（自适应）。"
                 else:
                     build_config["aspect_ratio"]["options"] = list(self.VIDU_SUPPORTED_RATIOS)
                     ratio_value = str(build_config["aspect_ratio"].get("value") or "16:9").strip()
                     if ratio_value.lower() == "adaptive" or ratio_value not in self.VIDU_SUPPORTED_RATIOS:
                         build_config["aspect_ratio"]["value"] = "16:9"
-                    build_config["aspect_ratio"]["info"] = "Vidu q3-pro：仅支持 16:9 / 9:16 / 4:3 / 3:4 / 1:1。"
+                    build_config["aspect_ratio"]["info"] = "Vidu：支持 16:9 / 9:16 / 4:3 / 3:4 / 1:1。"
 
             if "duration" in build_config:
                 build_config["duration"]["show"] = True
-                build_config["duration"]["range_spec"] = {"min": 1, "max": 16, "step": 1, "step_type": "int"}
                 try:
-                    dur = int(build_config["duration"].get("value") or 5)
+                    raw_dur = build_config["duration"].get("value")
+                    dur = 5 if raw_dur is None else int(raw_dur)
                 except Exception:
                     dur = 5
-                if dur < 1:
-                    dur = 1
-                if dur > 16:
-                    dur = 16
-                build_config["duration"]["value"] = dur
-                build_config["duration"]["info"] = "Vidu q3-pro：时长支持 1-16 秒（默认 5 秒）。"
 
-            # q3-pro only supports img2video (1 image). Hide last frame to avoid confusion.
+                # Mode detection uses the same helper as aspect_ratio above (best-effort, local values only).
+                ff_cfg = build_config.get("first_frame_image") or {}
+                lf_cfg = build_config.get("last_frame_image") or {}
+                has_last_frame = bool(_has_any(lf_cfg.get("value")) or _has_any(lf_cfg.get("file_path")))
+                has_reference_videos = bool(_has_video(ff_cfg.get("value")) or _has_video(ff_cfg.get("file_path")))
+
+                if is_vidu_q3:
+                    min_dur, max_dur = 1, 16
+                    info = "Vidu q3-pro：时长支持 1–16 秒（默认 5 秒）。"
+                elif is_vidu_q2_pro and has_reference_videos:
+                    min_dur, max_dur = 0, 10
+                    info = "Vidu q2-pro 参考生视频：时长支持 0–10 秒（0=自动，默认 5 秒）。"
+                elif is_vidu_q2_pro and has_last_frame:
+                    min_dur, max_dur = 1, 8
+                    info = "Vidu q2-pro 首尾帧：时长支持 1–8 秒（默认 5 秒）。"
+                elif is_vidu_q2_pro:
+                    min_dur, max_dur = 1, 10
+                    info = "Vidu q2-pro：文生/图生视频时长支持 1–10 秒（默认 5 秒）。"
+                else:
+                    min_dur, max_dur = 1, 10
+                    info = "Vidu：时长范围依模型而定。"
+
+                build_config["duration"]["range_spec"] = {"min": min_dur, "max": max_dur, "step": 1, "step_type": "int"}
+                if dur < min_dur:
+                    dur = min_dur
+                if dur > max_dur:
+                    dur = max_dur
+                build_config["duration"]["value"] = dur
+                build_config["duration"]["info"] = info
+
             if "last_frame_image" in build_config:
-                build_config["last_frame_image"]["show"] = False
-                build_config["last_frame_image"]["info"] = "Vidu q3-pro 不支持首尾帧（start-end2video）。"
+                if is_vidu_q3:
+                    # q3-pro only supports img2video (1 image). Hide last frame to avoid confusion.
+                    build_config["last_frame_image"]["show"] = False
+                    build_config["last_frame_image"]["info"] = "Vidu q3-pro 不支持首尾帧（start-end2video）。"
+                else:
+                    build_config["last_frame_image"]["show"] = True
 
             # Wan-specific audio switch is irrelevant for Vidu.
             if "enable_audio" in build_config:
@@ -837,36 +918,139 @@ class DoubaoVideoGenerator(Component):
         return str(model_name or "").strip().lower().startswith("vidu")
 
     def _build_video_vidu_gateway(self, *, prompt: str, model_name: str) -> Data:
-        """Generate video via Hosted Gateway for Vidu models (credentials server-side)."""
+        """Generate video via Hosted Gateway for Vidu models (credentials server-side).
+
+        Supports (auto-routing "A"):
+        - reference2video: when reference videos exist (viduq2-pro only; non-subject call)
+        - start-end2video: when both first+last images exist (viduq2-pro)
+        - img2video: when only first image exists
+        - text2video: otherwise
+        """
         try:
             from langflow.gateway.client import videos_create
 
-            resolution = str(getattr(self, "resolution", "") or "720p").strip()
-            duration = int(getattr(self, "duration", 5) or 5)
-            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
-            if not aspect_ratio:
-                aspect_ratio = "16:9"
+            model_lower = str(model_name or "").strip().lower()
+            is_q3 = model_lower == "viduq3-pro"
+            is_q2_pro = model_lower == "viduq2-pro"
 
-            # Collect first-frame image for img2video mode (Vidu q3-pro only supports 1 image).
+            resolution = str(getattr(self, "resolution", "") or "720p").strip() or "720p"
+            if resolution not in self.VIDU_SUPPORTED_RESOLUTIONS_Q3:
+                resolution = "720p"
+
+            raw_duration = getattr(self, "duration", None)
+            try:
+                duration = 5 if raw_duration is None else int(raw_duration)
+            except Exception:
+                duration = 5
+
+            aspect_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip() or "16:9"
+
+            # Collect inputs (first/last/reference) from first_frame_image role annotations + last_frame_image field.
             entries = self._collect_multimodal_inputs("first_frame_image")
-            first_image: str | None = None
+
+            manual_last = getattr(self, "last_frame_image", None)
+            if manual_last:
+                last_url = self._extract_image_url(manual_last)
+                if last_url:
+                    entries.append(
+                        {
+                            "url": last_url,
+                            "role": "last",
+                            "kind": "video" if self._is_video_url(last_url) else "image",
+                        }
+                    )
+
+            reference_videos: list[str] = []
+            image_entries: list[dict[str, Any]] = []
             for entry in entries:
-                url = entry.get("url")
-                if not url or self._is_video_url(url):
+                url = str(entry.get("url") or "").strip()
+                if not url:
                     continue
-                if entry.get("role") == "first":
-                    first_image = url
-                    break
-                if not first_image:
-                    first_image = url
+                kind = str(entry.get("kind") or "").strip().lower()
+                if kind == "video" or self._is_video_url(url):
+                    reference_videos.append(url)
+                else:
+                    image_entries.append(entry)
 
-            # text2video: Vidu requires an explicit aspect_ratio; img2video follows the image ratio.
-            if aspect_ratio.lower() == "adaptive" and not first_image:
-                return self._error("Vidu 文生视频不支持“自适应”宽高比，请选择具体比例（如 16:9 / 9:16 / 4:3 / 3:4 / 1:1）。")
+            def _dedupe_keep_order(items: list[str]) -> list[str]:
+                seen: set[str] = set()
+                out: list[str] = []
+                for it in items:
+                    if it in seen:
+                        continue
+                    seen.add(it)
+                    out.append(it)
+                return out
 
-            if getattr(self, "last_frame_image", None):
-                # Keep it non-fatal: users might have a shared template.
-                self.status = "提示：Vidu q3-pro 不支持尾帧输入，已忽略 last_frame_image。"
+            reference_videos = _dedupe_keep_order(reference_videos)
+
+            first_image: str | None = None
+            last_image: str | None = None
+            reference_images: list[str] = []
+
+            for entry in image_entries:
+                url = str(entry.get("url") or "").strip()
+                if not url:
+                    continue
+                role = str(entry.get("role") or "reference").strip().lower()
+                if role == "first" and not first_image:
+                    first_image = url
+                elif role == "last" and not last_image:
+                    last_image = url
+                else:
+                    reference_images.append(url)
+
+            if not first_image:
+                for entry in image_entries:
+                    url = str(entry.get("url") or "").strip()
+                    if url:
+                        first_image = url
+                        break
+
+            # Mode A routing.
+            has_reference_videos = bool(is_q2_pro and reference_videos)
+            if has_reference_videos:
+                mode = "reference2video"
+            elif is_q3:
+                mode = "img2video" if first_image else "text2video"
+            else:
+                if last_image:
+                    mode = "start-end2video"
+                elif first_image:
+                    mode = "img2video"
+                else:
+                    mode = "text2video"
+
+            # Validate aspect_ratio usage.
+            if mode in {"text2video", "reference2video"} and aspect_ratio.lower() == "adaptive":
+                return self._error("Vidu 文生/参考生视频不支持“自适应”宽高比，请选择具体比例（如 16:9 / 9:16 / 4:3 / 3:4 / 1:1）。")
+
+            # Validate required frames.
+            if mode == "start-end2video" and not first_image:
+                return self._error("Vidu 首尾帧模式需要提供首帧与尾帧图片。")
+            if mode == "reference2video":
+                if not str(prompt or "").strip():
+                    return self._error("Vidu 参考生视频需要填写提示词 prompt。")
+
+            if mode == "text2video" and not str(prompt or "").strip():
+                return self._error("Vidu 文生视频需要填写提示词 prompt。")
+
+            # Clamp duration per model+mode (doc-aligned).
+            if is_q3:
+                min_dur, max_dur = 1, 16
+            elif is_q2_pro and mode == "reference2video":
+                min_dur, max_dur = 0, 10
+            elif is_q2_pro and mode == "start-end2video":
+                min_dur, max_dur = 1, 8
+            elif is_q2_pro:
+                min_dur, max_dur = 1, 10
+            else:
+                min_dur, max_dur = 1, 10
+
+            if duration < min_dur:
+                duration = min_dur
+            if duration > max_dur:
+                duration = max_dur
 
             try:
                 seed = int(getattr(self, "vidu_seed", 0) or 0)
@@ -894,16 +1078,45 @@ class DoubaoVideoGenerator(Component):
                 "seed": seed,
                 "movement_amplitude": movement_amplitude,
                 "bgm": bgm,
-                "audio": generate_audio,
                 "off_peak": off_peak,
                 "watermark": watermark,
                 "wm_position": wm_position,
             }
-            if first_image:
-                extra_body["images"] = [first_image]
+
+            if mode == "reference2video":
+                # q2-pro non-subject reference2video: images(1-4 when videos exist) + videos(1-2)
+                # Use all provided images (first + references + last if any), but prioritize the first-image first.
+                ordered_images = _dedupe_keep_order([x for x in [first_image, *reference_images, last_image] if x])
+                if not ordered_images:
+                    return self._error("Vidu 参考生视频需要至少 1 张参考图。")
+                if is_q2_pro:
+                    ordered_images = ordered_images[:4]
+                extra_body["images"] = ordered_images
+                extra_body["videos"] = reference_videos[:2]
+            elif mode == "start-end2video":
+                if is_q3:
+                    # Safety: q3-pro does not support start-end; fall back to img2video.
+                    extra_body["images"] = [first_image] if first_image else []
+                else:
+                    if not last_image:
+                        return self._error("Vidu 首尾帧模式需要同时提供尾帧图片。")
+                    extra_body["images"] = [first_image, last_image]
                 extra_body["is_rec"] = bool(is_rec)
+                extra_body["audio"] = bool(generate_audio)
                 if voice_id and generate_audio:
                     extra_body["voice_id"] = voice_id
+            elif mode == "img2video":
+                if not first_image:
+                    return self._error("Vidu 图生视频需要上传 1 张首帧图片。")
+                extra_body["images"] = [first_image]
+                extra_body["is_rec"] = bool(is_rec)
+                extra_body["audio"] = bool(generate_audio)
+                if voice_id and generate_audio:
+                    extra_body["voice_id"] = voice_id
+            else:
+                # text2video
+                extra_body["audio"] = bool(generate_audio)
+
             if wm_url:
                 extra_body["wm_url"] = wm_url
             if payload:
@@ -1197,8 +1410,18 @@ class DoubaoVideoGenerator(Component):
         normalized = (url or "").strip()
         if not normalized:
             return False
-        path = normalized.split("?", 1)[0].split("#", 1)[0].lower()
-        return path.endswith(".mp4") or path.endswith(".mov")
+        lowered = normalized.lower()
+        if lowered.startswith("data:video/"):
+            return True
+        path = lowered.split("?", 1)[0].split("#", 1)[0]
+        # Some uploads are stored with a "masked" extension (e.g. ".mp_") even though the bytes are MP4.
+        return (
+            path.endswith(".mp4")
+            or path.endswith(".mov")
+            or path.endswith(".avi")
+            or path.endswith(".webm")
+            or path.endswith(".mp_")
+        )
 
     @staticmethod
     def _extract_file_path(value: Any) -> str | None:
@@ -1899,6 +2122,30 @@ class DoubaoVideoGenerator(Component):
 
         length = max(len(values), len(paths))
         entries: list[dict[str, Any]] = []
+
+        def _has_video_marker(value: Any) -> bool:
+            """Best-effort detection for video payloads flowing through Data/dicts."""
+            if value is None:
+                return False
+            if isinstance(value, Data):
+                return _has_video_marker(value.data)
+            if isinstance(value, dict):
+                direct = value.get("video_url")
+                if isinstance(direct, str) and direct.strip():
+                    return True
+                videos = value.get("videos")
+                if isinstance(videos, list) and videos:
+                    return True
+                preview = value.get("doubao_preview")
+                if isinstance(preview, dict) and str(preview.get("kind") or "").lower() == "video":
+                    return True
+                nested = value.get("value")
+                if isinstance(nested, dict) and _has_video_marker(nested):
+                    return True
+            if isinstance(value, str) and value.strip().lower().startswith("data:video/"):
+                return True
+            return False
+
         for idx in range(length):
             value_entry = values[idx] if idx < len(values) else None
             path_entry = paths[idx] if idx < len(paths) else None
@@ -1931,7 +2178,8 @@ class DoubaoVideoGenerator(Component):
                         if nested_role:
                             role = nested_role
 
-            entries.append({"url": url, "role": role})
+            kind = "video" if (self._is_video_url(url) or _has_video_marker(value_entry) or _has_video_marker(path_entry)) else "image"
+            entries.append({"url": url, "role": role, "kind": kind})
 
         return entries
 

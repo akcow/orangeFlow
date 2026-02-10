@@ -14,6 +14,7 @@ import { useAssetsStore } from "@/stores/assetsStore";
 import { api } from "@/controllers/API/api";
 import { getURL } from "@/controllers/API/helpers/constants";
 import { cn } from "@/utils/utils";
+import KlingElementsPanel from "./KlingElementsPanel";
 import {
     Select,
     SelectContent,
@@ -26,6 +27,8 @@ const DEFAULT_COVER_URL = new URL(
     "../../../../../assets/default-workflow-cover.svg", // Using same default cover or a specific one for assets if available
     import.meta.url,
 ).toString();
+
+const KLING_ELEMENTS_CATEGORY = "可灵主体库";
 
 function coverToUrl(cover: any, resolveAsset: (assetId: string) => string | null): string {
     if (!cover || typeof cover !== "object") return DEFAULT_COVER_URL;
@@ -94,7 +97,7 @@ export default function AssetsPanel({
         };
     }, [hydrate]);
 
-    const [activeTab, setActiveTab] = useState<"mine" | "public">("mine"); // Assets usually don't have "Recent" tab requirement in prompt, but let's keep it simple.
+    const [activeTab, setActiveTab] = useState<"mine" | "public" | "kling">("mine");
     const [view, setView] = useState<"list" | "create" | "edit">("list");
     const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -109,7 +112,7 @@ export default function AssetsPanel({
 
     // Compute all available categories from default + existing assets
     const allCategories = useMemo(() => {
-        const used = assets.map(a => a.category).filter(Boolean);
+        const used = assets.map(a => a.category).filter((c) => Boolean(c) && c !== KLING_ELEMENTS_CATEGORY);
         return Array.from(new Set([...DEFAULT_CATEGORIES, ...used]));
     }, [assets]);
 
@@ -148,12 +151,15 @@ export default function AssetsPanel({
         return () => { cancelled = true; };
     }, [assets.length, draft, formCover]);
 
-    const title = activeTab === "public" ? "公共资产" : "我的资产";
+    const title =
+      activeTab === "public" ? "公共资产" : activeTab === "kling" ? "可灵主体库" : "我的资产";
 
     const filtered = useMemo(() => {
         if (activeTab === "public") return []; // Not implemented
+        if (activeTab === "kling") return [];
         const q = search.trim().toLowerCase();
         return assets.filter((a) => {
+            if (a.category === KLING_ELEMENTS_CATEGORY) return false;
             if (!q) return true;
             const hay = [a.name, a.category, ...(a.tags ?? [])].map(v => v.toLowerCase()).join(" ");
             return hay.includes(q);
@@ -338,19 +344,35 @@ export default function AssetsPanel({
                 >
                     我的资产
                 </Button>
-                <div className="mt-4 px-2 text-xs text-muted-foreground">分类</div>
-                <div className="flex flex-wrap gap-1 p-1">
-                    {allCategories.map(c => (
-                        <Badge key={c} variant="outline" className="cursor-pointer hover:bg-muted" onClick={() => setSearch(c)}>
-                            {c}
-                        </Badge>
-                    ))}
-                </div>
+                <Button
+                    variant={activeTab === "kling" ? "secondary" : "ghost"}
+                    className="mb-1 w-full justify-start text-sm"
+                    onClick={() => { setActiveTab("kling"); setView("list"); setEditingId(null); }}
+                >
+                    可灵主体库
+                </Button>
+
+                {activeTab !== "kling" && (
+                  <>
+                    <div className="mt-4 px-2 text-xs text-muted-foreground">分类</div>
+                    <div className="flex flex-wrap gap-1 p-1">
+                        {allCategories.map(c => (
+                            <Badge key={c} variant="outline" className="cursor-pointer hover:bg-muted" onClick={() => setSearch(c)}>
+                                {c}
+                            </Badge>
+                        ))}
+                    </div>
+                  </>
+                )}
 
             </div>
 
             {/* Main Content */}
-            <div className="flex h-full flex-1 flex-col overflow-hidden p-4">
+            <div className={cn("flex h-full flex-1 flex-col overflow-hidden", activeTab === "kling" ? "p-0" : "p-4")}>
+                {activeTab === "kling" ? (
+                    <KlingElementsPanel onRequestClose={onRequestClose} />
+                ) : (
+                    <>
                 <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="text-lg font-semibold">{title}</div>
                     <div className="flex items-center gap-2">
@@ -488,6 +510,8 @@ export default function AssetsPanel({
                             </div>
                         )}
                     </div>
+                )}
+                    </>
                 )}
             </div>
         </div>

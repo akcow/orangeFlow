@@ -6,6 +6,8 @@ import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
 import { formatControlValue, type DoubaoControlConfig } from "./DoubaoParameterButton";
+import useFlowStore from "@/stores/flowStore";
+import { scapeJSONParse } from "@/utils/reactflowUtils";
 
 type Props = {
   data: NodeDataType;
@@ -90,15 +92,67 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     name: "vidu_audio",
   });
 
+  const edges = useFlowStore((state) => state.edges);
+  const nodes = useFlowStore((state) => state.nodes);
+
   const template: any = (data.node as any)?.template ?? {};
   const modelRaw = String(template?.model_name?.value ?? template?.model_name?.default ?? "")
     .trim()
     .toLowerCase();
   const isVidu = modelRaw.startsWith("vidu");
+
+  const getTargetFieldName = useMemo(() => {
+    return (edge: any) => {
+      const targetHandle =
+        edge.data?.targetHandle ?? (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      return targetHandle?.fieldName ?? targetHandle?.name;
+    };
+  }, []);
+
+  const hasFirstFrameEdge = useMemo(() => {
+    return edges.some((edge) => edge.target === data.id && getTargetFieldName(edge) === "first_frame_image");
+  }, [data.id, edges, getTargetFieldName]);
+
+  const hasLastFrameEdge = useMemo(() => {
+    return edges.some((edge) => edge.target === data.id && getTargetFieldName(edge) === "last_frame_image");
+  }, [data.id, edges, getTargetFieldName]);
+
+  const hasReferenceVideoEdge = useMemo(() => {
+    return edges.some((edge) => {
+      if (edge.target !== data.id) return false;
+      if (getTargetFieldName(edge) !== "first_frame_image") return false;
+      const edgeVideoReferType = edge.data?.videoReferType;
+      if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      return sourceNode?.data?.type === "DoubaoVideoGenerator";
+    });
+  }, [data.id, edges, getTargetFieldName, nodes]);
+
   const firstFrameField = template?.first_frame_image ?? null;
-  const hasFirstFrame = (() => {
+  const lastFrameField = template?.last_frame_image ?? null;
+
+  const hasFirstFrameValue = useMemo(() => {
     const values = firstFrameField?.value;
     const filePaths = firstFrameField?.file_path;
+    const anyNonEmpty = (v: any) => {
+      if (v === undefined || v === null) return false;
+      if (typeof v === "string") return v.trim().length > 0;
+      if (typeof v === "object") {
+        const maybeUrl = v?.url ?? v?.image_url ?? v?.video_url ?? v?.value;
+        if (typeof maybeUrl === "string" && maybeUrl.trim()) return true;
+      }
+      return false;
+    };
+    if (Array.isArray(values) && values.some(anyNonEmpty)) return true;
+    if (anyNonEmpty(values)) return true;
+    if (Array.isArray(filePaths) && filePaths.some(anyNonEmpty)) return true;
+    if (anyNonEmpty(filePaths)) return true;
+    return false;
+  }, [firstFrameField]);
+
+  const hasLastFrameValue = useMemo(() => {
+    const values = lastFrameField?.value;
+    const filePaths = lastFrameField?.file_path;
     const anyNonEmpty = (v: any) => {
       if (v === undefined || v === null) return false;
       if (typeof v === "string") return v.trim().length > 0;
@@ -113,20 +167,74 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     if (Array.isArray(filePaths) && filePaths.some(anyNonEmpty)) return true;
     if (anyNonEmpty(filePaths)) return true;
     return false;
-  })();
+  }, [lastFrameField]);
+
+  const hasVideoInFirstFrameValue = useMemo(() => {
+    const candidates: any[] = [];
+    if (Array.isArray(firstFrameField?.file_path)) candidates.push(...firstFrameField.file_path);
+    else if (firstFrameField?.file_path) candidates.push(firstFrameField.file_path);
+    if (Array.isArray(firstFrameField?.value)) candidates.push(...firstFrameField.value);
+    else if (firstFrameField?.value) candidates.push(firstFrameField.value);
+
+    const looksLikeVideo = (raw: any): boolean => {
+      if (!raw) return false;
+      if (typeof raw === "string") {
+        const s = raw.trim().toLowerCase();
+        if (s.startsWith("data:video/")) return true;
+        const path = s.split("?", 1)[0].split("#", 1)[0];
+        return (
+          path.endsWith(".mp4") ||
+          path.endsWith(".mov") ||
+          path.endsWith(".avi") ||
+          path.endsWith(".webm") ||
+          path.endsWith(".mp_")
+        );
+      }
+      if (typeof raw === "object") {
+        const nested = (raw as any).video_url ?? (raw as any).url ?? (raw as any).file_path ?? (raw as any).path ?? (raw as any).value;
+        return looksLikeVideo(nested);
+      }
+      return false;
+    };
+
+    return candidates.some(looksLikeVideo);
+  }, [firstFrameField]);
+
+  const hasFirstFrameAny = hasFirstFrameValue || hasFirstFrameEdge;
+  const hasLastFrameAny = hasLastFrameValue || hasLastFrameEdge;
+  const hasReferenceVideoAny = hasVideoInFirstFrameValue || hasReferenceVideoEdge;
+  const isText2VideoMode = Boolean(isVidu && !hasFirstFrameAny && !hasLastFrameAny && !hasReferenceVideoAny);
+  const shouldLockAspectToAdaptive = Boolean(isVidu && (hasFirstFrameAny || hasLastFrameAny) && !hasReferenceVideoAny);
   const viduIsRecField = template?.vidu_is_rec ?? null;
   const viduAudioField = template?.vidu_audio ?? null;
   const viduIsRecValue = Boolean(viduIsRecField?.value ?? viduIsRecField?.default ?? false);
   const viduAudioValue = Boolean(viduAudioField?.value ?? viduAudioField?.default ?? true);
 
-  const aspectRatio = useMemo(() => buildOptionSets(aspectRatioConfig), [aspectRatioConfig]);
+  const aspectRatio = useMemo(() => {
+    const base = buildOptionSets(aspectRatioConfig);
+    if (!isVidu) return base;
+
+    if (shouldLockAspectToAdaptive) {
+      const visible = ["adaptive"];
+      return { visible, enabledSet: new Set(visible), disabledSet: new Set<string>() };
+    }
+
+    if (hasReferenceVideoAny || isText2VideoMode) {
+      const visible = ["16:9", "9:16", "4:3", "3:4", "1:1"];
+      return { visible, enabledSet: new Set(visible), disabledSet: new Set<string>() };
+    }
+
+    return base;
+  }, [aspectRatioConfig, hasReferenceVideoAny, isText2VideoMode, isVidu, shouldLockAspectToAdaptive]);
   const resolution = useMemo(() => buildOptionSets(resolutionConfig), [resolutionConfig]);
   const duration = useMemo(() => buildOptionSets(durationConfig), [durationConfig]);
 
   // Keep values valid when constraints change (mirrors DoubaoParameterButton behavior).
   useEffect(() => {
     if (!aspectRatioConfig) return;
-    if (!aspectRatioConfig.disabledOptions?.length) return;
+    // For Vidu we may override the visible option-set based on mode (t2v/i2v/r2v),
+    // so keep the stored value valid even when disabledOptions is empty.
+    if (!aspectRatioConfig.disabledOptions?.length && !isVidu) return;
     if (!aspectRatio.visible.length) return;
     const stored = aspectRatioConfig.template?.value ?? aspectRatioConfig.value;
     const storedString = stored === undefined || stored === null ? "" : String(stored);
@@ -140,6 +248,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     aspectRatioConfig?.template?.value,
     aspectRatioConfig?.value,
     handleAspectRatioChange,
+    isVidu,
   ]);
 
   useEffect(() => {
@@ -195,7 +304,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   );
 
   const aspectRatioLabel =
-    isVidu && hasFirstFrame
+    shouldLockAspectToAdaptive
       ? "自适应"
       : aspectRatioConfig
         ? formatControlValue("aspect_ratio", effectiveAspectRatioValue)
@@ -252,8 +361,9 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   const currentDuration = Number(durationConfig?.value ?? durationConfig?.template?.value ?? "");
 
   const supportsAudioUi = showAudioToggle && enableAudioField;
-  const supportsViduRecUi = isVidu && hasFirstFrame && Boolean(viduIsRecField);
-  const supportsViduAudioUi = isVidu && Boolean(viduAudioField);
+  const supportsViduRecUi = Boolean(isVidu && shouldLockAspectToAdaptive && Boolean(viduIsRecField));
+  // Requirement: hide Vidu audio toggle in text2video mode.
+  const supportsViduAudioUi = Boolean(isVidu && !isText2VideoMode && Boolean(viduAudioField));
   const showAudioIcon = supportsAudioUi || supportsViduAudioUi;
   const audioIconEnabled = supportsAudioUi ? audioEnabled : viduAudioValue;
 
@@ -335,7 +445,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
               <div className="text-sm font-medium text-[#2E3150] dark:text-white/90">
                 比例
               </div>
-              {isVidu && hasFirstFrame ? (
+              {shouldLockAspectToAdaptive ? (
                 <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
                   <div className="flex gap-1">
                     <button

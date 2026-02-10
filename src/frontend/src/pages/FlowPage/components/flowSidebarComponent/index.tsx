@@ -17,6 +17,9 @@ import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import useAlertStore from "@/stores/alertStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { getNodeId } from "@/utils/reactflowUtils";
+import { useAddComponent } from "@/hooks/use-add-component";
+import { api } from "@/controllers/API/api";
+import { getURL } from "@/controllers/API/helpers/constants";
 import useFlowStore from "../../../../stores/flowStore";
 import { useTypesStore } from "../../../../stores/typesStore";
 import type { APIClassType } from "../../../../types/api";
@@ -72,6 +75,9 @@ interface FlowSidebarComponentProps {
 
 export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const data = useTypesStore((state) => state.data);
+  const templates = useTypesStore((state) => state.templates);
+  const setTypes = useTypesStore((state) => state.setTypes);
+  const addComponent = useAddComponent();
 
   const {
     getFilterEdge,
@@ -159,9 +165,8 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
+  const [advancedEditorOpen, setAdvancedEditorOpen] = useState(false);
   const [pendingCreateGroupId, setPendingCreateGroupId] = useState<string | null>(null);
-
-  const templates = useTypesStore((state) => state.templates);
   const nodes = useFlowStore((state) => state.nodes);
   const setNodes = useFlowStore((state) => state.setNodes);
   const reactFlowInstance = useFlowStore((state) => state.reactFlowInstance);
@@ -340,6 +345,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
       setComponentsOpen(false);
       setHistoryOpen(false);
       setAssetsOpen(false);
+      setAdvancedEditorOpen(false);
     };
     window.addEventListener("lf:open-workflows-panel", handler as any);
     return () => window.removeEventListener("lf:open-workflows-panel", handler as any);
@@ -351,6 +357,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
       setWorkflowsOpen(false);
       setComponentsOpen(false);
       setHistoryOpen(false);
+      setAdvancedEditorOpen(false);
     };
     window.addEventListener("lf:open-assets-panel", handler as any);
     return () => window.removeEventListener("lf:open-assets-panel", handler as any);
@@ -359,6 +366,50 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const handleAddNote = useCallback(() => {
     window.dispatchEvent(new Event("lf:start-add-note"));
   }, []);
+
+  const handleAddProCamera = useCallback(() => {
+    const tryAdd = (t: any) => {
+      const component = t?.ProCamera as APIClassType | undefined;
+      if (!component) return false;
+      addComponent(component, "ProCamera");
+      setAdvancedEditorOpen(false);
+      return true;
+    };
+
+    // Fast path: already in store.
+    if (tryAdd(templates as any)) return;
+
+    // Slow path: force-refresh types once, then retry.
+    api
+      .get(`${getURL("ALL")}?force_refresh=true`)
+      .then((res) => {
+        if (res?.data) setTypes(res.data);
+        const refreshedTemplates = useTypesStore.getState().templates as any;
+        if (tryAdd(refreshedTemplates)) return;
+        setErrorData({
+          title: "组件未加载",
+          list: ["未找到「专业摄像机」组件模板，请重启服务并刷新页面后重试。"],
+        });
+      })
+      .catch(() => {
+        setErrorData({
+          title: "组件未加载",
+          list: ["拉取组件模板失败，请检查服务是否正常运行。"],
+        });
+      });
+  }, [addComponent, setAdvancedEditorOpen, setErrorData, setTypes, templates]);
+
+  const advancedEditorItems = useMemo(
+    () => [
+      {
+        key: "pro-camera",
+        label: "专业摄像机",
+        icon: "Camera",
+        onClick: handleAddProCamera,
+      },
+    ],
+    [handleAddProCamera],
+  );
 
   return (
     <div className="noflow select-none pointer-events-none">
@@ -371,6 +422,8 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
               if (open) {
                 setHistoryOpen(false);
                 setAssetsOpen(false);
+                setWorkflowsOpen(false);
+                setAdvancedEditorOpen(false);
               }
             }}
           >
@@ -518,6 +571,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                 setComponentsOpen(false);
                 setAssetsOpen(false);
                 setWorkflowsOpen(false);
+                setAdvancedEditorOpen(false);
               }
             }}
           >
@@ -552,6 +606,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                 setComponentsOpen(false);
                 setHistoryOpen(false);
                 setWorkflowsOpen(false);
+                setAdvancedEditorOpen(false);
               }
             }}
           >
@@ -568,14 +623,14 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                 </Button>
               </PopoverTrigger>
             </ShadTooltip>
-            <PopoverContent
-              align="center"
-              side="right"
-              sideOffset={8}
-              className="h-[75vh] w-[800px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
-            >
-              <AssetsPanel onRequestClose={() => setAssetsOpen(false)} />
-            </PopoverContent>
+              <PopoverContent
+                align="center"
+                side="right"
+                sideOffset={8}
+                className="h-[75vh] w-[800px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+              >
+                <AssetsPanel onRequestClose={() => setAssetsOpen(false)} />
+              </PopoverContent>
           </Popover>
 
           <Popover
@@ -586,6 +641,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                 setComponentsOpen(false);
                 setHistoryOpen(false);
                 setAssetsOpen(false);
+                setAdvancedEditorOpen(false);
               }
             }}
           >
@@ -628,6 +684,69 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
               <ForwardedIconComponent name="sticky-note" className="h-6 w-6" />
             </Button>
           </ShadTooltip>
+
+          <Popover
+            open={advancedEditorOpen}
+            onOpenChange={(open) => {
+              setAdvancedEditorOpen(open);
+              if (open) {
+                setComponentsOpen(false);
+                setHistoryOpen(false);
+                setAssetsOpen(false);
+                setWorkflowsOpen(false);
+              }
+            }}
+          >
+            <ShadTooltip content={t("Advanced Editor")} side="right">
+              <PopoverTrigger asChild>
+                <Button
+                  variant={advancedEditorOpen ? "secondary" : "ghost"}
+                  size="iconMd"
+                  className="h-12 w-12 rounded-full p-0"
+                  aria-label={t("Advanced Editor")}
+                  data-testid="flow-toolbar-advanced-editor"
+                >
+                  <ForwardedIconComponent name="FileSliders" className="h-6 w-6" />
+                </Button>
+              </PopoverTrigger>
+            </ShadTooltip>
+            <PopoverContent
+              align="center"
+              side="right"
+              sideOffset={8}
+              className="flex w-[420px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0"
+            >
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <span>{t("Advanced Editor")}</span>
+                </div>
+              </div>
+              <Separator />
+              <div className="flex flex-col gap-2 p-3">
+                {advancedEditorItems.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="group flex w-full items-center gap-4 rounded-xl bg-muted px-4 py-2.5 text-foreground hover:bg-secondary-hover/75"
+                    onClick={item.onClick}
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background/60 ring-1 ring-border/60">
+                      <ForwardedIconComponent name={item.icon} className="h-5 w-5" />
+                    </div>
+                    <div className="flex flex-1 items-center overflow-hidden">
+                      <span className="truncate text-base font-normal">
+                        {item.label}
+                      </span>
+                    </div>
+                    <ForwardedIconComponent
+                      name="ChevronRight"
+                      className="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5"
+                    />
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
     </div>

@@ -47,17 +47,48 @@ function ApiInterceptor() {
       request: (url, config) => {
         const accessToken = customGetAccessToken();
 
+        // `fetch(url)` can be called without a config object; guard against undefined
+        // (otherwise accessing `config.headers` throws and breaks unrelated features).
+        const nextConfig: any = config ?? {};
+
+        // Avoid injecting headers into blob/data URL fetches (can be unsupported and is unnecessary).
+        const urlStr = String(url ?? "");
+        if (/^(blob:|data:)/i.test(urlStr)) {
+          return [url, nextConfig];
+        }
+
+        const normalizeHeaders = (headers: any): Record<string, any> => {
+          if (!headers) return {};
+          try {
+            if (typeof Headers !== "undefined" && headers instanceof Headers) {
+              const obj: Record<string, any> = {};
+              headers.forEach((value, key) => {
+                obj[key] = value;
+              });
+              return obj;
+            }
+          } catch {
+            // ignore
+          }
+          if (Array.isArray(headers)) {
+            return Object.fromEntries(headers);
+          }
+          if (typeof headers === "object") return headers as Record<string, any>;
+          return {};
+        };
+        nextConfig.headers = normalizeHeaders(nextConfig.headers);
+
         if (!isExternalURL(url)) {
-          if (accessToken && !isAuthorizedURL(config?.url)) {
-            config.headers["Authorization"] = `Bearer ${accessToken}`;
+          if (accessToken && !isAuthorizedURL(nextConfig?.url)) {
+            nextConfig.headers["Authorization"] = `Bearer ${accessToken}`;
           }
 
           for (const [key, value] of Object.entries(customHeaders)) {
-            config.headers[key] = value;
+            nextConfig.headers[key] = value;
           }
         }
 
-        return [url, config];
+        return [url, nextConfig];
       },
     });
 

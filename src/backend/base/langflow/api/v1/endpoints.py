@@ -84,7 +84,7 @@ async def parse_input_request_from_body(http_request: Request) -> SimplifiedAPIR
 
 
 @router.get("/all", dependencies=[Depends(get_current_active_user)])
-async def get_all():
+async def get_all(force_refresh: bool = False):
     """Retrieve all component types with compression for better performance.
 
     Returns a compressed response containing all available component types.
@@ -92,6 +92,12 @@ async def get_all():
     from langflow.interface.components import get_and_cache_all_types_dict
 
     try:
+        if force_refresh:
+            # Frontend passes `force_refresh=true` to pick up new/updated components without restart.
+            # Clear the in-process cache so the next call rebuilds (from index or dynamic loader).
+            from langflow.interface.components import component_cache
+
+            component_cache.all_types_dict = None
         all_types = await get_and_cache_all_types_dict(settings_service=get_settings_service())
         # Return compressed response using our utility function
         return compress_response(all_types)

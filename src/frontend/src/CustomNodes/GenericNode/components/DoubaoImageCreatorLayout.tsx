@@ -62,6 +62,8 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_constants";
+import KlingElementPickerButton from "@/components/kling/KlingElementPickerButton";
+import type { KlingElement } from "@/stores/klingElementsStore";
 
 const CONTROL_FIELDS = [
   // Requirement: model selector button width -100px.
@@ -237,6 +239,16 @@ export default function DoubaoImageCreatorLayout({
   const isGeminiImageModel = isNanoBanana || isNanoBananaPro;
   const isSeedreamImageModel = selectedModelName.toLowerCase().includes("seedream");
   const isKlingImageModel = selectedModelName.toLowerCase().includes("kling");
+  const klingElementIdsValue = String(template.kling_element_ids?.value ?? "").trim();
+  const selectedKlingElementIds = useMemo(() => {
+    const raw = String(klingElementIdsValue || "");
+    const hits = raw.match(/\d+/g) ?? [];
+    const ids = hits
+      .map((x) => Number(x))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return Array.from(new Set(ids));
+  }, [klingElementIdsValue]);
+  const klingElementApplied = isKlingImageModel && selectedKlingElementIds.length > 0;
   const supportsGeminiFeatureButtons = isNanoBananaPro;
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
@@ -363,6 +375,65 @@ export default function DoubaoImageCreatorLayout({
   const { validateFileSize } = useFileSizeValidator();
 
   const [isRunHovering, setRunHovering] = useState(false);
+
+  const stripElementTokens = useCallback((prompt: string) => {
+    let next = String(prompt ?? "");
+    // Prefer removing token-only lines first (keeps user text intact).
+    next = next.replace(/^\s*<<<element_\d+>>>\s*$(\r?\n)?/gim, "");
+    // Safety: remove any remaining inline tokens.
+    next = next.replace(/<<<element_\d+>>>/g, "");
+    // Trim leading blank lines introduced by removals.
+    next = next.replace(/^\s*\r?\n/g, "");
+    return next;
+  }, []);
+
+  const applyKlingElements = useCallback(
+    (elements: KlingElement[], options?: { skipSnapshot?: boolean }) => {
+      if (!isKlingImageModel) return;
+      if (!options?.skipSnapshot) takeSnapshot();
+      setNodes((currentNodes) =>
+        (currentNodes ?? []).map((node) => {
+          if (node.id !== data.id) return node;
+          const nodeData: any = (node as any).data ?? {};
+          const nodeClass: any = nodeData.node;
+          if (!nodeClass) return node;
+
+          const templateRaw: any = nodeClass.template ?? {};
+          const nextTemplate: any = { ...templateRaw };
+
+          const patchValue = (fieldName: string, value: any) => {
+            const field = nextTemplate?.[fieldName];
+            if (!field || typeof field !== "object") return;
+            nextTemplate[fieldName] = { ...field, value };
+          };
+
+          const currentPrompt = String(nextTemplate[PROMPT_NAME]?.value ?? "");
+          const cleaned = stripElementTokens(currentPrompt);
+
+          const ids = (elements ?? []).map((el) => el.element_id).filter((x) => typeof x === "number");
+          const idsValue = ids.join(",");
+          const tokens = ids.map((_id, idx) => `<<<element_${idx + 1}>>>`).join("\n");
+          const nextPrompt = tokens
+            ? cleaned.trim().length
+              ? `${tokens}\n${cleaned.trimStart()}`
+              : tokens
+            : cleaned;
+
+          patchValue("kling_element_ids", idsValue);
+          patchValue(PROMPT_NAME, nextPrompt);
+
+          return {
+            ...node,
+            data: {
+              ...nodeData,
+              node: { ...nodeClass, template: nextTemplate },
+            },
+          };
+        }),
+      );
+    },
+    [data.id, isKlingImageModel, setNodes, stripElementTokens, takeSnapshot],
+  );
   const [quickAddMenu, setQuickAddMenu] = useState<{
     x: number;
     y: number;
@@ -2413,14 +2484,16 @@ export default function DoubaoImageCreatorLayout({
           >
           <div className="space-y-3">
             <div
-              className={cn(
-                "rounded-[12px] p-3",
-                "[&_.primary-input]:bg-transparent",
-                "[&_.primary-input]:text-[#1C202D]",
-                "[&_.primary-input]:text-sm",
-                "[&_.primary-input]:placeholder:text-[#9CA3C0]",
-                "[&_.text-muted-foreground]:text-[#8D92A8]",
-                "dark:[&_.primary-input]:text-white",
+                className={cn(
+                  "rounded-[12px] p-3",
+                  klingElementApplied
+                    ? "[&_.primary-input]:bg-[#FFF7D6] dark:[&_.primary-input]:bg-amber-500/15"
+                    : "[&_.primary-input]:bg-transparent",
+                  "[&_.primary-input]:text-[#1C202D]",
+                  "[&_.primary-input]:text-sm",
+                  "[&_.primary-input]:placeholder:text-[#9CA3C0]",
+                  "[&_.text-muted-foreground]:text-[#8D92A8]",
+                  "dark:[&_.primary-input]:text-white",
                 "dark:[&_.primary-input]:placeholder:text-slate-400",
                 "dark:[&_.text-muted-foreground]:text-slate-400",
               )}
@@ -2513,28 +2586,38 @@ export default function DoubaoImageCreatorLayout({
                 </>
               )}
 
-              <button
-                type="button"
-                disabled={disableRun}
-                className={cn(
-                  "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
-                  "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
-                  disableRun
-                    ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
-                    : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+              <div className="ml-auto flex items-center gap-3">
+                {isKlingImageModel && (
+                  <KlingElementPickerButton
+                    disabled={isBusy}
+                    selectedElementIds={selectedKlingElementIds}
+                    onPick={applyKlingElements}
+                  />
                 )}
-                onClick={handleRun}
-                onMouseEnter={() => setRunHovering(true)}
-                onMouseLeave={() => setRunHovering(false)}
-              >
-                <ForwardedIconComponent
-                  name={runIconName}
+
+                <button
+                  type="button"
+                  disabled={disableRun}
                   className={cn(
-                    "h-4 w-4",
-                    runIconName === "Loader2" && "animate-spin",
+                    "flex h-11 w-11 items-center justify-center rounded-full text-white",
+                    "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                    disableRun
+                      ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                      : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
                   )}
-                />
-              </button>
+                  onClick={handleRun}
+                  onMouseEnter={() => setRunHovering(true)}
+                  onMouseLeave={() => setRunHovering(false)}
+                >
+                  <ForwardedIconComponent
+                    name={runIconName}
+                    className={cn(
+                      "h-4 w-4",
+                      runIconName === "Loader2" && "animate-spin",
+                    )}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 

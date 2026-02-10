@@ -79,6 +79,7 @@ import DoubaoImageCreatorMoreActionsMenu from "./components/doubao-image-creator
 import DoubaoVideoGeneratorMoreActionsMenu from "./components/doubao-video-generator-more-actions-menu";
 import DoubaoAudioMoreActionsMenu from "./components/doubao-audio-more-actions-menu";
 import TextCreationMoreActionsMenu from "./components/text-creation-more-actions-menu";
+import ProCameraMoreActionsMenu from "./components/pro-camera-more-actions-menu";
 import HelperLines from "./components/helper-lines";
 import CanvasMiniMap from "@/components/core/canvasMiniMapComponent/CanvasMiniMap";
 import CanvasAssistantDrawer from "@/components/core/canvasAssistantComponent/CanvasAssistantDrawer";
@@ -821,6 +822,11 @@ export default function Page({
     x: number;
     y: number;
   } | null>(null);
+  const [proCameraMoreActionsMenu, setProCameraMoreActionsMenu] = useState<{
+    nodeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const onSelectionEnd = useCallback(() => {
     if (marqueeSelectingRef.current) {
@@ -857,6 +863,7 @@ export default function Page({
       setVideoGeneratorMoreActionsMenu(null);
       setAudioCreatorMoreActionsMenu(null);
       setTextCreationMoreActionsMenu(null);
+      setProCameraMoreActionsMenu(null);
       if (
         flow.nodes &&
         (flow.nodes.length === 0 || flow.nodes.length > 1)
@@ -870,6 +877,7 @@ export default function Page({
       setVideoGeneratorMoreActionsMenu,
       setAudioCreatorMoreActionsMenu,
       setTextCreationMoreActionsMenu,
+      setProCameraMoreActionsMenu,
     ],
   );
 
@@ -893,6 +901,7 @@ export default function Page({
         setVideoGeneratorMoreActionsMenu(null);
         setAudioCreatorMoreActionsMenu(null);
         setTextCreationMoreActionsMenu(null);
+        setProCameraMoreActionsMenu(null);
         return;
       }
 
@@ -911,6 +920,7 @@ export default function Page({
         setImageCreatorMoreActionsMenu(null);
         setAudioCreatorMoreActionsMenu(null);
         setTextCreationMoreActionsMenu(null);
+        setProCameraMoreActionsMenu(null);
         return;
       }
 
@@ -928,6 +938,7 @@ export default function Page({
         setImageCreatorMoreActionsMenu(null);
         setVideoGeneratorMoreActionsMenu(null);
         setTextCreationMoreActionsMenu(null);
+        setProCameraMoreActionsMenu(null);
         return;
       }
 
@@ -942,6 +953,22 @@ export default function Page({
         setImageCreatorMoreActionsMenu(null);
         setVideoGeneratorMoreActionsMenu(null);
         setAudioCreatorMoreActionsMenu(null);
+        setProCameraMoreActionsMenu(null);
+        return;
+      }
+
+      // Pro camera: cursor-anchored menu behavior (Delete/etc).
+      if (node.type === "genericNode" && node.data?.type === "ProCamera") {
+        setRightClickedNodeId(null);
+        setProCameraMoreActionsMenu({
+          nodeId: node.id,
+          x: event.clientX,
+          y: event.clientY,
+        });
+        setImageCreatorMoreActionsMenu(null);
+        setVideoGeneratorMoreActionsMenu(null);
+        setAudioCreatorMoreActionsMenu(null);
+        setTextCreationMoreActionsMenu(null);
         return;
       }
 
@@ -949,6 +976,7 @@ export default function Page({
       setVideoGeneratorMoreActionsMenu(null);
       setAudioCreatorMoreActionsMenu(null);
       setTextCreationMoreActionsMenu(null);
+      setProCameraMoreActionsMenu(null);
 
       // Set the right-clicked node ID to show its dropdown menu
       setRightClickedNodeId(node.id);
@@ -969,6 +997,7 @@ export default function Page({
       setVideoGeneratorMoreActionsMenu,
       setAudioCreatorMoreActionsMenu,
       setTextCreationMoreActionsMenu,
+      setProCameraMoreActionsMenu,
     ],
   );
 
@@ -982,6 +1011,7 @@ export default function Page({
       setVideoGeneratorMoreActionsMenu(null);
       setAudioCreatorMoreActionsMenu(null);
       setTextCreationMoreActionsMenu(null);
+      setProCameraMoreActionsMenu(null);
       if (isAddingNote) {
         const shadowBox = document.getElementById("shadow-box");
         if (shadowBox) {
@@ -1174,6 +1204,20 @@ export default function Page({
                 }}
                 onOpenChange={(open) => {
                   if (!open) setTextCreationMoreActionsMenu(null);
+                }}
+              />
+            )}
+            {proCameraMoreActionsMenu && (
+              <ProCameraMoreActionsMenu
+                key={`${proCameraMoreActionsMenu.nodeId}:${proCameraMoreActionsMenu.x}:${proCameraMoreActionsMenu.y}`}
+                open={true}
+                nodeId={proCameraMoreActionsMenu.nodeId}
+                position={{
+                  x: proCameraMoreActionsMenu.x,
+                  y: proCameraMoreActionsMenu.y,
+                }}
+                onOpenChange={(open) => {
+                  if (!open) setProCameraMoreActionsMenu(null);
                 }}
               />
             )}

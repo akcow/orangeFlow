@@ -35,6 +35,7 @@ export const URLs = {
   COMMUNITY: "community",
   ASSETS_LIBRARY: "library/assets",
   WORKFLOWS_LIBRARY: "library/workflows",
+  KLING_ELEMENTS: "library/kling-elements",
 } as const;
 
 // IMPORTANT: FOLDERS endpoint now points to 'projects' for backward compatibility

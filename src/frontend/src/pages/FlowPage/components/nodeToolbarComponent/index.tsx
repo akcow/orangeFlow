@@ -333,9 +333,10 @@ const NodeToolbarComponent = memo(
             break;
           case "saveAsAsset": {
             const nodeData = cloneDeep(data);
-            useAssetsStore.getState().startDraftFromNode(nodeData).then(() => {
-              window.dispatchEvent(new Event("lf:open-assets-panel"));
-            });
+            // Open the assets panel immediately so the user can see progress/errors
+            // while we package referenced files in the background.
+            window.dispatchEvent(new Event("lf:open-assets-panel"));
+            void useAssetsStore.getState().startDraftFromNode(nodeData);
             break;
           }
           case "freezeAll":

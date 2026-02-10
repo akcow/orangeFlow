@@ -1108,6 +1108,44 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         };
       }
 
+      // ProCamera output is a style prompt (text). If it gets dropped onto the video generator's
+      // image "+" bubble, route it to the text prompt input (same behavior as TextCreation).
+      if (
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        (targetFieldName === IMAGE_ROLE_FIELD ||
+          targetFieldName === "last_frame_image") &&
+        resolvedSourceType === "ProCamera"
+      ) {
+        const promptField = targetNode?.data?.node?.template?.["prompt"];
+        if (!promptField) {
+          setErrorData({
+            title: "Unsupported connection",
+            list: [
+              "ProCamera output cannot connect to first/last frame image inputs. Please connect it to the video prompt input.",
+            ],
+          });
+          return oldEdges;
+        }
+
+        const inputTypes =
+          promptField.input_types && promptField.input_types.length > 0
+            ? promptField.input_types
+            : ["Message", "Data", "Text"];
+        const resolvedType = promptField.type ?? "data";
+        targetHandle = {
+          inputTypes,
+          type: resolvedType,
+          id: connection.target,
+          fieldName: "prompt",
+          ...(promptField.proxy ? { proxy: promptField.proxy } : {}),
+        };
+        targetFieldName = "prompt";
+        normalizedConnection = {
+          ...normalizedConnection,
+          targetHandle: scapedJSONStringfy(targetHandle),
+        };
+      }
+
       const modelName = getDoubaoVideoModelName(targetNode);
       const isTargetKling = modelName.toLowerCase().startsWith("kling");
 
@@ -1369,7 +1407,11 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     const currentFlow = useFlowsManagerStore.getState().currentFlow;
     const setErrorData = useAlertStore.getState().setErrorData;
 
-    const edges = get().edges;
+    // Tool-only edges (e.g. crop/outpaint) are used for visual lineage in the canvas UI,
+    // but they should not affect actual flow execution.
+    const edges = (get().edges ?? []).filter(
+      (edge: any) => !(edge?.data && (edge.data as any).cropLink),
+    );
     let errors: string[] = [];
 
     // Only validate upstream nodes/edges if startNodeId is provided
@@ -1523,6 +1565,21 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       }
     }
 
+    // When sending a graph payload to the backend build endpoint, only include buildable nodes.
+    // Some canvas-only nodes (e.g. notes/annotations) don't have `data.node` and will crash
+    // graph creation on the backend with KeyError('node').
+    const buildNodes = (nodesToValidate as any[])?.filter(
+      (n) => Boolean(n?.data?.node),
+    );
+    const buildNodeIds = new Set(
+      (buildNodes ?? []).map((n) => String((n as any).id)),
+    );
+    const buildEdges = (edgesToValidate as any[])?.filter(
+      (e) =>
+        buildNodeIds.has(String((e as any)?.source)) &&
+        buildNodeIds.has(String((e as any)?.target)),
+    );
+
     await buildFlowVerticesWithFallback({
       session,
       input_value,
@@ -1530,6 +1587,10 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       flowId: currentFlow!.id,
       startNodeId,
       stopNodeId,
+      // Always send the current canvas graph. This keeps builds consistent even before autosave
+      // flushes changes (e.g. tool-generated downstream nodes).
+      nodes: buildNodes as any,
+      edges: buildEdges as any,
       onGetOrderSuccess: () => {},
       onBuildComplete: (allNodesValid) => {
         if (!silent) {
@@ -1595,8 +1656,6 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         set({ edges: newEdges });
       },
       onValidateNodes: validateSubgraph,
-      nodes: get().nodes || undefined,
-      edges: get().edges || undefined,
       logBuilds: get().onFlowPage,
       playgroundPage,
       eventDelivery,

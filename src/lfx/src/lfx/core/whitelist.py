@@ -8,6 +8,7 @@ COMPONENT_WHITELIST = {
     "DoubaoVideoGenerator",
     "DoubaoImageCreator",
     "TextCreation",
+    "ProCamera",
     "UserUploadImage",
     "UserUploadVideo",
     "UserUploadAudio",
