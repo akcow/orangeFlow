@@ -23,6 +23,7 @@ export default function ShortcutsPage() {
       flex: 1,
       editable: false,
       resizable: false,
+      valueFormatter: ({ value }) => t(String(value ?? "")),
     }, //This column will be twice as wide as the others
     {
       headerName: t("Keyboard Shortcut"),

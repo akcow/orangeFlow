@@ -3,24 +3,14 @@ export const baseURL = "";
 
 export const customDefaultShortcuts = [
   {
-    display_name: "Controls",
+    display_name: "Advanced Settings",
     name: "Advanced Settings",
     shortcut: "mod+shift+a",
-  },
-  {
-    display_name: "Search Components on Sidebar",
-    name: "Search Components Sidebar",
-    shortcut: "/",
   },
   {
     display_name: "Minimize",
     name: "Minimize",
     shortcut: "mod+.",
-  },
-  {
-    display_name: "Code",
-    name: "Code",
-    shortcut: "space",
   },
   {
     display_name: "Copy",
@@ -43,7 +33,7 @@ export const customDefaultShortcuts = [
     shortcut: "mod+shift+d",
   },
   {
-    display_name: "Changes Save",
+    display_name: "Save Changes",
     name: "Changes Save",
     shortcut: "mod+s",
   },
@@ -56,11 +46,6 @@ export const customDefaultShortcuts = [
     display_name: "Delete",
     name: "Delete",
     shortcut: "backspace",
-  },
-  {
-    display_name: "Open Playground",
-    name: "Open Playground",
-    shortcut: "mod+k",
   },
   {
     display_name: "Undo",
@@ -93,11 +78,6 @@ export const customDefaultShortcuts = [
     shortcut: "mod+v",
   },
   {
-    display_name: "API",
-    name: "API",
-    shortcut: "r",
-  },
-  {
     display_name: "Download",
     name: "Download",
     shortcut: "mod+j",
@@ -108,12 +88,12 @@ export const customDefaultShortcuts = [
     shortcut: "mod+u",
   },
   {
-    display_name: "Freeze",
+    display_name: "Freeze Path",
     name: "Freeze Path",
     shortcut: "mod+shift+f",
   },
   {
-    display_name: "Flow Share",
+    display_name: "Share Flow",
     name: "Flow Share",
     shortcut: "mod+shift+b",
   },

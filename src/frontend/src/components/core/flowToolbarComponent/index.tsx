@@ -10,20 +10,13 @@ const FlowToolbar = memo(function FlowToolbar(): JSX.Element {
   const preventDefault = true;
   const [openApiModal, setOpenApiModal] = useState<boolean>(false);
   const [openExportModal, setOpenExportModal] = useState<boolean>(false);
-  const handleAPIWShortcut = (e: KeyboardEvent) => {
-    if (isThereModal() && !openApiModal) return;
-    setOpenApiModal((oldOpen) => !oldOpen);
-  };
-
   const handleShareWShortcut = (e: KeyboardEvent) => {
     if (isThereModal() && !openExportModal) return;
     setOpenExportModal((oldState) => !oldState);
   };
 
-  const api = useShortcutsStore((state) => state.api);
-  const flow = useShortcutsStore((state) => state.flow);
+  const flow = useShortcutsStore((state) => state.flowShare);
 
-  useHotkeys(api, handleAPIWShortcut, { preventDefault });
   useHotkeys(flow, handleShareWShortcut, { preventDefault });
 
   return (

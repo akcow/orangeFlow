@@ -5,14 +5,12 @@ import isWrappedWithClass from "../../PageComponent/utils/is-wrapped-with-class"
 export default function useShortcuts({
   showOverrideModal,
   showModalAdvanced,
-  openModal,
   showconfirmShare,
   FreezeAllVertices,
   downloadFunction,
   displayDocs,
   saveComponent,
   showAdvance,
-  handleCodeModal,
   shareComponent,
   ungroup,
   minimizeFunction,
@@ -21,14 +19,12 @@ export default function useShortcuts({
 }: {
   showOverrideModal?: boolean;
   showModalAdvanced?: boolean;
-  openModal?: boolean;
   showconfirmShare?: boolean;
   FreezeAllVertices?: () => void;
   downloadFunction?: () => void;
   displayDocs?: () => void;
   saveComponent?: () => void;
   showAdvance?: () => void;
-  handleCodeModal?: () => void;
   shareComponent?: () => void;
   ungroup?: () => void;
   minimizeFunction?: () => void;
@@ -40,7 +36,6 @@ export default function useShortcuts({
   const componentShare = useShortcutsStore((state) => state.componentShare);
   const save = useShortcutsStore((state) => state.saveComponent);
   const docs = useShortcutsStore((state) => state.docs);
-  const code = useShortcutsStore((state) => state.code);
   const group = useShortcutsStore((state) => state.group);
   const download = useShortcutsStore((state) => state.download);
   const freezeAll = useShortcutsStore((state) => state.freezePath);
@@ -81,13 +76,6 @@ export default function useShortcuts({
     showAdvance();
   }
 
-  function handleCodeWShortcut(e: KeyboardEvent) {
-    if ((isWrappedWithClass(e, "noflow") && !openModal) || !handleCodeModal)
-      return;
-    e.preventDefault();
-    handleCodeModal();
-  }
-
   function handleShareWShortcut(e: KeyboardEvent) {
     if (
       (isWrappedWithClass(e, "noflow") && !showconfirmShare) ||
@@ -120,7 +108,6 @@ export default function useShortcuts({
   useHotkeys(minimize, handleMinimizeWShortcut, { preventDefault: true });
   useHotkeys(group, handleGroupWShortcut, { preventDefault: true });
   useHotkeys(componentShare, handleShareWShortcut, { preventDefault: true });
-  useHotkeys(code, handleCodeWShortcut, { preventDefault: true });
   useHotkeys(advancedSettings, handleAdvancedWShortcut, {
     preventDefault: true,
   });

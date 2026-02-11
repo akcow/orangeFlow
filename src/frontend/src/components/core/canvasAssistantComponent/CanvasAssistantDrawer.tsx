@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { BASE_URL_API } from "@/constants/constants";
 import { api } from "@/controllers/API/api";
 import { STORYBOARD_SYSTEM_PROMPT } from "@/components/core/canvasAssistantComponent/prompts/storyboardSystemPrompt";
+import useSaveFlow from "@/hooks/flows/use-save-flow";
 import useAuthStore from "@/stores/authStore";
 import {
   useCanvasAssistantStore,
@@ -41,6 +42,41 @@ type AttachmentPayload = {
   mimeType: string;
   size: number;
   dataBase64: string;
+};
+
+type InspirationImage = {
+  id: string;
+  title?: string | null;
+  source_url: string;
+  source_page_url?: string | null;
+  domain?: string | null;
+  width?: number | null;
+  height?: number | null;
+  thumbnail_width?: number | null;
+  thumbnail_height?: number | null;
+  thumb_url: string;
+  full_url: string;
+  analysis?: Record<string, any> | null;
+};
+
+type InspirationFilmPayload = {
+  type: "inspiration_images";
+  mode: "film";
+  query: string;
+  count: number;
+  images: InspirationImage[];
+};
+
+type InspirationAnalyzeResponse = {
+  image_id: string;
+  analysis: Record<string, any>;
+};
+
+type InspirationApplyResponse = {
+  flow_id: string;
+  file_path: string;
+  original_name: string;
+  stored_name: string;
 };
 
 const MAX_FILES = 10;
@@ -84,6 +120,21 @@ const STORYBOARD_EXAMPLE_POOL: string[] = [
   "帮我把一句口播脚本拆成分镜：内容是“会员 7 天免费试用”，要求 10–12 镜头，结尾 CTA 明确，风格轻松幽默。",
   "做一支 50 秒微电影分镜：父子误会→和解，尽量少对白，用眼神和动作推进，镜头克制但有情绪爆点。",
   "请把这张参考图延展成 12 个关键镜头分镜（保持人物与环境连续性），总时长 15 秒，输出每镜头画面与相机信息。",
+];
+
+const INSPIRATION_FILM_EXAMPLE_POOL: string[] = [
+  "一个男人独自在海边行走，日落时分的电影感宽镜头，2.39:1，暖色调。",
+  "一个女人站在雨中的霓虹灯招牌下，忧郁的 noir 风格特写，浅景深。",
+  "空旷沙漠里一个人影走向地平线，Long Shot，强烈逆光剪影。",
+  "地铁车厢里两人擦肩而过，手持跟拍，Medium Shot，冷色荧光灯。",
+  "厨房里清晨第一束阳光照到杯子上的蒸汽，静物 Close Up，柔和散射光。",
+  "拥挤的夜市，镜头从人群缝隙推进到主角的眼神，Tele 视角，霓虹光。",
+  "森林薄雾中一束光穿过树梢，Wide Lens，Deep DoF，神秘氛围。",
+  "公路上车内视角，看见前方暴风雨逼近，车窗雨滴特写，紧张感。",
+  "老式旅馆走廊，顶灯闪烁，低机位推进，Suspense 电影感。",
+  "极简白墙前的孤独舞者，固定机位，慢慢推近，克制情绪。",
+  "雪夜街头一个人点烟，火光映亮脸部，Close Up，冷暖对比。",
+  "清晨海面，远处一艘小船，极简构图，Long Shot，宁静。",
 ];
 
 function pickRandomDistinct<T>(arr: T[], count: number): T[] {
@@ -173,6 +224,55 @@ function tryParseStoryboard(text: string): StoryboardJson | null {
   } catch {
     return null;
   }
+}
+
+function tryParseInspirationFilm(text: string): InspirationFilmPayload | null {
+  const raw = extractJsonCodeBlock(text);
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return null;
+    if ((obj as any).type !== "inspiration_images") return null;
+    if ((obj as any).mode !== "film") return null;
+
+    const images = Array.isArray((obj as any).images) ? (obj as any).images : [];
+    const normalized: InspirationFilmPayload = {
+      type: "inspiration_images",
+      mode: "film",
+      query: String((obj as any).query ?? "").trim(),
+      count: Number((obj as any).count ?? images.length) || images.length,
+      images: images
+        .map((it: any) => ({
+          id: String(it?.id ?? "").trim(),
+          title: it?.title != null ? String(it.title) : null,
+          source_url: String(it?.source_url ?? "").trim(),
+          source_page_url: it?.source_page_url != null ? String(it.source_page_url) : null,
+          domain: it?.domain != null ? String(it.domain) : null,
+          width: Number.isFinite(Number(it?.width)) ? Number(it.width) : null,
+          height: Number.isFinite(Number(it?.height)) ? Number(it.height) : null,
+          thumbnail_width: Number.isFinite(Number(it?.thumbnail_width)) ? Number(it.thumbnail_width) : null,
+          thumbnail_height: Number.isFinite(Number(it?.thumbnail_height)) ? Number(it.thumbnail_height) : null,
+          thumb_url: String(it?.thumb_url ?? "").trim(),
+          full_url: String(it?.full_url ?? "").trim(),
+          analysis: it?.analysis && typeof it.analysis === "object" ? (it.analysis as any) : null,
+        }))
+        .filter((it: any) => it.id && it.thumb_url && it.full_url),
+    };
+    if (!normalized.images.length) return null;
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+function aspectRatioTagFromDims(w?: number | null, h?: number | null): string | null {
+  const ww = Number(w);
+  const hh = Number(h);
+  if (!Number.isFinite(ww) || !Number.isFinite(hh) || ww <= 0 || hh <= 0) return null;
+  const ratio = ww / hh;
+  if (!Number.isFinite(ratio) || ratio <= 0) return null;
+  // Display as "<ratio>:1" (matches screenshot style like "2.39:1").
+  return `${ratio.toFixed(2)}:1`;
 }
 
 function ShotRow({ label, value }: { label: string; value: string | null | undefined }): JSX.Element | null {
@@ -463,6 +563,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
   const setCanvasNodes = useFlowStore((s) => s.setNodes);
   const buildFlow = useFlowStore((s) => s.buildFlow);
   const takeSnapshot = useFlowsManagerStore((s) => s.takeSnapshot);
+  const saveFlow = useSaveFlow();
 
   const username = useAuthStore((s) => s.userData?.username) ?? "朋友";
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -475,6 +576,16 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
   useEffect(() => {
     if (conversationMode !== "storyboard") return;
     setStoryboardExamplesSeed(Date.now());
+  }, [conversationMode]);
+
+  const [inspirationExamplesSeed, setInspirationExamplesSeed] = useState<number>(0);
+  const inspirationFilmExamples = useMemo(() => {
+    return pickRandomDistinct(INSPIRATION_FILM_EXAMPLE_POOL, 4);
+  }, [inspirationExamplesSeed]);
+
+  useEffect(() => {
+    if (conversationMode !== "inspiration_film") return;
+    setInspirationExamplesSeed(Date.now());
   }, [conversationMode]);
 
   const storyboardModelOptions = useMemo<string[]>(() => {
@@ -797,6 +908,14 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+
+  const [inspirationGalleryOpen, setInspirationGalleryOpen] = useState(false);
+  const [inspirationDetailOpen, setInspirationDetailOpen] = useState(false);
+  const [activeInspirationPayload, setActiveInspirationPayload] = useState<InspirationFilmPayload | null>(null);
+  const [activeInspirationIndex, setActiveInspirationIndex] = useState<number>(0);
+  const [inspirationAnalysisById, setInspirationAnalysisById] = useState<Record<string, Record<string, any>>>({});
+  const [inspirationAnalyzingById, setInspirationAnalyzingById] = useState<Record<string, boolean>>({});
+  const [inspirationApplyingById, setInspirationApplyingById] = useState<Record<string, boolean>>({});
   // Keep the portal mounted briefly after closing so the exit animation is visible.
   const [present, setPresent] = useState(open);
   const closeTimerRef = useRef<number | null>(null);
@@ -814,6 +933,34 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
     const t = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(t);
   }, [open]);
+
+  const authedFetchJson = useCallback(
+    async (url: string, init: RequestInit): Promise<any> => {
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+        ...(init?.headers ? (init.headers as any) : {}),
+      };
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+      if (!headers["Content-Type"] && init.method && init.method.toUpperCase() !== "GET") {
+        headers["Content-Type"] = "application/json";
+      }
+
+      const resp = await fetch(url, { ...init, headers });
+      if (!resp.ok) {
+        let detail = "";
+        try {
+          const data = await resp.json();
+          detail = String((data as any)?.detail ?? (data as any)?.message ?? "").trim();
+        } catch {
+          detail = (await resp.text().catch(() => "")).trim();
+        }
+        throw new Error(detail || `HTTP ${resp.status}`);
+      }
+      const data = (await resp.json()) as any;
+      return data;
+    },
+    [accessToken],
+  );
 
   useEffect(() => {
     return () => {
@@ -1003,6 +1150,166 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
     [activeFlowId, addPendingAttachments, pendingFiles],
   );
 
+  const activeInspirationImage = useMemo<InspirationImage | null>(() => {
+    const p = activeInspirationPayload;
+    if (!p) return null;
+    const idx = Math.max(0, Math.min(activeInspirationIndex, (p.images ?? []).length - 1));
+    return p.images?.[idx] ?? null;
+  }, [activeInspirationIndex, activeInspirationPayload]);
+
+  const openInspirationGallery = useCallback((payload: InspirationFilmPayload) => {
+    setActiveInspirationPayload(payload);
+    setActiveInspirationIndex(0);
+    setInspirationGalleryOpen(true);
+  }, []);
+
+  const openInspirationDetailAt = useCallback((index: number) => {
+    setActiveInspirationIndex(index);
+    setInspirationDetailOpen(true);
+  }, []);
+
+  const ensureInspirationAnalysis = useCallback(
+    async (image: InspirationImage) => {
+      const imageId = String(image?.id ?? "").trim();
+      if (!imageId) return;
+      if (inspirationAnalysisById[imageId]) return;
+      if (inspirationAnalyzingById[imageId]) return;
+
+      setInspirationAnalyzingById((prev) => ({ ...prev, [imageId]: true }));
+      try {
+        const resp = (await authedFetchJson(
+          `${BASE_URL_API}canvas-assistant/inspiration/analyze`,
+          { method: "POST", body: JSON.stringify({ image_id: imageId }) },
+        )) as InspirationAnalyzeResponse;
+        const analysis = (resp as any)?.analysis;
+        if (analysis && typeof analysis === "object") {
+          setInspirationAnalysisById((prev) => ({ ...prev, [imageId]: analysis as any }));
+        }
+      } catch (e: any) {
+        // Show in drawer error area; keep UI usable.
+        const detail = String(e?.response?.data?.detail ?? e?.message ?? "").trim() || "图片分析失败。";
+        setErrorText(detail);
+      } finally {
+        setInspirationAnalyzingById((prev) => {
+          const next = { ...prev };
+          delete next[imageId];
+          return next;
+        });
+      }
+    },
+    [authedFetchJson, inspirationAnalysisById, inspirationAnalyzingById],
+  );
+
+  useEffect(() => {
+    if (!inspirationDetailOpen) return;
+    if (!activeInspirationImage) return;
+    void ensureInspirationAnalysis(activeInspirationImage);
+  }, [activeInspirationImage, ensureInspirationAnalysis, inspirationDetailOpen]);
+
+  const applyInspirationImageToCanvas = useCallback(
+    async (image: InspirationImage) => {
+      const flowId = activeFlowId;
+      if (!flowId) {
+        setErrorText("未找到当前画布（Flow ID）。请刷新后重试。");
+        return;
+      }
+      const imageId = String(image?.id ?? "").trim();
+      if (!imageId) return;
+      if (inspirationApplyingById[imageId]) return;
+
+      const template = (templates as any)?.UserUploadImage;
+      if (!template) {
+        setErrorText("未加载到“上传图片（UserUploadImage）”模板。请等待组件列表加载完成后再试。");
+        return;
+      }
+
+      setErrorText(null);
+      setInspirationApplyingById((prev) => ({ ...prev, [imageId]: true }));
+      try {
+        // Ensure the flow exists in backend (required by file saving endpoints).
+        await saveFlow();
+
+        const resp = (await authedFetchJson(
+          `${BASE_URL_API}canvas-assistant/inspiration/apply/${flowId}`,
+          { method: "POST", body: JSON.stringify({ image_id: imageId }) },
+        )) as InspirationApplyResponse;
+        const serverPath = String((resp as any)?.file_path ?? "").trim();
+        const originalName = String((resp as any)?.original_name ?? "").trim() || "inspiration.jpg";
+        if (!serverPath) throw new Error("缺少 file_path");
+
+        // Determine next "用户上传X" index (same naming scheme as sidebar upload).
+        let max = 0;
+        for (const n of (canvasNodes as any[]) ?? []) {
+          const type = (n as any)?.data?.type;
+          if (type !== "UserUploadImage" && type !== "UserUploadVideo" && type !== "UserUploadAudio") continue;
+          const name = String((n as any)?.data?.node?.display_name ?? "");
+          const match = /^用户上传(\d+)$/.exec(name);
+          if (!match) continue;
+          const value = Number(match[1]);
+          if (Number.isFinite(value)) max = Math.max(max, value);
+        }
+        const nextIndex = max + 1;
+
+        takeSnapshot();
+
+        const seeded = cloneDeep(template);
+        seeded.display_name = `用户上传${nextIndex}`;
+        if (seeded.template?.file) {
+          seeded.template.file.value = originalName;
+          seeded.template.file.file_path = serverPath;
+        }
+
+        const newNodeId = getNodeId("UserUploadImage");
+        const { height, width, transform } = storeApi.getState();
+        const [transformX, transformY, zoomLevel] = transform;
+        const zoomMultiplier = 1 / zoomLevel;
+        const centerX = -transformX * zoomMultiplier + (width * zoomMultiplier) / 2;
+        const centerY = -transformY * zoomMultiplier + (height * zoomMultiplier) / 2;
+
+        const newNode: any = {
+          id: newNodeId,
+          type: "genericNode",
+          position: { x: centerX, y: centerY },
+          data: {
+            node: seeded,
+            showNode: !seeded.minimized,
+            type: "UserUploadImage",
+            id: newNodeId,
+          },
+          selected: true,
+        };
+
+        setCanvasNodes((current: any[]) => [
+          ...(current ?? []).map((n: any) => ({ ...n, selected: false })),
+          newNode,
+        ]);
+
+        setInspirationDetailOpen(false);
+        setInspirationGalleryOpen(false);
+      } catch (e: any) {
+        const detail = String(e?.response?.data?.detail ?? e?.message ?? "").trim() || "应用图片失败。";
+        setErrorText(detail);
+      } finally {
+        setInspirationApplyingById((prev) => {
+          const next = { ...prev };
+          delete next[imageId];
+          return next;
+        });
+      }
+    },
+    [
+      activeFlowId,
+      authedFetchJson,
+      canvasNodes,
+      inspirationApplyingById,
+      saveFlow,
+      setCanvasNodes,
+      storeApi,
+      takeSnapshot,
+      templates,
+    ],
+  );
+
   const send = useCallback(async () => {
     const flowId = activeFlowId;
     if (!flowId) {
@@ -1017,6 +1324,60 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
 
     setErrorText(null);
     setIsSending(true);
+
+    // Mode: Film inspiration (联网搜索 50 张图片)
+    if (conversationMode === "inspiration_film") {
+      if (hasFiles) {
+        setErrorText("电影镜头灵感暂不支持携带附件，请仅输入文字。");
+        setIsSending(false);
+        return;
+      }
+
+      const userMsg: CanvasAssistantMessage = {
+        id: nowId(),
+        role: "user",
+        content,
+        mode: conversationMode,
+        createdAt: Date.now(),
+      };
+
+      appendMessage(flowId, userMsg);
+      setDraft("");
+
+      const assistantId = nowId();
+      appendMessage(flowId, {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        mode: conversationMode,
+        createdAt: Date.now(),
+      });
+
+      try {
+        const payload = (await authedFetchJson(
+          `${BASE_URL_API}canvas-assistant/inspiration/search`,
+          { method: "POST", body: JSON.stringify({ query: content, count: 50, model: selectedModel }) },
+        )) as InspirationFilmPayload;
+
+        if (!payload || typeof payload !== "object" || (payload as any).type !== "inspiration_images") {
+          throw new Error("图片搜索返回为空或格式不正确。");
+        }
+        const text = `\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+        updateMessage(flowId, assistantId, (m) => ({ ...m, content: text }));
+
+        void maybeGenerateTitle(flowId, activeSessionId, content);
+      } catch (e: any) {
+        const detail =
+          String(e?.response?.data?.detail ?? e?.message ?? "").trim() ||
+          "请求失败，请稍后再试。";
+        updateMessage(flowId, assistantId, (m) => ({ ...m, content: `（${detail}）` }));
+        setErrorText(detail);
+      } finally {
+        clearPendingAttachments(flowId);
+        setIsSending(false);
+      }
+      return;
+    }
 
     const attachmentsMeta =
       pendingFiles.length > 0
@@ -1129,7 +1490,9 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
         }
         if (eventName === "message" && typeof obj?.chunk === "string" && obj.chunk) {
           assistantText += obj.chunk;
-          updateMessage(flowId, assistantId, (m) => ({ ...m, content: (m.content ?? "") + obj.chunk }));
+          if (assistantId) {
+            updateMessage(flowId, assistantId, (m) => ({ ...m, content: (m.content ?? "") + obj.chunk }));
+          }
           return;
         }
         if (eventName === "error") {
@@ -1183,6 +1546,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
     appendMessage,
     updateMessage,
     clearPendingAttachments,
+    authedFetchJson,
     conversationMode,
     draft,
     isSending,
@@ -1364,9 +1728,11 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                   {messages.map((m) => {
                     const isUser = m.role === "user";
                     const storyboard = !isUser ? tryParseStoryboard(m.content) : null;
+                    const inspirationFilm = !isUser ? tryParseInspirationFilm(m.content) : null;
                     const isPendingAssistant =
                       !isUser &&
                       !storyboard &&
+                      !inspirationFilm &&
                       !String(m.content ?? "").trim() &&
                       isSending &&
                       m.id === messages[messages.length - 1]?.id;
@@ -1375,7 +1741,9 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                         <div
                           className={cn(
                             "rounded-2xl text-sm break-words",
-                            storyboard ? "w-[90%] px-2 py-2" : "max-w-[90%] px-3 py-2 whitespace-pre-wrap",
+                            storyboard || inspirationFilm
+                              ? "w-[90%] px-2 py-2"
+                              : "max-w-[90%] px-3 py-2 whitespace-pre-wrap",
                             isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
                           )}
                         >
@@ -1586,6 +1954,73 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                                 </Button>
                               </div>
                             </div>
+                          ) : inspirationFilm ? (
+                            <div className="min-w-0">
+                              <div className="px-1 text-xs text-muted-foreground">
+                                已为你联网搜索 {inspirationFilm.images.length} 张图片，点击查看详情并应用到画布。
+                              </div>
+
+                              <div className="mt-2 grid grid-cols-3 gap-2 px-1">
+                                {inspirationFilm.images.slice(0, 9).map((img, idx) => {
+                                  const cachedAnalysis =
+                                    inspirationAnalysisById[img.id] ??
+                                    (img.analysis && typeof img.analysis === "object" ? img.analysis : null);
+                                  const tags: string[] = [];
+                                  const ratio = aspectRatioTagFromDims(img.width, img.height);
+                                  if (ratio) tags.push(ratio);
+                                  const angle = String((cachedAnalysis as any)?.camera_angle ?? "").trim();
+                                  const light = String((cachedAnalysis as any)?.lighting_type ?? "").trim();
+                                  if (angle) tags.push(angle);
+                                  if (light) tags.push(light);
+
+                                  return (
+                                    <button
+                                      key={img.id}
+                                      type="button"
+                                      className={cn(
+                                        "group relative aspect-[3/2] overflow-hidden rounded-xl border bg-background/40 text-left",
+                                        "focus:outline-none focus:ring-2 focus:ring-ring",
+                                      )}
+                                      title={img.title ?? "查看图片详情"}
+                                      onClick={() => {
+                                        setActiveInspirationPayload(inspirationFilm);
+                                        openInspirationDetailAt(idx);
+                                      }}
+                                    >
+                                      <img
+                                        src={img.thumb_url}
+                                        alt={img.title ?? "inspiration"}
+                                        className="h-full w-full object-cover"
+                                        loading="lazy"
+                                      />
+                                      <div className="absolute inset-0 flex items-end justify-start p-2 opacity-0 transition-opacity group-hover:opacity-100">
+                                        <div className="flex flex-wrap gap-1">
+                                          {tags.slice(0, 3).map((t) => (
+                                            <span
+                                              key={`${img.id}-${t}`}
+                                              className="rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white"
+                                            >
+                                              {t}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="mt-3 flex items-center justify-end px-1">
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  className="h-9 rounded-full"
+                                  onClick={() => openInspirationGallery(inspirationFilm)}
+                                >
+                                  查看全部 {Math.max(1, inspirationFilm.images.length)} 张图片
+                                </Button>
+                              </div>
+                            </div>
                           ) : (
                             <div>
                               {isPendingAssistant ? (
@@ -1609,6 +2044,225 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                 </div>
               )}
             </div>
+
+            {/* Film inspiration: gallery (all 50) */}
+            <DialogPrimitive.Root
+              open={inspirationGalleryOpen}
+              onOpenChange={(v) => {
+                setInspirationGalleryOpen(v);
+                if (!v) {
+                  // Keep detail open state independent; user may open detail directly from the message card.
+                }
+              }}
+            >
+              <DialogPrimitive.Portal>
+                <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-black/50" />
+                <DialogPrimitive.Content
+                  className={cn(
+                    "fixed left-1/2 top-1/2 z-[61] w-[92vw] max-w-[1120px] -translate-x-1/2 -translate-y-1/2",
+                    "rounded-2xl border bg-background shadow-xl",
+                    "max-h-[86vh] overflow-hidden",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">
+                        {activeInspirationPayload?.query?.trim()
+                          ? `${activeInspirationPayload.query}（${Math.max(1, activeInspirationPayload.images.length)}）`
+                          : `电影镜头灵感（${Math.max(1, activeInspirationPayload?.images?.length ?? 50)}）`}
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">点击图片查看详情</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
+                      onClick={() => setInspirationGalleryOpen(false)}
+                      title="关闭"
+                    >
+                      <IconComponent name="X" className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  <div className="max-h-[74vh] overflow-y-auto p-4">
+                    <div className="grid grid-cols-4 gap-3">
+                      {(activeInspirationPayload?.images ?? []).map((img, idx) => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          className="group relative aspect-[3/2] overflow-hidden rounded-xl border bg-background/40 text-left"
+                          onClick={() => openInspirationDetailAt(idx)}
+                          title={img.title ?? "查看图片详情"}
+                        >
+                          <img
+                            src={img.thumb_url}
+                            alt={img.title ?? "inspiration"}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                          <div className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
+                            <div className="absolute inset-0 bg-black/25" />
+                            <div className="absolute bottom-2 left-2 right-2 flex flex-wrap gap-1">
+                              {(() => {
+                                const cachedAnalysis =
+                                  inspirationAnalysisById[img.id] ??
+                                  (img.analysis && typeof img.analysis === "object" ? img.analysis : null);
+                                const tags: string[] = [];
+                                const ratio = aspectRatioTagFromDims(img.width, img.height);
+                                if (ratio) tags.push(ratio);
+                                const angle = String((cachedAnalysis as any)?.camera_angle ?? "").trim();
+                                const light = String((cachedAnalysis as any)?.lighting_type ?? "").trim();
+                                if (angle) tags.push(angle);
+                                if (light) tags.push(light);
+                                return tags.slice(0, 3).map((t) => (
+                                  <span key={`${img.id}-${t}`} className="rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white">
+                                    {t}
+                                  </span>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </DialogPrimitive.Content>
+              </DialogPrimitive.Portal>
+            </DialogPrimitive.Root>
+
+            {/* Film inspiration: image detail */}
+            <DialogPrimitive.Root
+              open={inspirationDetailOpen}
+              onOpenChange={(v) => {
+                setInspirationDetailOpen(v);
+              }}
+            >
+              <DialogPrimitive.Portal>
+                <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/55" />
+                <DialogPrimitive.Content
+                  className={cn(
+                    "fixed left-1/2 top-1/2 z-[71] w-[94vw] max-w-[1180px] -translate-x-1/2 -translate-y-1/2",
+                    "rounded-2xl border bg-background shadow-xl",
+                    "max-h-[88vh] overflow-hidden",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm hover:bg-muted"
+                        onClick={() => setInspirationDetailOpen(false)}
+                        title="返回"
+                      >
+                        <IconComponent name="ArrowLeft" className="h-4 w-4" aria-hidden="true" />
+                        返回
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
+                      onClick={() => setInspirationDetailOpen(false)}
+                      title="关闭"
+                    >
+                      <IconComponent name="X" className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  <div className="flex h-[76vh] min-h-[520px]">
+                    <div className="flex flex-1 items-center justify-center bg-black/90 p-4">
+                      {activeInspirationImage ? (
+                        <img
+                          src={activeInspirationImage.full_url}
+                          alt={activeInspirationImage.title ?? "inspiration"}
+                          className="max-h-full max-w-full rounded-xl object-contain"
+                        />
+                      ) : (
+                        <div className="text-sm text-white/70">未选择图片</div>
+                      )}
+                    </div>
+
+                    <div className="w-[360px] shrink-0 border-l bg-background p-4">
+                      <div className="text-sm font-semibold">图片详情</div>
+
+                      {activeInspirationImage ? (
+                        (() => {
+                          const imageId = activeInspirationImage.id;
+                          const analysis =
+                            inspirationAnalysisById[imageId] ??
+                            (activeInspirationImage.analysis && typeof activeInspirationImage.analysis === "object"
+                              ? (activeInspirationImage.analysis as any)
+                              : null);
+                          const isAnalyzing = Boolean(inspirationAnalyzingById[imageId]);
+                          return (
+                            <div className="mt-3 space-y-2 text-sm">
+                              <div className="text-xs text-muted-foreground">
+                                {isAnalyzing ? "分析中..." : analysis ? "分析完成" : "点击应用前会自动分析"}
+                              </div>
+
+                              <div className="space-y-2 text-[13px]">
+                                {[
+                                  ["色温", analysis?.color_temp],
+                                  ["宽高比", analysis?.aspect_ratio ?? aspectRatioTagFromDims(activeInspirationImage.width, activeInspirationImage.height)],
+                                  ["画幅尺寸", analysis?.shot_size],
+                                  ["相机角度", analysis?.camera_angle],
+                                  ["镜头尺寸", analysis?.lens_size],
+                                  ["景深", analysis?.depth_of_field],
+                                  ["照明类型", analysis?.lighting_type],
+                                  ["拍摄时间", analysis?.time_of_day],
+                                  ["主体数量", analysis?.subject_count],
+                                  ["主体类型", analysis?.subject_type],
+                                ].map(([label, value]) => {
+                                  const v = String(value ?? "").trim();
+                                  return (
+                                    <div key={label} className="flex items-center justify-between gap-3">
+                                      <div className="text-muted-foreground">{label}</div>
+                                      <div className="max-w-[220px] truncate">{v || "-"}</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <Button
+                                type="button"
+                                className="mt-2 w-full"
+                                onClick={() => void applyInspirationImageToCanvas(activeInspirationImage)}
+                                disabled={Boolean(inspirationApplyingById[imageId])}
+                              >
+                                {inspirationApplyingById[imageId] ? "应用中..." : "应用"}
+                              </Button>
+
+                              {(activeInspirationImage.source_page_url || activeInspirationImage.domain) && (
+                                <div className="pt-2 text-[11px] text-muted-foreground">
+                                  来源：{activeInspirationImage.domain || "网页"}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="border-t bg-muted/20 px-4 py-3">
+                    <div className="flex items-center gap-2 overflow-x-auto">
+                      {(activeInspirationPayload?.images ?? []).map((img, idx) => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          className={cn(
+                            "relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border",
+                            idx === activeInspirationIndex ? "ring-2 ring-primary" : "opacity-80 hover:opacity-100",
+                          )}
+                          onClick={() => setActiveInspirationIndex(idx)}
+                          title={img.title ?? "切换图片"}
+                        >
+                          <img src={img.thumb_url} alt={img.title ?? "thumb"} className="h-full w-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </DialogPrimitive.Content>
+              </DialogPrimitive.Portal>
+            </DialogPrimitive.Root>
 
             <div className="border-t px-4 py-3">
               <input
@@ -1634,7 +2288,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                 <div
                   className={cn(
                     "mb-2 overflow-hidden transition-all duration-300 ease-in-out",
-                    conversationMode === "storyboard" &&
+                    (conversationMode === "storyboard" || conversationMode === "inspiration_film") &&
                     messages.length === 0 &&
                     draft.trim().length === 0 &&
                     pendingFiles.length === 0
@@ -1644,7 +2298,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                 >
                   <div className="text-xs text-muted-foreground">您可以这样提问</div>
                   <div className="mt-2 space-y-1">
-                    {storyboardExamples.map((ex, idx) => (
+                    {(conversationMode === "storyboard" ? storyboardExamples : inspirationFilmExamples).map((ex, idx) => (
                       <button
                         key={`${idx}-${ex.slice(0, 8)}`}
                         type="button"
@@ -1672,6 +2326,8 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                   placeholder={
                     conversationMode === "storyboard"
                       ? "说说你的创意/故事/卖点，我来拆成看得见的线稿镜头与画面节奏（支持广告/预告片/动画/漫剧/微电影等）。"
+                      : conversationMode === "inspiration_film"
+                        ? "描述一个镜头/场景/情绪，我将联网搜索 50 张电影镜头图片供你取材。"
                       : "开启你的灵感之旅"
                   }
                   className="min-h-[44px] resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
@@ -1733,33 +2389,19 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                           title="选择对话模式"
                         >
                           <IconComponent
-                            name={conversationMode === "storyboard" ? "Film" : "MessageCircle"}
+                            name={
+                              conversationMode === "storyboard"
+                                ? "Film"
+                                : conversationMode === "inspiration_film"
+                                  ? "Clapperboard"
+                                  : conversationMode === "moodboard"
+                                    ? "LayoutGrid"
+                                    : "MessageCircle"
+                            }
                             className={cn("h-4 w-4", conversationMode === "chat" ? "" : "text-white")}
                             aria-hidden="true"
                           />
                           <span className="text-sm">{modeLabel(conversationMode)}</span>
-                          {conversationMode !== "chat" && (
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 hover:bg-white/30"
-                              title="取消模式"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setConversationMode("chat");
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setConversationMode("chat");
-                                }
-                              }}
-                            >
-                              <IconComponent name="X" className="h-3.5 w-3.5 text-white" aria-hidden="true" />
-                            </span>
-                          )}
                           <IconComponent
                             name="ChevronDown"
                             className={cn(

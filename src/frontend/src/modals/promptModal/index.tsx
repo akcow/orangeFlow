@@ -11,7 +11,6 @@ import { Textarea } from "../../components/ui/textarea";
 import {
   BUG_ALERT,
   PROMPT_ERROR_ALERT,
-  PROMPT_SUCCESS_ALERT,
   TEMP_NOTICE_ALERT,
 } from "../../constants/alerts_constants";
 import {
@@ -38,6 +37,8 @@ export default function PromptModal({
   id = "",
   readonly = false,
 }: PromptModalType): JSX.Element {
+  const CHECK_AND_SAVE_SUCCESS_TEXT = "检查并保存成功";
+  const CHECK_AND_SAVE_FAILED_TEXT = "检查并保存失败";
   const [modalOpen, setModalOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
   const [isEdit, setIsEdit] = useState(true);
@@ -162,27 +163,25 @@ export default function PromptModal({
               setModalOpen(closeModal);
               setIsEdit(false);
             }
+            // Always show an explicit success/failure message for "Check & Save".
+            setSuccessData({ title: CHECK_AND_SAVE_SUCCESS_TEXT });
             if (!inputVariables || inputVariables.length === 0) {
-              setNoticeData({
-                title: TEMP_NOTICE_ALERT,
-              });
-            } else {
-              setSuccessData({
-                title: PROMPT_SUCCESS_ALERT,
-              });
+              setNoticeData({ title: TEMP_NOTICE_ALERT });
             }
           } else {
             setIsEdit(true);
             setErrorData({
-              title: BUG_ALERT,
+              title: CHECK_AND_SAVE_FAILED_TEXT,
+              list: [BUG_ALERT],
             });
           }
         },
         onError: (error) => {
           setIsEdit(true);
+          const detail = error?.response?.data?.detail;
           return setErrorData({
-            title: PROMPT_ERROR_ALERT,
-            list: [error.response.data.detail ?? ""],
+            title: CHECK_AND_SAVE_FAILED_TEXT,
+            list: [detail ?? PROMPT_ERROR_ALERT],
           });
         },
       },

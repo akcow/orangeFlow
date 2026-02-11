@@ -261,7 +261,6 @@ const NodeToolbarComponent = memo(
     useShortcuts({
       showOverrideModal,
       showModalAdvanced,
-      openModal,
       showconfirmShare,
       FreezeAllVertices: () => {
         FreezeAllVertices({ flowId: currentFlowId, stopNodeId: data.id });
@@ -270,7 +269,6 @@ const NodeToolbarComponent = memo(
       displayDocs: openDocs,
       saveComponent,
       showAdvance: () => setShowModalAdvanced((state) => !state),
-      handleCodeModal,
       shareComponent,
       ungroup: handleungroup,
       minimizeFunction: handleMinimize,

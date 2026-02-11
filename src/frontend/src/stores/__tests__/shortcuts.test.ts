@@ -18,13 +18,13 @@ import { useShortcutsStore } from "../shortcuts";
 const mockShortcuts = [
   {
     name: "Advanced Settings",
-    display_name: "Controls",
+    display_name: "Advanced Settings",
     shortcut: "mod+shift+a",
   },
   {
-    name: "Search Components Sidebar",
-    display_name: "Search Components on Sidebar",
-    shortcut: "/",
+    name: "Flow Share",
+    display_name: "Share Flow",
+    shortcut: "mod+shift+b",
   },
 ];
 
@@ -37,14 +37,12 @@ describe("useShortcutsStore", () => {
         shortcuts: mockDefaultShortcuts,
         outputInspection: "o",
         play: "p",
-        flow: "mod+shift+b",
+        flowShare: "mod+shift+b",
         undo: "mod+z",
         redo: "mod+y",
         redoAlt: "mod+shift+z",
-        openPlayground: "mod+k",
         advancedSettings: "mod+shift+a",
         minimize: "mod+.",
-        code: "space",
         copy: "mod+c",
         duplicate: "mod+d",
         componentShare: "mod+shift+s",
@@ -55,13 +53,11 @@ describe("useShortcutsStore", () => {
         group: "mod+g",
         cut: "mod+x",
         paste: "mod+v",
-        api: "r",
         update: "mod+u",
         download: "mod+j",
         freezePath: "mod+shift+f",
         toolMode: "mod+shift+m",
         toggleSidebar: "mod+b",
-        searchComponentsSidebar: "/",
       });
     });
   });
@@ -77,10 +73,9 @@ describe("useShortcutsStore", () => {
 
       expect(result.current.outputInspection).toBe("o");
       expect(result.current.play).toBe("p");
-      expect(result.current.flow).toBe("mod+shift+b");
+      expect(result.current.flowShare).toBe("mod+shift+b");
       expect(result.current.undo).toBe("mod+z");
       expect(result.current.redo).toBe("mod+y");
-      expect(result.current.openPlayground).toBe("mod+k");
       expect(result.current.copy).toBe("mod+c");
       expect(result.current.paste).toBe("mod+v");
     });

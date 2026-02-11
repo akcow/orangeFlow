@@ -39,6 +39,9 @@ export default function EditShortcutButton({
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const setShortcuts = useShortcutsStore((state) => state.setShortcuts);
   const setErrorData = useAlertStore((state) => state.setErrorData);
+  const selectedDisplayName =
+    defaultShortcuts.find((s) => s.name === shortcut[0])?.display_name ??
+    shortcut[0];
 
   function canEditCombination(newCombination: string): boolean {
     let canSave = true;
@@ -88,7 +91,9 @@ export default function EditShortcutButton({
         setKey(null);
         setOpen(false);
         setSuccessData({
-          title: t("Shortcut updated: {{name}}", { name: shortcut[0] }),
+          title: t("Shortcut updated: {{name}}", {
+            name: t(selectedDisplayName),
+          }),
         });
         return;
       }
@@ -159,8 +164,8 @@ export default function EditShortcutButton({
 
   return (
     <BaseModal open={open} setOpen={setOpen} size="x-small" disable={disable}>
-      <BaseModal.Header description={"Recording your keyboard"}>
-        <span className="pr-2"> Key Combination </span>
+      <BaseModal.Header description={t("Recording your keyboard")}>
+        <span className="pr-2">{t("Key Combination")}</span>
         <ForwardedIconComponent
           name="Keyboard"
           className="h-6 w-6 pl-1 text-primary"
@@ -179,14 +184,14 @@ export default function EditShortcutButton({
       </BaseModal.Content>
       <BaseModal.Footer>
         <Button variant={"default"} onClick={editCombination}>
-          Apply
+          {t("Apply")}
         </Button>
         <Button
           className="mr-5"
           variant={"destructive"}
           onClick={() => setKey(null)}
         >
-          Reset
+          {t("Reset")}
         </Button>
       </BaseModal.Footer>
     </BaseModal>

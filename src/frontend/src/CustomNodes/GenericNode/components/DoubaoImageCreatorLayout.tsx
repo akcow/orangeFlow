@@ -15,12 +15,14 @@ import DoubaoPreviewPanel, {
   type DoubaoReferenceImage,
 } from "./DoubaoPreviewPanel";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
+import PromptModal from "@/modals/promptModal";
 import DoubaoQuickAddMenu from "./DoubaoQuickAddMenu";
 import RenderInputParameters from "./RenderInputParameters";
 import { cn } from "@/utils/utils";
 import useHandleOnNewValue, {
   type handleOnNewValueType,
 } from "../../hooks/use-handle-new-value";
+import useHandleNodeClass from "@/CustomNodes/hooks/use-handle-node-class";
 import type { InputFieldType } from "@/types/api";
 import type { EdgeType, GenericNodeType, NodeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
@@ -256,6 +258,21 @@ export default function DoubaoImageCreatorLayout({
   const onConnect = useFlowStore((state) => state.onConnect);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const templates = useTypesStore((state) => state.templates);
+  const { handleNodeClass } = useHandleNodeClass(data.id);
+  const promptSnapshotTakenRef = useRef(false);
+  const [isPromptComposing, setIsPromptComposing] = useState(false);
+  const [promptCompositionValue, setPromptCompositionValue] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!showExpanded) {
+      promptSnapshotTakenRef.current = false;
+    }
+  }, [showExpanded]);
+
+  const promptValue = String(template[PROMPT_NAME]?.value ?? "");
+  const resolvedPromptValue = isPromptComposing
+    ? (promptCompositionValue ?? promptValue)
+    : promptValue;
   const referenceFieldRaw = template[REFERENCE_FIELD];
   const referenceField = useMemo<InputFieldType>(() => {
     if (!referenceFieldRaw) return REFERENCE_FIELD_FALLBACK;
@@ -343,6 +360,11 @@ export default function DoubaoImageCreatorLayout({
     node: data.node!,
     nodeId: data.id,
     name: REFERENCE_FIELD,
+  });
+  const { handleOnNewValue: handlePromptChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: PROMPT_NAME,
   });
   const { handleOnNewValue: handleAspectRatioChange } = useHandleOnNewValue({
     node: data.node!,
@@ -2475,50 +2497,86 @@ export default function DoubaoImageCreatorLayout({
         <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
           <div
             className={cn(
-              "mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              "relative mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
               "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
             )}
             style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
           >
-          <div className="space-y-3">
-            <div
-                className={cn(
-                  "rounded-[12px] p-3",
-                  klingElementApplied
-                    ? "[&_.primary-input]:bg-[#FFF7D6] dark:[&_.primary-input]:bg-amber-500/15"
-                    : "[&_.primary-input]:bg-transparent",
-                  "[&_.primary-input]:text-[#1C202D]",
-                  "[&_.primary-input]:text-sm",
-                  "[&_.primary-input]:placeholder:text-[#9CA3C0]",
-                  "[&_.text-muted-foreground]:text-[#8D92A8]",
-                  "dark:[&_.primary-input]:text-white",
-                "dark:[&_.primary-input]:placeholder:text-slate-400",
-                "dark:[&_.text-muted-foreground]:text-slate-400",
-              )}
+            <PromptModal
+              id={`doubao-image-prompt-${data.id}`}
+              field_name={PROMPT_NAME}
+              readonly={!!data.node?.flow}
+              value={promptValue}
+              setValue={(newValue) => handlePromptChange({ value: newValue })}
+              nodeClass={data.node!}
+              setNodeClass={handleNodeClass}
             >
-              <RenderInputParameters
-                data={data}
-                types={types}
-                isToolMode={isToolMode}
-                showNode
-                shownOutputs={[]}
-                showHiddenOutputs={false}
-                filterFields={[PROMPT_NAME]}
-                filterMode="include"
-                fieldOverrides={{
-                  [PROMPT_NAME]:
-                  {
-                    placeholder:
-                      "描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）",
-                    inputTypes: ["Message"],
-                  },
-                }}
-              />
-            </div>
+              <button
+                type="button"
+                aria-label="放大输入"
+                title="放大输入"
+                className={cn(
+                  // Keep the expand button and the run button on the same vertical line.
+                  "absolute right-6 top-4 inline-flex h-11 w-11 items-center justify-center rounded-full",
+                  "bg-[#F4F5F9] text-[#3C4057] transition-colors hover:bg-[#E9ECF6]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
+                  "dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15",
+                )}
+              >
+                <ForwardedIconComponent name="Scan" className="h-4 w-4" />
+              </button>
+            </PromptModal>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="text-sm text-[#3C4057] dark:text-slate-100">
+              <div className="flex min-h-[168px] flex-col gap-3">
+                <textarea
+                rows={3}
+                value={resolvedPromptValue}
+                placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
+                className={cn(
+                  "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
+                  "min-h-[72px] max-h-[72px] overflow-y-auto",
+                  "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
+                  "placeholder:text-[#9CA3C0]",
+                  klingElementApplied && "bg-[#FFF7D6] dark:bg-amber-500/15",
+                  "dark:text-white dark:placeholder:text-slate-400",
+                )}
+                onFocus={() => {
+                  if (!promptSnapshotTakenRef.current) {
+                    takeSnapshot();
+                    promptSnapshotTakenRef.current = true;
+                  }
+                }}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (isPromptComposing) {
+                    setPromptCompositionValue(next);
+                    return;
+                  }
+                  setPromptCompositionValue(null);
+                  handlePromptChange({ value: next }, { skipSnapshot: true });
+                }}
+                onCompositionStart={() => {
+                  setIsPromptComposing(true);
+                }}
+                onCompositionEnd={(e) => {
+                  setIsPromptComposing(false);
+                  const finalValue = promptCompositionValue ?? e.currentTarget.value;
+                  setPromptCompositionValue(null);
+                  handlePromptChange({ value: finalValue }, { skipSnapshot: true });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || e.shiftKey) return;
+                  if ((e.nativeEvent as any)?.isComposing || isPromptComposing) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!disableRun) handleRun();
+                }}
+                />
+
+                <div className="mt-auto flex flex-wrap gap-3 pt-2">
               {modelNameConfigWithReferencePreserve && (
                 <DoubaoParameterButton data={data} config={modelNameConfigWithReferencePreserve} />
               )}
@@ -2616,10 +2674,11 @@ export default function DoubaoImageCreatorLayout({
                       runIconName === "Loader2" && "animate-spin",
                     )}
                   />
-                </button>
+                  </button>
+                </div>
+              </div>
               </div>
             </div>
-          </div>
 
           {hasAdditionalFields && (
             <div className="mt-5">
