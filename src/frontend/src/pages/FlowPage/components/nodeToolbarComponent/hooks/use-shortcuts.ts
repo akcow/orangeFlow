@@ -4,48 +4,29 @@ import isWrappedWithClass from "../../PageComponent/utils/is-wrapped-with-class"
 
 export default function useShortcuts({
   showOverrideModal,
-  showModalAdvanced,
   showconfirmShare,
-  FreezeAllVertices,
   downloadFunction,
   displayDocs,
   saveComponent,
-  showAdvance,
   shareComponent,
   ungroup,
   minimizeFunction,
-  activateToolMode,
-  hasToolMode,
 }: {
   showOverrideModal?: boolean;
-  showModalAdvanced?: boolean;
   showconfirmShare?: boolean;
-  FreezeAllVertices?: () => void;
   downloadFunction?: () => void;
   displayDocs?: () => void;
   saveComponent?: () => void;
-  showAdvance?: () => void;
   shareComponent?: () => void;
   ungroup?: () => void;
   minimizeFunction?: () => void;
-  activateToolMode?: () => void;
-  hasToolMode?: boolean;
 }) {
-  const advancedSettings = useShortcutsStore((state) => state.advancedSettings);
   const minimize = useShortcutsStore((state) => state.minimize);
   const componentShare = useShortcutsStore((state) => state.componentShare);
   const save = useShortcutsStore((state) => state.saveComponent);
   const docs = useShortcutsStore((state) => state.docs);
   const group = useShortcutsStore((state) => state.group);
   const download = useShortcutsStore((state) => state.download);
-  const freezeAll = useShortcutsStore((state) => state.freezePath);
-  const toolMode = useShortcutsStore((state) => state.toolMode);
-
-  function handleFreezeAll(e: KeyboardEvent) {
-    if (isWrappedWithClass(e, "noflow") || !FreezeAllVertices) return;
-    e.preventDefault();
-    FreezeAllVertices();
-  }
 
   function handleDownloadWShortcut(e: KeyboardEvent) {
     if (!downloadFunction) return;
@@ -67,13 +48,6 @@ export default function useShortcuts({
       return;
     e.preventDefault();
     saveComponent();
-  }
-
-  function handleAdvancedWShortcut(e: KeyboardEvent) {
-    if ((isWrappedWithClass(e, "noflow") && !showModalAdvanced) || !showAdvance)
-      return;
-    e.preventDefault();
-    showAdvance();
   }
 
   function handleShareWShortcut(e: KeyboardEvent) {
@@ -98,24 +72,10 @@ export default function useShortcuts({
     minimizeFunction();
   }
 
-  function handleToolModeWShortcut(e: KeyboardEvent, hasToolMode?: boolean) {
-    if (!hasToolMode) return;
-    if (isWrappedWithClass(e, "noflow") || !activateToolMode) return;
-    e.preventDefault();
-    activateToolMode();
-  }
-
   useHotkeys(minimize, handleMinimizeWShortcut, { preventDefault: true });
   useHotkeys(group, handleGroupWShortcut, { preventDefault: true });
   useHotkeys(componentShare, handleShareWShortcut, { preventDefault: true });
-  useHotkeys(advancedSettings, handleAdvancedWShortcut, {
-    preventDefault: true,
-  });
   useHotkeys(save, handleSaveWShortcut, { preventDefault: true });
   useHotkeys(docs, handleDocsWShortcut, { preventDefault: true });
   useHotkeys(download, handleDownloadWShortcut, { preventDefault: true });
-  useHotkeys(freezeAll, handleFreezeAll);
-  useHotkeys(toolMode, (e) => handleToolModeWShortcut(e, hasToolMode), {
-    preventDefault: true,
-  });
 }

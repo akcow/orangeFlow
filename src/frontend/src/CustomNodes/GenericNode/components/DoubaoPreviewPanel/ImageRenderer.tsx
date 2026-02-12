@@ -17,6 +17,7 @@ type ImageRendererProps = {
   onError?: (error: Error) => void;
   onMeta?: (meta: any) => void;
   appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
+  hideControls?: boolean;
 };
 
 const ImageRenderer = ({
@@ -27,6 +28,7 @@ const ImageRenderer = ({
   onError,
   onMeta,
   appearance = "default",
+  hideControls = false,
 }: ImageRendererProps) => {
   const [imageError, setImageError] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -150,7 +152,7 @@ const ImageRenderer = ({
         </div>
       )}
 
-      {total > 1 && (
+      {total > 1 && !hideControls && (
         <>
           <div className="absolute top-3 left-3 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-emerald-700 shadow transition-colors duration-200 dark:bg-slate-800/70 dark:text-emerald-100">
             第 {safeIndex + 1} / {total} 张

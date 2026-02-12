@@ -6,6 +6,7 @@ type AudioRendererProps = {
   variant?: "inline" | "modal";
   showSpeedControl?: boolean;
   onDownloadClick?: () => void;
+  hideControls?: boolean;
 };
 
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5];
@@ -15,6 +16,7 @@ const AudioRenderer = ({
   variant = "inline",
   showSpeedControl = false,
   onDownloadClick,
+  hideControls = false,
 }: AudioRendererProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -128,7 +130,7 @@ const AudioRenderer = ({
     <div className={wrapperClasses}>
       <audio ref={audioRef} src={audioUrl} preload="metadata" />
 
-      <div className="flex flex-col gap-3">
+      {!hideControls && <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
           <button
             onClick={togglePlayPause}
@@ -189,7 +191,7 @@ const AudioRenderer = ({
             )}
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 };

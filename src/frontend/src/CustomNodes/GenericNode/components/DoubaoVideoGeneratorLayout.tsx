@@ -62,6 +62,7 @@ import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-uplo
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { BASE_URL_API } from "@/constants/constants";
 import KlingElementPickerButton from "@/components/kling/KlingElementPickerButton";
+import { generationPromptInputBusyClass } from "./promptGenerationStyles";
 import type { KlingElement } from "@/stores/klingElementsStore";
 
 const CONTROL_FIELDS = [
@@ -873,8 +874,11 @@ export default function DoubaoVideoGeneratorLayout({
   const typeData = useTypesStore((state) => state.data);
   const { handleNodeClass } = useHandleNodeClass(data.id);
   const promptSnapshotTakenRef = useRef(false);
+  const [isPromptFocused, setPromptFocused] = useState(false);
   const [isPromptComposing, setIsPromptComposing] = useState(false);
   const [promptCompositionValue, setPromptCompositionValue] = useState<string | null>(null);
+  const promptValue = String(template[PROMPT_NAME]?.value ?? "");
+  const [promptDraftValue, setPromptDraftValue] = useState(promptValue);
 
   useEffect(() => {
     if (!showExpanded) {
@@ -923,10 +927,14 @@ export default function DoubaoVideoGeneratorLayout({
     return value === undefined || value === null;
   }, [template]);
   const disableRun = !hasAnyConnection && isPromptEmpty;
-  const promptValue = String(template[PROMPT_NAME]?.value ?? "");
+  useEffect(() => {
+    if (isPromptFocused || isPromptComposing) return;
+    setPromptDraftValue(promptValue);
+  }, [isPromptComposing, isPromptFocused, promptValue]);
+
   const resolvedPromptValue = isPromptComposing
-    ? (promptCompositionValue ?? promptValue)
-    : promptValue;
+    ? (promptCompositionValue ?? promptDraftValue)
+    : promptDraftValue;
 
   const hasIncomingVideoBridge = useMemo(() => {
     return edges.some((edge) => {
@@ -1223,6 +1231,7 @@ export default function DoubaoVideoGeneratorLayout({
     : data.id;
 
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+  const promptReadonly = Boolean(data.node?.flow) || isBusy;
 
   const handleRun = () => {
     if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
@@ -1248,9 +1257,7 @@ export default function DoubaoVideoGeneratorLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? isRunHovering
-        ? "Square"
-        : "Loader2"
+      ? "Loader2"
       : "Play";
 
   const controlConfigs = useMemo(() => {
@@ -1892,6 +1899,11 @@ export default function DoubaoVideoGeneratorLayout({
     normalizedLastFramePreviews,
     normalizedUpstreamLastFramePreviews,
   ]);
+  const promptMediaPreviews = combinedImagePreviews;
+  const visiblePromptMediaPreviews = useMemo<CandidatePreview[]>(
+    () => promptMediaPreviews.slice(0, 6),
+    [promptMediaPreviews],
+  );
   const selectedLastFrame = combinedLastFramePreviews[0] ?? null;
   const selectedLastFrameSource = useMemo(
     () =>
@@ -4110,7 +4122,7 @@ export default function DoubaoVideoGeneratorLayout({
             <PromptModal
               id={`doubao-video-prompt-${data.id}`}
               field_name={PROMPT_NAME}
-              readonly={!!data.node?.flow}
+              readonly={promptReadonly}
               value={promptValue}
               setValue={(newValue) => handlePromptChange({ value: newValue })}
               nodeClass={data.node!}
@@ -4134,9 +4146,70 @@ export default function DoubaoVideoGeneratorLayout({
 
             <div className="text-sm text-[#3C4057] dark:text-slate-100">
               <div className="flex min-h-[168px] flex-col gap-3">
+                {promptMediaPreviews.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {visiblePromptMediaPreviews.map((preview, index) => {
+                      const previewSource =
+                        preview.imageSource ?? preview.downloadSource ?? "";
+                      const roleBadge =
+                        preview.role === "first"
+                          ? "首"
+                          : preview.role === "last"
+                            ? "尾"
+                            : preview.role === "reference"
+                              ? "参"
+                              : null;
+                      return (
+                        <div
+                          key={preview.id ?? `${previewSource}-${preview.role ?? "none"}-${index}`}
+                          className="relative h-16 w-16 overflow-hidden rounded-xl border border-[#E2E7F5] bg-[#F4F6FB] dark:border-white/15 dark:bg-white/10"
+                        >
+                          {previewSource ? (
+                            isVideoCandidate(previewSource, preview.fileName) ? (
+                              <video
+                                src={previewSource}
+                                className="h-full w-full object-cover"
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img
+                                src={previewSource}
+                                alt={preview.label ?? preview.fileName ?? `素材 ${index + 1}`}
+                                className="h-full w-full object-cover"
+                              />
+                            )
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[#7D85A8] dark:text-slate-300">
+                              <ForwardedIconComponent name="Image" className="h-4 w-4" />
+                            </div>
+                          )}
+                          {roleBadge && (
+                            <span className="absolute left-1 top-1 rounded-full bg-[#111827]/80 px-1.5 text-[10px] leading-4 text-white">
+                              {roleBadge}
+                            </span>
+                          )}
+                          {index === 0 && promptMediaPreviews.length > 1 && (
+                            <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[#1B66FF] px-1 text-center text-[10px] font-semibold leading-5 text-white shadow">
+                              {promptMediaPreviews.length}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {promptMediaPreviews.length > visiblePromptMediaPreviews.length && (
+                      <span className="inline-flex h-16 items-center rounded-xl border border-dashed border-[#D7DEEF] px-2 text-xs text-[#5E6484] dark:border-white/20 dark:text-slate-300">
+                        +{promptMediaPreviews.length - visiblePromptMediaPreviews.length}
+                      </span>
+                    )}
+                  </div>
+                )}
               <textarea
                 rows={3}
                 value={resolvedPromptValue}
+                disabled={isBusy}
+                readOnly={promptReadonly}
                 placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
                 className={cn(
                   "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
@@ -4144,17 +4217,23 @@ export default function DoubaoVideoGeneratorLayout({
                   // Make it feel like “text on the container”, not an input box.
                   "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
                   "placeholder:text-[#9CA3C0]",
+                  generationPromptInputBusyClass(isBusy),
                   klingElementApplied && "bg-[#FFF7D6] dark:bg-amber-500/15",
                   "dark:text-white dark:placeholder:text-slate-400",
                 )}
                 onFocus={() => {
+                  setPromptFocused(true);
                   if (!promptSnapshotTakenRef.current) {
                     takeSnapshot();
                     promptSnapshotTakenRef.current = true;
                   }
                 }}
+                onBlur={() => {
+                  setPromptFocused(false);
+                }}
                 onChange={(e) => {
                   const next = e.target.value;
+                  setPromptDraftValue(next);
                   if (isPromptComposing) {
                     setPromptCompositionValue(next);
                     return;
@@ -4169,6 +4248,7 @@ export default function DoubaoVideoGeneratorLayout({
                   setIsPromptComposing(false);
                   const finalValue = promptCompositionValue ?? e.currentTarget.value;
                   setPromptCompositionValue(null);
+                  setPromptDraftValue(finalValue);
                   handlePromptChange({ value: finalValue }, { skipSnapshot: true });
                 }}
                 onKeyDown={(e) => {

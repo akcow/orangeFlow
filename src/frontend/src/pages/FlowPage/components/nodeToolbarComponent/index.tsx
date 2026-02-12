@@ -260,20 +260,13 @@ const NodeToolbarComponent = memo(
 
     useShortcuts({
       showOverrideModal,
-      showModalAdvanced,
       showconfirmShare,
-      FreezeAllVertices: () => {
-        FreezeAllVertices({ flowId: currentFlowId, stopNodeId: data.id });
-      },
       downloadFunction: () => downloadNode(flowComponent!),
       displayDocs: openDocs,
       saveComponent,
-      showAdvance: () => setShowModalAdvanced((state) => !state),
       shareComponent,
       ungroup: handleungroup,
       minimizeFunction: handleMinimize,
-      activateToolMode: handleActivateToolMode,
-      hasToolMode,
     });
 
     useEffect(() => {

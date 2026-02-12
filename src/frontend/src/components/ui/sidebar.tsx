@@ -4,11 +4,8 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeft } from "lucide-react";
 import * as React from "react";
-import { useHotkeys } from "react-hotkeys-hook";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { t } from "@/i18n/t";
-import isWrappedWithClass from "../../pages/FlowPage/components/PageComponent/utils/is-wrapped-with-class";
-import { useShortcutsStore } from "../../stores/shortcuts";
 import { cn } from "../../utils/utils";
 import ShadTooltip from "../common/shadTooltipComponent";
 import { Button } from "./button";
@@ -195,22 +192,6 @@ const SidebarProvider = React.forwardRef<
         setActiveSection,
         defaultSection,
       ],
-    );
-
-    const toggleSidebarShortcut = useShortcutsStore(
-      (state) => state.toggleSidebar,
-    );
-
-    useHotkeys(
-      toggleSidebarShortcut,
-      (e: KeyboardEvent) => {
-        if (isWrappedWithClass(e, "noflow")) return;
-        e.preventDefault();
-        toggleSidebar();
-      },
-      {
-        preventDefault: true,
-      },
     );
 
     return (

@@ -135,6 +135,82 @@ describe("DoubaoPreviewPanel", () => {
     expect(screen.getByText("生成中，将自动刷新")).toBeInTheDocument();
   });
 
+  test("shows wave loading overlay in image creator while building", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: true,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={mockComponentName}
+        appearance="imageCreator"
+      />,
+    );
+
+    expect(await screen.findByTestId("doubao-building-wave-overlay")).toBeInTheDocument();
+  });
+
+  test("hides inline video controls while wave loading is active", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: {
+        kind: "video",
+        available: true,
+        payload: {
+          video_url: "https://example.com/video.mp4",
+          duration: "00:06",
+        },
+        token: "video-token",
+      },
+      isBuilding: true,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const { container } = render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={"DoubaoVideoGenerator"}
+        appearance="videoGenerator"
+      />,
+    );
+
+    expect(await screen.findByTestId("doubao-building-wave-overlay")).toBeInTheDocument();
+    expect(container.querySelector('input[type=\"range\"]')).toBeNull();
+  });
+
+  test("hides inline audio controls while wave loading is active", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: {
+        kind: "audio",
+        available: true,
+        payload: {
+          audio_base64:
+            "UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=",
+          audio_type: "mp3",
+        },
+        token: "audio-token",
+      },
+      isBuilding: true,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    const { container } = render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={"DoubaoTTS"}
+        appearance="audioCreator"
+      />,
+    );
+
+    expect(await screen.findByTestId("doubao-building-wave-overlay")).toBeInTheDocument();
+    expect(container.querySelector('input[type=\"range\"]')).toBeNull();
+  });
+
   test("renders error state when preview has error", () => {
     (useDoubaoPreview as jest.Mock).mockReturnValue({
       preview: {
@@ -192,9 +268,11 @@ describe("DoubaoPreviewPanel", () => {
     });
     fireEvent.click(expandButton);
     expect(await screen.findByText("生成详情")).toBeInTheDocument();
-    const saveButtons = await screen.findAllByText("下载结果");
-    expect(saveButtons).toHaveLength(2);
-    expect(await screen.findByText("512x512")).toBeInTheDocument();
+    const inlineDownload = await screen.findAllByText("\u4e0b\u8f7d\u7ed3\u679c");
+    expect(inlineDownload).toHaveLength(1);
+    expect(await screen.findByText("\u4e0b\u8f7d")).toBeInTheDocument();
+    const sizeLabels = await screen.findAllByText("512x512");
+    expect(sizeLabels.length).toBeGreaterThanOrEqual(1);
   });
 
   test("supports multi image carousel navigation", async () => {

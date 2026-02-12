@@ -3,11 +3,6 @@ export const baseURL = "";
 
 export const customDefaultShortcuts = [
   {
-    display_name: "Advanced Settings",
-    name: "Advanced Settings",
-    shortcut: "mod+shift+a",
-  },
-  {
     display_name: "Minimize",
     name: "Minimize",
     shortcut: "mod+.",
@@ -88,11 +83,6 @@ export const customDefaultShortcuts = [
     shortcut: "mod+u",
   },
   {
-    display_name: "Freeze Path",
-    name: "Freeze Path",
-    shortcut: "mod+shift+f",
-  },
-  {
     display_name: "Share Flow",
     name: "Flow Share",
     shortcut: "mod+shift+b",
@@ -106,16 +96,6 @@ export const customDefaultShortcuts = [
     display_name: "Output Inspection",
     name: "Output Inspection",
     shortcut: "o",
-  },
-  {
-    display_name: "Tool Mode",
-    name: "Tool Mode",
-    shortcut: "mod+shift+m",
-  },
-  {
-    display_name: "Toggle Sidebar",
-    name: "Toggle Sidebar",
-    shortcut: "mod+b",
   },
 ];
 export const customCodeTabsClass = {

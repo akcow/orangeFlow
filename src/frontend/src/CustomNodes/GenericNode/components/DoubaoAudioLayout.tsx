@@ -37,6 +37,7 @@ import HandleRenderComponent from "./handleRenderComponent";
 import cloneDeep from "lodash/cloneDeep";
 import useHandleNodeClass from "@/CustomNodes/hooks/use-handle-node-class";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
+import { generationPromptInputBusyClass } from "./promptGenerationStyles";
 
 const DOWNSTREAM_NODE_OFFSET_X = 950;
 const UPSTREAM_NODE_OFFSET_X = 950;
@@ -260,8 +261,11 @@ export default function DoubaoAudioLayout({
     name: PROMPT_FIELD,
   });
   const promptSnapshotTakenRef = useRef(false);
+  const [isPromptFocused, setPromptFocused] = useState(false);
   const [isPromptComposing, setIsPromptComposing] = useState(false);
   const [promptCompositionValue, setPromptCompositionValue] = useState<string | null>(null);
+  const promptValue = String(template[PROMPT_FIELD]?.value ?? "");
+  const [promptDraftValue, setPromptDraftValue] = useState(promptValue);
 
   useEffect(() => {
     if (!showExpanded) {
@@ -278,10 +282,14 @@ export default function DoubaoAudioLayout({
     return value === undefined || value === null;
   }, [template]);
   const disableRun = !hasAnyConnection && isPromptEmpty;
-  const promptValue = String(template[PROMPT_FIELD]?.value ?? "");
+  useEffect(() => {
+    if (isPromptFocused || isPromptComposing) return;
+    setPromptDraftValue(promptValue);
+  }, [isPromptComposing, isPromptFocused, promptValue]);
+
   const resolvedPromptValue = isPromptComposing
-    ? (promptCompositionValue ?? promptValue)
-    : promptValue;
+    ? (promptCompositionValue ?? promptDraftValue)
+    : promptDraftValue;
   const isPromptType = String(template[PROMPT_FIELD]?.type ?? "").toLowerCase() === "prompt";
 
   const nodeIdForRun = data.node?.flow?.data
@@ -289,6 +297,7 @@ export default function DoubaoAudioLayout({
     : data.id;
 
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+  const promptReadonly = Boolean(data.node?.flow) || isBusy;
 
   const handleCreateTextUpstreamNode = useCallback(() => {
     const currentNode = nodes.find((node) => node.id === data.id);
@@ -566,9 +575,7 @@ export default function DoubaoAudioLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? isRunHovering
-        ? "Square"
-        : "Loader2"
+      ? "Loader2"
       : "Play";
 
   const controlConfigs = useMemo(() => {
@@ -865,7 +872,7 @@ export default function DoubaoAudioLayout({
                 <PromptModal
                   id={`doubao-audio-prompt-${data.id}`}
                   field_name={PROMPT_FIELD}
-                  readonly={!!data.node?.flow}
+                  readonly={promptReadonly}
                   value={promptValue}
                   setValue={(newValue) => handlePromptChange({ value: newValue })}
                   nodeClass={data.node!}
@@ -889,8 +896,8 @@ export default function DoubaoAudioLayout({
                 <ComponentTextModal
                   value={promptValue}
                   setValue={(newValue) => handlePromptChange({ value: newValue })}
-                  disabled={false}
-                  readonly={!!data.node?.flow}
+                  disabled={isBusy}
+                  readonly={promptReadonly}
                 >
                   <button
                     type="button"
@@ -912,22 +919,30 @@ export default function DoubaoAudioLayout({
               <textarea
                 rows={3}
                 value={resolvedPromptValue}
+                disabled={isBusy}
+                readOnly={promptReadonly}
                 placeholder="描述你想要的语音内容，按需使用换行。"
                 className={cn(
                   "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
                   "min-h-[72px] max-h-[72px] overflow-y-auto",
                   "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
                   "placeholder:text-[#9CA3C0]",
+                  generationPromptInputBusyClass(isBusy),
                   "dark:text-white dark:placeholder:text-slate-400",
                 )}
                 onFocus={() => {
+                  setPromptFocused(true);
                   if (!promptSnapshotTakenRef.current) {
                     takeSnapshot();
                     promptSnapshotTakenRef.current = true;
                   }
                 }}
+                onBlur={() => {
+                  setPromptFocused(false);
+                }}
                 onChange={(e) => {
                   const next = e.target.value;
+                  setPromptDraftValue(next);
                   if (isPromptComposing) {
                     setPromptCompositionValue(next);
                     return;
@@ -942,6 +957,7 @@ export default function DoubaoAudioLayout({
                   setIsPromptComposing(false);
                   const finalValue = promptCompositionValue ?? e.currentTarget.value;
                   setPromptCompositionValue(null);
+                  setPromptDraftValue(finalValue);
                   handlePromptChange({ value: finalValue }, { skipSnapshot: true });
                 }}
                 onKeyDown={(e) => {

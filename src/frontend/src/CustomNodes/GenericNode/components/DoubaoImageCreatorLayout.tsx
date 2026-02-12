@@ -1,5 +1,6 @@
 import { cloneDeep } from "lodash";
-import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { type CSSProperties, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import ShortUniqueId from "short-unique-id";
 import { type ReactFlowState, useStore, addEdge } from "@xyflow/react";
 import {
@@ -66,6 +67,7 @@ import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_constants";
 import KlingElementPickerButton from "@/components/kling/KlingElementPickerButton";
 import type { KlingElement } from "@/stores/klingElementsStore";
+import { generationPromptInputBusyClass } from "./promptGenerationStyles";
 
 const CONTROL_FIELDS = [
   // Requirement: model selector button width -100px.
@@ -81,6 +83,151 @@ const LAST_FRAME_FIELD = "last_frame_image";
 const MULTI_TURN_FIELD = "enable_multi_turn";
 const ONLINE_SEARCH_FIELD = "enable_google_search";
 const MAX_REFERENCE_IMAGES = 14;
+
+const SLASH_QUICK_FEATURES = [
+  {
+    id: "multi_cam_grid",
+    title: "多机位九宫格",
+    description: "自动生成多个机位的九宫格分镜参考。",
+    icon: "LayoutGrid",
+  },
+  {
+    id: "cinematic_lighting",
+    title: "电影级光影校正",
+    description: "修正物理光照与色温逻辑，呈现专业电影质感。",
+    icon: "Clapperboard",
+  },
+  {
+    id: "character_turnaround",
+    title: "角色三视图生成",
+    description: "一键生成角色三视图(正面/侧面/背面)。",
+    icon: "User",
+  },
+  {
+    id: "simulate_3s_after",
+    title: "画面推演 - 3秒后",
+    description: "基于物理逻辑，生成3秒后的动作结果。",
+    icon: "FastForward",
+  },
+  {
+    id: "simulate_5s_before",
+    title: "画面推演 - 5秒前",
+    description: "基于物理逻辑，反推5秒前的动作起因。",
+    icon: "Rewind",
+  },
+] as const;
+
+const SLASH_QUICK_FEATURES_DISABLED_TIP = "🚫 请先上传图片才能使用该功能";
+type SlashQuickFeatureId = (typeof SLASH_QUICK_FEATURES)[number]["id"];
+
+const SLASH_QUICK_FEATURE_ALIASES: Record<SlashQuickFeatureId, string[]> = {
+  multi_cam_grid: ["multi_cam_grid", "多机位九宫格", "九宫格", "分镜"],
+  cinematic_lighting: ["cinematic_lighting", "电影级光影校正", "光影校正", "电影级光影"],
+  character_turnaround: ["character_turnaround", "角色三视图生成", "角色三视图", "三视图"],
+  simulate_3s_after: ["simulate_3s_after", "画面推演 - 3秒后", "画面推演3秒后", "3秒后"],
+  simulate_5s_before: ["simulate_5s_before", "画面推演 - 5秒前", "画面推演5秒前", "5秒前"],
+};
+
+function escapeRegExp(source: string): string {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function splitLeadingSlashPrompt(prompt: string): {
+  slashPayload: string;
+  remainingPrompt: string;
+} {
+  const raw = String(prompt ?? "");
+  const lines = raw.split(/\r?\n/);
+  const firstContentLineIndex = lines.findIndex(
+    (line) => line.trim().length > 0,
+  );
+  if (firstContentLineIndex < 0) {
+    return { slashPayload: "", remainingPrompt: "" };
+  }
+
+  const firstContentLine = lines[firstContentLineIndex].trimStart();
+  if (!firstContentLine.startsWith("/")) {
+    return { slashPayload: "", remainingPrompt: raw.trim() };
+  }
+
+  const slashPayload = firstContentLine.slice(1).trim();
+  const remainingLines = [
+    ...lines.slice(0, firstContentLineIndex),
+    ...lines.slice(firstContentLineIndex + 1),
+  ];
+  return {
+    slashPayload,
+    remainingPrompt: remainingLines.join("\n").trim(),
+  };
+}
+
+function normalizeSlashQuickFeatureTopic(
+  payload: string,
+  featureId: SlashQuickFeatureId,
+): string {
+  let next = String(payload ?? "").trim();
+  if (!next) return "";
+
+  const aliases = [...(SLASH_QUICK_FEATURE_ALIASES[featureId] ?? [])].sort(
+    (a, b) => b.length - a.length,
+  );
+  aliases.forEach((alias) => {
+    const escapedAlias = escapeRegExp(alias.trim());
+    if (!escapedAlias) return;
+    const prefixPattern = new RegExp(
+      `^${escapedAlias}(?:\\s*[:：\\-—]\\s*|\\s+)?`,
+      "i",
+    );
+    next = next.replace(prefixPattern, "").trim();
+  });
+
+  return next;
+}
+
+function buildSlashQuickFeaturePrompt(
+  featureId: SlashQuickFeatureId,
+  topic: string,
+): string {
+  const subjectLine = topic
+    ? `主体/主题：${topic}`
+    : "主体/主题：保持参考图主体一致";
+
+  switch (featureId) {
+    case "multi_cam_grid":
+      return [
+        "请基于参考图生成“多机位九宫格分镜参考”。",
+        subjectLine,
+        "要求：九宫格九个画面都保持同一主体与场景连续性，覆盖远景/全景/中景/近景/特写与俯仰角变化；统一色调与光影，构图清晰。",
+      ].join("\n");
+    case "cinematic_lighting":
+      return [
+        "请对参考图执行“电影级光影校正”。",
+        subjectLine,
+        "要求：保持主体与构图不变，重点优化主辅光关系、阴影层次、色温一致性和电影感对比，输出自然真实的电影级质感。",
+      ].join("\n");
+    case "character_turnaround":
+      return [
+        "请基于参考图生成“角色三视图”。",
+        subjectLine,
+        "要求：输出正面/侧面/背面三视图，角色服装与关键细节保持一致，中性背景、均匀光照、比例准确，便于设计与建模参考。",
+      ].join("\n");
+    case "simulate_3s_after":
+      return [
+        "请基于参考图进行“画面推演 - 3秒后”。",
+        subjectLine,
+        "要求：保持主体身份与场景连续，按照物理逻辑推演3秒后的动作结果，给出明确的运动方向、姿态变化和环境反馈。",
+      ].join("\n");
+    case "simulate_5s_before":
+      return [
+        "请基于参考图进行“画面推演 - 5秒前”。",
+        subjectLine,
+        "要求：保持主体身份与场景连续，按物理与叙事逻辑反推5秒前的动作起因，呈现合理的前置动作和状态线索。",
+      ].join("\n");
+    default:
+      return topic;
+  }
+}
+
 const DEFAULT_REFERENCE_EXTENSIONS = [
   "png",
   "jpg",
@@ -260,8 +407,11 @@ export default function DoubaoImageCreatorLayout({
   const templates = useTypesStore((state) => state.templates);
   const { handleNodeClass } = useHandleNodeClass(data.id);
   const promptSnapshotTakenRef = useRef(false);
+  const [isPromptFocused, setPromptFocused] = useState(false);
   const [isPromptComposing, setIsPromptComposing] = useState(false);
   const [promptCompositionValue, setPromptCompositionValue] = useState<string | null>(null);
+  const promptValue = String(template[PROMPT_NAME]?.value ?? "");
+  const [promptDraftValue, setPromptDraftValue] = useState(promptValue);
 
   useEffect(() => {
     if (!showExpanded) {
@@ -269,10 +419,14 @@ export default function DoubaoImageCreatorLayout({
     }
   }, [showExpanded]);
 
-  const promptValue = String(template[PROMPT_NAME]?.value ?? "");
+  useEffect(() => {
+    if (isPromptFocused || isPromptComposing) return;
+    setPromptDraftValue(promptValue);
+  }, [isPromptComposing, isPromptFocused, promptValue]);
+
   const resolvedPromptValue = isPromptComposing
-    ? (promptCompositionValue ?? promptValue)
-    : promptValue;
+    ? (promptCompositionValue ?? promptDraftValue)
+    : promptDraftValue;
   const referenceFieldRaw = template[REFERENCE_FIELD];
   const referenceField = useMemo<InputFieldType>(() => {
     if (!referenceFieldRaw) return REFERENCE_FIELD_FALLBACK;
@@ -342,9 +496,15 @@ export default function DoubaoImageCreatorLayout({
       mergeReferencePreviewLists(referencePreviews, upstreamReferencePreviews),
     [referencePreviews, upstreamReferencePreviews],
   );
+  const promptReferencePreviews = combinedReferencePreviews;
+  const visiblePromptReferencePreviews = useMemo<DoubaoReferenceImage[]>(
+    () => promptReferencePreviews.slice(0, 6),
+    [promptReferencePreviews],
+  );
   const localReferenceCount = referencePreviews.length;
   const selectedReferenceCount = combinedReferencePreviews.length;
   const hasAnyReferenceSelected = selectedReferenceCount > 0;
+  const disableSlashQuickFeatures = !hasAnyReferenceSelected;
 
   const referenceFileTypes =
     referenceField.fileTypes ??
@@ -397,6 +557,69 @@ export default function DoubaoImageCreatorLayout({
   const { validateFileSize } = useFileSizeValidator();
 
   const [isRunHovering, setRunHovering] = useState(false);
+
+  const promptStartsWithSlash = useMemo(() => {
+    const raw = String(resolvedPromptValue ?? "");
+    return raw.trimStart().startsWith("/");
+  }, [resolvedPromptValue]);
+  const [isSlashQuickFeaturesOpen, setSlashQuickFeaturesOpen] = useState(false);
+  const [slashQuickFeaturesSuppressed, setSlashQuickFeaturesSuppressed] =
+    useState(false);
+  const slashQuickFeaturesRootRef = useRef<HTMLDivElement | null>(null);
+  const slashQuickFeaturesDrawerRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-open the slash menu while the prompt is focused and starts with "/".
+  // ESC / outside-click / blur will close it, but typing again will re-open.
+  useEffect(() => {
+    if (!showExpanded) {
+      setSlashQuickFeaturesOpen(false);
+      setSlashQuickFeaturesSuppressed(false);
+      return;
+    }
+    if (!isPromptFocused || !promptStartsWithSlash) {
+      setSlashQuickFeaturesOpen(false);
+      setSlashQuickFeaturesSuppressed(false);
+      return;
+    }
+    if (!slashQuickFeaturesSuppressed) {
+      setSlashQuickFeaturesOpen(true);
+    }
+  }, [
+    isPromptFocused,
+    promptStartsWithSlash,
+    showExpanded,
+    slashQuickFeaturesSuppressed,
+  ]);
+
+  useEffect(() => {
+    if (!isSlashQuickFeaturesOpen) return;
+
+    const onPointerDownCapture = (event: PointerEvent) => {
+      const root = slashQuickFeaturesRootRef.current;
+      const drawer = slashQuickFeaturesDrawerRef.current;
+      const target = event.target as Node | null;
+      if (!root || !target) return;
+      if (root.contains(target)) return;
+      if (drawer?.contains(target)) return;
+      // Defer closing so ReactFlow can start a drag on the same pointerdown.
+      queueMicrotask(() => setSlashQuickFeaturesOpen(false));
+    };
+
+    const onKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSlashQuickFeaturesOpen(false);
+      setSlashQuickFeaturesSuppressed(true);
+    };
+
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    window.addEventListener("keydown", onKeyDownCapture, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("keydown", onKeyDownCapture, true);
+    };
+  }, [isSlashQuickFeaturesOpen]);
 
   const stripElementTokens = useCallback((prompt: string) => {
     let next = String(prompt ?? "");
@@ -733,6 +956,7 @@ export default function DoubaoImageCreatorLayout({
     : data.id;
 
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+  const promptReadonly = Boolean(data.node?.flow) || isBusy;
 
   const canonicalTemplate = (templates as any)?.[data.type]?.template as
     | Record<string, any>
@@ -886,10 +1110,74 @@ export default function DoubaoImageCreatorLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? isRunHovering
-        ? "Square"
-        : "Loader2"
+      ? "Loader2"
       : "Play";
+
+  const handleSlashQuickFeatureSelect = useCallback(
+    (featureId: SlashQuickFeatureId) => {
+      if (disableSlashQuickFeatures) return;
+
+      const { slashPayload, remainingPrompt } = splitLeadingSlashPrompt(
+        String(resolvedPromptValue ?? ""),
+      );
+      const normalizedTopic = normalizeSlashQuickFeatureTopic(
+        slashPayload,
+        featureId,
+      );
+      const featurePrompt = buildSlashQuickFeaturePrompt(
+        featureId,
+        normalizedTopic,
+      );
+      const nextPrompt = remainingPrompt
+        ? `${featurePrompt}\n\n${remainingPrompt}`
+        : featurePrompt;
+
+      takeSnapshot();
+      setIsPromptComposing(false);
+      setPromptCompositionValue(null);
+      setPromptDraftValue(nextPrompt);
+      setSlashQuickFeaturesOpen(false);
+      setSlashQuickFeaturesSuppressed(true);
+      handlePromptChange({ value: nextPrompt }, { skipSnapshot: true });
+
+      if (isBusy) return;
+
+      // Let prompt state commit first; otherwise validation may see stale empty prompt
+      // and exit before entering BUILDING status (which hides loading animations).
+      window.requestAnimationFrame(() => {
+        const flowState = useFlowStore.getState();
+        const latestNode = flowState.getNode(data.id);
+        const latestPrompt = String(
+          ((latestNode?.data as any)?.node?.template?.[PROMPT_NAME]?.value ?? ""),
+        ).trim();
+        const latestHasConnection = flowState.edges.some(
+          (edge) => edge.source === data.id || edge.target === data.id,
+        );
+        if (!latestHasConnection && latestPrompt.length === 0) return;
+
+        flowState.clearFlowPoolForNodes([nodeIdForRun]);
+        void flowState.buildFlow({
+          stopNodeId: data.id,
+          eventDelivery: eventDeliveryConfig,
+        });
+        track("Flow Build - Clicked", {
+          stopNodeId: data.id,
+          trigger: "slash_quick_feature",
+          featureId,
+        });
+      });
+    },
+    [
+      disableSlashQuickFeatures,
+      resolvedPromptValue,
+      takeSnapshot,
+      isBusy,
+      nodeIdForRun,
+      data.id,
+      eventDeliveryConfig,
+      handlePromptChange,
+    ],
+  );
 
   const controlConfigs = useMemo(() => {
     return CONTROL_FIELDS.map((field) => {
@@ -2415,7 +2703,7 @@ export default function DoubaoImageCreatorLayout({
             nodeId={data.id}
             componentName={data.type}
             appearance="imageCreator"
-            referenceImages={combinedReferencePreviews}
+            referenceImages={[]}
             onRequestUpload={openUploadDialog}
             onSuggestionClick={handlePreviewSuggestionClickWithVideo}
             onActionsChange={onPreviewActionsChange}
@@ -2494,21 +2782,30 @@ export default function DoubaoImageCreatorLayout({
 
       {/* Prompt/config container (floating overlay; must not change node height) */}
       {showExpanded && (
-        <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
-          <div
-            className={cn(
-              "relative mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
-              "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
-              // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
-              "transform-gpu origin-top scale-[var(--inv-zoom)]",
-            )}
-            style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
-          >
-            <PromptModal
-              id={`doubao-image-prompt-${data.id}`}
-              field_name={PROMPT_NAME}
-              readonly={!!data.node?.flow}
-              value={promptValue}
+      <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
+        <div
+          className={cn(
+            "relative mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+            "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
+            // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
+            "transform-gpu origin-top scale-[var(--inv-zoom)]",
+          )}
+          style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+          ref={slashQuickFeaturesRootRef}
+        >
+          <SlashQuickFeaturesDrawer
+            open={isSlashQuickFeaturesOpen}
+            disabled={disableSlashQuickFeatures}
+            anchorRef={slashQuickFeaturesRootRef}
+            drawerRef={slashQuickFeaturesDrawerRef}
+            onSelect={handleSlashQuickFeatureSelect}
+          />
+
+          <PromptModal
+            id={`doubao-image-prompt-${data.id}`}
+            field_name={PROMPT_NAME}
+            readonly={promptReadonly}
+            value={promptValue}
               setValue={(newValue) => handlePromptChange({ value: newValue })}
               nodeClass={data.node!}
               setNodeClass={handleNodeClass}
@@ -2531,26 +2828,82 @@ export default function DoubaoImageCreatorLayout({
 
             <div className="text-sm text-[#3C4057] dark:text-slate-100">
               <div className="flex min-h-[168px] flex-col gap-3">
+                {promptReferencePreviews.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {visiblePromptReferencePreviews.map((preview, index) => {
+                      const previewSource =
+                        preview.imageSource ?? preview.downloadSource ?? "";
+                      return (
+                        <div
+                          key={preview.id ?? `${previewSource}-${index}`}
+                          className="relative h-16 w-16 overflow-hidden rounded-xl border border-[#E2E7F5] bg-[#F4F6FB] dark:border-white/15 dark:bg-white/10"
+                        >
+                          {previewSource ? (
+                            <img
+                              src={previewSource}
+                              alt={preview.label ?? preview.fileName ?? `参考图 ${index + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[#7D85A8] dark:text-slate-300">
+                              <ForwardedIconComponent name="Image" className="h-4 w-4" />
+                            </div>
+                          )}
+                          {index === 0 && promptReferencePreviews.length > 1 && (
+                            <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[#1B66FF] px-1 text-center text-[10px] font-semibold leading-5 text-white shadow">
+                              {promptReferencePreviews.length}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {promptReferencePreviews.length > visiblePromptReferencePreviews.length && (
+                      <span className="inline-flex h-16 items-center rounded-xl border border-dashed border-[#D7DEEF] px-2 text-xs text-[#5E6484] dark:border-white/20 dark:text-slate-300">
+                        +{promptReferencePreviews.length - visiblePromptReferencePreviews.length}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <textarea
                 rows={3}
                 value={resolvedPromptValue}
+                disabled={isBusy}
+                readOnly={promptReadonly}
                 placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
                 className={cn(
                   "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
                   "min-h-[72px] max-h-[72px] overflow-y-auto",
                   "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
                   "placeholder:text-[#9CA3C0]",
+                  generationPromptInputBusyClass(isBusy),
                   klingElementApplied && "bg-[#FFF7D6] dark:bg-amber-500/15",
                   "dark:text-white dark:placeholder:text-slate-400",
                 )}
                 onFocus={() => {
+                  setPromptFocused(true);
+                  setSlashQuickFeaturesSuppressed(false);
                   if (!promptSnapshotTakenRef.current) {
                     takeSnapshot();
                     promptSnapshotTakenRef.current = true;
                   }
                 }}
+                onBlur={() => {
+                  // Defer to avoid interfering with ReactFlow drag initiation on the same pointer event.
+                  queueMicrotask(() => {
+                    setPromptFocused(false);
+                    setSlashQuickFeaturesOpen(false);
+                    setSlashQuickFeaturesSuppressed(false);
+                  });
+                }}
                 onChange={(e) => {
                   const next = e.target.value;
+                  setPromptDraftValue(next);
+                  setSlashQuickFeaturesSuppressed(false);
+                  if (next.trimStart().startsWith("/")) {
+                    setSlashQuickFeaturesOpen(true);
+                  } else {
+                    setSlashQuickFeaturesOpen(false);
+                  }
                   if (isPromptComposing) {
                     setPromptCompositionValue(next);
                     return;
@@ -2565,9 +2918,17 @@ export default function DoubaoImageCreatorLayout({
                   setIsPromptComposing(false);
                   const finalValue = promptCompositionValue ?? e.currentTarget.value;
                   setPromptCompositionValue(null);
+                  setPromptDraftValue(finalValue);
                   handlePromptChange({ value: finalValue }, { skipSnapshot: true });
                 }}
                 onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSlashQuickFeaturesOpen(false);
+                    setSlashQuickFeaturesSuppressed(true);
+                    return;
+                  }
                   if (e.key !== "Enter" || e.shiftKey) return;
                   if ((e.nativeEvent as any)?.isComposing || isPromptComposing) return;
                   e.preventDefault();
@@ -2876,6 +3237,197 @@ export default function DoubaoImageCreatorLayout({
       </Dialog>
     </div>
   );
+}
+
+function SlashQuickFeaturesDrawer({
+  open,
+  disabled,
+  anchorRef,
+  drawerRef,
+  onSelect,
+}: {
+  open: boolean;
+  disabled: boolean;
+  anchorRef: RefObject<HTMLDivElement | null>;
+  drawerRef: RefObject<HTMLDivElement | null>;
+  onSelect: (featureId: SlashQuickFeatureId) => void;
+}) {
+  const [isMounted, setMounted] = useState(false);
+  const [fixedStyle, setFixedStyle] = useState<
+    | { left: number; top: number; width: number }
+    | null
+  >(null);
+  const lastFixedStyleRef = useRef<
+    | { left: number; top: number; width: number }
+    | null
+  >(null);
+  const clearFixedStyleTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // When closed, keep the last measured position briefly to allow a smooth close animation,
+  // then fully unmount so it never blocks canvas interactions (node dragging, etc.).
+  useEffect(() => {
+    if (open) {
+      if (clearFixedStyleTimerRef.current) {
+        window.clearTimeout(clearFixedStyleTimerRef.current);
+        clearFixedStyleTimerRef.current = null;
+      }
+      return;
+    }
+    if (!fixedStyle) return;
+
+    clearFixedStyleTimerRef.current = window.setTimeout(() => {
+      lastFixedStyleRef.current = null;
+      setFixedStyle(null);
+      clearFixedStyleTimerRef.current = null;
+    }, 220);
+
+    return () => {
+      if (clearFixedStyleTimerRef.current) {
+        window.clearTimeout(clearFixedStyleTimerRef.current);
+        clearFixedStyleTimerRef.current = null;
+      }
+    };
+  }, [open, fixedStyle]);
+
+  // Keep the portal aligned with the (transformed) prompt container while open.
+  useEffect(() => {
+    if (!open) return;
+    let raf = 0;
+
+    const tick = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) {
+        raf = window.requestAnimationFrame(tick);
+        return;
+      }
+      const rect = anchor.getBoundingClientRect();
+      const next = {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+      };
+      const prev = lastFixedStyleRef.current;
+      if (
+        !prev ||
+        prev.left !== next.left ||
+        prev.top !== next.top ||
+        prev.width !== next.width
+      ) {
+        lastFixedStyleRef.current = next;
+        setFixedStyle(next);
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+
+    raf = window.requestAnimationFrame(tick);
+    return () => {
+      window.cancelAnimationFrame(raf);
+    };
+  }, [anchorRef, open]);
+
+  if (!isMounted) return null;
+  if (!open && !fixedStyle) return null;
+
+  const wrapper = (
+    <div
+      // Positioned at the prompt container top edge; inner panel animates upward (above the prompt container).
+      style={
+        fixedStyle
+          ? {
+              position: "fixed",
+              left: fixedStyle.left,
+              top: fixedStyle.top,
+              width: fixedStyle.width,
+              zIndex: 99999,
+            }
+          : { position: "fixed", left: 0, top: 0, width: 0, zIndex: 99999 }
+      }
+      className="pointer-events-none"
+      aria-hidden={!open}
+    >
+      <div
+        ref={drawerRef}
+        role="presentation"
+        onMouseDown={(e) => {
+          // Keep the prompt textarea focused while interacting with the drawer.
+          e.preventDefault();
+        }}
+        className={cn(
+          "transform-gpu transition-all duration-200 ease-out",
+          open ? "pointer-events-auto" : "pointer-events-none",
+          open ? "opacity-100" : "opacity-0",
+        )}
+        style={{
+          // Slide a bit while keeping the top edge anchored to the prompt container.
+          transform: open
+            ? "translateY(calc(-100% - 12px))"
+            : "translateY(calc(-100% - 4px))",
+        }}
+      >
+        <div
+          className={cn(
+            "rounded-2xl border p-3 shadow-[0_20px_45px_rgba(0,0,0,0.20)] backdrop-blur-xl",
+            // Theme-following palette: light uses a subtle white card; dark uses a blurred dark card.
+            "border-[#E6E9F4] bg-white/95 text-[#1C202D]",
+            "dark:border-white/10 dark:bg-neutral-950/70 dark:text-white dark:shadow-[0_20px_45px_rgba(0,0,0,0.55)]",
+          )}
+        >
+          <div className="space-y-1">
+            {SLASH_QUICK_FEATURES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                disabled={disabled}
+                // Keep textarea focus (so the drawer doesn't collapse on blur mid-click).
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onSelect(item.id);
+                }}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors",
+                  disabled
+                    ? "cursor-not-allowed opacity-50"
+                    : "hover:bg-black/5 dark:hover:bg-white/10",
+                )}
+              >
+                <div
+                  className={cn(
+                    "mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-lg",
+                    "bg-black/5 text-[#2E3150] dark:bg-white/10 dark:text-white/90",
+                  )}
+                >
+                  <ForwardedIconComponent
+                    name={item.icon}
+                    className="h-4 w-4"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium leading-6">
+                    {item.title}
+                  </div>
+                  <div className="text-xs leading-5 text-[#6B7280] dark:text-white/70">
+                    {item.description}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {disabled && (
+            <div className="mt-2 px-3 text-xs text-red-500 dark:text-red-400">
+              {SLASH_QUICK_FEATURES_DISABLED_TIP}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(wrapper, document.body);
 }
 
 function buildReferencePreviewItems(

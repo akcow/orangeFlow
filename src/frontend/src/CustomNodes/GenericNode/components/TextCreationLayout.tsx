@@ -46,6 +46,7 @@ import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import { useTextCreationPreview } from "../../hooks/use-text-creation-preview";
 import PromptModal from "@/modals/promptModal";
 import useHandleNodeClass from "@/CustomNodes/hooks/use-handle-node-class";
+import { generationPromptInputBusyClass } from "./promptGenerationStyles";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px]" },
@@ -356,8 +357,11 @@ export default function TextCreationLayout({
   const [isRunHovering, setRunHovering] = useState(false);
   const { handleNodeClass } = useHandleNodeClass(data.id);
   const promptSnapshotTakenRef = useRef(false);
+  const [isPromptFocused, setPromptFocused] = useState(false);
   const [isPromptComposing, setIsPromptComposing] = useState(false);
   const [promptCompositionValue, setPromptCompositionValue] = useState<string | null>(null);
+  const promptValue = String(promptField?.value ?? "");
+  const [promptDraftValue, setPromptDraftValue] = useState(promptValue);
 
   useEffect(() => {
     if (!showExpanded) {
@@ -414,10 +418,15 @@ export default function TextCreationLayout({
     return value === undefined || value === null;
   }, [promptField?.value]);
   const disableRun = !hasAnyConnection && isPromptEmpty;
-  const promptValue = String(promptField?.value ?? "");
+  useEffect(() => {
+    if (isPromptFocused || isPromptComposing) return;
+    setPromptDraftValue(promptValue);
+  }, [isPromptComposing, isPromptFocused, promptValue]);
+
   const resolvedPromptValue = isPromptComposing
-    ? (promptCompositionValue ?? promptValue)
-    : promptValue;
+    ? (promptCompositionValue ?? promptDraftValue)
+    : promptDraftValue;
+  const promptReadonly = Boolean(data.node?.flow) || busy;
 
   const handleCreateVideoNode = useCallback(() => {
     const currentNode = nodes.find((node) => node.id === data.id);
@@ -1202,9 +1211,7 @@ export default function TextCreationLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? isRunHovering
-        ? "Square"
-        : "Loader2"
+      ? "Loader2"
       : "Play";
 
   const controlConfigs = useMemo(() => {
@@ -1636,7 +1643,7 @@ export default function TextCreationLayout({
               <PromptModal
                 id={`text-creation-prompt-${data.id}`}
                 field_name={PROMPT_FIELD}
-                readonly={!!data.node?.flow}
+                readonly={promptReadonly}
                 value={promptValue}
                 setValue={(newValue) => handlePromptChange({ value: newValue })}
                 nodeClass={data.node!}
@@ -1661,22 +1668,30 @@ export default function TextCreationLayout({
               <textarea
                 rows={3}
                 value={resolvedPromptValue}
+                disabled={busy}
+                readOnly={promptReadonly}
                 placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
                 className={cn(
                   "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
                   "min-h-[72px] max-h-[72px] overflow-y-auto",
                   "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
                   "placeholder:text-[#9CA3C0]",
+                  generationPromptInputBusyClass(busy),
                   "dark:text-white dark:placeholder:text-slate-400",
                 )}
                 onFocus={() => {
+                  setPromptFocused(true);
                   if (!promptSnapshotTakenRef.current) {
                     takeSnapshot();
                     promptSnapshotTakenRef.current = true;
                   }
                 }}
+                onBlur={() => {
+                  setPromptFocused(false);
+                }}
                 onChange={(e) => {
                   const next = e.target.value;
+                  setPromptDraftValue(next);
                   if (isPromptComposing) {
                     setPromptCompositionValue(next);
                     return;
@@ -1691,6 +1706,7 @@ export default function TextCreationLayout({
                   setIsPromptComposing(false);
                   const finalValue = promptCompositionValue ?? e.currentTarget.value;
                   setPromptCompositionValue(null);
+                  setPromptDraftValue(finalValue);
                   handlePromptChange({ value: finalValue }, { skipSnapshot: true });
                 }}
                 onKeyDown={(e) => {

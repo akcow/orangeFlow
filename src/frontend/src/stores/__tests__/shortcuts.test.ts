@@ -41,7 +41,6 @@ describe("useShortcutsStore", () => {
         undo: "mod+z",
         redo: "mod+y",
         redoAlt: "mod+shift+z",
-        advancedSettings: "mod+shift+a",
         minimize: "mod+.",
         copy: "mod+c",
         duplicate: "mod+d",
@@ -55,9 +54,6 @@ describe("useShortcutsStore", () => {
         paste: "mod+v",
         update: "mod+u",
         download: "mod+j",
-        freezePath: "mod+shift+f",
-        toolMode: "mod+shift+m",
-        toggleSidebar: "mod+b",
       });
     });
   });

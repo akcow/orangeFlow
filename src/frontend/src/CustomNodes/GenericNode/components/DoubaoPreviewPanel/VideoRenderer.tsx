@@ -19,6 +19,7 @@ type VideoRendererProps = {
    */
   autoPlay?: boolean;
   onMeta?: (meta: { width?: number; height?: number; aspectRatio?: number }) => void;
+  hideControls?: boolean;
 };
 
 const SPEED_OPTIONS = [0.5, 1, 1.5, 2];
@@ -33,6 +34,7 @@ const VideoRenderer = ({
   onDownloadClick,
   autoPlay,
   onMeta,
+  hideControls = false,
 }: VideoRendererProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -244,7 +246,7 @@ const VideoRenderer = ({
         playsInline
       />
 
-      <div className={controlClasses}>
+      {!hideControls && <div className={controlClasses}>
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <button
@@ -311,7 +313,7 @@ const VideoRenderer = ({
             )}
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 };

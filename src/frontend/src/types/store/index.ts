@@ -30,7 +30,6 @@ export type shortcutsStoreType = {
   undo: string;
   redo: string;
   redoAlt: string;
-  advancedSettings: string;
   minimize: string;
   copy: string;
   duplicate: string;
@@ -41,9 +40,6 @@ export type shortcutsStoreType = {
   delete: string;
   update: string;
   download: string;
-  toggleSidebar: string;
-  freezePath: string;
-  toolMode: string;
   shortcuts: Array<{
     name: string;
     display_name: string;

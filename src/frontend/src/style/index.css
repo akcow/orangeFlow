@@ -473,3 +473,163 @@
     --indigo-foreground: 234.5 89.5% 73.9%;
   }
 }
+
+@keyframes doubao-wave-progress-expand {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes doubao-wave-front-pulse {
+  0% {
+    transform: translateX(-10%);
+    opacity: 0.68;
+  }
+  100% {
+    transform: translateX(8%);
+    opacity: 0.9;
+  }
+}
+
+@keyframes doubao-wave-texture-drift {
+  0% {
+    transform: translateX(-16%);
+  }
+  100% {
+    transform: translateX(16%);
+  }
+}
+
+@keyframes doubao-wave-gloss-drift {
+  0% {
+    transform: translateX(-18%);
+    opacity: 0.24;
+  }
+  100% {
+    transform: translateX(18%);
+    opacity: 0.12;
+  }
+}
+
+.doubao-building-wave {
+  --doubao-wave-base: rgba(232, 238, 249, 0.94);
+  --doubao-wave-veil: rgba(255, 255, 255, 0.84);
+  --doubao-wave-front: rgba(255, 255, 255, 0.52);
+  --doubao-wave-texture: rgba(255, 255, 255, 0.03);
+  --doubao-wave-gloss: rgba(255, 255, 255, 0.08);
+  --doubao-wave-blur: 64px;
+  contain: paint;
+  backface-visibility: hidden;
+}
+
+.dark .doubao-building-wave {
+  --doubao-wave-base: rgba(8, 12, 20, 0.95);
+  --doubao-wave-veil: rgba(21, 31, 47, 0.86);
+  --doubao-wave-front: rgba(169, 188, 224, 0.3);
+  --doubao-wave-texture: rgba(146, 168, 206, 0.03);
+  --doubao-wave-gloss: rgba(183, 205, 245, 0.08);
+  --doubao-wave-blur: 68px;
+}
+
+.doubao-building-wave__progress {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  transform-origin: left center;
+  transform: scaleX(0);
+  will-change: transform;
+  animation: doubao-wave-progress-expand 35s linear forwards;
+}
+
+.doubao-building-wave__base {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(100deg, var(--doubao-wave-base) 0%, var(--doubao-wave-veil) 96%),
+    linear-gradient(180deg, rgba(148, 163, 184, 0.42) 0%, transparent 100%);
+  backdrop-filter: blur(var(--doubao-wave-blur)) saturate(0.58) brightness(0.7);
+  -webkit-backdrop-filter: blur(var(--doubao-wave-blur)) saturate(0.58) brightness(0.7);
+}
+
+.dark .doubao-building-wave__base {
+  background:
+    linear-gradient(100deg, var(--doubao-wave-base) 0%, var(--doubao-wave-veil) 98%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.76) 0%, transparent 100%);
+}
+
+.doubao-building-wave--toned .doubao-building-wave__base {
+  background:
+    linear-gradient(100deg, var(--doubao-wave-base) 0%, rgba(255, 255, 255, 0.12) 94%, transparent 100%),
+    linear-gradient(180deg, var(--doubao-wave-veil) 0%, transparent 100%);
+}
+
+.doubao-building-wave__texture {
+  position: absolute;
+  inset: -8% -16%;
+  background: repeating-linear-gradient(
+    118deg,
+    transparent 0 30px,
+    var(--doubao-wave-texture) 30px 44px,
+    transparent 44px 74px
+  );
+  opacity: 0.22;
+  filter: blur(18px);
+  mix-blend-mode: soft-light;
+  will-change: transform;
+  animation: doubao-wave-texture-drift 6.2s ease-in-out infinite alternate;
+}
+
+.doubao-building-wave__front {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  right: -48%;
+  width: 118%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--doubao-wave-front) 50%,
+    transparent 100%
+  );
+  filter: blur(38px);
+  will-change: transform, opacity;
+  animation: doubao-wave-front-pulse 3.6s ease-in-out infinite alternate;
+}
+
+.doubao-building-wave__gloss {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    96deg,
+    transparent 62%,
+    var(--doubao-wave-gloss) 84%,
+    transparent 100%
+  );
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  animation: doubao-wave-gloss-drift 7.2s ease-in-out infinite alternate;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .doubao-building-wave__base {
+    /* Fallback for environments without backdrop-filter: keep a very strong frosted mask. */
+    opacity: 0.94;
+    filter: saturate(0.58) brightness(0.72);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doubao-building-wave__progress {
+    animation: none;
+    transform: scaleX(1);
+  }
+
+  .doubao-building-wave__texture,
+  .doubao-building-wave__front,
+  .doubao-building-wave__gloss {
+    animation: none;
+  }
+}
