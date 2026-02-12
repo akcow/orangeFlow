@@ -471,13 +471,28 @@ export default function DoubaoImageCreatorLayout({
       }
 
       const sourceNode = nodes.find((node) => node.id === edge.source);
-      if (sourceNode?.data?.type !== "DoubaoImageCreator") return;
+      const sourceType = sourceNode?.data?.type;
 
-      const sourceTemplateField =
-        sourceNode.data?.node?.template?.[REFERENCE_FIELD];
-
-      if (sourceTemplateField) {
-        collected.push(sourceTemplateField);
+      // 支持 DoubaoImageCreator 和 UserUploadImage 作为上游预览源
+      if (sourceType === "DoubaoImageCreator") {
+        const sourceTemplateField =
+          sourceNode.data?.node?.template?.[REFERENCE_FIELD];
+        if (sourceTemplateField) {
+          collected.push(sourceTemplateField);
+        }
+      } else if (sourceType === "UserUploadImage") {
+        // UserUploadImage 的数据结构与 DoubaoImageCreator 不同
+        // 它的输出在 template.file 字段中
+        const fileField = sourceNode?.data?.node?.template?.file;
+        if (fileField) {
+          // 将 UserUploadImage 的 file 字段转换为 reference_images 兼容格式
+          const convertedField: InputFieldType = {
+            ...REFERENCE_FIELD_FALLBACK,
+            file_path: fileField.file_path,
+            value: fileField.value,
+          };
+          collected.push(convertedField);
+        }
       }
     });
 

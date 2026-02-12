@@ -1668,16 +1668,45 @@ export default function DoubaoVideoGeneratorLayout({
       const sourceNode = nodes.find((node) => node.id === edge.source);
       if (!sourceNode) return;
       const sourceType = sourceNode?.data?.type;
-      if (
-        sourceType !== "DoubaoVideoGenerator" &&
-        sourceType !== "DoubaoImageCreator"
-      ) {
+
+      // 支持 DoubaoVideoGenerator、DoubaoImageCreator、UserUploadImage、UserUploadVideo 作为上游预览源
+      const isDoubaoSource =
+        sourceType === "DoubaoVideoGenerator" ||
+        sourceType === "DoubaoImageCreator";
+      const isUploadSource =
+        sourceType === "UserUploadImage" ||
+        sourceType === "UserUploadVideo";
+
+      if (!isDoubaoSource && !isUploadSource) {
         return;
       }
 
-      const sourceTemplateField =
-        sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
-        sourceNode.data?.node?.template?.["reference_images"];
+      let sourceTemplateField: InputFieldType | undefined;
+
+      if (isDoubaoSource) {
+        sourceTemplateField =
+          sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
+          sourceNode.data?.node?.template?.["reference_images"];
+      } else if (isUploadSource) {
+        // UserUploadImage/UserUploadVideo 的数据在 template.file 字段中
+        const fileField = sourceNode.data?.node?.template?.file;
+        if (fileField) {
+          // 将 file 字段转换为 first_frame_image 兼容格式
+          sourceTemplateField = {
+            type: "file",
+            required: false,
+            placeholder: "",
+            list: false,
+            show: true,
+            readonly: false,
+            name: FIRST_FRAME_FIELD,
+            display_name: "上传文件",
+            input_types: ["Data"],
+            file_path: fileField.file_path,
+            value: fileField.value,
+          };
+        }
+      }
 
       if (sourceTemplateField) {
         const edgeRole = isSoraModel
@@ -1711,16 +1740,44 @@ export default function DoubaoVideoGeneratorLayout({
       const sourceNode = nodes.find((node) => node.id === edge.source);
       if (!sourceNode) return;
       const sourceType = sourceNode?.data?.type;
-      if (
-        sourceType !== "DoubaoVideoGenerator" &&
-        sourceType !== "DoubaoImageCreator"
-      ) {
+
+      // 支持 DoubaoVideoGenerator、DoubaoImageCreator、UserUploadImage、UserUploadVideo 作为上游预览源
+      const isDoubaoSource =
+        sourceType === "DoubaoVideoGenerator" ||
+        sourceType === "DoubaoImageCreator";
+      const isUploadSource =
+        sourceType === "UserUploadImage" ||
+        sourceType === "UserUploadVideo";
+
+      if (!isDoubaoSource && !isUploadSource) {
         return;
       }
 
-      const sourceTemplateField =
-        sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
-        sourceNode.data?.node?.template?.["reference_images"];
+      let sourceTemplateField: InputFieldType | undefined;
+
+      if (isDoubaoSource) {
+        sourceTemplateField =
+          sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
+          sourceNode.data?.node?.template?.["reference_images"];
+      } else if (isUploadSource) {
+        // UserUploadImage/UserUploadVideo 的数据在 template.file 字段中
+        const fileField = sourceNode.data?.node?.template?.file;
+        if (fileField) {
+          sourceTemplateField = {
+            type: "file",
+            required: false,
+            placeholder: "",
+            list: false,
+            show: true,
+            readonly: false,
+            name: LAST_FRAME_FIELD,
+            display_name: "上传文件",
+            input_types: ["Data"],
+            file_path: fileField.file_path,
+            value: fileField.value,
+          };
+        }
+      }
 
       if (sourceTemplateField) {
         collected.push(applyEdgeRoleToField(sourceTemplateField, "last"));
@@ -4029,7 +4086,7 @@ export default function DoubaoVideoGeneratorLayout({
               nodeId={data.id}
               componentName={data.type}
               appearance="videoGenerator"
-              referenceImages={combinedFirstFramePreviews}
+              referenceImages={normalizedFirstFramePreviews}
               onRequestUpload={openFirstFrameDialog}
               onSuggestionClick={handlePreviewSuggestionClick}
               onActionsChange={onPreviewActionsChange}

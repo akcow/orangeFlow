@@ -2664,7 +2664,7 @@ class DoubaoImageCreator(Component):
                 return
             containers.append(candidate)
             nested_candidates = []
-            for key in ("images", "generated_images", "reference_images", "doubao_preview", "items"):
+            for key in ("images", "generated_images", "reference_images", "doubao_preview", "items", "payload"):
                 value = candidate.get(key)
                 if isinstance(value, list):
                     nested_candidates.extend(value)
