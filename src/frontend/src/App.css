@@ -153,13 +153,79 @@ body {
 }
 
 .react-flow__edge.not-running .react-flow__edge-path {
+  /* Keep default connection color so edges don't "disappear" under certain themes. */
+  stroke: var(--connection) !important;
+  stroke-width: 2px !important;
+  opacity: 1;
+}
+
+/* Tool-only lineage edges (crop/outpaint/multi-angle) should stay visible during builds. */
+.react-flow__edge.doubao-tool-edge .react-flow__edge-path {
   stroke: hsl(var(--foreground)) !important;
-  stroke-width: 1px !important;
+  stroke-width: 2px !important;
+  opacity: 0.85;
+  stroke-dasharray: 7 6;
 }
 
 .react-flow__edge.ran .react-flow__edge-path {
   stroke: hsl(var(--foreground)) !important;
   stroke-width: 2px !important;
+}
+
+@keyframes doubao-edge-wave-travel {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: -1;
+    opacity: 0;
+  }
+}
+
+:root {
+  /* Use theme tokens so running "wave" edges stay visible in both light/dark themes. */
+  --doubao-edge-wave-core: hsl(var(--primary) / 0.85);
+  --doubao-edge-wave-glow: hsl(var(--primary) / 0.28);
+}
+
+.dark {
+  --doubao-edge-wave-core: hsl(var(--primary) / 0.72);
+  --doubao-edge-wave-glow: hsl(var(--primary) / 0.22);
+}
+
+.doubao-edge-wave-glow,
+.doubao-edge-wave-pulse {
+  pointer-events: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.doubao-edge-wave-glow {
+  stroke: var(--doubao-edge-wave-glow);
+  stroke-width: 8px;
+  stroke-dasharray: 0.22 0.78;
+  filter: blur(1.4px);
+  animation: doubao-edge-wave-travel 1.8s linear infinite;
+}
+
+.doubao-edge-wave-pulse {
+  stroke: var(--doubao-edge-wave-core);
+  stroke-width: 2.6px;
+  stroke-dasharray: 0.14 0.86;
+  animation: doubao-edge-wave-travel 1.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doubao-edge-wave-glow,
+  .doubao-edge-wave-pulse {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 .ag-react-container {

@@ -1429,14 +1429,15 @@ class DoubaoVideoGenerator(Component):
             return None
         if isinstance(value, Data):
             return DoubaoVideoGenerator._extract_file_path(value.data)
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                candidate = DoubaoVideoGenerator._extract_file_path(item)
+                if candidate:
+                    return candidate
+            return None
         if isinstance(value, dict):
             candidate = value.get("file_path") or value.get("path") or value.get("value")
-            if isinstance(candidate, str) and candidate.strip():
-                trimmed = candidate.strip()
-                # Avoid treating remote URLs as flow file paths.
-                if trimmed.startswith(("http://", "https://", "data:", "oss://")):
-                    return None
-                return trimmed
+            return DoubaoVideoGenerator._extract_file_path(candidate)
         if isinstance(value, str) and value.strip():
             trimmed = value.strip()
             if trimmed.startswith(("http://", "https://", "data:", "oss://")):

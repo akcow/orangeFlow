@@ -1674,16 +1674,24 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     const edges = get().edges;
 
     const newEdges = edges.map((edge) => {
+      const existing = String(edge.className ?? "").trim();
+      const keep = existing
+        ? existing
+            .split(/\s+/)
+            .filter(Boolean)
+            .filter((c) => c !== "running" && c !== "not-running")
+        : [];
+
       if (
         edge.data?.sourceHandle &&
         ids.includes(edge.data.sourceHandle.id ?? "") &&
         edge.data.sourceHandle.id !== get().stopNodeId
       ) {
         edge.animated = running;
-        edge.className = running ? "running" : "";
+        edge.className = [...keep, running ? "running" : "not-running"].join(" ").trim();
       } else {
         edge.animated = false;
-        edge.className = "not-running";
+        edge.className = [...keep, "not-running"].join(" ").trim();
       }
       return edge;
     });

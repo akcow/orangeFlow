@@ -33,6 +33,9 @@ import useAlertStore from "@/stores/alertStore";
 import OutputModal from "../outputModal";
 import CropOverlay from "./CropOverlay";
 import OutpaintOverlay from "./OutpaintOverlay";
+import MultiAngleCameraOverlay, {
+  type MultiAngleCameraView,
+} from "./MultiAngleCameraOverlay";
 import ZoomableImageOverlay from "./ZoomableImageOverlay";
 import { cloneDeep } from "lodash";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
@@ -164,6 +167,9 @@ export type DoubaoPreviewPanelActions = {
   enterOutpaint: () => void;
   canOutpaint: boolean;
   isOutpaintOpen: boolean;
+  enterMultiAngleCamera: () => void;
+  canMultiAngleCamera: boolean;
+  isMultiAngleCameraOpen: boolean;
 };
 
 type Props = {
@@ -839,6 +845,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
     const [isCropOpen, setCropOpen] = useState(false);
     const [isOutpaintOpen, setOutpaintOpen] = useState(false);
+    const [isMultiAngleCameraOpen, setMultiAngleCameraOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
@@ -1293,11 +1300,27 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [reactFlowInstance],
     );
 
+    const isPreviewOnlyNode = Boolean(
+      (nodes as any[])?.find((candidate) => candidate?.id === nodeId)?.data?.cropPreviewOnly,
+    );
+
     const canCrop = Boolean(
-      appearance === "imageCreator" && kind === "image" && currentImage?.imageSource,
+      appearance === "imageCreator" &&
+        kind === "image" &&
+        currentImage?.imageSource &&
+        !isPreviewOnlyNode,
     );
     const canOutpaint = Boolean(
-      appearance === "imageCreator" && kind === "image" && currentImage?.imageSource,
+      appearance === "imageCreator" &&
+        kind === "image" &&
+        currentImage?.imageSource &&
+        !isPreviewOnlyNode,
+    );
+    const canMultiAngleCamera = Boolean(
+      appearance === "imageCreator" &&
+        kind === "image" &&
+        currentImage?.imageSource &&
+        !isPreviewOnlyNode,
     );
 
     const outpaintWorkspace = useMemo(() => {
@@ -1435,6 +1458,51 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [animateViewportTo, canOutpaint, getPreviewCenterFlow, nodeId, nodes, setNodes]);
 
+    const enterMultiAngleCamera = useCallback(() => {
+      if (!canMultiAngleCamera) return;
+      unstable_batchedUpdates(() => {
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setMultiAngleCameraOpen(true);
+      });
+
+      // Match the crop tool behavior: zoom + center to highlight the component.
+      // Requirement: zoom canvas to 55% and place the component slightly above center
+      // so the multi-angle drawer can be fully visible.
+      try {
+        const container =
+          (typeof document !== "undefined" &&
+            (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+          null;
+        const rect = container?.getBoundingClientRect();
+        const viewW = rect?.width ?? window.innerWidth;
+        const viewH = rect?.height ?? window.innerHeight;
+        const targetZoom = 0.55;
+
+        let target = getPreviewCenterFlow(nodeId);
+        if (!target) {
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const self: any = nodeById.get(nodeId);
+          if (self) {
+            const abs = getAbsolutePosition(self, nodeById as any);
+            const dim = getNodeDimensions(self);
+            target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+          }
+        }
+
+        if (target) {
+          const x = viewW / 2 - target.x * targetZoom;
+          const y = viewH * 0.42 - target.y * targetZoom;
+          animateViewportTo({ x, y, zoom: targetZoom }, 800);
+        }
+      } catch (e) {
+        console.warn("Failed to animate viewport for multi-angle mode:", e);
+      }
+    }, [animateViewportTo, canMultiAngleCamera, getPreviewCenterFlow, nodeId, nodes, setNodes]);
+
     // When the preview disappears (or switches kind), exit crop mode.
     useEffect(() => {
       if (!isCropOpen) return;
@@ -1452,6 +1520,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     }, [canOutpaint, isOutpaintOpen]);
 
     useEffect(() => {
+      if (!isMultiAngleCameraOpen) return;
+      if (!canMultiAngleCamera) {
+        setMultiAngleCameraOpen(false);
+      }
+    }, [canMultiAngleCamera, isMultiAngleCameraOpen]);
+
+    useEffect(() => {
       onActionsChange?.({
         openPreview: openModal,
         download: handleDownload,
@@ -1461,18 +1536,289 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         enterOutpaint,
         canOutpaint,
         isOutpaintOpen,
+        enterMultiAngleCamera,
+        canMultiAngleCamera,
+        isMultiAngleCameraOpen,
       });
     }, [
       canCrop,
       canOutpaint,
+      canMultiAngleCamera,
       downloadInfo,
       enterCrop,
       enterOutpaint,
+      enterMultiAngleCamera,
       handleDownload,
       isOutpaintOpen,
+      isMultiAngleCameraOpen,
       onActionsChange,
       openModal,
     ]);
+
+    const buildMultiAnglePrompt = useCallback((_items: MultiAngleCameraView[]) => {
+      // Important: avoid instructing the model to "output multiple images" in one response,
+      // otherwise it may generate a single collage/montage image.
+      // We always ask for exactly 1 image per call; multi-view generation is handled by the backend
+      // by iterating over `tool_multi_angle_views`.
+      const lines = [
+        "你是一个多角度相机控制的图像编辑系统。",
+        "目标：只改变相机视角/机位（水平旋转/俯仰/缩放/广角），其他内容保持与参考图一致。",
+        "严格约束：不要改变主体身份、服饰、表情、发型、材质、光照风格与背景元素；不要新增或删除物体；不要改变文字内容。",
+        "尺寸要求：输出图像的宽高比与分辨率保持与参考图一致（在模型限制范围内）。",
+        "输出要求：只输出 1 张图片，且仅包含一个角度的完整画面；严禁拼接、分屏、九宫格、对比图或多视角合成。",
+        "系统会附带相机参数标签（<sks> ...）与数值参数（yaw/pitch/zoom/wideAngle），两者一致且无冲突；请严格按参数生成。",
+      ];
+      return lines.join("\n").trim();
+    }, []);
+
+    const handleConfirmMultiAngleCamera = useCallback(
+      async ({
+        imageSource,
+        fileName,
+        views,
+      }: {
+        imageSource: string;
+        fileName: string;
+        views: Array<{
+          yaw: number;
+          pitch: number;
+          zoom: number;
+          wideAngle: boolean;
+          label?: string;
+        }>;
+      }) => {
+        if (!currentFlowId) {
+          showTransientBadge("请先保存画布后再生成");
+          return;
+        }
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["DoubaoImageCreator"];
+        if (!template) return;
+
+        takeSnapshot?.();
+
+        const REFERENCE_FIELD = "reference_images";
+        const IMAGE_OUTPUT_NAME = "image";
+        const NODE_OFFSET_X = 1300;
+        const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+
+        const newImageNodeId = getNodeId("DoubaoImageCreator");
+        const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+        const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+        const newNodeX = abs.x + NODE_OFFSET_X;
+        const newNodeY = computeAlignedNodeTopY({
+          anchorNodeId: nodeId,
+          anchorNodeType: currentFlowNode.data?.type,
+          targetNodeType: "DoubaoImageCreator",
+          targetX: newNodeX,
+          fallbackTopY: abs.y,
+          avoidOverlap: false,
+        });
+
+        const newTemplate = cloneDeep(template);
+
+        // Make the downstream node look like a lightweight "result" component (preview only),
+        // while still using the DoubaoImageCreator engine underneath.
+        (newTemplate as any).display_name = "多角度结果";
+        (newTemplate as any).icon = "Axis3d";
+
+        let uploadedReferenceBlob: Blob | null = null;
+
+        // Upload the reference image so the downstream node has a stable file_path.
+        const refField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        if (refField) {
+          const safeName = (fileName && String(fileName).trim()) || "multi-angle.png";
+          try {
+            const blob = await fetch(imageSource).then((r) => r.blob());
+            uploadedReferenceBlob = blob;
+            const file = new File([blob], safeName, { type: blob.type || "image/png" });
+            const response = await uploadReferenceFile({ file, id: currentFlowId });
+            const uploadedPath = response?.file_path ? String(response.file_path) : "";
+            if (!uploadedPath.trim()) {
+              showTransientBadge("上传失败");
+              return;
+            }
+            // Prefer storing the StorageService-style path in `value` too, so the backend can
+            // still resolve the reference even if a merge/sanitize step drops `file_path`.
+            refField.value = [uploadedPath.trim()];
+            refField.file_path = [uploadedPath.trim()];
+          } catch (error) {
+            console.error("Failed to upload multi-angle reference image:", error);
+            showTransientBadge("上传失败");
+            return;
+          }
+        }
+
+        const safeViews = (views ?? []).slice(0, 6);
+        const imageCount = Math.max(1, Math.min(6, safeViews.length || 1));
+
+        // Prefer keeping Qwen-Image-Edit output resolution/aspect consistent with the input image.
+        const inputWidth = Number((currentImage as any)?.width);
+        const inputHeight = Number((currentImage as any)?.height);
+        let sizeOverride =
+          Number.isFinite(inputWidth) &&
+          Number.isFinite(inputHeight) &&
+          inputWidth > 0 &&
+          inputHeight > 0
+            ? `${Math.round(inputWidth)}*${Math.round(inputHeight)}`
+            : "";
+
+        // If the preview metadata doesn't include width/height, derive it from the uploaded reference image.
+        if (!sizeOverride && uploadedReferenceBlob) {
+          try {
+            const bitmap = await createImageBitmap(uploadedReferenceBlob);
+            const w = Number(bitmap?.width);
+            const h = Number(bitmap?.height);
+            bitmap?.close?.();
+            if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+              sizeOverride = `${Math.round(w)}*${Math.round(h)}`;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        // Preserve user-selected resolution/aspect ratio from the source node when possible.
+        const sourceResolution = String(sourceTemplate?.template?.resolution?.value ?? "").trim();
+        const sourceAspectRatio = String(sourceTemplate?.template?.aspect_ratio?.value ?? "").trim();
+        if (sourceResolution && (newTemplate as any)?.template?.resolution) {
+          (newTemplate as any).template.resolution.value = sourceResolution;
+        }
+        if (sourceAspectRatio && (newTemplate as any)?.template?.aspect_ratio) {
+          (newTemplate as any).template.aspect_ratio.value = sourceAspectRatio;
+        }
+        if ((newTemplate as any)?.template?.image_count) {
+          (newTemplate as any).template.image_count.value = imageCount;
+        }
+
+        // Force qwen-image-edit-max in the backend via hidden tool override fields.
+        // Always set them (create if missing) so the backend reliably receives camera params/size.
+        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
+        toolTpl.tool_model_override.value = "qwen-image-edit-max";
+        toolTpl.tool_multi_angle_views = toolTpl.tool_multi_angle_views ?? { value: "" };
+        toolTpl.tool_multi_angle_views.value = JSON.stringify(safeViews);
+        if (sizeOverride) {
+          toolTpl.tool_size_override = toolTpl.tool_size_override ?? { value: "" };
+          toolTpl.tool_size_override.value = sizeOverride;
+        }
+
+        // Prefer adaptive aspect ratio for Qwen tool runs; final size is driven by tool_size_override.
+        if ((newTemplate as any)?.template?.aspect_ratio) {
+          (newTemplate as any).template.aspect_ratio.value = "adaptive";
+        }
+        // Prefer a first-class model option to avoid relying on hidden tool overrides being present.
+        // (Backend: DoubaoImageCreator MODEL_CATALOG key)
+        if ((newTemplate as any)?.template?.model_name) {
+          (newTemplate as any).template.model_name.value = "千问-图像编辑 · Max";
+        }
+
+        const prompt = buildMultiAnglePrompt(
+          safeViews.map((v, idx) => ({
+            id: String(idx),
+            label: v.label || `机位 ${idx + 1}`,
+            yaw: Number(v.yaw),
+            pitch: Number(v.pitch),
+            zoom: Number(v.zoom),
+            wideAngle: Boolean(v.wideAngle),
+          })),
+        );
+        if ((newTemplate as any)?.template?.prompt) {
+          (newTemplate as any).template.prompt.value = prompt;
+        }
+
+        // Ensure the new node doesn't show any cached/generated output from template defaults.
+        if ((newTemplate as any)?.template?.draft_output) {
+          delete (newTemplate as any).template.draft_output;
+        }
+
+        const newImageNode: GenericNodeType = {
+          id: newImageNodeId,
+          type: "genericNode",
+          position: { x: newNodeX, y: newNodeY },
+          data: {
+            node: newTemplate as any,
+            showNode: !(newTemplate as any).minimized,
+            type: "DoubaoImageCreator",
+            id: newImageNodeId,
+            cropPreviewOnly: true,
+          },
+          selected: false,
+        };
+
+        const outputDefinition =
+          sourceTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+          sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+          sourceTemplate?.outputs?.[0];
+        const sourceOutputTypes =
+          outputDefinition?.types && outputDefinition.types.length === 1
+            ? outputDefinition.types
+            : outputDefinition?.selected
+              ? [outputDefinition.selected]
+              : ["Data"];
+        const sourceHandle = {
+          outputTypes: sourceOutputTypes,
+          type: outputDefinition?.type,
+          id: nodeId,
+          name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        };
+
+        const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        const targetHandle = {
+          inputTypes: referenceTemplateField?.input_types ?? ["Data"],
+          type: referenceTemplateField?.type,
+          id: newImageNodeId,
+          fieldName: REFERENCE_FIELD,
+          ...(referenceTemplateField?.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+        };
+
+        const edge: EdgeType = {
+          id: `xy-edge__${nodeId}-${sourceHandle.name}-${newImageNodeId}-${REFERENCE_FIELD}-multi-angle`,
+          source: nodeId,
+          sourceHandle: scapedJSONStringfy(sourceHandle as any),
+          target: newImageNodeId,
+          targetHandle: scapedJSONStringfy(targetHandle as any),
+          type: "default",
+          className: "doubao-tool-edge",
+          data: {
+            sourceHandle,
+            targetHandle,
+            cropLink: true,
+          },
+        } as any;
+
+        unstable_batchedUpdates(() => {
+          setNodes((currentNodes) => [...currentNodes, newImageNode]);
+          setEdges((currentEdges) => [...currentEdges, edge]);
+          setMultiAngleCameraOpen(false);
+        });
+
+        window.requestAnimationFrame(() => {
+          try {
+            clearFlowPoolForNodes([newImageNodeId]);
+            void buildFlow({ stopNodeId: newImageNodeId });
+          } catch (e) {
+            console.warn("Failed to start multi-angle build:", e);
+          }
+        });
+      },
+      [
+        buildFlow,
+        buildMultiAnglePrompt,
+        clearFlowPoolForNodes,
+        currentFlowId,
+        node,
+        nodeId,
+        nodes,
+        setEdges,
+        setNodes,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+        uploadReferenceFile,
+      ],
+    );
 
     const handleConfirmCrop = useCallback(
       ({ dataUrl, fileName }: { dataUrl: string; fileName: string }) => {
@@ -1560,6 +1906,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           target: newImageNodeId,
           targetHandle: scapedJSONStringfy(targetHandle as any),
           type: "default",
+          className: "doubao-tool-edge",
           data: {
             sourceHandle,
             targetHandle,
@@ -1772,6 +2119,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           target: newImageNodeId,
           targetHandle: scapedJSONStringfy(targetHandle as any),
           type: "default",
+          className: "doubao-tool-edge",
           data: {
             sourceHandle,
             targetHandle,
@@ -2298,7 +2646,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                       {inlinePreview}
                     </div>
                     {shouldShowWaveLoading && (
-                      <BuildingWaveOverlay tonedByPreview={hasRenderablePreview} />
+                      <BuildingWaveOverlay tonedByPreview={Boolean(hasRenderablePreview)} />
                     )}
                   </div>
                 </div>
@@ -2430,7 +2778,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                       {inlinePreview}
                     </div>
                     {shouldShowWaveLoading && (
-                      <BuildingWaveOverlay tonedByPreview={hasRenderablePreview} />
+                      <BuildingWaveOverlay tonedByPreview={Boolean(hasRenderablePreview)} />
                     )}
                   </div>
                 </div>
@@ -2573,6 +2921,18 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 onCancel={() => setOutpaintOpen(false)}
                 onConfirm={handleConfirmOutpaint}
               />
+            )}
+            {appearance === "imageCreator" && canMultiAngleCamera && currentImage?.imageSource && (
+              <div className="pointer-events-none absolute left-0 right-0 top-full z-[1500] mt-3">
+                <div className="pointer-events-auto">
+                  <MultiAngleCameraOverlay
+                    open={isMultiAngleCameraOpen}
+                    imageSource={currentImage.imageSource}
+                    onCancel={() => setMultiAngleCameraOpen(false)}
+                    onConfirm={handleConfirmMultiAngleCamera}
+                  />
+                </div>
+              </div>
             )}
           </div>
         </div>

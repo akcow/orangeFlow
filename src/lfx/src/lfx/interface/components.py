@@ -22,6 +22,34 @@ MIN_MODULE_PARTS = 2
 EXPECTED_RESULT_LENGTH = 2  # Expected length of the tuple returned by _process_single_module
 
 
+# Keep the component index version check consistent with how the index is built in this repo.
+def _get_expected_langflow_version() -> str:
+    """Resolve the expected LangFlow version for component index validation.
+
+    - In a source checkout, prefer the repo's `pyproject.toml` version (avoids relying on an installed dist).
+    - In an installed environment, fall back to `importlib.metadata.version("langflow")`.
+    """
+
+    try:
+        here = Path(__file__).resolve()
+        for parent in (here.parent, *here.parents):
+            candidate = parent / "pyproject.toml"
+            if not candidate.exists():
+                continue
+            for line in candidate.read_text(encoding="utf-8").splitlines():
+                if line.startswith("version ="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        from importlib.metadata import version
+
+        return version("langflow")
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
 # Create a class to manage component cache instead of using globals
 class ComponentCache:
     def __init__(self):
@@ -142,13 +170,11 @@ def _read_component_index(custom_path: str | None = None) -> dict | None:
             )
             return None
 
-        # Version check: ensure index matches installed langflow version
-        from importlib.metadata import version
-
-        installed_version = version("langflow")
-        if blob.get("version") != installed_version:
+        # Version check: match the expected version for this runtime (source checkout vs installed dist).
+        expected_version = _get_expected_langflow_version()
+        if blob.get("version") != expected_version:
             logger.debug(
-                f"Component index version mismatch: index={blob.get('version')}, installed={installed_version}"
+                f"Component index version mismatch: index={blob.get('version')}, expected={expected_version}"
             )
             return None
     except Exception as e:  # noqa: BLE001

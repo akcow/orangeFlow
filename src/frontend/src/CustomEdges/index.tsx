@@ -11,6 +11,7 @@ import useAlertStore from "@/stores/alertStore";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import type { EdgeDataType } from "@/types/flow";
+import { BuildStatus } from "@/constants/enums";
 import {
   canUpdateImageRole,
   getDoubaoVideoModelName,
@@ -31,6 +32,18 @@ const IMAGE_ROLE_OPTIONS: Array<{ label: string; value: EdgeImageRole }> = [
   { label: "尾帧", value: "last" },
 ];
 const LAST_FRAME_FIELD = "last_frame_image";
+const REFERENCE_IMAGES_FIELD = "reference_images";
+const MEDIA_SOURCE_TYPES = new Set([
+  "DoubaoImageCreator",
+  "DoubaoVideoGenerator",
+  "UserUploadImage",
+  "UserUploadVideo",
+]);
+const MEDIA_INPUT_FIELDS = new Set([
+  REFERENCE_IMAGES_FIELD,
+  IMAGE_ROLE_FIELD,
+  LAST_FRAME_FIELD,
+]);
 
 const VIDEO_ROLE_OPTIONS: Array<{ label: string; value: VideoReferType }> = [
   { label: "特征参考", value: "feature" },
@@ -54,6 +67,7 @@ export function DefaultEdge({
   const setEdges = useFlowStore((state) => state.setEdges);
   const setNodes = useFlowStore((state) => state.setNodes);
   const edges = useFlowStore((state) => state.edges);
+  const flowBuildStatus = useFlowStore((state) => state.flowBuildStatus);
   const isLocked = useFlowStore((state) => state.currentFlow?.locked);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const getNode = useFlowStore((state) => state.getNode);
@@ -132,10 +146,10 @@ export function DefaultEdge({
         return {
           ...edge,
           data: {
-            ...edge.data,
+            ...(edge.data ?? ({} as any)),
             imageRole: fixedRole,
           },
-        };
+        } as any;
       }),
     );
   }, [edgeData?.imageRole, fixedRole, id, isRoleEdge, setEdges, takeSnapshot]);
@@ -151,10 +165,10 @@ export function DefaultEdge({
         return {
           ...edge,
           data: {
-            ...edge.data,
+            ...(edge.data ?? ({} as any)),
             videoReferType: fixedVideoReferType,
           },
-        };
+        } as any;
       }),
     );
   }, [edgeData?.videoReferType, fixedVideoReferType, id, isVideoBridgeEdge, setEdges, takeSnapshot]);
@@ -171,10 +185,10 @@ export function DefaultEdge({
         return {
           ...edge,
           data: {
-            ...edge.data,
+            ...(edge.data ?? ({} as any)),
             imageRole: fallbackRole,
           },
-        };
+        } as any;
       }),
     );
   }, [
@@ -226,6 +240,19 @@ export function DefaultEdge({
   });
 
   const { animated, selectable, deletable, selected, ...domSafeProps } = props;
+  const targetType = targetNode?.data?.type;
+  const sourceType = sourceNode?.data?.type;
+  const pathForRender = targetHandleObject?.output_types ? edgePathLoop : edgePath;
+  const isMediaTargetNode =
+    targetType === "DoubaoImageCreator" || targetType === "DoubaoVideoGenerator";
+  const isMediaInputEdge =
+    Boolean(targetFieldName) &&
+    MEDIA_INPUT_FIELDS.has(String(targetFieldName)) &&
+    isMediaTargetNode &&
+    MEDIA_SOURCE_TYPES.has(String(sourceType));
+  const isTargetBuilding =
+    flowBuildStatus?.[target]?.status === BuildStatus.BUILDING;
+  const showRunningWave = Boolean(isTargetBuilding && isMediaInputEdge);
 
   const handleRoleChange = (nextRole: EdgeImageRole) => {
     if (isLocked) return;
@@ -238,10 +265,10 @@ export function DefaultEdge({
           return {
             ...edge,
             data: {
-              ...edge.data,
+              ...(edge.data ?? ({} as any)),
               imageRole: fixedRole,
             },
-          };
+          } as any;
         }),
       );
       return;
@@ -296,10 +323,10 @@ export function DefaultEdge({
           return {
             ...edge,
             data: {
-              ...edge.data,
+              ...(edge.data ?? ({} as any)),
               imageRole: nextRole,
             },
-          };
+          } as any;
         }
 
         if (nextRole !== "reference" && edge.target === target && edge.id !== id) {
@@ -314,10 +341,10 @@ export function DefaultEdge({
             return {
               ...edge,
               data: {
-                ...edge.data,
+                ...(edge.data ?? ({} as any)),
                 imageRole: "reference",
               },
-            };
+            } as any;
           }
         }
         return edge;
@@ -337,15 +364,16 @@ export function DefaultEdge({
         return {
           ...edge,
           data: {
-            ...edge.data,
+            ...(edge.data ?? ({} as any)),
             videoReferType: nextValue,
           },
-        };
+        } as any;
       }),
     );
 
     // Persist into the target node template so the backend component can read it reliably.
-    if (isKlingModel && targetNode?.data?.node?.template?.kling_video_refer_type) {
+    const targetTemplateMaybe = (targetNode as any)?.data?.node?.template;
+    if (isKlingModel && targetTemplateMaybe?.kling_video_refer_type) {
       setNodes((nodes) =>
         nodes.map((node) => {
           if (node.id !== target) return node;
@@ -368,7 +396,7 @@ export function DefaultEdge({
       onMouseLeave={() => setHovered(false)}
     >
       <BaseEdge
-        path={targetHandleObject?.output_types ? edgePathLoop : edgePath}
+        path={pathForRender}
         strokeDasharray={targetHandleObject?.output_types ? "5 5" : "0"}
         {...domSafeProps}
         data-animated={animated ? "true" : "false"}
@@ -376,6 +404,22 @@ export function DefaultEdge({
         data-deletable={deletable ? "true" : "false"}
         data-selected={selected ? "true" : "false"}
       />
+      {showRunningWave ? (
+        <>
+          <path
+            d={pathForRender}
+            fill="none"
+            pathLength={1}
+            className="doubao-edge-wave-glow"
+          />
+          <path
+            d={pathForRender}
+            fill="none"
+            pathLength={1}
+            className="doubao-edge-wave-pulse"
+          />
+        </>
+      ) : null}
       {selected || hovered || isVideoBridgeEdge ? (
         <EdgeLabelRenderer>
           <div
@@ -395,7 +439,7 @@ export function DefaultEdge({
                 <select
                   aria-label="Edge role selector"
                   value={normalizedRole}
-                  disabled={isLocked}
+                  disabled={Boolean(isLocked)}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) =>
@@ -425,7 +469,7 @@ export function DefaultEdge({
                 <select
                   aria-label="Video refer type selector"
                   value={fixedVideoReferType ?? currentVideoReferType}
-                  disabled={isLocked || Boolean(fixedVideoReferType) || !isKlingModel}
+                  disabled={Boolean(isLocked) || Boolean(fixedVideoReferType) || !isKlingModel}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) =>

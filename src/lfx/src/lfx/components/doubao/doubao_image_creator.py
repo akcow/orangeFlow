@@ -115,6 +115,13 @@ class DoubaoImageCreator(Component):
             "max_reference_images": 10,
             "supports_image_size": False,
         },
+        "千问-图像编辑 · Max": {
+            "provider": "dashscope",
+            "model_id": "qwen-image-edit-max",
+            # Official: supports 1-3 input images.
+            "max_reference_images": 3,
+            # Output count supports 1-6 (handled by image_count constraint elsewhere).
+        },
     }
 
     RESOLUTION_PRESETS = {
@@ -249,6 +256,34 @@ class DoubaoImageCreator(Component):
             show=False,
             required=False,
             value={},
+        ),
+        # Internal tool routing (hidden): used by UI tools like Multi-Angle 3D Camera.
+        StrInput(
+            name="tool_model_override",
+            display_name="Tool Model Override",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: override the upstream model id for tool-driven runs (hidden).",
+        ),
+        StrInput(
+            name="tool_size_override",
+            display_name="Tool Size Override",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: override output image size for tool-driven runs (hidden). Format: '1024*1024'.",
+        ),
+        StrInput(
+            name="tool_multi_angle_views",
+            display_name="Tool Multi-Angle Views",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: JSON payload for multi-angle camera views (hidden).",
         ),
         BoolInput(
             name="enable_multi_turn",
@@ -501,7 +536,7 @@ class DoubaoImageCreator(Component):
 
         provider = str(model_meta.get("provider") or "").strip().lower()
         is_kling = provider == "kling"
-        is_dashscope = "t2i_model" in model_meta or "i2i_model" in model_meta
+        is_dashscope = provider == "dashscope" or "t2i_model" in model_meta or "i2i_model" in model_meta
         if not prompt:
             uploads = getattr(self, "reference_images", None)
             if uploads:
@@ -567,6 +602,15 @@ class DoubaoImageCreator(Component):
             }
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
             return Data(data=payload, type="image")
+
+        tool_override = str(getattr(self, "tool_model_override", "") or "").strip()
+        if tool_override.startswith("qwen-image-edit"):
+            return self._build_images_qwen_image_edit_gateway(prompt=prompt, model_id=tool_override)
+
+        # Allow selecting Qwen Image Edit from the model dropdown (not only via hidden tool override fields).
+        model_id = str(model_meta.get("model_id") or "").strip()
+        if model_id.startswith("qwen-image-edit"):
+            return self._build_images_qwen_image_edit_gateway(prompt=prompt, model_id=model_id)
 
         # Hosted gateway path (server-managed credentials; no Provider Credentials UI / node keys).
         try:
@@ -643,6 +687,357 @@ class DoubaoImageCreator(Component):
             reference_payloads=reference_payloads,
             reference_meta=reference_meta,
         )
+
+    def _resolve_qwen_edit_size(self, *, resolution: str, aspect_ratio: str) -> str | None:
+        """Best-effort size mapping for qwen-image-edit-* (width/height in [512, 2048])."""
+        ratio_key = str(aspect_ratio or "").strip()
+        if not ratio_key or ratio_key.lower() in {"adaptive", "auto"}:
+            return None
+
+        ratio = self.ASPECT_RATIOS.get(ratio_key)
+        if not ratio:
+            return None
+
+        base = int(self.RESOLUTION_PRESETS.get(str(resolution or "").strip(), 2048))
+        base = max(512, min(base, 2048))
+
+        w_ratio, h_ratio = ratio
+        if not w_ratio or not h_ratio:
+            return None
+
+        r = float(w_ratio) / float(h_ratio)
+        if r >= 1:
+            width = base
+            height = int(round(base / r))
+        else:
+            height = base
+            width = int(round(base * r))
+
+        width = max(512, min(width, 2048))
+        height = max(512, min(height, 2048))
+
+        # DashScope examples use "*" in size.
+        return f"{width}*{height}"
+
+    @staticmethod
+    def _parse_size_override(value: str | None) -> tuple[int, int] | None:
+        """Parse 'W*H' or 'WxH' into (W, H)."""
+        raw = str(value or "").strip().lower().replace("×", "*").replace("x", "*")
+        if not raw:
+            return None
+        if "*" not in raw:
+            return None
+        left, right = raw.split("*", 1)
+        try:
+            w = int(float(left.strip()))
+            h = int(float(right.strip()))
+        except Exception:
+            return None
+        if w <= 0 or h <= 0:
+            return None
+        return w, h
+
+    @staticmethod
+    def _clamp_size_to_qwen_limits(width: int, height: int) -> tuple[int, int]:
+        """Clamp/scale to Qwen Image Edit size constraints: each dim in [512, 2048]."""
+        w = int(width)
+        h = int(height)
+        if w <= 0 or h <= 0:
+            return 1024, 1024
+
+        # Scale down if any dimension exceeds max.
+        max_dim = 2048
+        min_dim = 512
+        scale_down = min(max_dim / w, max_dim / h, 1.0)
+        w = int(round(w * scale_down))
+        h = int(round(h * scale_down))
+
+        # Scale up if both dimensions are below min.
+        if w < min_dim and h < min_dim:
+            scale_up = max(min_dim / max(w, 1), min_dim / max(h, 1))
+            w = int(round(w * scale_up))
+            h = int(round(h * scale_up))
+
+        w = max(min_dim, min(w, max_dim))
+        h = max(min_dim, min(h, max_dim))
+        return w, h
+
+    def _build_images_qwen_image_edit_gateway(self, *, prompt: str, model_id: str) -> Data:
+        """Qwen Image Edit (DashScope) via hosted gateway (server-managed credentials)."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            resolution = self.resolution or "2K（推荐）"
+            aspect_ratio = self.aspect_ratio or "adaptive"
+            image_count = int(self.image_count or 1)
+            image_count = max(1, min(image_count, 6))
+
+            # Qwen Image Edit supports 1-3 input images. Our tool uses 1 by default.
+            reference_payloads, reference_meta = self._prepare_reference_images(
+                max_reference_images=3,
+                allowed_extensions=None,
+            )
+            if not reference_payloads:
+                return self._error("Qwen 图像编辑需要至少 1 张参考图。")
+
+            tool_size_override = str(getattr(self, "tool_size_override", "") or "").strip()
+            parsed_override = self._parse_size_override(tool_size_override)
+
+            # Multi-angle camera: if the UI provided structured view params, iterate per view and generate
+            # exactly 1 image per call. This avoids the model collapsing multiple angles into a single
+            # collage/montage image.
+            raw_views = str(getattr(self, "tool_multi_angle_views", "") or "").strip()
+            views: list[dict[str, Any]] = []
+            if raw_views:
+                try:
+                    parsed = json.loads(raw_views)
+                    if isinstance(parsed, list):
+                        views = [v for v in parsed if isinstance(v, dict)]
+                except Exception:
+                    views = []
+
+            override_w = override_h = None
+            if parsed_override:
+                w, h = self._clamp_size_to_qwen_limits(*parsed_override)
+                override_w, override_h = w, h
+                size = f"{w}*{h}"
+            else:
+                # Keep existing behavior for non-tool runs.
+                size = self._resolve_qwen_edit_size(resolution=resolution, aspect_ratio=aspect_ratio)
+            extra_body: dict[str, Any] = {
+                "images": reference_payloads,
+                "negative_prompt": str(getattr(self, "negative_prompt", "") or ""),
+                "seed": int(getattr(self, "seed", 0) or 0),
+                "prompt_extend": bool(getattr(self, "prompt_extend", True)),
+                "watermark": bool(getattr(self, "watermark", False)),
+                "force_sync": True,
+            }
+            if size:
+                extra_body["size"] = size
+
+            def _format_view_prompt_block(v: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+                def _num(key: str, default: float = 0.0) -> float:
+                    try:
+                        return float(v.get(key, default))
+                    except Exception:
+                        return float(default)
+
+                yaw = int(round(_num("yaw", 0.0)))
+                pitch = int(round(_num("pitch", 0.0)))
+                zoom = float(_num("zoom", 1.0))
+                wide = bool(v.get("wideAngle", False))
+                # Follow docs/model/多角度提示词.md (<sks> azimuth/elevation/distance) while keeping
+                # numeric params explicit. To avoid conflicts, we emit ONE camera block and make the
+                # numeric params authoritative.
+
+                def _nearest_label(value: float, candidates: list[tuple[float, str]]) -> str:
+                    best_label = candidates[0][1]
+                    best_dist = float("inf")
+                    for v0, label0 in candidates:
+                        d = abs(value - v0)
+                        if d < best_dist:
+                            best_dist = d
+                            best_label = label0
+                    return best_label
+
+                # Normalize yaw to [0, 360) for mapping.
+                yaw360 = (yaw % 360 + 360) % 360
+                azimuth_label = _nearest_label(
+                    float(yaw360),
+                    [
+                        (0.0, "front view"),
+                        (45.0, "front-right quarter view"),
+                        (90.0, "right side view"),
+                        (135.0, "back-right quarter view"),
+                        (180.0, "back view"),
+                        (225.0, "back-left quarter view"),
+                        (270.0, "left side view"),
+                        (315.0, "front-left quarter view"),
+                    ],
+                )
+                elevation_label = _nearest_label(
+                    float(pitch),
+                    [
+                        (-30.0, "low-angle shot"),
+                        (0.0, "eye-level shot"),
+                        (30.0, "elevated shot"),
+                        (60.0, "high-angle shot"),
+                    ],
+                )
+                # Treat zoom as "closer == bigger zoom".
+                if zoom >= 1.35:
+                    distance_label = "close-up"
+                elif zoom <= 0.85:
+                    distance_label = "wide shot"
+                else:
+                    distance_label = "medium shot"
+
+                lens_label = "wide-angle lens" if wide else ""
+                sks_line = " ".join(
+                    [
+                        "<sks>",
+                        azimuth_label,
+                        elevation_label,
+                        distance_label,
+                        lens_label,
+                    ]
+                ).strip()
+
+                text = "\n".join(
+                    [
+                        "相机参数（严格执行；仅改变机位/视角；不要生成拼接图/多宫格）："
+                        f"Yaw(水平旋转)={yaw}°；Pitch(俯仰)={pitch}°；Zoom(缩放)={zoom:.2f}x；广角镜头={'开' if wide else '关'}",
+                        f"相机标签（辅助理解，由参数自动映射）：{sks_line}",
+                    ]
+                ).strip()
+                return (
+                    text,
+                    {
+                        "yaw": yaw,
+                        "pitch": pitch,
+                        "zoom": zoom,
+                        "wideAngle": wide,
+                        "sks": sks_line,
+                        "azimuth_label": azimuth_label,
+                        "elevation_label": elevation_label,
+                        "distance_label": distance_label,
+                    },
+                )
+
+            if views:
+                effective_views = views[:6]
+                response_data: list[dict[str, Any]] = []
+                provider_responses: list[Any] = []
+                per_view_prompts: list[str] = []
+                per_view_meta: list[dict[str, Any]] = []
+
+                for idx, view in enumerate(effective_views):
+                    base_prompt = str(prompt or "").strip()
+                    view_block, view_meta = _format_view_prompt_block(view)
+                    # Avoid adding any additional camera description here; `view_block` is the only
+                    # camera-parameter section so we don't introduce conflicts/ambiguity.
+                    per_view_prompt = "\n".join([base_prompt, view_block]).strip()
+                    per_view_prompts.append(per_view_prompt)
+                    per_view_meta.append(view_meta)
+
+                    one = images_generations(
+                        model=str(model_id),
+                        prompt=per_view_prompt,
+                        n=1,
+                        size=str(size or ""),
+                        response_format="url",
+                        extra_body=extra_body,
+                        user_id=str(getattr(self, "user_id", "") or "") or None,
+                    )
+                    provider_responses.append((one or {}).get("provider_response"))
+                    data_list = (one or {}).get("data") or []
+                    if not isinstance(data_list, list) or not data_list:
+                        return self._error(f"Gateway returned no images for view {idx + 1}: {one}")
+                    first = data_list[0] if isinstance(data_list[0], dict) else {}
+                    url = first.get("url") or first.get("image_url")
+                    if not isinstance(url, str) or not url.strip():
+                        return self._error(f"Gateway returned invalid image url for view {idx + 1}: {one}")
+                    response_data.append({"url": str(url).strip()})
+
+                # Replace count with number of views actually generated.
+                image_count = len(response_data)
+                # Keep only the last provider response for compatibility, but also embed all in payload below.
+                response = {"data": response_data, "provider_response": provider_responses[-1] if provider_responses else None}
+                provider_response_multi = provider_responses
+            else:
+                response = images_generations(
+                    model=str(model_id),
+                    prompt=prompt,
+                    n=int(image_count),
+                    size=str(size or ""),
+                    response_format="url",
+                    extra_body=extra_body,
+                    user_id=str(getattr(self, "user_id", "") or "") or None,
+                )
+                provider_response_multi = None
+
+                response_data = (response or {}).get("data") or []
+                if not isinstance(response_data, list) or not response_data:
+                    return self._error(f"Gateway returned no images: {response}")
+
+            images: list[dict[str, Any]] = []
+            preview_gallery: list[dict[str, Any]] = []
+            for index, entry in enumerate(response_data):
+                image_url = None
+                if isinstance(entry, dict):
+                    image_url = entry.get("url") or entry.get("image_url")
+                if not isinstance(image_url, str) or not image_url.strip():
+                    continue
+                image_url = image_url.strip()
+
+                preview_data, preview_error = self._download_preview(image_url)
+                image_record: dict[str, Any] = {"index": index, "image_url": image_url}
+                if size:
+                    image_record["size"] = size
+                if override_w and override_h:
+                    image_record["width"] = int(override_w)
+                    image_record["height"] = int(override_h)
+                if preview_data:
+                    image_record["image_data_url"] = preview_data
+                if preview_error:
+                    image_record["preview_error"] = preview_error
+                images.append(image_record)
+                preview_gallery.append(
+                    {
+                        "index": index,
+                        "image_url": image_url,
+                        "image_data_url": preview_data,
+                        "size": size or "",
+                        "ratio": aspect_ratio,
+                        **({"width": int(override_w), "height": int(override_h)} if (override_w and override_h) else {}),
+                    }
+                )
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            # Expose the *actual* prompt sent to the model for single-view tool runs so logs
+            # can confirm camera params (yaw/pitch/zoom/wideAngle) are included.
+            payload_prompt = per_view_prompts[0] if (views and len(per_view_prompts) == 1) else prompt
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": bool(preview_gallery),
+                "generated_at": generated_at,
+                "payload": {
+                    "images": preview_gallery,
+                    "prompt": payload_prompt,
+                    "model": {"name": "qwen-image-edit-max", "model_id": str(model_id)},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                    "tool": "multi_angle_camera",
+                    **({"multi_angle_views": views[:6]} if views else {}),
+                    **({"prompts": per_view_prompts, "views": per_view_meta} if views else {}),
+                },
+            }
+
+            self.status = f"✅ Qwen 图像编辑生成成功 ({model_id})"
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "prompt": payload_prompt,
+                    "model": {"name": "qwen-image-edit-max", "model_id": str(model_id)},
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "count": image_count,
+                    "size": size,
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    **({"provider_responses": provider_response_multi} if provider_response_multi else {}),
+                    **({"prompts": per_view_prompts, "views": per_view_meta} if views else {}),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway qwen-image-edit failed: {exc}")
 
         creds = resolve_credentials(
             component_app_id=None,
@@ -2729,11 +3124,21 @@ class DoubaoImageCreator(Component):
     def _extract_file_path(value: Any) -> str | None:
         if not value:
             return None
+        if isinstance(value, Data):
+            return DoubaoImageCreator._extract_file_path(value.data)
         if isinstance(value, str):
-            return value
+            trimmed = value.strip()
+            return trimmed or None
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                candidate = DoubaoImageCreator._extract_file_path(item)
+                if candidate:
+                    return candidate
+            return None
         if isinstance(value, dict):
-            return value.get("file_path") or value.get("path") or value.get("value")
-        return str(value)
+            candidate = value.get("file_path") or value.get("path") or value.get("value")
+            return DoubaoImageCreator._extract_file_path(candidate)
+        return str(value).strip() or None
 
     def _download_preview(self, url: str) -> tuple[str | None, str | None]:
         try:

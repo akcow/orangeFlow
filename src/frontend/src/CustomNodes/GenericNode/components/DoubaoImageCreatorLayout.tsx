@@ -1,7 +1,6 @@
 import { cloneDeep } from "lodash";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import ShortUniqueId from "short-unique-id";
 import { type ReactFlowState, useStore, addEdge } from "@xyflow/react";
 import {
   Dialog,
@@ -24,7 +23,7 @@ import useHandleOnNewValue, {
   type handleOnNewValueType,
 } from "../../hooks/use-handle-new-value";
 import useHandleNodeClass from "@/CustomNodes/hooks/use-handle-node-class";
-import type { InputFieldType } from "@/types/api";
+import type { APIClassType, APITemplateType, InputFieldType } from "@/types/api";
 import type { EdgeType, GenericNodeType, NodeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
 import useFlowStore from "@/stores/flowStore";
@@ -161,6 +160,15 @@ function splitLeadingSlashPrompt(prompt: string): {
   };
 }
 
+function extractErrorDetail(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return;
+  const response = (error as { response?: { data?: { detail?: unknown } } }).response;
+  const detail = response?.data?.detail;
+  if (typeof detail !== "string") return;
+  const trimmed = detail.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function normalizeSlashQuickFeatureTopic(
   payload: string,
   featureId: SlashQuickFeatureId,
@@ -280,7 +288,6 @@ export default function DoubaoImageCreatorLayout({
   onPersistentPreviewMotionCommit,
 }: DoubaoImageCreatorLayoutProps) {
   const NODE_OFFSET_X = 1300;
-  const uid = new ShortUniqueId({ length: 10 });
   const IMAGE_OUTPUT_NAME = "image";
   const TEXT_COMPONENT_NAME = "TextCreation";
   const TEXT_OUTPUT_NAME = "text_output";
@@ -291,7 +298,7 @@ export default function DoubaoImageCreatorLayout({
   // Avoid resizing the node while the user is box-selecting; resizing can cause the
   // selection set to oscillate and look like "twitching".
   const userSelectionActive = useStore((s: ReactFlowState) => s.userSelectionActive);
-  const showExpanded = Boolean(selected) && !userSelectionActive;
+  const showExpanded = Boolean(selected) && !userSelectionActive && !Boolean(data.cropPreviewOnly);
   const customFields = new Set<string>([
     PROMPT_NAME,
     REFERENCE_FIELD,
@@ -453,7 +460,7 @@ export default function DoubaoImageCreatorLayout({
   }, [referenceFieldRaw]);
   const upstreamReferenceFields = useMemo<InputFieldType[]>(() => {
     // Crop-result nodes should only preview their local crop image.
-    if ((data as any)?.cropPreviewOnly) return [];
+    if (data.cropPreviewOnly) return [];
     const incomingEdges = edges?.filter(
       (edge) => edge.target === data.id && edge.targetHandle,
     );
@@ -461,7 +468,7 @@ export default function DoubaoImageCreatorLayout({
 
     incomingEdges?.forEach((edge) => {
       // Crop tool creates a visual connection that should not contribute additional preview images.
-      if ((edge as any)?.data?.cropLink) return;
+      if ((edge.data as EdgeType["data"] & { cropLink?: boolean } | undefined)?.cropLink) return;
       try {
         const targetHandle = scapeJSONParse(edge.targetHandle!);
         const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
@@ -476,7 +483,7 @@ export default function DoubaoImageCreatorLayout({
       // 支持 DoubaoImageCreator 和 UserUploadImage 作为上游预览源
       if (sourceType === "DoubaoImageCreator") {
         const sourceTemplateField =
-          sourceNode.data?.node?.template?.[REFERENCE_FIELD];
+          sourceNode?.data?.node?.template?.[REFERENCE_FIELD];
         if (sourceTemplateField) {
           collected.push(sourceTemplateField);
         }
@@ -580,8 +587,8 @@ export default function DoubaoImageCreatorLayout({
   const [isSlashQuickFeaturesOpen, setSlashQuickFeaturesOpen] = useState(false);
   const [slashQuickFeaturesSuppressed, setSlashQuickFeaturesSuppressed] =
     useState(false);
-  const slashQuickFeaturesRootRef = useRef<HTMLDivElement | null>(null);
-  const slashQuickFeaturesDrawerRef = useRef<HTMLDivElement | null>(null);
+  const slashQuickFeaturesRootRef = useRef<HTMLDivElement>(null);
+  const slashQuickFeaturesDrawerRef = useRef<HTMLDivElement>(null);
 
   // Auto-open the slash menu while the prompt is focused and starts with "/".
   // ESC / outside-click / blur will close it, but typing again will re-open.
@@ -654,17 +661,17 @@ export default function DoubaoImageCreatorLayout({
       setNodes((currentNodes) =>
         (currentNodes ?? []).map((node) => {
           if (node.id !== data.id) return node;
-          const nodeData: any = (node as any).data ?? {};
-          const nodeClass: any = nodeData.node;
-          if (!nodeClass) return node;
+          if (node.type !== "genericNode") return node;
+          const nodeData = node.data;
+          const nodeClass = nodeData.node;
 
-          const templateRaw: any = nodeClass.template ?? {};
-          const nextTemplate: any = { ...templateRaw };
+          const templateRaw: APITemplateType = nodeClass.template ?? {};
+          const nextTemplate: APITemplateType = { ...templateRaw };
 
-          const patchValue = (fieldName: string, value: any) => {
-            const field = nextTemplate?.[fieldName];
+          const patchValue = (fieldName: string, value: unknown) => {
+            const field = nextTemplate[fieldName];
             if (!field || typeof field !== "object") return;
-            nextTemplate[fieldName] = { ...field, value };
+            nextTemplate[fieldName] = { ...(field as InputFieldType), value };
           };
 
           const currentPrompt = String(nextTemplate[PROMPT_NAME]?.value ?? "");
@@ -699,6 +706,7 @@ export default function DoubaoImageCreatorLayout({
     y: number;
     kind: "input" | "output";
   } | null>(null);
+  const [isMultiAngleEditorOpen, setMultiAngleEditorOpen] = useState(false);
   const lockedPlusSide = quickAddMenu?.kind
     ? (quickAddMenu.kind === "input" ? "left" : "right")
     : null;
@@ -798,6 +806,14 @@ export default function DoubaoImageCreatorLayout({
     return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
   }, [canvasZoom]);
 
+  const handlePreviewActionsChange = useCallback(
+    (actions: DoubaoPreviewPanelActions) => {
+      setMultiAngleEditorOpen(Boolean(actions?.isMultiAngleCameraOpen));
+      onPreviewActionsChange?.(actions);
+    },
+    [onPreviewActionsChange],
+  );
+
 
   const clearPlusTimers = useCallback(() => {
     if (leaveGraceTimerRef.current) {
@@ -871,6 +887,7 @@ export default function DoubaoImageCreatorLayout({
 
   const showPlusForSide = useCallback(
     (side: PlusSide, clientX?: number, clientY?: number) => {
+      if (isMultiAngleEditorOpen) return;
       clearPlusTimers();
       setActivePlusSide(side);
       setVisiblePlusSide(side);
@@ -882,11 +899,12 @@ export default function DoubaoImageCreatorLayout({
         }));
       }
     },
-    [clearPlusTimers, computePlusOffset],
+    [clearPlusTimers, computePlusOffset, isMultiAngleEditorOpen],
   );
 
   const updatePlusOffset = useCallback(
     (side: PlusSide, clientX: number, clientY: number) => {
+      if (isMultiAngleEditorOpen) return;
       // If we moved from the bubble to the capture zone (or we jittered on the edge),
       // cancel any pending rebound/fade so we don't "twitch".
       clearPlusTimers();
@@ -898,11 +916,12 @@ export default function DoubaoImageCreatorLayout({
         [side]: computePlusOffset(side, clientX, clientY),
       }));
     },
-    [clearPlusTimers, computePlusOffset],
+    [clearPlusTimers, computePlusOffset, isMultiAngleEditorOpen],
   );
 
   const startHidePlus = useCallback(
     (side: PlusSide, clientX?: number, clientY?: number) => {
+      if (isMultiAngleEditorOpen) return;
       if (typeof clientX === "number" && typeof clientY === "number") {
         lastPointerRef.current = { x: clientX, y: clientY };
       }
@@ -936,8 +955,18 @@ export default function DoubaoImageCreatorLayout({
         }, 200);
       }, 30);
     },
-    [clearPlusTimers, isPointerInCaptureZone, selected],
+    [clearPlusTimers, isPointerInCaptureZone, isMultiAngleEditorOpen, selected],
   );
+
+  useEffect(() => {
+    if (!isMultiAngleEditorOpen) return;
+    // Suppress the "+" quick-add handles while multi-angle editing is open.
+    clearPlusTimers();
+    setQuickAddMenu(null);
+    setActivePlusSide(null);
+    setVisiblePlusSide(null);
+    setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
+  }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, isMultiAngleEditorOpen]);
 
   useEffect(() => {
     // Selection drives baseline state:
@@ -973,9 +1002,7 @@ export default function DoubaoImageCreatorLayout({
   const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
   const promptReadonly = Boolean(data.node?.flow) || isBusy;
 
-  const canonicalTemplate = (templates as any)?.[data.type]?.template as
-    | Record<string, any>
-    | undefined;
+  const canonicalTemplate: APITemplateType | undefined = templates?.[data.type]?.template;
   const canonicalMultiTurnField = canonicalTemplate?.[MULTI_TURN_FIELD];
   const canonicalOnlineSearchField = canonicalTemplate?.[ONLINE_SEARCH_FIELD];
 
@@ -984,7 +1011,7 @@ export default function DoubaoImageCreatorLayout({
     if (!data.node) return;
 
     const currentTemplate = data.node.template ?? {};
-    const patches: Record<string, any> = {};
+    const patches: APITemplateType = {};
 
     if (!currentTemplate[MULTI_TURN_FIELD]) {
       patches[MULTI_TURN_FIELD] = {
@@ -1024,9 +1051,9 @@ export default function DoubaoImageCreatorLayout({
         if (node.id !== data.id) return node;
         if (node.type !== "genericNode") return node;
         const nextNode = { ...node };
-        const nextData = { ...(nextNode.data as any) };
-        const nextApiNode = { ...(nextData.node as any) };
-        const nextTemplate = { ...(nextApiNode.template ?? {}) };
+        const nextData: NodeDataType = { ...nextNode.data };
+        const nextApiNode: APIClassType = { ...nextData.node };
+        const nextTemplate: APITemplateType = { ...(nextApiNode.template ?? {}) };
         keys.forEach((key) => {
           if (!nextTemplate[key]) {
             nextTemplate[key] = patches[key];
@@ -1163,7 +1190,9 @@ export default function DoubaoImageCreatorLayout({
         const flowState = useFlowStore.getState();
         const latestNode = flowState.getNode(data.id);
         const latestPrompt = String(
-          ((latestNode?.data as any)?.node?.template?.[PROMPT_NAME]?.value ?? ""),
+          latestNode?.type === "genericNode"
+            ? latestNode.data.node?.template?.[PROMPT_NAME]?.value ?? ""
+            : "",
         ).trim();
         const latestHasConnection = flowState.edges.some(
           (edge) => edge.source === data.id || edge.target === data.id,
@@ -1642,17 +1671,13 @@ export default function DoubaoImageCreatorLayout({
   ]);
 
   const handleCreateTextUpstreamNode = useCallback(() => {
-    console.log("[DEBUG] handleCreateTextUpstreamNode - START");
-
     const currentNode = nodes.find((node) => node.id === data.id);
     if (!currentNode) {
-      console.log("[DEBUG] Early return: currentNode not found");
       return;
     }
 
     const promptTemplateField = template[PROMPT_NAME];
     if (!promptTemplateField) {
-      console.log("[DEBUG] Early return: promptTemplateField not found");
       return;
     }
 
@@ -1674,7 +1699,6 @@ export default function DoubaoImageCreatorLayout({
       .find(Boolean) as string | undefined;
 
     if (existingUpstreamNodeId) {
-      console.log("[DEBUG] Early return: existingUpstreamNodeId found:", existingUpstreamNodeId);
       setNodes((currentNodes) =>
         currentNodes.map((node) => ({
           ...node,
@@ -1686,11 +1710,8 @@ export default function DoubaoImageCreatorLayout({
 
     const textTemplate = templates[TEXT_COMPONENT_NAME];
     if (!textTemplate) {
-      console.log("[DEBUG] Early return: textTemplate not found for", TEXT_COMPONENT_NAME);
       return;
     }
-
-    console.log("[DEBUG] Proceeding to create new TextCreation node");
 
     takeSnapshot();
 
@@ -2166,8 +2187,8 @@ export default function DoubaoImageCreatorLayout({
     setNodes((currentNodes) => [...currentNodes, newImageNode]);
 
     const outputDefinition =
-      imageTemplate.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
-      imageTemplate.outputs?.find((output: any) => !output.hidden) ??
+      imageTemplate.outputs?.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
+      imageTemplate.outputs?.find((output) => !output.hidden) ??
       imageTemplate.outputs?.[0];
 
     const sourceOutputTypes =
@@ -2373,8 +2394,7 @@ export default function DoubaoImageCreatorLayout({
         setErrorData({
           title: "上传失败",
           list: [
-            (error as any)?.response?.data?.detail ??
-            "网络异常，稍后再试或检查后端日志。",
+            extractErrorDetail(error) ?? "网络异常，稍后再试或检查后端日志。",
           ],
         });
       } finally {
@@ -2636,27 +2656,34 @@ export default function DoubaoImageCreatorLayout({
                 testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
                 proxy={referenceHandleMeta.proxy}
                 uiVariant="plus"
-                visible={selected || visiblePlusSide === "left" || lockedPlusSide === "left"}
-                isTracking={activePlusSide === "left" || lockedPlusSide === "left"}
+                visible={
+                  !isMultiAngleEditorOpen &&
+                  (selected || visiblePlusSide === "left" || lockedPlusSide === "left")
+                }
+                isTracking={
+                  !isMultiAngleEditorOpen &&
+                  (activePlusSide === "left" || lockedPlusSide === "left")
+                }
                 clickMode="menu"
                 onMenuRequest={({ x, y, kind }) => {
+                  if (isMultiAngleEditorOpen) return;
                   clearPlusTimers();
                   setVisiblePlusSide("left");
                   setActivePlusSide("left");
                   setQuickAddMenu({ x, y, kind });
                 }}
                 onPlusPointerEnter={(event) =>
-                  lockedPlusSide
+                  lockedPlusSide || isMultiAngleEditorOpen
                     ? undefined
                     : showPlusForSide("left", event.clientX, event.clientY)
                 }
                 onPlusPointerMove={(event) =>
-                  lockedPlusSide
+                  lockedPlusSide || isMultiAngleEditorOpen
                     ? undefined
                     : updatePlusOffset("left", event.clientX, event.clientY)
                 }
                 onPlusPointerLeave={(event) =>
-                  lockedPlusSide
+                  lockedPlusSide || isMultiAngleEditorOpen
                     ? undefined
                     : startHidePlus("left", event.clientX, event.clientY)
                 }
@@ -2681,17 +2708,17 @@ export default function DoubaoImageCreatorLayout({
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
             onPointerEnter={(event) =>
-              quickAddMenu
+              quickAddMenu || isMultiAngleEditorOpen
                 ? undefined
                 : showPlusForSide("left", event.clientX, event.clientY)
             }
             onPointerMove={(event) =>
-              quickAddMenu
+              quickAddMenu || isMultiAngleEditorOpen
                 ? undefined
                 : updatePlusOffset("left", event.clientX, event.clientY)
             }
             onPointerLeave={(event) =>
-              quickAddMenu
+              quickAddMenu || isMultiAngleEditorOpen
                 ? undefined
                 : startHidePlus("left", event.clientX, event.clientY)
             }
@@ -2699,17 +2726,17 @@ export default function DoubaoImageCreatorLayout({
           <div
             className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
             onPointerEnter={(event) =>
-              quickAddMenu
+              quickAddMenu || isMultiAngleEditorOpen
                 ? undefined
                 : showPlusForSide("right", event.clientX, event.clientY)
             }
             onPointerMove={(event) =>
-              quickAddMenu
+              quickAddMenu || isMultiAngleEditorOpen
                 ? undefined
                 : updatePlusOffset("right", event.clientX, event.clientY)
             }
             onPointerLeave={(event) =>
-              quickAddMenu
+              quickAddMenu || isMultiAngleEditorOpen
                 ? undefined
                 : startHidePlus("right", event.clientX, event.clientY)
             }
@@ -2721,7 +2748,7 @@ export default function DoubaoImageCreatorLayout({
             referenceImages={[]}
             onRequestUpload={openUploadDialog}
             onSuggestionClick={handlePreviewSuggestionClickWithVideo}
-            onActionsChange={onPreviewActionsChange}
+            onActionsChange={handlePreviewActionsChange}
             aspectRatio={String(
               template.aspect_ratio?.value ??
                 template.aspect_ratio?.default ??
@@ -2757,26 +2784,33 @@ export default function DoubaoImageCreatorLayout({
                     proxy={handle.proxy}
                     colorName={handle.colorName}
                     uiVariant="plus"
-                    visible={selected || visiblePlusSide === "right" || lockedPlusSide === "right"}
-                    isTracking={activePlusSide === "right" || lockedPlusSide === "right"}
+                    visible={
+                      !isMultiAngleEditorOpen &&
+                      (selected || visiblePlusSide === "right" || lockedPlusSide === "right")
+                    }
+                    isTracking={
+                      !isMultiAngleEditorOpen &&
+                      (activePlusSide === "right" || lockedPlusSide === "right")
+                    }
                     clickMode="menu"
                     onMenuRequest={({ x, y, kind }) => {
+                      if (isMultiAngleEditorOpen) return;
                       setVisiblePlusSide("right");
                       setActivePlusSide("right");
                       setQuickAddMenu({ x, y, kind });
                     }}
                     onPlusPointerEnter={(event) =>
-                      lockedPlusSide
+                      lockedPlusSide || isMultiAngleEditorOpen
                         ? undefined
                         : showPlusForSide("right", event.clientX, event.clientY)
                     }
                     onPlusPointerMove={(event) =>
-                      lockedPlusSide
+                      lockedPlusSide || isMultiAngleEditorOpen
                         ? undefined
                         : updatePlusOffset("right", event.clientX, event.clientY)
                     }
                     onPlusPointerLeave={(event) =>
-                      lockedPlusSide
+                      lockedPlusSide || isMultiAngleEditorOpen
                         ? undefined
                         : startHidePlus("right", event.clientX, event.clientY)
                     }
@@ -2805,7 +2839,7 @@ export default function DoubaoImageCreatorLayout({
             // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
             "transform-gpu origin-top scale-[var(--inv-zoom)]",
           )}
-          style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+          style={{ "--inv-zoom": inverseZoom } as CSSProperties}
           ref={slashQuickFeaturesRootRef}
         >
           <SlashQuickFeaturesDrawer
@@ -2945,7 +2979,10 @@ export default function DoubaoImageCreatorLayout({
                     return;
                   }
                   if (e.key !== "Enter" || e.shiftKey) return;
-                  if ((e.nativeEvent as any)?.isComposing || isPromptComposing) return;
+                  const nativeIsComposing = Boolean(
+                    (e.nativeEvent as unknown as { isComposing?: boolean })?.isComposing,
+                  );
+                  if (nativeIsComposing || isPromptComposing) return;
                   e.preventDefault();
                   e.stopPropagation();
                   if (!disableRun) handleRun();
@@ -3263,8 +3300,8 @@ function SlashQuickFeaturesDrawer({
 }: {
   open: boolean;
   disabled: boolean;
-  anchorRef: RefObject<HTMLDivElement | null>;
-  drawerRef: RefObject<HTMLDivElement | null>;
+  anchorRef: RefObject<HTMLDivElement>;
+  drawerRef: RefObject<HTMLDivElement>;
   onSelect: (featureId: SlashQuickFeatureId) => void;
 }) {
   const [isMounted, setMounted] = useState(false);
@@ -3367,10 +3404,6 @@ function SlashQuickFeaturesDrawer({
       <div
         ref={drawerRef}
         role="presentation"
-        onMouseDown={(e) => {
-          // Keep the prompt textarea focused while interacting with the drawer.
-          e.preventDefault();
-        }}
         className={cn(
           "transform-gpu transition-all duration-200 ease-out",
           open ? "pointer-events-auto" : "pointer-events-none",
@@ -3526,14 +3559,14 @@ function extractReferenceSource(entry: unknown): string | null {
     return entry.trim() || null;
   }
   if (typeof entry === "object") {
-    const record = entry as any;
+    const record = entry as Record<string, unknown>;
     const candidates = [
-      record.file_path,
-      record.path,
-      record.value,
-      record.url,
-      record.image_url,
-      record.image_data_url,
+      record["file_path"],
+      record["path"],
+      record["value"],
+      record["url"],
+      record["image_url"],
+      record["image_data_url"],
     ];
     for (const candidate of candidates) {
       if (typeof candidate === "string" && candidate.trim()) {
@@ -3550,8 +3583,8 @@ function extractReferenceLabel(entry: unknown): string | undefined {
     return entry;
   }
   if (typeof entry === "object") {
-    const record = entry as any;
-    const candidates = [record.display_name, record.filename, record.name];
+    const record = entry as Record<string, unknown>;
+    const candidates = [record["display_name"], record["filename"], record["name"]];
     for (const candidate of candidates) {
       if (typeof candidate === "string" && candidate.trim()) {
         return candidate.trim();
@@ -3612,7 +3645,6 @@ type ReferenceEntry = { name: string; path: string };
 
 type ReferenceUploadMutation = (
   payload: { file: File; id: string },
-  options?: any,
 ) => Promise<{ file_path?: string }>;
 
 async function handleReferenceUpload({
@@ -3635,7 +3667,7 @@ async function handleReferenceUpload({
   uploadReferenceFile: ReferenceUploadMutation;
   validateFileSize: (file: File) => void;
   handleReferenceChange: handleOnNewValueType;
-  setErrorData: (payload: any) => void;
+  setErrorData: (payload: { title: string; list?: string[] }) => void;
   setReferenceUploadPending: (loading: boolean) => void;
 }) {
   if (!currentFlowId) {
@@ -3693,8 +3725,7 @@ async function handleReferenceUpload({
         setErrorData({
           title: "上传失败",
           list: [
-            (error as any)?.response?.data?.detail ??
-            "网络异常，稍后再试或检查后端日志。",
+            extractErrorDetail(error) ?? "网络异常，稍后再试或检查后端日志。",
           ],
         });
         return;

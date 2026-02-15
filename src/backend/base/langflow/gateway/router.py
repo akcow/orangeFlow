@@ -130,6 +130,20 @@ def resolve_provider(model: str) -> tuple[str, Any]:
             )
         return "dashscope", DashScopeProvider(api_key=api_key)
 
+    # Qwen image edit models (DashScope multimodal-generation).
+    if model.startswith("qwen-image-edit"):
+        api_key = _resolve_api_key(
+            env_vars=["DASHSCOPE_API_KEY"],
+            provider_cred_keys=["dashscope", "qwen_tts", "dashscope_tts"],
+        )
+        if not api_key:
+            raise GatewayError(
+                401,
+                "PROVIDER_KEY_MISSING",
+                f"Key for model {model} not configured. Set DASHSCOPE_API_KEY, or save provider credentials 'dashscope'.",
+            )
+        return "dashscope", DashScopeProvider(api_key=api_key)
+
     # Doubao (Ark) models.
     if model.startswith("doubao"):
         api_key = _resolve_api_key(

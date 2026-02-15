@@ -13,9 +13,49 @@ def raw_frontend_data_is_valid(raw_frontend_data):
 
 
 def get_file_path_value(file_path):
-    """Get the file path value if the file exists, else return empty string."""
+    """Validate/preserve a template file_path.
+
+    Historically Langflow stored absolute cache paths in template `file_path`.
+    This repo also uses StorageService-style paths like '{flow_id}/{file_name}' and
+    in-app URLs like '/api/v1/files/images/{flow_id}/{file_name}'.
+
+    We must not wipe these values on template refresh, otherwise user uploads and
+    downstream image/video generation lose their reference media.
+    """
+    # List-valued file_path is used by list file inputs.
+    if isinstance(file_path, (list, tuple)):
+        normalized_list = []
+        for item in file_path:
+            value = get_file_path_value(item)
+            if isinstance(value, str) and value:
+                normalized_list.append(value)
+        return normalized_list
+
     try:
-        path = Path(file_path)
+        raw = str(file_path or "").strip()
+        if not raw:
+            return ""
+
+        # Accept StorageService-style file paths: "{flow_id}/{file_name}".
+        # Also accept in-app file URLs and normalize them back to "{flow_id}/{file_name}".
+        normalized = _normalize_storage_file_path(raw)
+        if normalized:
+            # Best-effort existence check when running inside the Langflow backend.
+            try:  # pragma: no cover - runtime dependency
+                from langflow.services.deps import get_storage_service
+
+                storage_svc = get_storage_service()
+                flow_id, file_name = normalized.split("/", 1)
+                full = storage_svc.build_full_path(flow_id, file_name)
+                # If the local file is missing we still keep the normalized value to avoid
+                # destructive "wipe on refresh" behavior (e.g. on remote storage backends).
+                _ = Path(full).exists()
+            except Exception:
+                pass
+
+            return normalized
+
+        path = Path(raw)
     except TypeError:
         return ""
 
@@ -29,6 +69,45 @@ def get_file_path_value(file_path):
     if not path.exists():
         return ""
     return file_path
+
+
+def _normalize_storage_file_path(value: str) -> str | None:
+    """Normalize in-app file urls / storage paths to '{flow_id}/{file_name}'."""
+    raw = str(value or "").strip().replace("\\", "/").lstrip("/")
+    if not raw:
+        return None
+
+    # Strip known API prefixes if present.
+    for prefix in (
+        "api/v1/files/images/",
+        "api/v1/files/media/",
+        "api/v1/files/download/",
+        "api/v1/files/public/",
+        "files/images/",
+        "files/media/",
+        "files/download/",
+        "files/public/",
+    ):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix) :]
+            break
+
+    # Drop query string (public token URLs).
+    raw = raw.split("?", 1)[0]
+    parts = [p for p in raw.split("/") if p]
+    if len(parts) < 2:
+        return None
+
+    flow_id = parts[0]
+    file_name = parts[-1]
+    if not flow_id or not file_name:
+        return None
+    if flow_id in {".", ".."} or file_name in {".", ".."}:
+        return None
+    # Prevent path traversal; file_name should be a leaf.
+    if "/" in file_name or "\\" in file_name:
+        return None
+    return f"{flow_id}/{file_name}"
 
 
 def update_template_field(new_template, key, previous_value_dict) -> None:

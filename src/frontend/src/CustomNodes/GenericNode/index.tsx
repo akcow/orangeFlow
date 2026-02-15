@@ -58,6 +58,8 @@ function DoubaoImageCreatorTopBar({
   canDownload,
   onCrop,
   canCrop,
+  onMultiAngleCamera,
+  canMultiAngleCamera,
   onOutpaint,
   canOutpaint,
   motionStart,
@@ -71,6 +73,8 @@ function DoubaoImageCreatorTopBar({
   canDownload: boolean;
   onCrop?: () => void;
   canCrop?: boolean;
+  onMultiAngleCamera?: () => void;
+  canMultiAngleCamera?: boolean;
   onOutpaint?: () => void;
   canOutpaint?: boolean;
   motionStart?: {
@@ -150,8 +154,25 @@ function DoubaoImageCreatorTopBar({
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}
-        style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+        style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
+        <button
+          type="button"
+          title="多角度"
+          aria-label="多角度"
+          disabled={!canMultiAngleCamera}
+          onClick={onMultiAngleCamera}
+          className={cn(
+            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            canMultiAngleCamera
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Axis3d" className="h-5 w-5" />
+          <span>多角度</span>
+        </button>
+
         <button
           type="button"
           title="扩图"
@@ -335,7 +356,7 @@ function DoubaoVideoGeneratorTopBar({
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}
-        style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+        style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
         <OutputModal
           open={isOpen}
@@ -426,7 +447,7 @@ function DoubaoAudioTopBar({
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}
-        style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+        style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
         <OutputModal
           open={isOpen}
@@ -503,7 +524,7 @@ function TextCreationTopBar({
           // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
           "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
         )}
-        style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
+        style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
         <OutputModal
           open={isOpen}
@@ -723,7 +744,12 @@ function GenericNode({
     isUserUploadImage ||
     isUserUploadVideo ||
     isUserUploadAudio;
-  const hideTitleRow = isDoubaoImageCreator && Boolean(imageCreatorPreviewActions?.isOutpaintOpen);
+  const hideTitleRow =
+    isDoubaoImageCreator &&
+    Boolean(
+      imageCreatorPreviewActions?.isOutpaintOpen ||
+        imageCreatorPreviewActions?.isMultiAngleCameraOpen,
+    );
   const nodeWidthClass = useMemo(() => {
     if (!showNode) return "w-48";
     if (isTextCreation) return "w-[520px]";
@@ -925,6 +951,10 @@ function GenericNode({
       });
 
       setNode(data.id, (oldNode) => {
+        // This component instance always represents a generic node, but the store setter is typed over
+        // `AllNodeType` (generic/note/group). Narrow here to keep TS happy.
+        if (oldNode.type !== "genericNode") return oldNode;
+
         const newNode = cloneDeep(oldNode);
         if (newNode.data.node?.outputs) {
           newNode.data.node.outputs.forEach((out) => {
@@ -1042,11 +1072,14 @@ function GenericNode({
               deleteNode(id);
             }}
             setShowNode={(show) => {
-              setNode(data.id, (old) => ({
-                ...old,
-                data: { ...old.data, showNode: show },
-              }));
-            }}
+      setNode(data.id, (old) => {
+        if (old.type !== "genericNode" && old.type !== "noteNode") return old;
+        return {
+          ...old,
+          data: { ...old.data, showNode: show },
+        };
+      });
+    }}
             numberOfOutputHandles={shownOutputs.length ?? 0}
             showNode={showNode}
             openAdvancedModal={false}
@@ -1241,6 +1274,12 @@ function GenericNode({
                   canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
                   onCrop={() => imageCreatorPreviewActions?.enterCrop()}
                   canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
+                  onMultiAngleCamera={() =>
+                    imageCreatorPreviewActions?.enterMultiAngleCamera()
+                  }
+                  canMultiAngleCamera={Boolean(
+                    imageCreatorPreviewActions?.canMultiAngleCamera,
+                  )}
                   onOutpaint={() => imageCreatorPreviewActions?.enterOutpaint()}
                   canOutpaint={Boolean(imageCreatorPreviewActions?.canOutpaint)}
                   motionStart={persistentPreviewMotionStart}

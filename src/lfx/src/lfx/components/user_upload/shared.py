@@ -114,10 +114,18 @@ def extract_file_path(value: Any) -> str | None:
         return None
     if isinstance(value, str):
         return value.strip() or None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            candidate = extract_file_path(item)
+            if candidate:
+                return candidate
+        return None
     if isinstance(value, dict):
         candidate = value.get("file_path") or value.get("path") or value.get("value")
-        if isinstance(candidate, str):
-            return candidate.strip() or None
+        resolved = extract_file_path(candidate)
+        if resolved:
+            return resolved
+        return None
     return str(value).strip() or None
 
 
@@ -126,4 +134,3 @@ def infer_extension(file_name: str | None) -> str | None:
         return None
     ext = Path(str(file_name)).suffix.lower().lstrip(".")
     return ext or None
-

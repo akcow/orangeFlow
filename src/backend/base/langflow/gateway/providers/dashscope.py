@@ -55,8 +55,10 @@ class DashScopeProvider(ProviderAdapter):
         # Heuristic: wan2.6 models support the newer multimodal-generation sync API;
         # wan2.5 models are often async-only.
         force_async = bool(extra.get("force_async", False))
+        force_sync = bool(extra.get("force_sync", False))
         is_wan26 = str(request.model).startswith("wan2.6")
-        use_sync = is_wan26 and not force_async
+        is_qwen_edit = str(request.model).startswith("qwen-image-edit")
+        use_sync = (force_sync or is_qwen_edit or is_wan26) and not force_async
 
         headers = {
             "Content-Type": "application/json",
@@ -67,9 +69,18 @@ class DashScopeProvider(ProviderAdapter):
             async with httpx.AsyncClient(timeout=180.0) as client:
                 if use_sync:
                     url = f"{self.base_url}{self._dashscope_api('/services/aigc/multimodal-generation/generation')}"
-                    content: list[dict[str, Any]] = [{"text": request.prompt}]
-                    for image in images:
-                        content.append({"image": image})
+                    # DashScope multimodal-generation expects a single user message with mixed parts.
+                    # For qwen-image-edit-* the official examples use images first, then the edit instruction text.
+                    # For wan2.* we keep the existing order (text first) for backward compatibility.
+                    content: list[dict[str, Any]] = []
+                    if is_qwen_edit:
+                        for image in images:
+                            content.append({"image": image})
+                        content.append({"text": request.prompt})
+                    else:
+                        content.append({"text": request.prompt})
+                        for image in images:
+                            content.append({"image": image})
 
                     parameters: dict[str, Any] = {"prompt_extend": prompt_extend, "watermark": watermark, "n": request.n}
                     if size:
@@ -78,9 +89,12 @@ class DashScopeProvider(ProviderAdapter):
                         parameters["negative_prompt"] = negative_prompt
                     if seed and int(seed) > 0:
                         parameters["seed"] = int(seed)
-                    # i2i tends to work better with interleave disabled.
-                    if images:
+                    # i2i tends to work better with interleave disabled for wan.
+                    # For qwen-image-edit we don't force it unless explicitly provided.
+                    if images and not is_qwen_edit and "enable_interleave" not in extra:
                         parameters["enable_interleave"] = False
+                    if "enable_interleave" in extra:
+                        parameters["enable_interleave"] = bool(extra.get("enable_interleave"))
 
                     payload = {
                         "model": request.model,

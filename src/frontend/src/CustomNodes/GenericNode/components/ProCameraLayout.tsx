@@ -57,7 +57,7 @@ const LENS_IMAGE_FILES: Record<string, string> = {
   "Leica Summicron-C": "Leica Summicron-C.webp",
   "Angenieux Optimo Ultra Compact": "Angenieux Optimo Ultra Compact.png",
   // Note: the user-provided filename has a double space between "Vista-C" and "Vista-P".
-  "Tokina Cinema Vista-C / Vista-P": "Tokina Cinema Vista-C  Vista-P.webp",
+  "Tokina Cinema Vista-C / Vista-P": "Tokina Cinema Vista-C  Vista-P.png",
 };
 
 const APERTURE_IMAGE_FILES: Record<string, string> = {
