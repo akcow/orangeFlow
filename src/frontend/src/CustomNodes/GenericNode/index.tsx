@@ -56,6 +56,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview,
   onDownload,
   canDownload,
+  onEnhance,
+  canEnhance,
   onCrop,
   canCrop,
   onMultiAngleCamera,
@@ -71,6 +73,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
+  onEnhance?: () => void;
+  canEnhance?: boolean;
   onCrop?: () => void;
   canCrop?: boolean;
   onMultiAngleCamera?: () => void;
@@ -156,6 +160,23 @@ function DoubaoImageCreatorTopBar({
         )}
         style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
+        <button
+          type="button"
+          title="增强"
+          aria-label="增强"
+          disabled={!canEnhance}
+          onClick={onEnhance}
+          className={cn(
+            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            canEnhance
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="HD" className="h-5 w-5" />
+          <span>增强</span>
+        </button>
+
         <button
           type="button"
           title="多角度"
@@ -748,7 +769,8 @@ function GenericNode({
     isDoubaoImageCreator &&
     Boolean(
       imageCreatorPreviewActions?.isOutpaintOpen ||
-        imageCreatorPreviewActions?.isMultiAngleCameraOpen,
+        imageCreatorPreviewActions?.isMultiAngleCameraOpen ||
+        imageCreatorPreviewActions?.isEnhanceOpen,
     );
   const nodeWidthClass = useMemo(() => {
     if (!showNode) return "w-48";
@@ -1272,6 +1294,8 @@ function GenericNode({
                   onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
                   onDownload={() => imageCreatorPreviewActions?.download()}
                   canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+                  onEnhance={() => imageCreatorPreviewActions?.enterEnhance()}
+                  canEnhance={Boolean(imageCreatorPreviewActions?.canEnhance)}
                   onCrop={() => imageCreatorPreviewActions?.enterCrop()}
                   canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
                   onMultiAngleCamera={() =>

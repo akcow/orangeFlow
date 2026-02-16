@@ -36,6 +36,7 @@ import OutpaintOverlay from "./OutpaintOverlay";
 import MultiAngleCameraOverlay, {
   type MultiAngleCameraView,
 } from "./MultiAngleCameraOverlay";
+import EnhanceOverlay, { type EnhanceModelOption } from "./EnhanceOverlay";
 import ZoomableImageOverlay from "./ZoomableImageOverlay";
 import { cloneDeep } from "lodash";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
@@ -164,6 +165,9 @@ export type DoubaoPreviewPanelActions = {
   canDownload: boolean;
   enterCrop: () => void;
   canCrop: boolean;
+  enterEnhance: () => void;
+  canEnhance: boolean;
+  isEnhanceOpen: boolean;
   enterOutpaint: () => void;
   canOutpaint: boolean;
   isOutpaintOpen: boolean;
@@ -844,6 +848,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
     const [isCropOpen, setCropOpen] = useState(false);
+    const [isEnhanceOpen, setEnhanceOpen] = useState(false);
     const [isOutpaintOpen, setOutpaintOpen] = useState(false);
     const [isMultiAngleCameraOpen, setMultiAngleCameraOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -1310,6 +1315,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         currentImage?.imageSource &&
         !isPreviewOnlyNode,
     );
+    const canEnhance = Boolean(
+      appearance === "imageCreator" &&
+        kind === "image" &&
+        currentImage?.imageSource &&
+        !isPreviewOnlyNode,
+    );
     const canOutpaint = Boolean(
       appearance === "imageCreator" &&
         kind === "image" &&
@@ -1374,6 +1385,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           ),
         );
         setCropOpen(true);
+        setEnhanceOpen(false);
+        setOutpaintOpen(false);
+        setMultiAngleCameraOpen(false);
       });
 
       // Smoothly zoom the canvas to 135% and center the component on screen.
@@ -1411,6 +1425,52 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [animateViewportTo, canCrop, getPreviewCenterFlow, nodeId, nodes, setNodes]);
 
+    const enterEnhance = useCallback(() => {
+      if (!canEnhance) return;
+      unstable_batchedUpdates(() => {
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setCropOpen(false);
+        setOutpaintOpen(false);
+        setMultiAngleCameraOpen(false);
+        setEnhanceOpen(true);
+      });
+
+      // Match the multi-angle drawer behavior: zoom + center with extra space below.
+      try {
+        const container =
+          (typeof document !== "undefined" &&
+            (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+          null;
+        const rect = container?.getBoundingClientRect();
+        const viewW = rect?.width ?? window.innerWidth;
+        const viewH = rect?.height ?? window.innerHeight;
+        const targetZoom = 0.55;
+
+        let target = getPreviewCenterFlow(nodeId);
+        if (!target) {
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const self: any = nodeById.get(nodeId);
+          if (self) {
+            const abs = getAbsolutePosition(self, nodeById as any);
+            const dim = getNodeDimensions(self);
+            target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+          }
+        }
+
+        if (target) {
+          const x = viewW / 2 - target.x * targetZoom;
+          const y = viewH * 0.42 - target.y * targetZoom;
+          animateViewportTo({ x, y, zoom: targetZoom }, 800);
+        }
+      } catch (e) {
+        console.warn("Failed to animate viewport for enhance mode:", e);
+      }
+    }, [animateViewportTo, canEnhance, getPreviewCenterFlow, nodeId, nodes, setNodes]);
+
     const enterOutpaint = useCallback(() => {
       if (!canOutpaint) return;
       unstable_batchedUpdates(() => {
@@ -1420,6 +1480,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
           ),
         );
+        setCropOpen(false);
+        setEnhanceOpen(false);
+        setMultiAngleCameraOpen(false);
         setOutpaintOpen(true);
       });
 
@@ -1466,6 +1529,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
           ),
         );
+        setCropOpen(false);
+        setEnhanceOpen(false);
+        setOutpaintOpen(false);
         setMultiAngleCameraOpen(true);
       });
 
@@ -1511,6 +1577,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [canCrop, isCropOpen]);
 
+    // When the preview disappears (or switches kind), exit enhance mode.
+    useEffect(() => {
+      if (!isEnhanceOpen) return;
+      if (!canEnhance) {
+        setEnhanceOpen(false);
+      }
+    }, [canEnhance, isEnhanceOpen]);
+
     // When the preview disappears (or switches kind), exit outpaint mode.
     useEffect(() => {
       if (!isOutpaintOpen) return;
@@ -1533,6 +1607,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         canDownload: Boolean(downloadInfo),
         enterCrop,
         canCrop,
+        enterEnhance,
+        canEnhance,
+        isEnhanceOpen,
         enterOutpaint,
         canOutpaint,
         isOutpaintOpen,
@@ -1542,18 +1619,26 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       });
     }, [
       canCrop,
+      canEnhance,
       canOutpaint,
       canMultiAngleCamera,
       downloadInfo,
       enterCrop,
+      enterEnhance,
       enterOutpaint,
       enterMultiAngleCamera,
       handleDownload,
+      isEnhanceOpen,
       isOutpaintOpen,
       isMultiAngleCameraOpen,
       onActionsChange,
       openModal,
     ]);
+
+    const enhanceModelOptions = useMemo<EnhanceModelOption[]>(
+      () => [{ id: "jimeng-smart-hd", label: "即梦智能超清" }],
+      [],
+    );
 
     const buildMultiAnglePrompt = useCallback((_items: MultiAngleCameraView[]) => {
       // Important: avoid instructing the model to "output multiple images" in one response,
@@ -1806,6 +1891,176 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [
         buildFlow,
         buildMultiAnglePrompt,
+        clearFlowPoolForNodes,
+        currentFlowId,
+        node,
+        nodeId,
+        nodes,
+        setEdges,
+        setNodes,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+        uploadReferenceFile,
+      ],
+    );
+
+    const handleConfirmEnhance = useCallback(
+      async ({
+        imageSource,
+        fileName,
+        modelId,
+        resolution,
+        scale,
+      }: {
+        imageSource: string;
+        fileName: string;
+        modelId: string;
+        resolution: "4k" | "8k";
+        scale: number;
+      }) => {
+        if (!currentFlowId) {
+          showTransientBadge("请先保存画布后再生成");
+          return;
+        }
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["DoubaoImageCreator"];
+        if (!template) return;
+
+        takeSnapshot?.();
+
+        const REFERENCE_FIELD = "reference_images";
+        const IMAGE_OUTPUT_NAME = "image";
+        const NODE_OFFSET_X = 1300;
+
+        const newImageNodeId = getNodeId("DoubaoImageCreator");
+        const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+        const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+        const newNodeX = abs.x + NODE_OFFSET_X;
+        const newNodeY = computeAlignedNodeTopY({
+          anchorNodeId: nodeId,
+          anchorNodeType: currentFlowNode.data?.type,
+          targetNodeType: "DoubaoImageCreator",
+          targetX: newNodeX,
+          fallbackTopY: abs.y,
+          avoidOverlap: false,
+        });
+
+        const newTemplate = cloneDeep(template);
+        (newTemplate as any).display_name = "增强结果";
+        (newTemplate as any).icon = "HD";
+
+        const refField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        if (refField) {
+          const safeName = (fileName && String(fileName).trim()) || "enhance.png";
+          try {
+            const blob = await fetch(imageSource).then((r) => r.blob());
+            const file = new File([blob], safeName, { type: blob.type || "image/png" });
+            const response = await uploadReferenceFile({ file, id: currentFlowId });
+            const uploadedPath = response?.file_path ? String(response.file_path) : "";
+            if (!uploadedPath.trim()) {
+              showTransientBadge("上传失败");
+              return;
+            }
+            refField.value = [uploadedPath.trim()];
+            refField.file_path = [uploadedPath.trim()];
+          } catch (error) {
+            console.error("Failed to upload enhance reference image:", error);
+            showTransientBadge("上传失败");
+            return;
+          }
+        }
+
+        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
+        toolTpl.tool_model_override.value = String(modelId || "").trim();
+        toolTpl.tool_enhance_resolution = toolTpl.tool_enhance_resolution ?? { value: "4k" };
+        toolTpl.tool_enhance_resolution.value = resolution;
+        toolTpl.tool_enhance_scale = toolTpl.tool_enhance_scale ?? { value: 50 };
+        toolTpl.tool_enhance_scale.value = Number(scale);
+
+        if ((newTemplate as any)?.template?.prompt) {
+          (newTemplate as any).template.prompt.value = "";
+        }
+
+        if ((newTemplate as any)?.template?.draft_output) {
+          delete (newTemplate as any).template.draft_output;
+        }
+
+        const newImageNode: GenericNodeType = {
+          id: newImageNodeId,
+          type: "genericNode",
+          position: { x: newNodeX, y: newNodeY },
+          data: {
+            node: newTemplate as any,
+            showNode: !(newTemplate as any).minimized,
+            type: "DoubaoImageCreator",
+            id: newImageNodeId,
+            cropPreviewOnly: true,
+          },
+          selected: false,
+        };
+
+        const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+        const outputDefinition =
+          sourceTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+          sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+          sourceTemplate?.outputs?.[0];
+        const sourceOutputTypes =
+          outputDefinition?.types && outputDefinition.types.length === 1
+            ? outputDefinition.types
+            : outputDefinition?.selected
+              ? [outputDefinition.selected]
+              : ["Data"];
+        const sourceHandle = {
+          outputTypes: sourceOutputTypes,
+          type: outputDefinition?.type,
+          id: nodeId,
+          name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        };
+
+        const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        const targetHandle = {
+          inputTypes: referenceTemplateField?.input_types ?? ["Data"],
+          type: referenceTemplateField?.type,
+          id: newImageNodeId,
+          fieldName: REFERENCE_FIELD,
+          ...(referenceTemplateField?.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+        };
+
+        const edge: EdgeType = {
+          id: `xy-edge__${nodeId}-${sourceHandle.name}-${newImageNodeId}-${REFERENCE_FIELD}-enhance`,
+          source: nodeId,
+          sourceHandle: scapedJSONStringfy(sourceHandle as any),
+          target: newImageNodeId,
+          targetHandle: scapedJSONStringfy(targetHandle as any),
+          type: "default",
+          className: "doubao-tool-edge",
+          data: {
+            sourceHandle,
+            targetHandle,
+            cropLink: true,
+          },
+        } as any;
+
+        unstable_batchedUpdates(() => {
+          setNodes((currentNodes) => [...currentNodes, newImageNode]);
+          setEdges((currentEdges) => [...currentEdges, edge]);
+          setEnhanceOpen(false);
+        });
+
+        window.requestAnimationFrame(() => {
+          try {
+            clearFlowPoolForNodes([newImageNodeId]);
+            void buildFlow({ stopNodeId: newImageNodeId });
+          } catch (e) {
+            console.warn("Failed to start enhance build:", e);
+          }
+        });
+      },
+      [
+        buildFlow,
         clearFlowPoolForNodes,
         currentFlowId,
         node,
@@ -2645,9 +2900,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                     >
                       {inlinePreview}
                     </div>
-                    {shouldShowWaveLoading && (
-                      <BuildingWaveOverlay tonedByPreview={Boolean(hasRenderablePreview)} />
-                    )}
+                    <BuildingWaveOverlay
+                      tonedByPreview={Boolean(hasRenderablePreview)}
+                      active={Boolean(shouldShowWaveLoading)}
+                    />
                   </div>
                 </div>
                 {showReferenceSelectionBadge && (
@@ -2777,9 +3033,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                     >
                       {inlinePreview}
                     </div>
-                    {shouldShowWaveLoading && (
-                      <BuildingWaveOverlay tonedByPreview={Boolean(hasRenderablePreview)} />
-                    )}
+                    <BuildingWaveOverlay
+                      tonedByPreview={Boolean(hasRenderablePreview)}
+                      active={Boolean(shouldShowWaveLoading)}
+                    />
                   </div>
                 </div>
                 {showReferenceSelectionBadge && (
@@ -2921,6 +3178,22 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 onCancel={() => setOutpaintOpen(false)}
                 onConfirm={handleConfirmOutpaint}
               />
+            )}
+            {appearance === "imageCreator" && canEnhance && currentImage?.imageSource && (
+              <div className="pointer-events-none absolute left-0 right-0 top-full z-[1500] mt-3">
+                <div className="pointer-events-auto">
+                  <EnhanceOverlay
+                    open={isEnhanceOpen}
+                    imageSource={currentImage.imageSource}
+                    modelOptions={enhanceModelOptions}
+                    initialModelId={enhanceModelOptions[0]?.id}
+                    initialResolution={"4k"}
+                    initialScale={50}
+                    onCancel={() => setEnhanceOpen(false)}
+                    onConfirm={handleConfirmEnhance}
+                  />
+                </div>
+              </div>
             )}
             {appearance === "imageCreator" && canMultiAngleCamera && currentImage?.imageSource && (
               <div className="pointer-events-none absolute left-0 right-0 top-full z-[1500] mt-3">
@@ -3320,14 +3593,21 @@ function formatTimestamp(timestamp?: string) {
   }).format(date);
 }
 
-function BuildingWaveOverlay({ tonedByPreview }: { tonedByPreview: boolean }) {
+function BuildingWaveOverlay({
+  tonedByPreview,
+  active,
+}: {
+  tonedByPreview: boolean;
+  active: boolean;
+}) {
   return (
     <div
       className={cn(
-        "doubao-building-wave pointer-events-auto absolute inset-0 z-30 overflow-hidden",
+        "doubao-building-wave absolute inset-0 z-30 overflow-hidden",
         tonedByPreview
           ? "doubao-building-wave--toned"
           : "doubao-building-wave--theme",
+        active ? "doubao-building-wave--active" : "doubao-building-wave--inactive",
       )}
       aria-hidden="true"
       data-testid="doubao-building-wave-overlay"
@@ -3336,6 +3616,8 @@ function BuildingWaveOverlay({ tonedByPreview }: { tonedByPreview: boolean }) {
         <div className="doubao-building-wave__base" />
         <div className="doubao-building-wave__texture" />
         <div className="doubao-building-wave__front" />
+        <div className="doubao-building-wave__loop" />
+        <div className="doubao-building-wave__loop doubao-building-wave__loop2" />
         <div className="doubao-building-wave__gloss" />
       </div>
     </div>

@@ -27,6 +27,7 @@ from langflow.gateway.providers.veo import VeoProvider
 from langflow.gateway.providers.qwen import QwenProvider
 from langflow.gateway.providers.kling import KlingProvider
 from langflow.gateway.providers.vidu import ViduProvider
+from langflow.gateway.providers.jimeng_visual import JimengVisualProvider
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
@@ -229,6 +230,32 @@ def resolve_provider(model: str) -> tuple[str, Any]:
                 f"Key for model {model} not configured. Set KLING_API_KEY, or save provider credentials 'kling'.",
             )
         return "kling", KlingProvider(api_key=api_key, base_url=base_url)
+
+    # Jimeng Visual CV APIs (super-resolution, etc.).
+    if model.startswith("jimeng"):
+        access_key = _normalize_key(
+            os.getenv("JIMENG_CV_ACCESS_KEY")
+            or os.getenv("VOLC_ACCESSKEY")
+            or os.getenv("VOLC_ACCESS_KEY")
+            or os.getenv("VOLCENGINE_ACCESS_KEY")
+        )
+        secret_key = _normalize_key(
+            os.getenv("JIMENG_CV_SECRET_KEY")
+            or os.getenv("VOLC_SECRETKEY")
+            or os.getenv("VOLC_SECRET_KEY")
+            or os.getenv("VOLCENGINE_SECRET_KEY")
+        )
+        base_url = os.getenv("JIMENG_VISUAL_API_BASE", "https://visual.volcengineapi.com")
+        if not access_key or not secret_key:
+            raise GatewayError(
+                401,
+                "PROVIDER_KEY_MISSING",
+                (
+                    f"Keys for model {model} not configured. "
+                    "Set JIMENG_CV_ACCESS_KEY + JIMENG_CV_SECRET_KEY (or VOLC_ACCESSKEY/VOLC_SECRETKEY)."
+                ),
+            )
+        return "jimeng_visual", JimengVisualProvider(access_key=access_key, secret_key=secret_key, base_url=base_url)
 
     # Audio/Qwen.
     if "qwen3-tts" in model:

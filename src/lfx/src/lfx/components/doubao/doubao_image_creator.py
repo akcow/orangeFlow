@@ -121,8 +121,14 @@ class DoubaoImageCreator(Component):
             # Official: supports 1-3 input images.
             "max_reference_images": 3,
             # Output count supports 1-6 (handled by image_count constraint elsewhere).
+            # Tool-only model: used by UI tools (e.g. multi-angle camera) via hidden overrides.
+            # Do not expose this in the regular "图片创作" model dropdown.
+            "tool_only": True,
         },
     }
+
+    # Hide tool-only models from the user-facing dropdown.
+    MODEL_OPTIONS = [k for k, meta in MODEL_CATALOG.items() if not (meta or {}).get("tool_only")]
 
     RESOLUTION_PRESETS = {
         "1K（草稿）": 1280,
@@ -158,7 +164,7 @@ class DoubaoImageCreator(Component):
         DropdownInput(
             name="model_name",
             display_name="模型选择",
-            options=list(MODEL_CATALOG.keys()),
+            options=MODEL_OPTIONS,
             value="Seedream 4.5 · 旗舰 (251128)",
             required=True,
             real_time_refresh=True,
@@ -284,6 +290,24 @@ class DoubaoImageCreator(Component):
             show=False,
             required=False,
             info="Internal: JSON payload for multi-angle camera views (hidden).",
+        ),
+        StrInput(
+            name="tool_enhance_resolution",
+            display_name="Tool Enhance Resolution",
+            value="4k",
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: Jimeng enhance output resolution (hidden). Values: 4k/8k.",
+        ),
+        IntInput(
+            name="tool_enhance_scale",
+            display_name="Tool Enhance Scale",
+            value=50,
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: Jimeng enhance detail scale (hidden). Range: 0-100.",
         ),
         BoolInput(
             name="enable_multi_turn",
@@ -534,6 +558,10 @@ class DoubaoImageCreator(Component):
 
         # Note: Gemini is handled after bridge-mode checks.
 
+        tool_override = str(getattr(self, "tool_model_override", "") or "").strip()
+        if tool_override.startswith("jimeng"):
+            return self._build_images_jimeng_visual_gateway(model_id=tool_override)
+
         provider = str(model_meta.get("provider") or "").strip().lower()
         is_kling = provider == "kling"
         is_dashscope = provider == "dashscope" or "t2i_model" in model_meta or "i2i_model" in model_meta
@@ -603,7 +631,6 @@ class DoubaoImageCreator(Component):
             self.status = "🔁 桥梁模式：提示词为空，直通预览输出"
             return Data(data=payload, type="image")
 
-        tool_override = str(getattr(self, "tool_model_override", "") or "").strip()
         if tool_override.startswith("qwen-image-edit"):
             return self._build_images_qwen_image_edit_gateway(prompt=prompt, model_id=tool_override)
 
@@ -761,6 +788,121 @@ class DoubaoImageCreator(Component):
         w = max(min_dim, min(w, max_dim))
         h = max(min_dim, min(h, max_dim))
         return w, h
+
+    def _build_images_jimeng_visual_gateway(self, *, model_id: str) -> Data:
+        """Jimeng Visual CV APIs (e.g. 智能超清) via hosted gateway."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            # Service constraints from docs/model/即梦智能超清接口文档.md
+            max_input_bytes = 4_700_000
+
+            resolution = str(getattr(self, "tool_enhance_resolution", "") or "4k").strip().lower()
+            if resolution not in {"4k", "8k"}:
+                resolution = "4k"
+
+            try:
+                scale = int(getattr(self, "tool_enhance_scale", 50) or 50)
+            except Exception:
+                scale = 50
+            scale = max(0, min(100, scale))
+
+            reference_payloads, reference_meta = self._prepare_reference_images(
+                max_reference_images=1,
+                allowed_extensions={"jpg", "jpeg", "png"},
+            )
+            if not reference_payloads:
+                return self._error("增强需要 1 张 JPEG/PNG 参考图。")
+
+            meta0 = reference_meta[0] if reference_meta else {}
+            try:
+                size_bytes = int(meta0.get("size_bytes") or 0) if isinstance(meta0, dict) else 0
+            except Exception:
+                size_bytes = 0
+            if size_bytes and size_bytes > max_input_bytes:
+                return self._error("输入图片超过 4.7MB，上游服务可能拒绝处理。请换更小的图片或压缩后重试。")
+
+            data_url = str(reference_payloads[0] or "").strip()
+            if not data_url:
+                return self._error("未读取到参考图数据。")
+            if data_url.startswith("data:") and "base64," in data_url:
+                b64 = data_url.split("base64,", 1)[1].strip()
+            else:
+                # Also accept raw base64 (fallback).
+                b64 = data_url.strip()
+
+            # Gateway provider maps model_id -> req_key; we only send image + knobs.
+            response = images_generations(
+                model=str(model_id),
+                prompt="",
+                n=1,
+                response_format="url",
+                extra_body={
+                    "binary_data_base64": [b64],
+                    "resolution": resolution,
+                    "scale": scale,
+                },
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+
+            data_list = (response or {}).get("data") or []
+            if not isinstance(data_list, list) or not data_list:
+                return self._error(f"Gateway returned no images: {response}")
+            first = data_list[0] if isinstance(data_list[0], dict) else {}
+            image_url = first.get("url") or first.get("image_url")
+            if not isinstance(image_url, str) or not image_url.strip():
+                return self._error(f"Gateway returned invalid image url: {response}")
+            image_url = image_url.strip()
+
+            preview_data, preview_error = self._download_preview(image_url)
+            images: list[dict[str, Any]] = [
+                {
+                    "index": 0,
+                    "image_url": image_url,
+                    **({"image_data_url": preview_data} if preview_data else {}),
+                    **({"preview_error": preview_error} if preview_error else {}),
+                }
+            ]
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": True,
+                "generated_at": generated_at,
+                "payload": {
+                    "images": [
+                        {
+                            "index": 0,
+                            "image_url": image_url,
+                            "image_data_url": preview_data,
+                            "resolution": resolution,
+                            "scale": scale,
+                        }
+                    ],
+                    "model": {"name": "jimeng_visual", "model_id": str(model_id)},
+                    "tool": "enhance",
+                    "reference_images": reference_meta,
+                },
+            }
+
+            self.status = f"✅ 增强成功 ({model_id})"
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "model": {"name": "jimeng_visual", "model_id": str(model_id)},
+                    "resolution": resolution,
+                    "scale": scale,
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway jimeng-visual failed: {exc}")
 
     def _build_images_qwen_image_edit_gateway(self, *, prompt: str, model_id: str) -> Data:
         """Qwen Image Edit (DashScope) via hosted gateway (server-managed credentials)."""

@@ -514,24 +514,84 @@
   }
 }
 
+@keyframes doubao-wave-loop-sweep {
+  0% {
+    transform: translateX(-85%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(185%);
+    opacity: 0;
+  }
+}
+
 .doubao-building-wave {
-  --doubao-wave-base: rgba(232, 238, 249, 0.94);
-  --doubao-wave-veil: rgba(255, 255, 255, 0.84);
-  --doubao-wave-front: rgba(255, 255, 255, 0.52);
-  --doubao-wave-texture: rgba(255, 255, 255, 0.03);
-  --doubao-wave-gloss: rgba(255, 255, 255, 0.08);
-  --doubao-wave-blur: 64px;
+  --doubao-wave-base: rgba(235, 241, 252, 0.78);
+  --doubao-wave-veil: rgba(255, 255, 255, 0.56);
+  --doubao-wave-front: rgba(255, 255, 255, 0.46);
+  --doubao-wave-texture: rgba(255, 255, 255, 0.04);
+  --doubao-wave-gloss: rgba(255, 255, 255, 0.12);
+  --doubao-wave-blur: 128px;
+  --doubao-wave-backdrop-saturate: 0.68;
+  --doubao-wave-backdrop-brightness: 0.78;
+  --doubao-wave-backdrop-contrast: 0.96;
   contain: paint;
   backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: opacity;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms linear;
 }
 
 .dark .doubao-building-wave {
-  --doubao-wave-base: rgba(8, 12, 20, 0.95);
-  --doubao-wave-veil: rgba(21, 31, 47, 0.86);
-  --doubao-wave-front: rgba(169, 188, 224, 0.3);
-  --doubao-wave-texture: rgba(146, 168, 206, 0.03);
-  --doubao-wave-gloss: rgba(183, 205, 245, 0.08);
-  --doubao-wave-blur: 68px;
+  --doubao-wave-base: rgba(10, 14, 22, 0.74);
+  --doubao-wave-veil: rgba(28, 38, 56, 0.54);
+  --doubao-wave-front: rgba(184, 208, 246, 0.32);
+  --doubao-wave-texture: rgba(170, 200, 245, 0.05);
+  --doubao-wave-gloss: rgba(196, 224, 255, 0.14);
+  --doubao-wave-blur: 136px;
+  --doubao-wave-backdrop-saturate: 0.76;
+  --doubao-wave-backdrop-brightness: 0.76;
+  --doubao-wave-backdrop-contrast: 0.98;
+}
+
+.doubao-building-wave--active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.doubao-building-wave--inactive {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.doubao-building-wave--toned {
+  /* Let the underlying image/video colors show through (ultra soft). */
+  --doubao-wave-base: rgba(255, 255, 255, 0.22);
+  --doubao-wave-veil: rgba(255, 255, 255, 0.12);
+  --doubao-wave-front: rgba(255, 255, 255, 0.34);
+  --doubao-wave-texture: rgba(255, 255, 255, 0.06);
+  --doubao-wave-gloss: rgba(255, 255, 255, 0.16);
+  --doubao-wave-blur: 180px;
+  --doubao-wave-backdrop-saturate: 1.12;
+  --doubao-wave-backdrop-brightness: 0.92;
+  --doubao-wave-backdrop-contrast: 1.02;
+}
+
+.dark .doubao-building-wave--toned {
+  --doubao-wave-base: rgba(0, 0, 0, 0.22);
+  --doubao-wave-veil: rgba(0, 0, 0, 0.12);
+  --doubao-wave-front: rgba(206, 226, 255, 0.18);
+  --doubao-wave-texture: rgba(206, 226, 255, 0.06);
+  --doubao-wave-gloss: rgba(206, 226, 255, 0.18);
+  --doubao-wave-blur: 188px;
+  --doubao-wave-backdrop-saturate: 1.16;
+  --doubao-wave-backdrop-brightness: 0.88;
+  --doubao-wave-backdrop-contrast: 1.04;
 }
 
 .doubao-building-wave__progress {
@@ -541,6 +601,10 @@
   transform-origin: left center;
   transform: scaleX(0);
   will-change: transform;
+  animation: none;
+}
+
+.doubao-building-wave--active .doubao-building-wave__progress {
   animation: doubao-wave-progress-expand 35s linear forwards;
 }
 
@@ -550,8 +614,10 @@
   background:
     linear-gradient(100deg, var(--doubao-wave-base) 0%, var(--doubao-wave-veil) 96%),
     linear-gradient(180deg, rgba(148, 163, 184, 0.42) 0%, transparent 100%);
-  backdrop-filter: blur(var(--doubao-wave-blur)) saturate(0.58) brightness(0.7);
-  -webkit-backdrop-filter: blur(var(--doubao-wave-blur)) saturate(0.58) brightness(0.7);
+  backdrop-filter: blur(var(--doubao-wave-blur)) saturate(var(--doubao-wave-backdrop-saturate))
+    brightness(var(--doubao-wave-backdrop-brightness)) contrast(var(--doubao-wave-backdrop-contrast));
+  -webkit-backdrop-filter: blur(var(--doubao-wave-blur)) saturate(var(--doubao-wave-backdrop-saturate))
+    brightness(var(--doubao-wave-backdrop-brightness)) contrast(var(--doubao-wave-backdrop-contrast));
 }
 
 .dark .doubao-building-wave__base {
@@ -562,7 +628,7 @@
 
 .doubao-building-wave--toned .doubao-building-wave__base {
   background:
-    linear-gradient(100deg, var(--doubao-wave-base) 0%, rgba(255, 255, 255, 0.12) 94%, transparent 100%),
+    linear-gradient(100deg, var(--doubao-wave-base) 0%, rgba(255, 255, 255, 0.1) 78%, transparent 100%),
     linear-gradient(180deg, var(--doubao-wave-veil) 0%, transparent 100%);
 }
 
@@ -576,9 +642,13 @@
     transparent 44px 74px
   );
   opacity: 0.22;
-  filter: blur(18px);
+  filter: blur(28px);
   mix-blend-mode: soft-light;
   will-change: transform;
+  animation: none;
+}
+
+.doubao-building-wave--active .doubao-building-wave__texture {
   animation: doubao-wave-texture-drift 6.2s ease-in-out infinite alternate;
 }
 
@@ -594,9 +664,57 @@
     var(--doubao-wave-front) 50%,
     transparent 100%
   );
-  filter: blur(38px);
+  filter: blur(64px);
   will-change: transform, opacity;
+  animation: none;
+}
+
+.doubao-building-wave--active .doubao-building-wave__front {
   animation: doubao-wave-front-pulse 3.6s ease-in-out infinite alternate;
+}
+
+.doubao-building-wave__loop {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: -85%;
+  width: 72%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.44) 44%,
+    rgba(255, 255, 255, 0.18) 62%,
+    transparent 100%
+  );
+  filter: blur(56px);
+  will-change: transform, opacity;
+  animation: none;
+}
+
+.doubao-building-wave--active .doubao-building-wave__loop {
+  animation: doubao-wave-loop-sweep 2.35s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.doubao-building-wave__loop2 {
+  opacity: 0.7;
+  width: 62%;
+  filter: blur(62px);
+}
+
+.doubao-building-wave--active .doubao-building-wave__loop2 {
+  animation-duration: 3.1s;
+  animation-delay: 0.55s;
+}
+
+.dark .doubao-building-wave__loop {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(196, 224, 255, 0.3) 44%,
+    rgba(135, 170, 230, 0.16) 62%,
+    transparent 100%
+  );
+  filter: blur(58px);
 }
 
 .doubao-building-wave__gloss {
@@ -610,6 +728,10 @@
   );
   mix-blend-mode: screen;
   will-change: transform, opacity;
+  animation: none;
+}
+
+.doubao-building-wave--active .doubao-building-wave__gloss {
   animation: doubao-wave-gloss-drift 7.2s ease-in-out infinite alternate;
 }
 
@@ -629,6 +751,7 @@
 
   .doubao-building-wave__texture,
   .doubao-building-wave__front,
+  .doubao-building-wave__loop,
   .doubao-building-wave__gloss {
     animation: none;
   }

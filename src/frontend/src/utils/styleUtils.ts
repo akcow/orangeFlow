@@ -7,6 +7,7 @@ import { BotMessageSquareIcon } from "@/icons/BotMessageSquare";
 import { DoubaoTTSIcon } from "@/icons/DoubaoTTS";
 import { DoubaoVideoGeneratorIcon } from "@/icons/DoubaoVideoGenerator";
 import { DoubaoImageCreatorIcon } from "@/icons/DoubaoImageCreator";
+import { HDIcon } from "@/icons/HD";
 import { fontAwesomeIcons, isFontAwesomeIcon } from "@/icons/fontAwesomeIcons";
 import { GradientSave } from "@/icons/GradientSparkles";
 
@@ -552,6 +553,7 @@ export const eagerLoadedIconsMap = {
   DoubaoTTS: DoubaoTTSIcon,
   DoubaoVideoGenerator: DoubaoVideoGeneratorIcon,
   DoubaoImageCreator: DoubaoImageCreatorIcon,
+  HD: HDIcon,
 
   // React icon
   FaApple: FaApple,

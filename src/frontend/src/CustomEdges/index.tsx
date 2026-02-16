@@ -394,6 +394,7 @@ export function DefaultEdge({
     <g
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      data-doubao-running-wave={showRunningWave ? "true" : "false"}
     >
       <BaseEdge
         path={pathForRender}

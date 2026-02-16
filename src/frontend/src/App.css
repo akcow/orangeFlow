@@ -152,6 +152,12 @@ body {
   stroke-width: 2px !important;
 }
 
+.react-flow__edge.running [data-doubao-running-wave="true"] .react-flow__edge-path {
+  /* Keep the base stroke visible while the traveling wave animates on top. */
+  stroke: var(--connection) !important;
+  opacity: 1 !important;
+}
+
 .react-flow__edge.not-running .react-flow__edge-path {
   /* Keep default connection color so edges don't "disappear" under certain themes. */
   stroke: var(--connection) !important;
