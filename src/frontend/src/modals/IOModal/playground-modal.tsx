@@ -44,7 +44,6 @@ export default function IOModal({
   const outputs = useFlowStore((state) => state.outputs);
   const nodes = useFlowStore((state) => state.nodes);
   const buildFlow = useFlowStore((state) => state.buildFlow);
-  const setIsBuilding = useFlowStore((state) => state.setIsBuilding);
   const isBuilding = useFlowStore((state) => state.isBuilding);
   const newChatOnPlayground = useFlowStore(
     (state) => state.newChatOnPlayground,
@@ -225,7 +224,7 @@ export default function IOModal({
         });
       }
     },
-    [isBuilding, setIsBuilding, chatValue, chatInput?.id, sessionId, buildFlow],
+    [isBuilding, chatValue, chatInput?.id, sessionId, buildFlow],
   );
 
   useEffect(() => {

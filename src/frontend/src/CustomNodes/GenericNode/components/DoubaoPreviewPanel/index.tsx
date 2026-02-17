@@ -37,6 +37,7 @@ import MultiAngleCameraOverlay, {
   type MultiAngleCameraView,
 } from "./MultiAngleCameraOverlay";
 import EnhanceOverlay, { type EnhanceModelOption } from "./EnhanceOverlay";
+import RepaintOverlay, { type RepaintOverlayHandle } from "./RepaintOverlay";
 import ZoomableImageOverlay from "./ZoomableImageOverlay";
 import { cloneDeep } from "lodash";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
@@ -163,6 +164,10 @@ export type DoubaoPreviewPanelActions = {
   openPreview: () => void;
   download: () => void;
   canDownload: boolean;
+  enterRepaint: () => void;
+  runRepaint: () => void;
+  canRepaint: boolean;
+  isRepaintOpen: boolean;
   enterCrop: () => void;
   canCrop: boolean;
   enterEnhance: () => void;
@@ -245,7 +250,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const setNodes = useFlowStore((state) => state.setNodes);
     const setEdges = useFlowStore((state) => state.setEdges);
     const buildFlow = useFlowStore((state) => state.buildFlow);
-    const clearFlowPoolForNodes = useFlowStore((state) => state.clearFlowPoolForNodes);
     const reactFlowInstance = useFlowStore((state) => state.reactFlowInstance);
     const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
     const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -847,11 +851,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     );
 
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
+    const [isRepaintOpen, setRepaintOpen] = useState(false);
     const [isCropOpen, setCropOpen] = useState(false);
     const [isEnhanceOpen, setEnhanceOpen] = useState(false);
     const [isOutpaintOpen, setOutpaintOpen] = useState(false);
     const [isMultiAngleCameraOpen, setMultiAngleCameraOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
+    const repaintOverlayRef = useRef<RepaintOverlayHandle | null>(null);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
       if (kind !== "image" || !resolvedPreview?.payload) return null;
@@ -1309,6 +1315,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       (nodes as any[])?.find((candidate) => candidate?.id === nodeId)?.data?.cropPreviewOnly,
     );
 
+    const canRepaint = Boolean(
+      appearance === "imageCreator" &&
+        kind === "image" &&
+        currentImage?.imageSource &&
+        !isPreviewOnlyNode,
+    );
     const canCrop = Boolean(
       appearance === "imageCreator" &&
         kind === "image" &&
@@ -1375,6 +1387,63 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         initialAspectRatio,
       };
     }, [node, templates]);
+
+    const enterRepaint = useCallback(() => {
+      if (!canRepaint) return;
+      unstable_batchedUpdates(() => {
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setCropOpen(false);
+        setEnhanceOpen(false);
+        setOutpaintOpen(false);
+        setMultiAngleCameraOpen(false);
+        setRepaintOpen(true);
+      });
+
+      // Match the multi-angle drawer behavior: zoom + center with extra space below
+      // so the repaint drawer can be fully visible.
+      try {
+        const container =
+          (typeof document !== "undefined" &&
+            (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+          null;
+        const rect = container?.getBoundingClientRect();
+        const viewW = rect?.width ?? window.innerWidth;
+        const viewH = rect?.height ?? window.innerHeight;
+        const targetZoom = 0.93;
+
+        let target = getPreviewCenterFlow(nodeId);
+        if (!target) {
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const self: any = nodeById.get(nodeId);
+          if (self) {
+            const abs = getAbsolutePosition(self, nodeById as any);
+            const dim = getNodeDimensions(self);
+            target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+          }
+        }
+
+        if (target) {
+          const x = viewW / 2 - target.x * targetZoom;
+          // Reserve some bottom space so the drawer below stays visible; keep the node slightly above center.
+          const RESERVED_BOTTOM_PX = 280;
+          const desiredCenterY = Math.max(120, viewH / 2 - RESERVED_BOTTOM_PX / 2);
+          const y = desiredCenterY - target.y * targetZoom;
+          animateViewportTo({ x, y, zoom: targetZoom }, 800);
+        }
+      } catch (e) {
+        console.warn("Failed to animate viewport for repaint mode:", e);
+      }
+    }, [animateViewportTo, canRepaint, getPreviewCenterFlow, nodeId, nodes, setNodes]);
+
+    const runRepaint = useCallback(() => {
+      if (!isRepaintOpen) return;
+      repaintOverlayRef.current?.confirm?.();
+    }, [isRepaintOpen]);
+
     const enterCrop = useCallback(() => {
       if (!canCrop) return;
       unstable_batchedUpdates(() => {
@@ -1384,6 +1453,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
           ),
         );
+        setRepaintOpen(false);
         setCropOpen(true);
         setEnhanceOpen(false);
         setOutpaintOpen(false);
@@ -1433,6 +1503,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
           ),
         );
+        setRepaintOpen(false);
         setCropOpen(false);
         setOutpaintOpen(false);
         setMultiAngleCameraOpen(false);
@@ -1480,6 +1551,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
           ),
         );
+        setRepaintOpen(false);
         setCropOpen(false);
         setEnhanceOpen(false);
         setMultiAngleCameraOpen(false);
@@ -1529,6 +1601,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
           ),
         );
+        setRepaintOpen(false);
         setCropOpen(false);
         setEnhanceOpen(false);
         setOutpaintOpen(false);
@@ -1577,6 +1650,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [canCrop, isCropOpen]);
 
+    useEffect(() => {
+      if (!isRepaintOpen) return;
+      if (!canRepaint) {
+        setRepaintOpen(false);
+      }
+    }, [canRepaint, isRepaintOpen]);
+
     // When the preview disappears (or switches kind), exit enhance mode.
     useEffect(() => {
       if (!isEnhanceOpen) return;
@@ -1605,6 +1685,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         openPreview: openModal,
         download: handleDownload,
         canDownload: Boolean(downloadInfo),
+        enterRepaint,
+        runRepaint,
+        canRepaint,
+        isRepaintOpen,
         enterCrop,
         canCrop,
         enterEnhance,
@@ -1618,16 +1702,20 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         isMultiAngleCameraOpen,
       });
     }, [
+      canRepaint,
       canCrop,
       canEnhance,
       canOutpaint,
       canMultiAngleCamera,
       downloadInfo,
+      enterRepaint,
+      runRepaint,
       enterCrop,
       enterEnhance,
       enterOutpaint,
       enterMultiAngleCamera,
       handleDownload,
+      isRepaintOpen,
       isEnhanceOpen,
       isOutpaintOpen,
       isMultiAngleCameraOpen,
@@ -1881,7 +1969,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
         window.requestAnimationFrame(() => {
           try {
-            clearFlowPoolForNodes([newImageNodeId]);
             void buildFlow({ stopNodeId: newImageNodeId });
           } catch (e) {
             console.warn("Failed to start multi-angle build:", e);
@@ -1891,7 +1978,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [
         buildFlow,
         buildMultiAnglePrompt,
-        clearFlowPoolForNodes,
         currentFlowId,
         node,
         nodeId,
@@ -2052,7 +2138,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
         window.requestAnimationFrame(() => {
           try {
-            clearFlowPoolForNodes([newImageNodeId]);
             void buildFlow({ stopNodeId: newImageNodeId });
           } catch (e) {
             console.warn("Failed to start enhance build:", e);
@@ -2061,7 +2146,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       },
       [
         buildFlow,
-        clearFlowPoolForNodes,
         currentFlowId,
         node,
         nodeId,
@@ -2394,7 +2478,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         // pull in upstream nodes and will use the locally prepared reference image.
         window.requestAnimationFrame(() => {
           try {
-            clearFlowPoolForNodes([newImageNodeId]);
             void buildFlow({ stopNodeId: newImageNodeId });
           } catch (e) {
             console.warn("Failed to start outpaint build:", e);
@@ -2448,8 +2531,236 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [
         animateViewportTo,
         buildFlow,
-        clearFlowPoolForNodes,
         currentFlowId,
+        getPreviewCenterFlow,
+        node,
+        nodeId,
+        nodes,
+        reactFlowInstance,
+        setEdges,
+        setNodes,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+        uploadReferenceFile,
+      ],
+    );
+
+    const handleConfirmRepaint = useCallback(
+      async ({
+        maskDataUrl,
+        fileName,
+        prompt,
+      }: {
+        maskDataUrl: string;
+        fileName: string;
+        prompt: string;
+      }) => {
+        if (!currentFlowId) {
+          showTransientBadge("请先保存画布后再生成");
+          return;
+        }
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["DoubaoImageCreator"];
+        if (!template) return;
+
+        takeSnapshot?.();
+
+        const REFERENCE_FIELD = "reference_images";
+        const IMAGE_OUTPUT_NAME = "image";
+        const NODE_OFFSET_X = 1300;
+        const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+
+        const newImageNodeId = getNodeId("DoubaoImageCreator");
+        const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+        const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+        const newNodeX = abs.x + NODE_OFFSET_X;
+        const newNodeY = computeAlignedNodeTopY({
+          anchorNodeId: nodeId,
+          anchorNodeType: currentFlowNode.data?.type,
+          targetNodeType: "DoubaoImageCreator",
+          targetX: newNodeX,
+          fallbackTopY: abs.y,
+          avoidOverlap: false,
+        });
+
+        const newTemplate = cloneDeep(template);
+        (newTemplate as any).display_name = "重绘结果";
+        (newTemplate as any).icon = "Paintbrush";
+
+        const refField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        if (refField) {
+          const safeBaseName = "repaint-base.png";
+          const safeMaskName = (fileName && String(fileName).trim()) || "repaint-mask.png";
+          try {
+            const baseSource = currentImage?.imageSource;
+            if (!baseSource) {
+              showTransientBadge("未找到原图");
+              return;
+            }
+            const baseBlob = await fetch(baseSource).then((r) => r.blob());
+            const baseFile = new File([baseBlob], safeBaseName, {
+              type: baseBlob.type || "image/png",
+            });
+            const baseResp = await uploadReferenceFile({ file: baseFile, id: currentFlowId });
+            const basePath = baseResp?.file_path ? String(baseResp.file_path) : "";
+            if (!basePath.trim()) {
+              showTransientBadge("上传失败");
+              return;
+            }
+
+            const maskBlob = await fetch(maskDataUrl).then((r) => r.blob());
+            const maskFile = new File([maskBlob], safeMaskName, {
+              type: maskBlob.type || "image/png",
+            });
+            const maskResp = await uploadReferenceFile({ file: maskFile, id: currentFlowId });
+            const maskPath = maskResp?.file_path ? String(maskResp.file_path) : "";
+            if (!maskPath.trim()) {
+              showTransientBadge("上传失败");
+              return;
+            }
+
+            // Keep both value/file_path in sync; the backend will read from file_path.
+            const paths = [basePath.trim(), maskPath.trim()];
+            refField.value = paths;
+            refField.file_path = paths;
+          } catch (error) {
+            console.error("Failed to upload repaint base/mask images:", error);
+            showTransientBadge("上传失败");
+            return;
+          }
+        }
+
+        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
+        toolTpl.tool_model_override.value = "wanx2.1-imageedit";
+        toolTpl.tool_wan_imageedit_function = toolTpl.tool_wan_imageedit_function ?? { value: "" };
+        toolTpl.tool_wan_imageedit_function.value = "description_edit_with_mask";
+
+        if ((newTemplate as any)?.template?.prompt) {
+          (newTemplate as any).template.prompt.value = String(prompt ?? "").trim();
+        }
+
+        if ((newTemplate as any)?.template?.draft_output) {
+          delete (newTemplate as any).template.draft_output;
+        }
+
+        const newImageNode: GenericNodeType = {
+          id: newImageNodeId,
+          type: "genericNode",
+          position: { x: newNodeX, y: newNodeY },
+          data: {
+            node: newTemplate as any,
+            showNode: !(newTemplate as any).minimized,
+            type: "DoubaoImageCreator",
+            id: newImageNodeId,
+            cropPreviewOnly: true,
+          },
+          selected: false,
+        };
+
+        const outputDefinition =
+          sourceTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+          sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+          sourceTemplate?.outputs?.[0];
+        const sourceOutputTypes =
+          outputDefinition?.types && outputDefinition.types.length === 1
+            ? outputDefinition.types
+            : outputDefinition?.selected
+              ? [outputDefinition.selected]
+              : ["Data"];
+        const sourceHandle = {
+          outputTypes: sourceOutputTypes,
+          type: outputDefinition?.type,
+          id: nodeId,
+          name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        };
+
+        const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        const targetHandle = {
+          inputTypes: referenceTemplateField?.input_types ?? ["Data"],
+          type: referenceTemplateField?.type,
+          id: newImageNodeId,
+          fieldName: REFERENCE_FIELD,
+          ...(referenceTemplateField?.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+        };
+
+        const edge: EdgeType = {
+          id: `xy-edge__${nodeId}-${sourceHandle.name}-${newImageNodeId}-${REFERENCE_FIELD}-repaint`,
+          source: nodeId,
+          sourceHandle: scapedJSONStringfy(sourceHandle as any),
+          target: newImageNodeId,
+          targetHandle: scapedJSONStringfy(targetHandle as any),
+          type: "default",
+          className: "doubao-tool-edge",
+          data: {
+            sourceHandle,
+            targetHandle,
+            cropLink: true,
+          },
+        } as any;
+
+        unstable_batchedUpdates(() => {
+          setNodes((currentNodes) => [...currentNodes, newImageNode]);
+          setEdges((currentEdges) => [...currentEdges, edge]);
+          setRepaintOpen(false);
+        });
+
+        window.requestAnimationFrame(() => {
+          try {
+            void buildFlow({ stopNodeId: newImageNodeId });
+          } catch (e) {
+            console.warn("Failed to start repaint build:", e);
+          }
+        });
+
+        // After creating the downstream node, zoom out to 48% and center it (match other tool behaviors).
+        try {
+          const instance: any = reactFlowInstance as any;
+          if (!instance || typeof instance.setViewport !== "function") return;
+
+          const container =
+            (typeof document !== "undefined" &&
+              (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+            null;
+          const rect = container?.getBoundingClientRect();
+          const viewW = rect?.width ?? window.innerWidth;
+          const viewH = rect?.height ?? window.innerHeight;
+          const targetZoom = 0.48;
+
+          const anchorPreviewCenter = getPreviewCenterFlow(nodeId);
+          const anchorDim = getNodeDimensions(currentFlowNode);
+          const anchorCenterFallback = {
+            x: abs.x + anchorDim.width / 2,
+            y: abs.y + anchorDim.height / 2,
+          };
+          const anchorCenter = anchorPreviewCenter ?? anchorCenterFallback;
+
+          const offsetX = anchorCenter.x - abs.x;
+          const offsetY = anchorCenter.y - abs.y;
+          const targetFlowCenter = { x: newNodeX + offsetX, y: newNodeY + offsetY };
+
+          const viewportTo = {
+            x: viewW / 2 - targetFlowCenter.x * targetZoom,
+            y: viewH / 2 - targetFlowCenter.y * targetZoom,
+            zoom: targetZoom,
+          };
+
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              animateViewportTo(viewportTo, 800);
+            });
+          });
+        } catch (e) {
+          console.warn("Failed to animate viewport to repaint result node:", e);
+        }
+      },
+      [
+        animateViewportTo,
+        buildFlow,
+        currentFlowId,
+        currentImage?.imageSource,
         getPreviewCenterFlow,
         node,
         nodeId,
@@ -3157,6 +3468,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               </>
             )}
           </div>
+            {appearance === "imageCreator" && canRepaint && currentImage?.imageSource && (
+              <RepaintOverlay
+                ref={repaintOverlayRef}
+                open={isRepaintOpen}
+                imageSource={currentImage.imageSource}
+                onCancel={() => setRepaintOpen(false)}
+                onConfirm={handleConfirmRepaint}
+                onRequestUpload={onRequestUpload}
+              />
+            )}
             {appearance === "imageCreator" && canCrop && currentImage?.imageSource && (
               <CropOverlay
                 open={isCropOpen}

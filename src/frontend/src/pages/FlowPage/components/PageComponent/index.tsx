@@ -72,7 +72,6 @@ import {
   scapeJSONParse,
 } from "../../../../utils/reactflowUtils";
 import ConnectionLineComponent from "../ConnectionLineComponent";
-import FlowBuildingComponent from "../flowBuildingComponent";
 import SelectionMenu from "../SelectionMenuComponent";
 import UpdateAllComponents from "../UpdateAllComponents";
 import DoubaoImageCreatorMoreActionsMenu from "./components/doubao-image-creator-more-actions-menu";
@@ -1272,7 +1271,6 @@ export default function Page({
               onKeyDown={handleKeyDown}
               onNodeContextMenu={onNodeContextMenu}
             >
-              <FlowBuildingComponent />
               <UpdateAllComponents />
               <MemoizedBackground />
               {helperLineEnabled && <HelperLines helperLines={helperLines} />}

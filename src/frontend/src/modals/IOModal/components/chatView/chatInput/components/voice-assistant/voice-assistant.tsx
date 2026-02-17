@@ -67,7 +67,8 @@ export function VoiceAssistant({
   );
   const setSoundDetected = useVoiceStore((state) => state.setSoundDetected);
   const messagesStore = useMessagesStore();
-  const setIsBuilding = useFlowStore((state) => state.setIsBuilding);
+  const beginBuilding = useFlowStore((state) => state.beginBuilding);
+  const endBuilding = useFlowStore((state) => state.endBuilding);
   const edges = useFlowStore((state) => state.edges);
   const setEdges = useFlowStore((state) => state.setEdges);
   const updateBuildStatus = useFlowStore((state) => state.updateBuildStatus);
@@ -174,7 +175,8 @@ export function VoiceAssistant({
       audioQueueRef,
       isPlayingRef,
       playNextAudioChunk,
-      setIsBuilding,
+      beginBuilding,
+      endBuilding,
       revertBuiltStatusFromBuilding,
       clearEdgesRunningByNodes,
       setMessage,

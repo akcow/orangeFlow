@@ -2,6 +2,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useEffect, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
+import { Switch } from "@/components/ui/switch";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
@@ -91,6 +92,11 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     nodeId: data.id,
     name: "vidu_audio",
   });
+  const { handleOnNewValue: handleKlingMultiShotChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "kling_multi_shot",
+  });
 
   const edges = useFlowStore((state) => state.edges);
   const nodes = useFlowStore((state) => state.nodes);
@@ -100,6 +106,15 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     .trim()
     .toLowerCase();
   const isVidu = modelRaw.startsWith("vidu");
+  const isKlingO3 = modelRaw === "kling o3" || modelRaw === "kling-v3-omni";
+  const klingMultiShotField = template?.kling_multi_shot ?? null;
+  const klingMultiShotEnabled = useMemo(() => {
+    const raw = klingMultiShotField?.value ?? klingMultiShotField?.default ?? false;
+    if (raw === true) return true;
+    if (raw === false) return false;
+    const s = String(raw).trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes";
+  }, [klingMultiShotField?.default, klingMultiShotField?.value]);
 
   const getTargetFieldName = useMemo(() => {
     return (edge: any) => {
@@ -747,6 +762,32 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
                     关闭
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {isKlingO3 && klingMultiShotField && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
+                多镜头模式
+                <ShadTooltip content="kling O3：开启后使用 multi_prompt 分镜生成，多镜头分镜时长之和需等于总时长。">
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[11px] opacity-60">
+                    ?
+                  </span>
+                </ShadTooltip>
+              </div>
+              <div className="flex items-center justify-between rounded-[18px] bg-[#EEF2FF] px-4 py-3 dark:bg-white/10">
+                <div className="text-xs text-[#5E6484] dark:text-slate-300">
+                  关闭=单镜头（使用 prompt）；开启=多镜头（使用分镜）。
+                </div>
+                <Switch
+                  checked={klingMultiShotEnabled}
+                  disabled={disabled}
+                  onCheckedChange={(checked) => {
+                    if (disabled) return;
+                    handleKlingMultiShotChange({ value: checked });
+                  }}
+                />
               </div>
             </div>
           )}

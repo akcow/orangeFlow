@@ -157,6 +157,11 @@ const MODEL_LIMITS: Record<
     maxDuration: 10,
     enableLastFrame: true,
   },
+  "kling O3": {
+    minDuration: 3,
+    maxDuration: 15,
+    enableLastFrame: true,
+  },
   "viduq3-pro": {
     minDuration: 1,
     maxDuration: 16,
@@ -264,6 +269,40 @@ const LAST_FRAME_FIELD_FALLBACK: InputFieldType = {
   file_types: DEFAULT_FIRST_FRAME_EXTENSIONS,
   fileTypes: DEFAULT_FIRST_FRAME_EXTENSIONS,
 };
+const KLING_MULTI_SHOT_FIELD_FALLBACK: InputFieldType = {
+  type: "bool",
+  required: false,
+  placeholder: "",
+  list: false,
+  show: false,
+  readonly: false,
+  name: "kling_multi_shot",
+  display_name: "多镜头模式",
+  value: false,
+};
+const KLING_SHOT_TYPE_FIELD_FALLBACK: InputFieldType = {
+  type: "str",
+  required: false,
+  placeholder: "",
+  list: false,
+  show: false,
+  readonly: false,
+  name: "kling_shot_type",
+  display_name: "Kling 分镜方式",
+  value: "customize",
+};
+const KLING_MULTI_PROMPT_FIELD_FALLBACK: InputFieldType = {
+  type: "str",
+  required: false,
+  placeholder: "",
+  list: false,
+  show: false,
+  readonly: false,
+  name: "kling_multi_prompt",
+  display_name: "Kling Multi Prompt",
+  value: "[]",
+  multiline: true,
+};
 
 type Props = {
   data: NodeDataType;
@@ -329,6 +368,14 @@ export default function DoubaoVideoGeneratorLayout({
     normalizedModelName.toLowerCase().includes("seedream") ||
     normalizedModelName.includes("即梦");
   const isKlingModel = normalizedModelName.toLowerCase().startsWith("kling");
+  const klingModelLower = normalizedModelName.trim().toLowerCase();
+  const isKlingO3 = isKlingModel && (klingModelLower === "kling o3" || klingModelLower === "kling-v3-omni");
+  const klingMultiShotEnabled = useMemo(() => {
+    if (!isKlingO3) return false;
+    const field: any = (template as any).kling_multi_shot;
+    const raw = field?.value ?? field?.default ?? false;
+    return raw === true || String(raw).trim().toLowerCase() === "true";
+  }, [isKlingO3, template]);
   const klingElementIdsValue = String(template.kling_element_ids?.value ?? "").trim();
   const selectedKlingElementIds = useMemo(() => {
     const raw = String(klingElementIdsValue || "");
@@ -537,6 +584,11 @@ export default function DoubaoVideoGeneratorLayout({
     node: data.node!,
     nodeId: data.id,
     name: "kling_video_refer_type",
+  });
+  const { handleOnNewValue: handleKlingMultiPromptChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "kling_multi_prompt",
   });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -857,10 +909,8 @@ export default function DoubaoVideoGeneratorLayout({
 
   useEffect(() => () => clearPlusTimers(), [clearPlusTimers]);
   const buildFlow = useFlowStore((state) => state.buildFlow);
-  const isBuilding = useFlowStore((state) => state.isBuilding);
-  const stopBuilding = useFlowStore((state) => state.stopBuilding);
-  const clearFlowPoolForNodes = useFlowStore(
-    (state) => state.clearFlowPoolForNodes,
+  const stopLatestChainForNode = useFlowStore(
+    (state) => state.stopLatestChainForNode,
   );
   const eventDeliveryConfig = useUtilityStore((state) => state.eventDelivery);
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
@@ -874,6 +924,7 @@ export default function DoubaoVideoGeneratorLayout({
   const typeData = useTypesStore((state) => state.data);
   const { handleNodeClass } = useHandleNodeClass(data.id);
   const promptSnapshotTakenRef = useRef(false);
+  const klingMultiShotSnapshotTakenRef = useRef(false);
   const [isPromptFocused, setPromptFocused] = useState(false);
   const [isPromptComposing, setIsPromptComposing] = useState(false);
   const [promptCompositionValue, setPromptCompositionValue] = useState<string | null>(null);
@@ -884,6 +935,7 @@ export default function DoubaoVideoGeneratorLayout({
     if (!showExpanded) {
       // Reset "single undo step" snapshot sentinel when the overlay closes.
       promptSnapshotTakenRef.current = false;
+      klingMultiShotSnapshotTakenRef.current = false;
     }
   }, [showExpanded]);
 
@@ -917,6 +969,36 @@ export default function DoubaoVideoGeneratorLayout({
       }),
     );
   }, [allowLastFrame, data.id, isKlingModel, setNodes, template]);
+
+  // Multi-shot fields were introduced later for kling O3; older saved flows may not have them in the template.
+  useEffect(() => {
+    if (!isKlingO3) return;
+    const hasMultiShot = Boolean((template as any).kling_multi_shot);
+    const hasShotType = Boolean((template as any).kling_shot_type);
+    const hasMultiPrompt = Boolean((template as any).kling_multi_prompt);
+    if (hasMultiShot && hasShotType && hasMultiPrompt) return;
+
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        if (node.id !== data.id) return node;
+        const currentTemplate = node.data?.node?.template ?? {};
+        const nextTemplate: any = { ...currentTemplate };
+        if (!nextTemplate.kling_multi_shot) nextTemplate.kling_multi_shot = { ...KLING_MULTI_SHOT_FIELD_FALLBACK };
+        if (!nextTemplate.kling_shot_type) nextTemplate.kling_shot_type = { ...KLING_SHOT_TYPE_FIELD_FALLBACK };
+        if (!nextTemplate.kling_multi_prompt) nextTemplate.kling_multi_prompt = { ...KLING_MULTI_PROMPT_FIELD_FALLBACK };
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            node: {
+              ...node.data.node,
+              template: nextTemplate,
+            },
+          },
+        };
+      }),
+    );
+  }, [data.id, isKlingO3, setNodes, template]);
   const hasAnyConnection = useMemo(
     () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
     [edges, data.id],
@@ -926,7 +1008,87 @@ export default function DoubaoVideoGeneratorLayout({
     if (typeof value === "string") return value.trim().length === 0;
     return value === undefined || value === null;
   }, [template]);
-  const disableRun = !hasAnyConnection && isPromptEmpty;
+
+  const klingMultiPromptRaw = String(
+    (template as any).kling_multi_prompt?.value ??
+      (template as any).kling_multi_prompt?.default ??
+      "[]",
+  );
+  type KlingMultiShotItem = { index: number; prompt: string; duration: number };
+  const klingMultiPromptItems = useMemo<KlingMultiShotItem[]>(() => {
+    if (!klingMultiPromptRaw.trim()) return [];
+    try {
+      const parsed = JSON.parse(klingMultiPromptRaw);
+      if (!Array.isArray(parsed)) return [];
+      const normalized = parsed
+        .map((item: any, idx: number) => {
+          if (!item || typeof item !== "object") return null;
+          const prompt = String(item.prompt ?? "").trim();
+          const duration = Number(String(item.duration ?? "").trim());
+          const safeDuration = Number.isFinite(duration) ? duration : 0;
+          return {
+            index: Number(item.index ?? idx + 1) || idx + 1,
+            prompt,
+            duration: safeDuration,
+          };
+        })
+        .filter(Boolean) as KlingMultiShotItem[];
+      return normalized;
+    } catch {
+      return [];
+    }
+  }, [klingMultiPromptRaw]);
+  const klingTotalDuration = useMemo(() => {
+    const raw = template.duration?.value ?? template.duration?.default ?? 5;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 5;
+  }, [template.duration?.default, template.duration?.value]);
+
+  // When switching into multi-shot mode, seed multi_prompt from the current prompt (best-effort)
+  // (prompt is ignored in multi-shot mode, but we keep it so users can toggle back).
+  useEffect(() => {
+    if (!klingMultiShotEnabled) return;
+    const raw = klingMultiPromptRaw.trim();
+    const isEmpty = raw === "" || raw === "[]";
+    if (!isEmpty) return;
+    const seed = String(promptValue ?? "").trim();
+    if (!seed) return;
+    const payload = JSON.stringify([
+      { index: 1, prompt: seed, duration: String(Math.max(1, Math.floor(klingTotalDuration))) },
+    ]);
+    handleKlingMultiPromptChange({ value: payload }, { skipSnapshot: true });
+  }, [
+    handleKlingMultiPromptChange,
+    klingMultiPromptRaw,
+    klingMultiShotEnabled,
+    klingTotalDuration,
+    promptValue,
+  ]);
+  const klingMultiPromptSummary = useMemo(() => {
+    if (!klingMultiShotEnabled) return { hasContent: false, valid: true, sum: 0, error: "" };
+    const totalDuration = Number(template.duration?.value ?? template.duration?.default ?? 5);
+    const shots = klingMultiPromptItems;
+    if (shots.length < 1 || shots.length > 6) {
+      return { hasContent: false, valid: false, sum: 0, error: "多镜头分镜数量需为 1-6。" };
+    }
+    const hasContent = shots.some((s) => s.prompt.trim().length > 0);
+    let sum = 0;
+    for (const shot of shots) {
+      if (!shot.prompt.trim()) return { hasContent, valid: false, sum, error: "分镜提示词不能为空。" };
+      if (shot.prompt.length > 512) return { hasContent, valid: false, sum, error: "单个分镜提示词不能超过 512 字符。" };
+      if (!Number.isFinite(shot.duration) || shot.duration < 1) return { hasContent, valid: false, sum, error: "分镜时长必须 >= 1 秒。" };
+      sum += shot.duration;
+    }
+    if (Number.isFinite(totalDuration) && sum !== totalDuration) {
+      return { hasContent, valid: false, sum, error: "分镜时长之和必须等于总时长（duration）。" };
+    }
+    return { hasContent, valid: true, sum, error: "" };
+  }, [klingMultiPromptItems, klingMultiShotEnabled, template.duration?.default, template.duration?.value]);
+
+  const disableRun =
+    (!hasAnyConnection &&
+      (klingMultiShotEnabled ? !klingMultiPromptSummary.hasContent : isPromptEmpty)) ||
+    (klingMultiShotEnabled && !klingMultiPromptSummary.valid);
   useEffect(() => {
     if (isPromptFocused || isPromptComposing) return;
     setPromptDraftValue(promptValue);
@@ -935,6 +1097,20 @@ export default function DoubaoVideoGeneratorLayout({
   const resolvedPromptValue = isPromptComposing
     ? (promptCompositionValue ?? promptDraftValue)
     : promptDraftValue;
+
+  const updateKlingMultiPrompt = useCallback(
+    (next: Array<{ prompt: string; duration: number }>) => {
+      const normalized = (next ?? [])
+        .slice(0, 6)
+        .map((shot, idx) => ({
+          index: idx + 1,
+          prompt: String(shot?.prompt ?? ""),
+          duration: String(Math.max(1, Math.floor(Number(shot?.duration ?? 1) || 1))),
+        }));
+      handleKlingMultiPromptChange({ value: JSON.stringify(normalized) }, { skipSnapshot: true });
+    },
+    [handleKlingMultiPromptChange],
+  );
 
   const hasIncomingVideoBridge = useMemo(() => {
     return edges.some((edge) => {
@@ -1230,12 +1406,12 @@ export default function DoubaoVideoGeneratorLayout({
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
     : data.id;
 
-  const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+  const isBusy = buildStatus === BuildStatus.BUILDING;
   const promptReadonly = Boolean(data.node?.flow) || isBusy;
 
   const handleRun = () => {
-    if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
-      stopBuilding();
+    if (buildStatus === BuildStatus.BUILDING) {
+      stopLatestChainForNode(nodeIdForRun);
       return;
     }
     if (disableRun) return;
@@ -1247,7 +1423,6 @@ export default function DoubaoVideoGeneratorLayout({
       });
       return;
     }
-    clearFlowPoolForNodes([nodeIdForRun]);
     buildFlow({
       stopNodeId: data.id,
       eventDelivery: eventDeliveryConfig,
@@ -1257,7 +1432,7 @@ export default function DoubaoVideoGeneratorLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? "Loader2"
+      ? "Square"
       : "Play";
 
   const controlConfigs = useMemo(() => {
@@ -1347,56 +1522,67 @@ export default function DoubaoVideoGeneratorLayout({
         }
 
         if (isKlingModel) {
-          // Follow docs:
-          // - if no video and (no images OR has first_frame): only 5/10
-          // - otherwise: 3..10
-          const localEntries = collectFirstFrameEntries(firstFrameField);
-          const localImageEntries = localEntries.filter((entry) => {
-            const suffix = (entry.path || "")
-              .toString()
-              .split("?", 1)[0]
-              .split("#", 1)[0]
-              .split(".")
-              .pop()
-              ?.toLowerCase();
-            return suffix !== "mp4" && suffix !== "mov";
-          });
-          const localHasFirstFrame = localImageEntries.some((entry) => entry.role === "first") ||
-            (localImageEntries.length === 1 && !localImageEntries[0]?.role);
-          const hasAnyLocalImage = localImageEntries.length > 0;
-          const hasAnyIncomingImageEdge = edges.some((edge) => {
-            if (edge.target !== data.id) return false;
-            const targetHandle =
-              edge.data?.targetHandle ??
-              (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
-            const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
-            if (fieldName !== FIRST_FRAME_FIELD) return false;
-            const isVideoBridge =
-              edge.data?.videoReferType === "base" || edge.data?.videoReferType === "feature";
-            return !isVideoBridge;
-          });
-          const incomingRoleEdges = edges.filter((edge) => {
-            if (edge.target !== data.id) return false;
-            const targetHandle =
-              edge.data?.targetHandle ??
-              (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
-            const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
-            if (fieldName !== FIRST_FRAME_FIELD) return false;
-            const isVideoBridge =
-              edge.data?.videoReferType === "base" || edge.data?.videoReferType === "feature";
-            return !isVideoBridge;
-          });
-          const totalIncomingRoles = incomingRoleEdges.length;
-          const incomingHasFirstFrame = incomingRoleEdges.some(
-            (edge) => resolveEdgeImageRole(edge as any, totalIncomingRoles) === "first",
-          ) && totalIncomingRoles > 0;
-          const hasAnyImageInput = hasAnyLocalImage || hasAnyIncomingImageEdge;
-          const hasFirstFrameLike = localHasFirstFrame || incomingHasFirstFrame || Boolean(hasLastFrameEdge || hasLastFrameValue);
+          // Docs:
+          // - kling O3: 3-15; with reference video (feature): 3-10
+          // - kling O1: keep historical UI constraint (some t2v/首帧场景仅 5/10)
+          let allowedDurations: number[] = [];
+          if (isKlingO3) {
+            const max = klingHasVideoInput ? 10 : 15;
+            allowedDurations = Array.from({ length: max - 2 }, (_, idx) => idx + 3); // 3..max
+          } else {
+            const localEntries = collectFirstFrameEntries(firstFrameField);
+            const localImageEntries = localEntries.filter((entry) => {
+              const suffix = (entry.path || "")
+                .toString()
+                .split("?", 1)[0]
+                .split("#", 1)[0]
+                .split(".")
+                .pop()
+                ?.toLowerCase();
+              return suffix !== "mp4" && suffix !== "mov";
+            });
+            const localHasFirstFrame =
+              localImageEntries.some((entry) => entry.role === "first") ||
+              (localImageEntries.length === 1 && !localImageEntries[0]?.role);
+            const hasAnyLocalImage = localImageEntries.length > 0;
+            const hasAnyIncomingImageEdge = edges.some((edge) => {
+              if (edge.target !== data.id) return false;
+              const targetHandle =
+                edge.data?.targetHandle ??
+                (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+              const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+              if (fieldName !== FIRST_FRAME_FIELD) return false;
+              const isVideoBridge =
+                edge.data?.videoReferType === "base" || edge.data?.videoReferType === "feature";
+              return !isVideoBridge;
+            });
+            const incomingRoleEdges = edges.filter((edge) => {
+              if (edge.target !== data.id) return false;
+              const targetHandle =
+                edge.data?.targetHandle ??
+                (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+              const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+              if (fieldName !== FIRST_FRAME_FIELD) return false;
+              const isVideoBridge =
+                edge.data?.videoReferType === "base" || edge.data?.videoReferType === "feature";
+              return !isVideoBridge;
+            });
+            const totalIncomingRoles = incomingRoleEdges.length;
+            const incomingHasFirstFrame =
+              incomingRoleEdges.some(
+                (edge) => resolveEdgeImageRole(edge as any, totalIncomingRoles) === "first",
+              ) && totalIncomingRoles > 0;
+            const hasAnyImageInput = hasAnyLocalImage || hasAnyIncomingImageEdge;
+            const hasFirstFrameLike =
+              localHasFirstFrame ||
+              incomingHasFirstFrame ||
+              Boolean(hasLastFrameEdge || hasLastFrameValue);
 
-          const allowedDurations =
-            !klingHasVideoInput && (!hasAnyImageInput || hasFirstFrameLike)
-              ? [5, 10]
-              : [3, 4, 5, 6, 7, 8, 9, 10];
+            allowedDurations =
+              !klingHasVideoInput && (!hasAnyImageInput || hasFirstFrameLike)
+                ? [5, 10]
+                : [3, 4, 5, 6, 7, 8, 9, 10];
+          }
           const allowedSet = new Set<number>(allowedDurations);
           const extraDisabled = options.filter((option) => !allowedSet.has(Number(option)));
           disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
@@ -1531,13 +1717,21 @@ export default function DoubaoVideoGeneratorLayout({
         disabledOptions = [...(disabledOptions ?? []), ...wanModels, ...viduModels];
       }
       if (field.name === "model_name" && hasIncomingVideoBridge) {
-        const allowed = new Set<string>(["kling o1", "kling-video-o1", "wan2.6", "viduq2-pro"]);
+        const allowed = new Set<string>([
+          "kling o1",
+          "kling-video-o1",
+          "kling o3",
+          "kling-v3-omni",
+          "wan2.6",
+          "viduq2-pro",
+        ]);
         const extraDisabled = options.filter((option) => !allowed.has(String(option).trim().toLowerCase()));
         disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
         const normalizedValue = String(value ?? "").trim().toLowerCase();
         if (!allowed.has(normalizedValue)) {
           const normalizedOptions = options.map((opt) => String(opt).trim());
           if (normalizedOptions.some((opt) => opt.toLowerCase() === "kling o1")) value = "kling O1";
+          else if (normalizedOptions.some((opt) => opt.toLowerCase() === "kling o3")) value = "kling O3";
           else if (normalizedOptions.some((opt) => opt.toLowerCase() === "wan2.6")) value = "wan2.6";
           else if (normalizedOptions.some((opt) => opt.toLowerCase() === "viduq2-pro")) value = "viduq2-pro";
         }
@@ -1601,7 +1795,8 @@ export default function DoubaoVideoGeneratorLayout({
     (isSeedance15 ||
       // Wan t2v/i2v: `audio_url` controls audio behavior (omit => auto; set => use provided).
       // Wan r2v docs do not expose audio_url, so we hide the toggle to avoid a placebo option.
-      ((normalizedModelName === "wan2.5" || normalizedModelName === "wan2.6") && wanMode !== "r2v")),
+      ((normalizedModelName === "wan2.5" || normalizedModelName === "wan2.6") && wanMode !== "r2v") ||
+      isKlingO3),
   );
 
   const modelNameConfigWithPreserve = useMemo(() => {
@@ -1643,7 +1838,14 @@ export default function DoubaoVideoGeneratorLayout({
         };
       },
     } as DoubaoControlConfig;
-  }, [modelNameConfig, template]);
+  }, [
+    FIRST_FRAME_FIELD,
+    LAST_FRAME_FIELD,
+    AUDIO_INPUT_FIELD,
+    ENABLE_AUDIO_FIELD,
+    modelNameConfig,
+    template,
+  ]);
 
   const upstreamFirstFrameFields = useMemo<InputFieldType[]>(() => {
     const incomingEdges = edges?.filter(
@@ -4176,30 +4378,32 @@ export default function DoubaoVideoGeneratorLayout({
             )}
             style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
           >
-            <PromptModal
-              id={`doubao-video-prompt-${data.id}`}
-              field_name={PROMPT_NAME}
-              readonly={promptReadonly}
-              value={promptValue}
-              setValue={(newValue) => handlePromptChange({ value: newValue })}
-              nodeClass={data.node!}
-              setNodeClass={handleNodeClass}
-            >
-              <button
-                type="button"
-                aria-label="放大输入"
-                title="放大输入"
-                className={cn(
-                  // Keep the expand button and the run button on the same vertical line.
-                  "absolute right-6 top-4 inline-flex h-11 w-11 items-center justify-center rounded-full",
-                  "bg-[#F4F5F9] text-[#3C4057] transition-colors hover:bg-[#E9ECF6]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
-                  "dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15",
-                )}
+            {!klingMultiShotEnabled && (
+              <PromptModal
+                id={`doubao-video-prompt-${data.id}`}
+                field_name={PROMPT_NAME}
+                readonly={promptReadonly}
+                value={promptValue}
+                setValue={(newValue) => handlePromptChange({ value: newValue })}
+                nodeClass={data.node!}
+                setNodeClass={handleNodeClass}
               >
-                <ForwardedIconComponent name="Scan" className="h-4 w-4" />
-              </button>
-            </PromptModal>
+                <button
+                  type="button"
+                  aria-label="放大输入"
+                  title="放大输入"
+                  className={cn(
+                    // Keep the expand button and the run button on the same vertical line.
+                    "absolute right-6 top-4 inline-flex h-11 w-11 items-center justify-center rounded-full",
+                    "bg-[#F4F5F9] text-[#3C4057] transition-colors hover:bg-[#E9ECF6]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
+                    "dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15",
+                  )}
+                >
+                  <ForwardedIconComponent name="Scan" className="h-4 w-4" />
+                </button>
+              </PromptModal>
+            )}
 
             <div className="text-sm text-[#3C4057] dark:text-slate-100">
               <div className="flex min-h-[168px] flex-col gap-3">
@@ -4262,67 +4466,180 @@ export default function DoubaoVideoGeneratorLayout({
                     )}
                   </div>
                 )}
-              <textarea
-                rows={3}
-                value={resolvedPromptValue}
-                disabled={isBusy}
-                readOnly={promptReadonly}
-                placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
-                className={cn(
-                  "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
-                  "min-h-[72px] max-h-[72px] overflow-y-auto",
-                  // Make it feel like “text on the container”, not an input box.
-                  "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
-                  "placeholder:text-[#9CA3C0]",
-                  generationPromptInputBusyClass(isBusy),
-                  klingElementApplied && "bg-[#FFF7D6] dark:bg-amber-500/15",
-                  "dark:text-white dark:placeholder:text-slate-400",
-                )}
-                onFocus={() => {
-                  setPromptFocused(true);
-                  if (!promptSnapshotTakenRef.current) {
-                    takeSnapshot();
-                    promptSnapshotTakenRef.current = true;
-                  }
-                }}
-                onBlur={() => {
-                  setPromptFocused(false);
-                }}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setPromptDraftValue(next);
-                  if (isPromptComposing) {
-                    setPromptCompositionValue(next);
-                    return;
-                  }
-                  setPromptCompositionValue(null);
-                  handlePromptChange({ value: next }, { skipSnapshot: true });
-                }}
-                onCompositionStart={() => {
-                  setIsPromptComposing(true);
-                }}
-                onCompositionEnd={(e) => {
-                  setIsPromptComposing(false);
-                  const finalValue = promptCompositionValue ?? e.currentTarget.value;
-                  setPromptCompositionValue(null);
-                  setPromptDraftValue(finalValue);
-                  handlePromptChange({ value: finalValue }, { skipSnapshot: true });
-                }}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  if ((e.nativeEvent as any)?.isComposing || isPromptComposing) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!disableRun) handleRun();
-                }}
-              />
+              {klingMultiShotEnabled ? (
+                <div className="space-y-3">
+                  <div className="text-xs text-[#5E6484] dark:text-slate-300">
+                    Kling O3 多镜头：请配置 1-6 个分镜（每个分镜 prompt ≤ 512），且分镜时长之和必须等于总时长。
+                  </div>
+
+                  {klingMultiPromptSummary.error ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+                      {klingMultiPromptSummary.error}
+                    </div>
+                  ) : null}
+
+                  {(klingMultiPromptItems.length ? klingMultiPromptItems : [{ index: 1, prompt: "", duration: Number(template.duration?.value ?? template.duration?.default ?? 5) }]).map(
+                    (shot, idx) => {
+                      const list = klingMultiPromptItems.length ? klingMultiPromptItems : [{ index: 1, prompt: "", duration: Number(template.duration?.value ?? template.duration?.default ?? 5) }];
+                      const asEditable = list.map((s) => ({ prompt: s.prompt, duration: s.duration }));
+                      const updateAt = (nextShot: { prompt: string; duration: number }) => {
+                        const next = [...asEditable];
+                        next[idx] = nextShot;
+                        updateKlingMultiPrompt(next);
+                      };
+                      const removeAt = () => {
+                        const next = asEditable.filter((_, i) => i !== idx);
+                        updateKlingMultiPrompt(next.length ? next : [{ prompt: "", duration: Number(template.duration?.value ?? template.duration?.default ?? 5) }]);
+                      };
+                      const canRemove = asEditable.length > 1;
+                      return (
+                        <div key={`kling-multi-shot-${idx}`} className="rounded-2xl border border-[#E6E9F4] bg-[#F8FAFF] p-3 dark:border-white/15 dark:bg-white/5">
+                          <div className="flex items-center gap-3">
+                            <div className="text-sm font-medium text-[#2E3150] dark:text-slate-100">镜头 {idx + 1}</div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <label className="text-xs text-[#5E6484] dark:text-slate-300">时长</label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={15}
+                                value={Math.max(1, Number.isFinite(shot.duration) ? Math.floor(shot.duration) : 1)}
+                                disabled={isBusy}
+                                className="h-8 w-20 rounded-lg border border-[#E2E7F5] bg-white px-2 text-sm text-[#1C202D] focus:outline-none dark:border-white/15 dark:bg-neutral-900/40 dark:text-white"
+                                onFocus={() => {
+                                  if (!klingMultiShotSnapshotTakenRef.current) {
+                                    takeSnapshot();
+                                    klingMultiShotSnapshotTakenRef.current = true;
+                                  }
+                                }}
+                                onChange={(e) => {
+                                  const nextDuration = Number(e.target.value);
+                                  updateAt({ prompt: shot.prompt, duration: Number.isFinite(nextDuration) ? nextDuration : 1 });
+                                }}
+                              />
+                              {canRemove ? (
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  className="h-8 rounded-lg border border-[#E2E7F5] bg-white px-2 text-xs text-[#5E6484] hover:bg-[#EEF2FF] disabled:opacity-50 dark:border-white/15 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/15"
+                                  onClick={removeAt}
+                                >
+                                  删除
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                          <textarea
+                            rows={2}
+                            value={shot.prompt}
+                            disabled={isBusy}
+                            placeholder="分镜提示词（可包含 <<<element_1>>> / <<<image_1>>> / <<<video_1>>>）"
+                            maxLength={512}
+                            className={cn(
+                              "nopan nodelete nodrag noflow nowheel custom-scroll mt-2 w-full resize-none rounded-xl",
+                              "min-h-[56px] border border-[#E2E7F5] bg-white p-2 text-sm leading-6 text-[#1C202D] focus:outline-none",
+                              "placeholder:text-[#9CA3C0] dark:border-white/15 dark:bg-neutral-900/40 dark:text-white dark:placeholder:text-slate-400",
+                              generationPromptInputBusyClass(isBusy),
+                            )}
+                            onFocus={() => {
+                              if (!klingMultiShotSnapshotTakenRef.current) {
+                                takeSnapshot();
+                                klingMultiShotSnapshotTakenRef.current = true;
+                              }
+                            }}
+                            onChange={(e) => {
+                              updateAt({ prompt: e.target.value, duration: shot.duration });
+                            }}
+                          />
+                        </div>
+                      );
+                    },
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-[#5E6484] dark:text-slate-300">
+                      当前分镜总时长：{klingMultiPromptSummary.sum}s（总时长：{String(template.duration?.value ?? template.duration?.default ?? 5)}s）
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isBusy || klingMultiPromptItems.length >= 6}
+                      className="h-9 rounded-full border border-[#E2E7F5] bg-white px-3 text-xs text-[#2E3150] hover:bg-[#EEF2FF] disabled:opacity-50 dark:border-white/15 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15"
+                      onClick={() => {
+                        takeSnapshot();
+                        klingMultiShotSnapshotTakenRef.current = true;
+                        const totalDuration = Number(template.duration?.value ?? template.duration?.default ?? 5);
+                        const current = klingMultiPromptItems.map((s) => ({ prompt: s.prompt, duration: s.duration }));
+                        const sum = current.reduce((acc, s) => acc + (Number.isFinite(s.duration) ? s.duration : 0), 0);
+                        const nextDuration = Number.isFinite(totalDuration) ? Math.max(1, totalDuration - sum) : 1;
+                        updateKlingMultiPrompt([...current, { prompt: "", duration: nextDuration }]);
+                      }}
+                    >
+                      添加分镜
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <textarea
+                  rows={3}
+                  value={resolvedPromptValue}
+                  disabled={isBusy}
+                  readOnly={promptReadonly}
+                  placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
+                  className={cn(
+                    "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
+                    "min-h-[72px] max-h-[72px] overflow-y-auto",
+                    // Make it feel like “text on the container”, not an input box.
+                    "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
+                    "placeholder:text-[#9CA3C0]",
+                    generationPromptInputBusyClass(isBusy),
+                    klingElementApplied && "bg-[#FFF7D6] dark:bg-amber-500/15",
+                    "dark:text-white dark:placeholder:text-slate-400",
+                  )}
+                  onFocus={() => {
+                    setPromptFocused(true);
+                    if (!promptSnapshotTakenRef.current) {
+                      takeSnapshot();
+                      promptSnapshotTakenRef.current = true;
+                    }
+                  }}
+                  onBlur={() => {
+                    setPromptFocused(false);
+                  }}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setPromptDraftValue(next);
+                    if (isPromptComposing) {
+                      setPromptCompositionValue(next);
+                      return;
+                    }
+                    setPromptCompositionValue(null);
+                    handlePromptChange({ value: next }, { skipSnapshot: true });
+                  }}
+                  onCompositionStart={() => {
+                    setIsPromptComposing(true);
+                  }}
+                  onCompositionEnd={(e) => {
+                    setIsPromptComposing(false);
+                    const finalValue = promptCompositionValue ?? e.currentTarget.value;
+                    setPromptCompositionValue(null);
+                    setPromptDraftValue(finalValue);
+                    handlePromptChange({ value: finalValue }, { skipSnapshot: true });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.shiftKey) return;
+                    if ((e.nativeEvent as any)?.isComposing || isPromptComposing) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!disableRun) handleRun();
+                  }}
+                />
+              )}
 
               <div className="mt-auto flex flex-wrap gap-3 pt-2">
                 {modelNameConfigWithPreserve && (
                   <DoubaoParameterButton data={data} config={modelNameConfigWithPreserve} />
                 )}
 
-                {(aspectRatioConfig || resolutionConfig || durationConfig) ? (
+                {(aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingO3) ? (
                   <DoubaoVideoGeneratorResolutionAspectDurationButton
                     data={data}
                     aspectRatioConfig={aspectRatioConfig}
@@ -4372,10 +4689,7 @@ export default function DoubaoVideoGeneratorLayout({
                   >
                     <ForwardedIconComponent
                       name={runIconName}
-                      className={cn(
-                        "h-4 w-4",
-                        runIconName === "Loader2" && "animate-spin",
-                      )}
+                      className="h-4 w-4"
                     />
                   </button>
                 </div>

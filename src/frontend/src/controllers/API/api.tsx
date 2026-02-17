@@ -264,7 +264,7 @@ function ApiInterceptor() {
       useFlowStore
         .getState()
         .updateBuildStatus(vertices?.verticesIds ?? [], BuildStatus.BUILT);
-      useFlowStore.getState().setIsBuilding(false);
+      useFlowStore.getState().resetBuilding();
     }
   }
 

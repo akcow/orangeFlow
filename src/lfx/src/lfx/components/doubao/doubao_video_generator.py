@@ -63,6 +63,9 @@ class DoubaoVideoGenerator(Component):
         "sora-2": "sora-2",
         "sora-2-pro": "sora-2-pro",
         "kling O1": "kling-video-o1",
+        "kling O3": "kling-v3-omni",
+        # Backward-compatible: accept gateway model id as a saved value
+        "kling-v3-omni": "kling-v3-omni",
         # Vidu (direct API)
         "viduq2-pro": "viduq2-pro",
         "viduq3-pro": "viduq3-pro",
@@ -79,6 +82,7 @@ class DoubaoVideoGenerator(Component):
         "sora-2",
         "sora-2-pro",
         "kling O1",
+        "kling O3",
         "viduq2-pro",
         "viduq3-pro",
     ]
@@ -86,6 +90,7 @@ class DoubaoVideoGenerator(Component):
     MODEL_NAME_ALIASES = {
         "Doubao-Seedance-1.5-pro｜251215": "Seedance 1.5 pro",
         "Doubao-Seedance-1.0-pro｜250528": "Seedance 1.0 pro",
+        "kling-v3-omni": "kling O3",
     }
 
     MODEL_LIMITS = {
@@ -170,6 +175,15 @@ class DoubaoVideoGenerator(Component):
             "resolutions": ["720p", "1080p"],
             "min_duration": 3,
             "max_duration": 10,
+            "supports_last_frame": True,
+            "supports_reference_images": True,
+            "supports_reference_videos": True,
+            "supported_ratios": ["16:9", "9:16", "1:1"],
+        },
+        "kling O3": {
+            "resolutions": ["720p", "1080p"],
+            "min_duration": 3,
+            "max_duration": 15,
             "supports_last_frame": True,
             "supports_reference_images": True,
             "supports_reference_videos": True,
@@ -519,7 +533,7 @@ class DoubaoVideoGenerator(Component):
             value="pro",
             advanced=True,
             required=False,
-            info="仅 kling O1：生成视频的模式（std=标准，pro=高品质）。",
+            info="仅 kling O1/O3：生成视频的模式（std=标准，pro=高品质）。",
         ),
         DropdownInput(
             name="kling_video_refer_type",
@@ -529,7 +543,34 @@ class DoubaoVideoGenerator(Component):
             advanced=True,
             required=False,
             real_time_refresh=True,
-            info="仅 kling O1：feature=特征参考视频；base=待编辑视频（视频编辑）。",
+            info="仅 kling O1/O3：feature=特征参考视频；base=待编辑视频（视频编辑）。",
+        ),
+        BoolInput(
+            name="kling_multi_shot",
+            display_name="Kling 多镜头模式",
+            show=False,
+            required=False,
+            value=False,
+            info="仅 kling O3：是否生成多镜头视频（开启后 prompt 参数无效，改用 multi_prompt）。",
+        ),
+        DropdownInput(
+            name="kling_shot_type",
+            display_name="Kling 分镜方式",
+            options=["customize"],
+            value="customize",
+            show=False,
+            advanced=True,
+            required=False,
+            info="仅 kling O3：多镜头分镜方式（当前仅支持 customize）。",
+        ),
+        MultilineInput(
+            name="kling_multi_prompt",
+            display_name="Kling Multi Prompt",
+            required=False,
+            value="[]",
+            show=False,
+            advanced=True,
+            info="仅 kling O3：多镜头分镜数组 JSON（例如 [{\"index\":1,\"prompt\":\"...\",\"duration\":\"2\"}]）。",
         ),
         DropdownInput(
             name="kling_keep_original_sound",
@@ -538,7 +579,7 @@ class DoubaoVideoGenerator(Component):
             value="yes",
             advanced=True,
             required=False,
-            info="仅 kling O1：参考视频/编辑视频是否保留视频原声。",
+            info="仅 kling O1/O3：参考视频/编辑视频是否保留视频原声。",
         ),
         StrInput(
             name="kling_element_ids",
@@ -546,7 +587,7 @@ class DoubaoVideoGenerator(Component):
             value="",
             advanced=True,
             required=False,
-            info="仅 kling O1：主体库 element_id 列表（逗号分隔），用于 element_list，并可在 prompt 中用 <<<element_1>>> 引用。",
+            info="仅 kling O1/O3：主体库 element_id 列表（逗号分隔），用于 element_list，并可在 prompt 中用 <<<element_1>>> 引用。",
         ),
         StrInput(
             name="kling_callback_url",
@@ -554,7 +595,7 @@ class DoubaoVideoGenerator(Component):
             value="",
             advanced=True,
             required=False,
-            info="仅 kling O1：任务状态回调地址（可选）。",
+            info="仅 kling O1/O3：任务状态回调地址（可选）。",
         ),
         StrInput(
             name="kling_external_task_id",
@@ -562,7 +603,7 @@ class DoubaoVideoGenerator(Component):
             value="",
             advanced=True,
             required=False,
-            info="仅 kling O1：自定义任务 ID（可选，单用户需唯一）。",
+            info="仅 kling O1/O3：自定义任务 ID（可选，单用户需唯一）。",
         ),
     ]
 
@@ -582,7 +623,17 @@ class DoubaoVideoGenerator(Component):
         model_name = self.MODEL_NAME_ALIASES.get(model_name, model_name)
 
         # Vidu allows "prompt" to be optional for img2video when is_rec=true.
-        if not merged_prompt and not self._is_vidu_model(model_name):
+        endpoint_id: str | None = self.MODEL_MAPPING.get(model_name)
+        kling_multi_shot = bool(getattr(self, "kling_multi_shot", False))
+        kling_multi_shot_enabled = bool(
+            kling_multi_shot and str(endpoint_id or "").strip().lower() == "kling-v3-omni"
+        )
+
+        if (
+            not merged_prompt
+            and not self._is_vidu_model(model_name)
+            and not (self._is_kling_model(model_name) and kling_multi_shot_enabled)
+        ):
             draft = getattr(self, "draft_output", None)
             if isinstance(draft, Data):
                 payload = draft.data
@@ -673,28 +724,33 @@ class DoubaoVideoGenerator(Component):
                 if ratio_value not in self.KLING_SUPPORTED_RATIOS:
                     build_config["aspect_ratio"]["value"] = "16:9"
                 build_config["aspect_ratio"]["info"] = (
-                    "kling O1：仅支持 16:9 / 9:16 / 1:1。未使用首帧参考或视频编辑功能时必填。"
+                    "kling O1/O3：仅支持 16:9 / 9:16 / 1:1。未使用首帧参考或视频编辑功能时必填。"
                 )
 
-            # Duration: 3-10 seconds (with doc constraints for some modes).
+            # Duration: O1=3-10; O3=3-15 (video-reference mode may further restrict to 3-10).
             if "duration" in build_config:
                 # If user selected video editing (base), duration is ignored by upstream.
                 build_config["duration"]["show"] = refer_type != "base"
+                is_o3 = model_value.strip().lower() in {"kling o3", "kling-v3-omni"}
+                max_dur = 15 if is_o3 else 10
                 # Frontend expects `range_spec` (snake_case).
-                build_config["duration"]["range_spec"] = {"min": 3, "max": 10, "step": 1, "step_type": "int"}
+                build_config["duration"]["range_spec"] = {"min": 3, "max": max_dur, "step": 1, "step_type": "int"}
                 try:
                     dur = int(build_config["duration"].get("value") or 5)
                 except Exception:
                     dur = 5
                 if dur < 3:
                     dur = 3
-                if dur > 10:
-                    dur = 10
+                if dur > max_dur:
+                    dur = max_dur
                 build_config["duration"]["value"] = dur
                 build_config["duration"]["info"] = (
-                    "kling O1：时长仅支持 3-10 秒。"
-                    "文生视频/首帧图生视频仅支持 5 或 10 秒；"
-                    "视频编辑（refer_type=base）时输出与输入视频时长一致，此参数无效。"
+                    (
+                        "kling O3：时长支持 3-15 秒；视频参考模式仅支持 3-10 秒；"
+                        "视频编辑（refer_type=base）时输出与输入视频时长一致，此参数无效。"
+                        if is_o3
+                        else "kling O1：时长仅支持 3-10 秒。视频编辑（refer_type=base）时输出与输入视频时长一致，此参数无效。"
+                    )
                 )
 
             # Ensure Vidu-only controls are hidden when switching to Kling.
@@ -3081,7 +3137,7 @@ class DoubaoVideoGenerator(Component):
                     promoted = True
                     break
             if not promoted:
-                raise ValueError("kling O1: 使用尾帧(end_frame)时必须同时提供首帧(first_frame)。")
+                raise ValueError("kling O1/O3: 使用尾帧(end_frame)时必须同时提供首帧(first_frame)。")
 
         # Kling: if more than 2 images, end_frame is not supported. Best-effort: drop end_frame.
         if len(image_list) > 2 and any(i.get("type") == "end_frame" for i in image_list):
@@ -3091,9 +3147,9 @@ class DoubaoVideoGenerator(Component):
         # - with reference video: <= 4 images
         # - without reference video: <= 7 images
         if videos and len(image_list) > 4:
-            raise ValueError("kling O1：有参考视频时，参考图片数量不得超过 4。请减少图片数量或移除参考视频。")
+            raise ValueError("kling O1/O3：有参考视频时，参考图片数量不得超过 4。请减少图片数量或移除参考视频。")
         if not videos and len(image_list) > 7:
-            raise ValueError("kling O1：无参考视频时，参考图片数量不得超过 7。请减少图片数量。")
+            raise ValueError("kling O1/O3：无参考视频时，参考图片数量不得超过 7。请减少图片数量。")
 
         video_list: list[dict[str, Any]] = []
         if videos:
@@ -3114,17 +3170,21 @@ class DoubaoVideoGenerator(Component):
         return {"image_list": image_list, "video_list": video_list}
 
     def _build_video_kling_gateway(self, *, prompt: str, endpoint_id: str) -> Data:
-        """Kling Omni-Video (kling-video-o1) via hosted gateway."""
+        """Kling Omni-Video (kling-video-o1 / kling-v3-omni) via hosted gateway."""
         try:
             from langflow.gateway.client import videos_create
 
-            # Kling uses aspect_ratio (16:9, 9:16, 1:1) and duration (3-10, scenario-dependent).
+            kling_model_name = str(endpoint_id or "").strip() or "kling-video-o1"
+            is_o3 = kling_model_name.lower() == "kling-v3-omni"
+
+            # Kling uses aspect_ratio (16:9, 9:16, 1:1) and duration.
             resolution = str(getattr(self, "resolution", "") or "").strip()
             raw_ratio = str(getattr(self, "aspect_ratio", "16:9") or "16:9").strip()
             ratio = raw_ratio if raw_ratio in {"16:9", "9:16", "1:1"} else "16:9"
 
             raw_duration = int(getattr(self, "duration", 5) or 5)
-            duration = max(3, min(raw_duration, 10))
+            duration_max = 15 if is_o3 else 10
+            duration = max(3, min(raw_duration, duration_max))
 
             mode = str(getattr(self, "kling_mode", "pro") or "pro").strip() or "pro"
             if mode not in {"std", "pro"}:
@@ -3134,12 +3194,15 @@ class DoubaoVideoGenerator(Component):
             if refer_type not in {"feature", "base"}:
                 refer_type = "feature"
 
+            enable_audio = bool(getattr(self, "enable_audio", True))
+            sound = "on" if enable_audio else "off"
+
             media = self._collect_kling_media()
             image_list = media["image_list"]
             video_list = media["video_list"]
 
             if refer_type == "base" and not video_list:
-                return self._error("kling O1：选择视频编辑（refer_type=base）时必须提供一段参考视频（mp4/mov）。")
+                return self._error("kling O1/O3：选择视频编辑（refer_type=base）时必须提供一段参考视频（mp4/mov）。")
 
             # Video editing cannot define first/end frame; downgrade to plain reference images.
             if refer_type == "base" and image_list:
@@ -3147,8 +3210,14 @@ class DoubaoVideoGenerator(Component):
                     if isinstance(item, dict) and "type" in item:
                         item.pop("type", None)
 
-            # For pure t2v / first-frame generation, Kling often only supports 5 or 10 seconds.
-            if not video_list and (not image_list or any(i.get("type") == "first_frame" for i in image_list)):
+            # kling O3: 视频参考模式 (feature + reference video) 仅允许 3-10 秒。
+            if is_o3 and video_list and refer_type != "base":
+                duration = max(3, min(duration, 10))
+
+            # kling O1: best-effort keep older UI behavior (some scenarios effectively support 5/10).
+            if (not is_o3) and not video_list and (
+                (not image_list) or any(i.get("type") == "first_frame" for i in image_list)
+            ):
                 if duration not in {5, 10}:
                     duration = 5 if duration < 8 else 10
 
@@ -3158,11 +3227,58 @@ class DoubaoVideoGenerator(Component):
             callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
             external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
 
+            kling_multi_shot = bool(getattr(self, "kling_multi_shot", False))
+            shot_type = str(getattr(self, "kling_shot_type", "") or "customize").strip() or "customize"
+            raw_multi_prompt = getattr(self, "kling_multi_prompt", "[]")
+
+            multi_prompt: list[dict[str, Any]] | None = None
+            if is_o3 and kling_multi_shot:
+                import json
+
+                if isinstance(raw_multi_prompt, list):
+                    parsed = raw_multi_prompt
+                else:
+                    raw_text = str(raw_multi_prompt or "[]").strip() or "[]"
+                    parsed = json.loads(raw_text)
+                if not isinstance(parsed, list):
+                    raise ValueError("kling O3：multi_prompt 必须是数组 JSON。")
+                if not (1 <= len(parsed) <= 6):
+                    raise ValueError("kling O3：multi_prompt 分镜数量必须为 1-6。")
+
+                normalized: list[dict[str, Any]] = []
+                total = 0
+                for idx, item in enumerate(parsed, start=1):
+                    if not isinstance(item, dict):
+                        raise ValueError("kling O3：multi_prompt 每项必须是对象。")
+                    prompt_i = str(item.get("prompt") or "").strip()
+                    if not prompt_i:
+                        raise ValueError(f"kling O3：第 {idx} 个分镜 prompt 不能为空。")
+                    if len(prompt_i) > 512:
+                        raise ValueError(f"kling O3：第 {idx} 个分镜 prompt 不能超过 512 字符。")
+                    try:
+                        dur_i = int(str(item.get("duration") or "").strip() or 0)
+                    except Exception:
+                        dur_i = 0
+                    if dur_i < 1:
+                        raise ValueError(f"kling O3：第 {idx} 个分镜 duration 必须 >= 1。")
+                    total += dur_i
+                    normalized.append({"index": int(item.get("index") or idx), "prompt": prompt_i, "duration": str(dur_i)})
+
+                if total != int(duration):
+                    raise ValueError("kling O3：multi_prompt 各分镜 duration 之和必须等于任务总时长 duration。")
+                multi_prompt = normalized
+
             kling_payload: dict[str, Any] = {
-                "model_name": "kling-video-o1",
-                "prompt": prompt,
+                "model_name": kling_model_name,
+                "prompt": "" if (is_o3 and kling_multi_shot) else prompt,
                 "mode": mode,
             }
+            if is_o3:
+                kling_payload["sound"] = sound
+            if is_o3 and kling_multi_shot:
+                kling_payload["multi_shot"] = True
+                kling_payload["shot_type"] = shot_type
+                kling_payload["multi_prompt"] = multi_prompt or []
             # Kling docs: duration is ignored for video-editing (refer_type=base); aspect_ratio is also irrelevant there.
             if refer_type != "base":
                 if ratio:
@@ -3180,9 +3296,10 @@ class DoubaoVideoGenerator(Component):
             if external_task_id:
                 kling_payload["external_task_id"] = external_task_id
 
+            gateway_prompt = "" if (is_o3 and kling_multi_shot) else prompt
             create = videos_create(
                 model=endpoint_id,
-                prompt=prompt,
+                prompt=gateway_prompt,
                 duration=duration,
                 ratio=ratio,
                 extra_body={"kling_payload": kling_payload},

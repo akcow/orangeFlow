@@ -131,6 +131,20 @@ def resolve_provider(model: str) -> tuple[str, Any]:
             )
         return "dashscope", DashScopeProvider(api_key=api_key)
 
+    # Wanx (DashScope) image-edit models (e.g. wanx2.1-imageedit).
+    if model.startswith("wanx"):
+        api_key = _resolve_api_key(
+            env_vars=["DASHSCOPE_API_KEY"],
+            provider_cred_keys=["dashscope", "qwen_tts", "dashscope_tts"],
+        )
+        if not api_key:
+            raise GatewayError(
+                401,
+                "PROVIDER_KEY_MISSING",
+                f"Key for model {model} not configured. Set DASHSCOPE_API_KEY, or save provider credentials 'dashscope'.",
+            )
+        return "dashscope", DashScopeProvider(api_key=api_key)
+
     # Qwen image edit models (DashScope multimodal-generation).
     if model.startswith("qwen-image-edit"):
         api_key = _resolve_api_key(
@@ -291,6 +305,7 @@ async def list_models(
         {"id": "doubao-seedream-4-5-251128", "object": "model", "owned_by": "doubao"},
         {"id": "sora-2", "object": "model", "owned_by": "sora"},
         {"id": "kling-video-o1", "object": "model", "owned_by": "kling"},
+        {"id": "kling-v3-omni", "object": "model", "owned_by": "kling"},
         {"id": "kling-image-o1", "object": "model", "owned_by": "kling"},
         # ... add others from doc ...
     ]
@@ -324,7 +339,8 @@ async def list_model_page(
         {"id": "wan2.6", "fullName": "Wan 2.6 Video", "type": "video"},
         {"id": "veo-3.1-generate-preview", "fullName": "Google Veo 3.1", "type": "video"},
         {"id": "kling-video-o1", "fullName": "kling O1", "type": "video"},
-        
+        {"id": "kling-v3-omni", "fullName": "kling O3", "type": "video"},
+         
         {"id": "qwen3-tts-flash-2025-11-27", "fullName": "Qwen TTS", "type": "audio"},
     ]
     
@@ -372,7 +388,8 @@ async def get_model_by_full_name(
         {"id": "veo-3.1-generate-preview", "fullName": "Veo 3.1", "type": "video"},
         {"id": "veo-3.1-fast-generate-preview", "fullName": "Veo 3.1 Fast", "type": "video"},
         {"id": "kling-video-o1", "fullName": "kling O1", "type": "video"},
-
+        {"id": "kling-v3-omni", "fullName": "kling O3", "type": "video"},
+ 
         {"id": "qwen3-tts-flash-2025-11-27", "fullName": "Qwen TTS", "type": "audio"},
     ]
     match = next((m for m in all_models if m["fullName"] == fullName), None)

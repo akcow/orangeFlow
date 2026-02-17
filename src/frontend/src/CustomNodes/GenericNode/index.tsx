@@ -56,6 +56,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview,
   onDownload,
   canDownload,
+  onRepaint,
+  canRepaint,
   onEnhance,
   canEnhance,
   onCrop,
@@ -73,6 +75,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
+  onRepaint?: () => void;
+  canRepaint?: boolean;
   onEnhance?: () => void;
   canEnhance?: boolean;
   onCrop?: () => void;
@@ -160,6 +164,23 @@ function DoubaoImageCreatorTopBar({
         )}
         style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
+        <button
+          type="button"
+          title="重绘"
+          aria-label="重绘"
+          disabled={!canRepaint}
+          onClick={onRepaint}
+          className={cn(
+            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            canRepaint
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Paintbrush" className="h-5 w-5" />
+          <span>重绘</span>
+        </button>
+
         <button
           type="button"
           title="增强"
@@ -1294,6 +1315,8 @@ function GenericNode({
                   onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
                   onDownload={() => imageCreatorPreviewActions?.download()}
                   canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+                  onRepaint={() => imageCreatorPreviewActions?.enterRepaint()}
+                  canRepaint={Boolean(imageCreatorPreviewActions?.canRepaint)}
                   onEnhance={() => imageCreatorPreviewActions?.enterEnhance()}
                   canEnhance={Boolean(imageCreatorPreviewActions?.canEnhance)}
                   onCrop={() => imageCreatorPreviewActions?.enterCrop()}

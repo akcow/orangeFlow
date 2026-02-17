@@ -134,8 +134,20 @@ class ParameterHandler:
             field.get("type") == "other"
             or field_name in params
             or field_name == "_type"
-            or (not field.get("show") and field_name != "code")
+            or (not field.get("show") and field_name != "code" and not self._has_value(field))
         )
+
+    @staticmethod
+    def _has_value(field: dict) -> bool:
+        """Check if a hidden field carries a meaningful value that should be forwarded."""
+        val = field.get("value")
+        if val is None:
+            return False
+        if isinstance(val, str):
+            return bool(val.strip())
+        if isinstance(val, (list, dict)):
+            return bool(val)
+        return True
 
     def process_file_field(self, field_name: str, field: dict, params: dict[str, Any]) -> dict[str, Any]:
         """Process file type fields."""

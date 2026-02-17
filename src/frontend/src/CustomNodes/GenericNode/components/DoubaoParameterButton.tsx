@@ -1,11 +1,13 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
@@ -22,6 +24,7 @@ export type DoubaoControlConfig = {
   widthClass?: string;
   tooltip?: string;
   disabledOptions?: Array<string | number>;
+  footer?: ReactNode;
   handleOnNewValueOptions?: (
     nextValue: string | number,
   ) => Parameters<handleOnNewValueType>[1];
@@ -45,7 +48,7 @@ export function DoubaoParameterButton({
   data: NodeDataType;
   config: DoubaoControlConfig;
 }) {
-  const { name, icon, options, template, value, widthClass, tooltip, disabledOptions } = config;
+  const { name, icon, options, template, value, widthClass, tooltip, disabledOptions, footer } = config;
   const [open, setOpen] = useState(false);
   const { handleOnNewValue } = useHandleOnNewValue({
     node: data.node!,
@@ -228,6 +231,18 @@ export function DoubaoParameterButton({
             );
           })}
         </DropdownMenuRadioGroup>
+        {footer ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              // Let the footer manage interactions (e.g. switches) without closing the menu.
+              onSelect={(event) => event.preventDefault()}
+              className="cursor-default px-0 py-0 focus:bg-transparent"
+            >
+              <div className="w-full px-2 py-1.5">{footer}</div>
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

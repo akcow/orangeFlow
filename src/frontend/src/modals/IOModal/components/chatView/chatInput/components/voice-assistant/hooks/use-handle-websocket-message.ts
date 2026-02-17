@@ -9,7 +9,8 @@ export const useHandleWebsocketMessage = (
   audioQueueRef: React.MutableRefObject<AudioBuffer[]>,
   isPlayingRef: React.MutableRefObject<boolean>,
   playNextAudioChunk: () => void,
-  setIsBuilding: (isBuilding: boolean) => void,
+  beginBuilding: () => void,
+  endBuilding: () => void,
   revertBuiltStatusFromBuilding: () => void,
   clearEdgesRunningByNodes: () => void,
   setMessage: React.Dispatch<React.SetStateAction<string>>,
@@ -72,7 +73,7 @@ export const useHandleWebsocketMessage = (
       const buildData = data.data;
       switch (buildData.event) {
         case "start":
-          setIsBuilding(true);
+          beginBuilding();
           break;
 
         case "start_vertex": {
@@ -108,7 +109,7 @@ export const useHandleWebsocketMessage = (
           break;
 
         case "end":
-          setIsBuilding(false);
+          endBuilding();
           revertBuiltStatusFromBuilding();
           clearEdgesRunningByNodes();
           break;

@@ -399,7 +399,9 @@ export default function TextCreationLayout({
 
   const buildFlow = useFlowStore((state) => state.buildFlow);
   const isGlobalBuilding = useFlowStore((state) => state.isBuilding);
-  const stopBuilding = useFlowStore((state) => state.stopBuilding);
+  const stopLatestChainForNode = useFlowStore(
+    (state) => state.stopLatestChainForNode,
+  );
   const clearFlowPoolForNodes = useFlowStore(
     (state) => state.clearFlowPoolForNodes,
   );
@@ -1196,8 +1198,8 @@ export default function TextCreationLayout({
   ]);
 
   const handleRun = () => {
-    if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
-      stopBuilding();
+    if (buildStatus === BuildStatus.BUILDING) {
+      stopLatestChainForNode(data.id);
       return;
     }
     if (disableRun) return;
@@ -1211,7 +1213,7 @@ export default function TextCreationLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? "Loader2"
+      ? "Square"
       : "Play";
 
   const controlConfigs = useMemo(() => {
@@ -1743,10 +1745,7 @@ export default function TextCreationLayout({
                 >
                   <ForwardedIconComponent
                     name={runIconName}
-                    className={cn(
-                      "h-4 w-4",
-                      runIconName === "Loader2" && "animate-spin",
-                    )}
+                    className="h-4 w-4"
                    />
                  </button>
               </div>

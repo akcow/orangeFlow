@@ -6,21 +6,19 @@ import {
   type Node,
   type NodeChange,
 } from "@xyflow/react";
-import { cloneDeep, zip } from "lodash";
+import { cloneDeep } from "lodash";
 import { create } from "zustand";
 import { checkCodeValidity } from "@/CustomNodes/helpers/check-code-validity";
 import { MISSED_ERROR_ALERT } from "@/constants/alerts_constants";
 import { BROKEN_EDGES_WARNING } from "@/constants/constants";
-import { ENABLE_DATASTAX_LANGFLOW } from "@/customization/feature-flags";
 import {
   track,
-  trackDataLoaded,
   trackFlowBuild,
 } from "@/customization/utils/analytics";
 import { t } from "@/i18n/t";
 import { brokenEdgeMessage } from "@/utils/utils";
 import { BuildStatus, EventDeliveryType } from "../constants/enums";
-import type { LogsLogType, VertexBuildTypeAPI } from "../types/api";
+import type { VertexBuildTypeAPI } from "../types/api";
 import type { ChatInputType, ChatOutputType } from "../types/chat";
 import type {
   AllNodeType,
@@ -131,13 +129,198 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
   nodes: [],
   edges: [],
   isBuilding: false,
+  buildingCount: 0,
+  buildControllers: [],
+  buildChains: {},
+  activeBuildChainsByNode: {},
+  registerBuildController: (controller) => {
+    set((state) => ({
+      buildControllers: [...state.buildControllers, controller],
+    }));
+  },
+  unregisterBuildController: (controller) => {
+    set((state) => ({
+      buildControllers: state.buildControllers.filter((c) => c !== controller),
+    }));
+  },
+  registerBuildChain: (chainId: string, controller: AbortController) => {
+    set((state) => ({
+      buildChains: {
+        ...state.buildChains,
+        [chainId]: {
+          controller,
+          nodes: {},
+        },
+      },
+    }));
+  },
+  markChainNodesBuilding: (chainId: string, nodeIds: string[]) => {
+    if (!nodeIds?.length) return;
+    set((state) => {
+      const chain = state.buildChains[chainId];
+      if (!chain) return {};
+
+      const nextChainsByNode = { ...state.activeBuildChainsByNode };
+      const nextChainNodes = { ...chain.nodes };
+
+      nodeIds.forEach((nodeId) => {
+        nextChainNodes[nodeId] = true;
+        const stack = Array.isArray(nextChainsByNode[nodeId])
+          ? [...nextChainsByNode[nodeId]]
+          : [];
+        // Keep it unique but ordered by recency (tail = most recent chain).
+        const filtered = stack.filter((id) => id !== chainId);
+        filtered.push(chainId);
+        nextChainsByNode[nodeId] = filtered;
+      });
+
+      return {
+        buildChains: {
+          ...state.buildChains,
+          [chainId]: { ...chain, nodes: nextChainNodes },
+        },
+        activeBuildChainsByNode: nextChainsByNode,
+      };
+    });
+  },
+  markChainNodeFinished: (
+    chainId: string,
+    nodeId: string,
+    status: BuildStatus,
+  ) => {
+    if (!nodeId) return;
+    set((state) => {
+      const stack = Array.isArray(state.activeBuildChainsByNode[nodeId])
+        ? state.activeBuildChainsByNode[nodeId]
+        : [];
+      const nextStack = stack.filter((id) => id !== chainId);
+
+      const nextChainsByNode = { ...state.activeBuildChainsByNode };
+      if (nextStack.length > 0) nextChainsByNode[nodeId] = nextStack;
+      else delete nextChainsByNode[nodeId];
+
+      // Only update terminal status if no other chain is still active for this node.
+      if (nextStack.length > 0) {
+        return {
+          activeBuildChainsByNode: nextChainsByNode,
+        };
+      }
+
+      const nextFlowBuildStatus = { ...state.flowBuildStatus };
+      nextFlowBuildStatus[nodeId] = {
+        ...(nextFlowBuildStatus[nodeId] ?? { status }),
+        status,
+      };
+      if (status === BuildStatus.BUILT) {
+        nextFlowBuildStatus[nodeId].timestamp =
+          new Date(Date.now()).toLocaleString();
+      }
+
+      return {
+        activeBuildChainsByNode: nextChainsByNode,
+        flowBuildStatus: nextFlowBuildStatus,
+      };
+    });
+  },
+  finalizeBuildChain: (chainId: string) => {
+    set((state) => {
+      const chain = state.buildChains[chainId];
+      if (!chain) return {};
+
+      const nextChains = { ...state.buildChains };
+      delete nextChains[chainId];
+
+      const nextChainsByNode = { ...state.activeBuildChainsByNode };
+      const nextFlowBuildStatus = { ...state.flowBuildStatus };
+
+      // Remove this chain from any nodes we ever marked as part of it.
+      Object.keys(chain.nodes ?? {}).forEach((nodeId) => {
+        const stack = Array.isArray(nextChainsByNode[nodeId])
+          ? nextChainsByNode[nodeId].filter((id) => id !== chainId)
+          : [];
+        if (stack.length > 0) {
+          nextChainsByNode[nodeId] = stack;
+          // If another chain is still active for this node, keep it "building".
+          nextFlowBuildStatus[nodeId] = {
+            ...(nextFlowBuildStatus[nodeId] ?? { status: BuildStatus.BUILDING }),
+            status: BuildStatus.BUILDING,
+          };
+          return;
+        }
+
+        delete nextChainsByNode[nodeId];
+        const current = nextFlowBuildStatus[nodeId];
+        // If this chain ends unexpectedly (stop/abort), don't leave nodes in BUILDING/TO_BUILD.
+        if (
+          current?.status === BuildStatus.BUILDING ||
+          current?.status === BuildStatus.TO_BUILD
+        ) {
+          nextFlowBuildStatus[nodeId] = {
+            ...current,
+            status: BuildStatus.BUILT,
+            timestamp: new Date(Date.now()).toLocaleString(),
+          };
+        }
+      });
+
+      return {
+        buildChains: nextChains,
+        activeBuildChainsByNode: nextChainsByNode,
+        flowBuildStatus: nextFlowBuildStatus,
+      };
+    });
+  },
+  stopLatestChainForNode: (nodeId: string) => {
+    const stack = get().activeBuildChainsByNode[nodeId];
+    const chainId = Array.isArray(stack) ? stack[stack.length - 1] : undefined;
+    if (!chainId) return;
+    const controller = get().buildChains[chainId]?.controller;
+    if (!controller) return;
+    try {
+      controller.abort();
+    } catch {
+      // ignore
+    }
+  },
+  beginBuilding: () => {
+    set((state) => ({
+      buildingCount: state.buildingCount + 1,
+      isBuilding: true,
+    }));
+  },
+  endBuilding: () => {
+    set((state) => {
+      const nextCount = Math.max(0, state.buildingCount - 1);
+      return {
+        buildingCount: nextCount,
+        isBuilding: nextCount > 0,
+      };
+    });
+  },
+  resetBuilding: () => {
+    set({
+      buildingCount: 0,
+      isBuilding: false,
+      buildControllers: [],
+      buildChains: {},
+      activeBuildChainsByNode: {},
+    });
+  },
   stopBuilding: () => {
-    get().buildController.abort();
+    // Stop all active builds (parallel builds supported).
+    const controllers = get().buildControllers;
+    controllers.forEach((c) => {
+      try {
+        c.abort();
+      } catch {
+        // ignore
+      }
+    });
     get().updateEdgesRunningByNodes(
       get().nodes.map((n) => n.id),
       false,
     );
-    set({ isBuilding: false });
+    get().resetBuilding();
     get().revertBuiltStatusFromBuilding();
     useAlertStore.getState().setErrorData({
       title: "Build stopped",
@@ -377,9 +560,6 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       positionDictionary: {},
       rightClickedNodeId: null,
     });
-  },
-  setIsBuilding: (isBuilding) => {
-    set({ isBuilding });
   },
   setFlowState: (flowState) => {
     const newFlowState =
@@ -1247,7 +1427,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         if (connectingToLastFrame && hasExistingLastFrame) {
           setErrorData({
             title: "尾帧输入已存在",
-            list: ["kling O1：尾帧输入只能设置 1 个。请先清空/移除现有尾帧后再连接。"],
+            list: ["kling O1/O3：尾帧输入只能设置 1 个。请先清空/移除现有尾帧后再连接。"],
           });
           return oldEdges;
         }
@@ -1256,7 +1436,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         if (videosAfter > 1) {
           setErrorData({
             title: "参考视频数量超限",
-            list: ["kling O1：最多仅支持 1 段参考视频（MP4/MOV）。请移除多余连接或删除本地视频后再试。"],
+            list: ["kling O1/O3：最多仅支持 1 段参考视频（MP4/MOV）。请移除多余连接或删除本地视频后再试。"],
           });
           return oldEdges;
         }
@@ -1273,7 +1453,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
           setErrorData({
             title: "参考图片数量超限",
             list: [
-              "kling O1：有参考视频时图片最多 4 张（首/尾帧也计入图片数量）。",
+              "kling O1/O3：有参考视频时图片最多 4 张（首/尾帧也计入图片数量）。",
               "请先删除多余图片/尾帧或移除参考视频后再连接。",
             ],
           });
@@ -1284,7 +1464,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
           setErrorData({
             title: "参考图片数量超限",
             list: [
-              "kling O1：无参考视频时图片最多 7 张；有参考视频时图片最多 4 张（首/尾帧也计入图片数量）。",
+              "kling O1/O3：无参考视频时图片最多 7 张；有参考视频时图片最多 4 张（首/尾帧也计入图片数量）。",
               "请先删除多余图片/尾帧后再连接。",
             ],
           });
@@ -1402,10 +1582,17 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       buildInfo: null,
     });
     const playgroundPage = get().playgroundPage;
-    get().setIsBuilding(true);
-    set({ flowBuildStatus: {} });
+
+    // Parallel builds are supported. Track lifecycle with a per-invocation controller and a ref-counted building flag.
+    const buildController = new AbortController();
+    const chainId = `chain_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    get().registerBuildController(buildController);
+    get().registerBuildChain(chainId, buildController);
+    get().beginBuilding();
     const currentFlow = useFlowsManagerStore.getState().currentFlow;
     const setErrorData = useAlertStore.getState().setErrorData;
+
+    try {
 
     // Tool-only edges (e.g. crop/outpaint) are used for visual lineage in the canvas UI,
     // but they should not affect actual flow execution.
@@ -1456,9 +1643,8 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         list: errors,
       });
       const ids = errorsObjs.flatMap((obj) => obj.id);
-      get().updateBuildStatus(ids, BuildStatus.ERROR); // Set only the build status as error without adding info to the flow pool
-
-      get().setIsBuilding(false);
+      // Set only the build status as error without adding info to the flow pool
+      get().updateBuildStatus(ids, BuildStatus.ERROR);
       throw new Error(t("Invalid components"));
     }
 
@@ -1468,101 +1654,20 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       status: BuildStatus,
       runId: string,
     ) {
-      if (vertexBuildData && vertexBuildData.inactivated_vertices) {
-        get().removeFromVerticesBuild(vertexBuildData.inactivated_vertices);
-        if (vertexBuildData.inactivated_vertices.length > 0) {
-          get().updateBuildStatus(
-            vertexBuildData.inactivated_vertices,
-            BuildStatus.INACTIVE,
-          );
-        }
-      }
+      const effectiveRunId = runId || vertexBuildData?.run_id || "";
 
-      if (vertexBuildData.next_vertices_ids) {
-        // next_vertices_ids is a list of vertices that are going to be built next
-        // verticesLayers is a list of list of vertices ids, where each list is a layer of vertices
-        // we want to add a new layer (next_vertices_ids) to the list of layers (verticesLayers)
-        // and the values of next_vertices_ids to the list of vertices ids (verticesIds)
-
-        // const nextVertices will be the zip of vertexBuildData.next_vertices_ids and
-        // vertexBuildData.top_level_vertices
-        // the VertexLayerElementType as {id: next_vertices_id, layer: top_level_vertex}
-
-        // next_vertices_ids should be next_vertices_ids without the inactivated vertices
-        const next_vertices_ids = vertexBuildData.next_vertices_ids.filter(
-          (id) => !vertexBuildData.inactivated_vertices?.includes(id),
-        );
-        const top_level_vertices = vertexBuildData.top_level_vertices.filter(
-          (vertex) => !vertexBuildData.inactivated_vertices?.includes(vertex),
-        );
-        let nextVertices: VertexLayerElementType[] = zip(
-          next_vertices_ids,
-          top_level_vertices,
-        ).map(([id, reference]) => ({ id: id!, reference }));
-
-        // Now we filter nextVertices to remove any vertices that are in verticesLayers
-        // because they are already being built
-        // each layer is a list of vertexlayerelementtypes
-        const lastLayer =
-          get().verticesBuild!.verticesLayers[
-            get().verticesBuild!.verticesLayers.length - 1
-          ];
-
-        nextVertices = nextVertices.filter(
-          (vertexElement) =>
-            !lastLayer.some(
-              (layerElement) =>
-                layerElement.id === vertexElement.id &&
-                layerElement.reference === vertexElement.reference,
-            ),
-        );
-        const newLayers = [
-          ...get().verticesBuild!.verticesLayers,
-          nextVertices,
-        ];
-        const newIds = [
-          ...get().verticesBuild!.verticesIds,
-          ...next_vertices_ids,
-        ];
-        if (
-          ENABLE_DATASTAX_LANGFLOW &&
-          vertexBuildData?.id?.includes("AstraDB")
-        ) {
-          const search_results: LogsLogType[] = Object.values(
-            vertexBuildData?.data?.logs?.search_results,
-          );
-          search_results.forEach((log) => {
-            if (
-              log.message.includes("Adding") &&
-              log.message.includes("documents") &&
-              log.message.includes("Vector Store")
-            ) {
-              trackDataLoaded(
-                get().currentFlow?.id,
-                get().currentFlow?.name,
-                "AstraDB Vector Store",
-                vertexBuildData?.id,
-              );
-            }
-          });
-        }
-        get().updateVerticesBuild({
-          verticesIds: newIds,
-          verticesLayers: newLayers,
-          runId: runId,
-          verticesToRun: get().verticesBuild!.verticesToRun,
+      const inactivated = vertexBuildData?.inactivated_vertices ?? [];
+      if (inactivated.length > 0) {
+        inactivated.forEach((id) => {
+          get().markChainNodeFinished(chainId, id, BuildStatus.INACTIVE);
         });
-
-        get().updateBuildStatus(top_level_vertices, BuildStatus.TO_BUILD);
       }
 
       get().addDataToFlowPool(
-        { ...vertexBuildData, run_id: runId },
+        { ...vertexBuildData, run_id: effectiveRunId },
         vertexBuildData.id,
       );
-      if (status !== BuildStatus.ERROR) {
-        get().updateBuildStatus([vertexBuildData.id], status);
-      }
+      get().markChainNodeFinished(chainId, vertexBuildData.id, status);
     }
 
     // When sending a graph payload to the backend build endpoint, only include buildable nodes.
@@ -1580,88 +1685,97 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         buildNodeIds.has(String((e as any)?.target)),
     );
 
-    await buildFlowVerticesWithFallback({
-      session,
-      input_value,
-      files,
-      flowId: currentFlow!.id,
-      startNodeId,
-      stopNodeId,
-      // Always send the current canvas graph. This keeps builds consistent even before autosave
-      // flushes changes (e.g. tool-generated downstream nodes).
-      nodes: buildNodes as any,
-      edges: buildEdges as any,
-      onGetOrderSuccess: () => {},
-      onBuildComplete: (allNodesValid) => {
-        if (!silent) {
-          if (allNodesValid) {
+      await buildFlowVerticesWithFallback({
+        session,
+        input_value,
+        files,
+        flowId: currentFlow!.id,
+        startNodeId,
+        stopNodeId,
+        // Always send the current canvas graph. This keeps builds consistent even before autosave
+        // flushes changes (e.g. tool-generated downstream nodes).
+        nodes: buildNodes as any,
+        edges: buildEdges as any,
+        buildController,
+        onGetOrderSuccess: () => {},
+        onBuildComplete: (allNodesValid) => {
+          if (!silent && allNodesValid) {
             get().setBuildInfo({ success: true });
           }
-        }
-        get().updateEdgesRunningByNodes(
-          get().nodes.map((n) => n.id),
-          false,
-        );
-        get().setIsBuilding(false);
-        trackFlowBuild(get().currentFlow?.name ?? "Unknown", false, {
-          flowId: get().currentFlow?.id,
-        });
-      },
-      onBuildUpdate: handleBuildUpdate,
-      onBuildError: (title: string, list: string[], elementList) => {
-        const idList =
-          (elementList
-            ?.map((element) => element.id)
-            .filter(Boolean) as string[]) ?? get().nodes.map((n) => n.id);
-        useFlowStore.getState().updateBuildStatus(idList, BuildStatus.ERROR);
-        if (get().componentsToUpdate.length > 0)
-          setErrorData({
-            title:
-              "There are outdated components in the flow. The error could be related to them.",
+          // Clear "running" visuals only for the validated subgraph to reduce interference with parallel builds.
+          get().updateEdgesRunningByNodes(
+            (nodesToValidate ?? []).map((n: any) => n.id),
+            false,
+          );
+          trackFlowBuild(get().currentFlow?.name ?? "Unknown", false, {
+            flowId: get().currentFlow?.id,
           });
-        get().updateEdgesRunningByNodes(
-          get().nodes.map((n) => n.id),
-          false,
-        );
-        get().setBuildInfo({ error: list, success: false });
-        useAlertStore.getState().addNotificationToHistory({
-          title: title,
-          type: "error",
-          list: list,
-        });
-        get().setIsBuilding(false);
-        get().buildController.abort();
-        trackFlowBuild(get().currentFlow?.name ?? "Unknown", true, {
-          flowId: get().currentFlow?.id,
-          error: list,
-        });
-      },
-      onBuildStart: (elementList) => {
-        const idList = elementList
-          // reference is the id of the vertex or the id of the parent in a group node
-          .map((element) => element.reference)
-          .filter(Boolean) as string[];
-        get().updateBuildStatus(idList, BuildStatus.BUILDING);
-
-        const edges = get().edges;
-        const newEdges = edges.map((edge) => {
-          if (
-            edge.data?.targetHandle &&
-            idList.includes(edge.data.targetHandle.id ?? "")
-          ) {
-            edge.className = "ran";
+        },
+        onBuildUpdate: handleBuildUpdate,
+        onBuildError: (title: string, list: string[], elementList) => {
+          const idList =
+            (elementList
+              ?.map((element) => element.id)
+              .filter(Boolean) as string[]) ??
+            (nodesToValidate ?? []).map((n: any) => n.id);
+          idList.forEach((id) => {
+            get().markChainNodeFinished(chainId, id, BuildStatus.ERROR);
+          });
+          if (get().componentsToUpdate.length > 0) {
+            setErrorData({
+              title:
+                "There are outdated components in the flow. The error could be related to them.",
+            });
           }
-          return edge;
-        });
-        set({ edges: newEdges });
-      },
-      onValidateNodes: validateSubgraph,
-      logBuilds: get().onFlowPage,
-      playgroundPage,
-      eventDelivery,
-    });
-    get().setIsBuilding(false);
-    get().revertBuiltStatusFromBuilding();
+          get().updateEdgesRunningByNodes(idList, false);
+          get().setBuildInfo({ error: list, success: false });
+          useAlertStore.getState().addNotificationToHistory({
+            title: title,
+            type: "error",
+            list: list,
+          });
+          // Abort this build's streaming/polling loop; other parallel builds keep running.
+          try {
+            buildController.abort();
+          } catch {
+            // ignore
+          }
+          trackFlowBuild(get().currentFlow?.name ?? "Unknown", true, {
+            flowId: get().currentFlow?.id,
+            error: list,
+          });
+        },
+        onBuildStart: (elementList) => {
+          const idList = elementList
+            // reference is the id of the vertex or the id of the parent in a group node
+            .map((element) => element.reference)
+            .filter(Boolean) as string[];
+          get().markChainNodesBuilding(chainId, idList);
+          get().updateBuildStatus(idList, BuildStatus.BUILDING);
+
+          const edges = get().edges;
+          const newEdges = edges.map((edge) => {
+            if (
+              edge.data?.targetHandle &&
+              idList.includes(edge.data.targetHandle.id ?? "")
+            ) {
+              edge.className = "ran";
+            }
+            return edge;
+          });
+          set({ edges: newEdges });
+        },
+        onValidateNodes: validateSubgraph,
+        logBuilds: get().onFlowPage,
+        playgroundPage,
+        eventDelivery,
+      });
+    } finally {
+      // Clean up this invocation's tracking, even on abort or validation errors.
+      get().finalizeBuildChain(chainId);
+      get().unregisterBuildController(buildController);
+      get().endBuilding();
+    }
   },
   getFlow: () => {
     return {
@@ -1787,10 +1901,6 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       },
     });
   },
-  buildController: new AbortController(),
-  setBuildController: (controller) => {
-    set({ buildController: controller });
-  },
   handleDragging: undefined,
   setHandleDragging: (handleDragging) => {
     set({ handleDragging });
@@ -1820,10 +1930,14 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       flowBuildStatus: {},
       buildInfo: null,
       isBuilding: false,
+      buildingCount: 0,
       isPending: true,
       positionDictionary: {},
       componentsToUpdate: [],
       rightClickedNodeId: null,
+      buildControllers: [],
+      buildChains: {},
+      activeBuildChainsByNode: {},
     });
   },
   dismissedNodes: [],

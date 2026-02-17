@@ -135,6 +135,10 @@ describe("useFlowStore", () => {
         nodes: [],
         edges: [],
         isBuilding: false,
+        buildingCount: 0,
+        buildControllers: [],
+        buildChains: {},
+        activeBuildChainsByNode: {},
         isPending: true,
         reactFlowInstance: null,
         lastCopiedSelection: null,
@@ -349,14 +353,44 @@ describe("useFlowStore", () => {
       expect(result.current.isBuilding).toBe(false);
     });
 
+    it("should keep isBuilding true until all parallel builds finish", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      act(() => {
+        result.current.beginBuilding();
+        result.current.beginBuilding();
+      });
+
+      expect(result.current.isBuilding).toBe(true);
+      expect(result.current.buildingCount).toBe(2);
+
+      act(() => {
+        result.current.endBuilding();
+      });
+
+      expect(result.current.isBuilding).toBe(true);
+      expect(result.current.buildingCount).toBe(1);
+
+      act(() => {
+        result.current.endBuilding();
+      });
+
+      expect(result.current.isBuilding).toBe(false);
+      expect(result.current.buildingCount).toBe(0);
+    });
+
     it("should handle stop building", () => {
       const { result } = renderHook(() => useFlowStore());
 
-      // Mock the buildController
+      // Mock active build controllers
       const mockAbort = jest.fn();
       act(() => {
         useFlowStore.setState({
-          buildController: { abort: mockAbort } as unknown as AbortController,
+          buildControllers: [
+            { abort: mockAbort } as unknown as AbortController,
+          ],
+          buildingCount: 1,
+          isBuilding: true,
           updateEdgesRunningByNodes: jest.fn(),
           revertBuiltStatusFromBuilding: jest.fn(),
           nodes: [mockNode],
@@ -369,6 +403,32 @@ describe("useFlowStore", () => {
 
       expect(mockAbort).toHaveBeenCalled();
       expect(result.current.isBuilding).toBe(false);
+    });
+
+    it("should stop only the latest chain for a node", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      const abortA = jest.fn();
+      const abortB = jest.fn();
+
+      act(() => {
+        useFlowStore.setState({
+          buildChains: {
+            chainA: { controller: { abort: abortA } as any, nodes: {} },
+            chainB: { controller: { abort: abortB } as any, nodes: {} },
+          },
+          activeBuildChainsByNode: {
+            "node-1": ["chainA", "chainB"],
+          },
+        } as any);
+      });
+
+      act(() => {
+        result.current.stopLatestChainForNode("node-1");
+      });
+
+      expect(abortA).not.toHaveBeenCalled();
+      expect(abortB).toHaveBeenCalled();
     });
   });
 

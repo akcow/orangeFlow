@@ -240,10 +240,8 @@ export default function DoubaoAudioLayout({
 
   const [isRunHovering, setRunHovering] = useState(false);
   const buildFlow = useFlowStore((state) => state.buildFlow);
-  const isBuilding = useFlowStore((state) => state.isBuilding);
-  const stopBuilding = useFlowStore((state) => state.stopBuilding);
-  const clearFlowPoolForNodes = useFlowStore(
-    (state) => state.clearFlowPoolForNodes,
+  const stopLatestChainForNode = useFlowStore(
+    (state) => state.stopLatestChainForNode,
   );
   const eventDelivery = useUtilityStore((state) => state.eventDelivery);
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
@@ -296,7 +294,7 @@ export default function DoubaoAudioLayout({
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
     : data.id;
 
-  const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+  const isBusy = buildStatus === BuildStatus.BUILDING;
   const promptReadonly = Boolean(data.node?.flow) || isBusy;
 
   const handleCreateTextUpstreamNode = useCallback(() => {
@@ -559,9 +557,8 @@ export default function DoubaoAudioLayout({
   );
 
   const handleRun = () => {
-    clearFlowPoolForNodes([nodeIdForRun]);
-    if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
-      stopBuilding();
+    if (buildStatus === BuildStatus.BUILDING) {
+      stopLatestChainForNode(nodeIdForRun);
       return;
     }
     if (disableRun) return;
@@ -575,7 +572,7 @@ export default function DoubaoAudioLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? "Loader2"
+      ? "Square"
       : "Play";
 
   const controlConfigs = useMemo(() => {
@@ -993,10 +990,7 @@ export default function DoubaoAudioLayout({
                 >
                   <ForwardedIconComponent
                     name={runIconName}
-                    className={cn(
-                      "h-4 w-4",
-                      runIconName === "Loader2" && "animate-spin",
-                    )}
+                    className="h-4 w-4"
                   />
                 </button>
               </div>

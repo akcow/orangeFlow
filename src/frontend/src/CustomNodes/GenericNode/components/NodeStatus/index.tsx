@@ -111,9 +111,7 @@ export default function NodeStatus({
   const version = useDarkStore((state) => state.version);
   const eventDeliveryConfig = useUtilityStore((state) => state.eventDelivery);
   const setErrorData = useAlertStore((state) => state.setErrorData);
-  const clearFlowPoolForNodes = useFlowStore(
-    (state) => state.clearFlowPoolForNodes,
-  );
+  // NOTE: We no longer clear flowPool on each run, so parallel runs don't delete each other's outputs.
 
   const postTemplateValue = usePostTemplateValue({
     parameterId: nodeAuth?.name ?? "auth",
@@ -216,7 +214,7 @@ export default function NodeStatus({
   };
 
   function handlePlayWShortcut() {
-    if (buildStatus === BuildStatus.BUILDING || isBuilding || !selected) return;
+    if (buildStatus === BuildStatus.BUILDING || !selected) return;
     setValidationStatus(null);
     buildFlow({
       stopNodeId: nodeId,
@@ -302,7 +300,9 @@ export default function NodeStatus({
 
   const [isHovered, setIsHovered] = useState(false);
 
-  const stopBuilding = useFlowStore((state) => state.stopBuilding);
+  const stopLatestChainForNode = useFlowStore(
+    (state) => state.stopLatestChainForNode,
+  );
 
   const navigate = useNavigate();
   const { data: globalVariables } = useGetGlobalVariables();
@@ -324,13 +324,11 @@ export default function NodeStatus({
       return;
     }
 
-    clearFlowPoolForNodes([nodeId_]);
-
-    if (BuildStatus.BUILDING === buildStatus && isHovered) {
-      stopBuilding();
+    if (BuildStatus.BUILDING === buildStatus) {
+      stopLatestChainForNode(nodeId_);
       return;
     }
-    if (buildStatus === BuildStatus.BUILDING || isBuilding) return;
+    if (buildStatus === BuildStatus.BUILDING) return;
     buildFlow({
       stopNodeId: nodeId,
       eventDelivery: eventDeliveryConfig,
@@ -338,25 +336,19 @@ export default function NodeStatus({
     track("Flow Build - Clicked", { stopNodeId: nodeId });
   };
 
-  const iconName =
-    BuildStatus.BUILDING === buildStatus
-      ? isHovered
-        ? "Square"
-        : "Loader2"
-      : "Play";
+  const iconName = BuildStatus.BUILDING === buildStatus ? "Square" : "Play";
 
   const iconClasses = cn(
     "h-3.5 w-3.5 transition-all group-hover/node:opacity-100",
-    isHovered ? "text-foreground" : "text-muted-foreground",
-    BuildStatus.BUILDING === buildStatus &&
-    (isHovered ? "text-status-red" : "animate-spin"),
+    BuildStatus.BUILDING === buildStatus
+      ? "text-status-red"
+      : isHovered
+        ? "text-foreground"
+        : "text-muted-foreground",
   );
 
   const getTooltipContent = () => {
-    if (BuildStatus.BUILDING === buildStatus && isHovered) {
-      return "停止运行";
-    }
-    return "运行";
+    return BuildStatus.BUILDING === buildStatus ? "停止运行" : "运行";
   };
 
   const handleClickConnect = () => {

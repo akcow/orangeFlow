@@ -119,12 +119,33 @@ class KlingProvider(ProviderAdapter):
 
                     if status == "succeed":
                         task_result = data.get("task_result") if isinstance(data, dict) else None
+                        result_type = task_result.get("result_type") if isinstance(task_result, dict) else None
                         images = task_result.get("images") if isinstance(task_result, dict) else None
+                        series_images = task_result.get("series_images") if isinstance(task_result, dict) else None
+
+                        # Doc: single -> images; series -> series_images. Some upstream variants may include both.
+                        preferred: Any = None
+                        if str(result_type or "").strip().lower() == "series":
+                            preferred = series_images if isinstance(series_images, list) else images
+                        else:
+                            preferred = images if isinstance(images, list) else series_images
+
                         urls: list[str] = []
-                        if isinstance(images, list):
-                            for item in images:
+                        if isinstance(preferred, list):
+                            for item in preferred:
                                 if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"].strip():
                                     urls.append(item["url"].strip())
+                        # Fallback: if preferred list is empty but the other one exists, try it too.
+                        if not urls:
+                            other = images if preferred is series_images else series_images
+                            if isinstance(other, list):
+                                for item in other:
+                                    if (
+                                        isinstance(item, dict)
+                                        and isinstance(item.get("url"), str)
+                                        and item["url"].strip()
+                                    ):
+                                        urls.append(item["url"].strip())
                         if not urls:
                             raise UpstreamError(f"No image urls in response: {result}", provider="kling")
                         return {

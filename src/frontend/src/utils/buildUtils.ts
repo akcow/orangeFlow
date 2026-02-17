@@ -47,6 +47,8 @@ type BuildVerticesParams = {
   session?: string;
   playgroundPage?: boolean;
   eventDelivery: EventDeliveryType;
+  // Controller for canceling this specific build request (enables parallel builds).
+  buildController?: AbortController;
 };
 
 function getInactiveVertexData(vertexId: string): VertexBuildTypeAPI {
@@ -111,7 +113,6 @@ export async function updateVerticesOrder(
         title: MISSED_ERROR_ALERT,
         list: [error.response?.data?.detail ?? t("Unknown Error")],
       });
-      useFlowStore.getState().setIsBuilding(false);
       throw new Error(t("Invalid components"));
     }
     // orderResponse.data.ids,
@@ -213,6 +214,7 @@ export async function buildFlowVertices({
   session,
   playgroundPage,
   eventDelivery,
+  buildController,
 }: BuildVerticesParams) {
   const inputs = {};
 
@@ -264,11 +266,10 @@ export async function buildFlowVertices({
   try {
     // If event_delivery is direct, we'll stream from the build endpoint directly
     if (eventDelivery === EventDeliveryType.DIRECT) {
-      const buildController = new AbortController();
-      buildController.signal.addEventListener("abort", () => {
+      const controller = buildController ?? new AbortController();
+      controller.signal.addEventListener("abort", () => {
         onBuildStopped && onBuildStopped();
       });
-      useFlowStore.getState().setBuildController(buildController);
 
       const buildResults: Array<boolean> = [];
       const verticesStartTimeMs: Map<string, number> = new Map();
@@ -304,7 +305,7 @@ export async function buildFlowVertices({
             t("Network error. Please check the connection to the server."),
           ]);
         },
-        buildController,
+        buildController: controller,
       });
     }
   } catch (e) {
@@ -314,12 +315,14 @@ export async function buildFlowVertices({
   try {
     // Otherwise, use the existing two-step process (job_id + events endpoint)
     // First, start the build and get the job ID
+    const controller = buildController ?? new AbortController();
     const buildResponse = await fetch(buildUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(postData),
+      signal: controller.signal,
     });
 
     if (!buildResponse.ok) {
@@ -333,9 +336,7 @@ export async function buildFlowVertices({
 
     const cancelBuildUrl = customCancelBuildUrl(job_id);
 
-    // Get the buildController from flowStore
-    const buildController = new AbortController();
-    buildController.signal.addEventListener("abort", () => {
+    controller.signal.addEventListener("abort", () => {
       try {
         fetch(cancelBuildUrl, {
           method: "POST",
@@ -347,7 +348,6 @@ export async function buildFlowVertices({
         console.error("Error canceling build:", error);
       }
     });
-    useFlowStore.getState().setBuildController(buildController);
     // Then stream the events
     const eventsUrl = customEventsUrl(job_id);
     const buildResults: Array<boolean> = [];
@@ -384,7 +384,7 @@ export async function buildFlowVertices({
             t("Network error. Please check the connection to the server."),
           ]);
         },
-        buildController,
+        buildController: controller,
       });
     } else {
       const callbacks = {
@@ -400,7 +400,7 @@ export async function buildFlowVertices({
         buildResults,
         verticesStartTimeMs,
         callbacks,
-        buildController,
+        controller,
       );
     }
   } catch (error: unknown) {
@@ -464,7 +464,6 @@ async function onEvent(
 
   // Helper to update status and register start times for an array of vertex IDs.
   const onStartVertices = (ids: Array<string>) => {
-    useFlowStore.getState().updateBuildStatus(ids, BuildStatus.TO_BUILD);
     if (onBuildStart) {
       onBuildStart(ids.map((id) => ({ id: id, reference: id })));
     }
@@ -473,30 +472,18 @@ async function onEvent(
 
   switch (type) {
     case "vertices_sorted": {
-      const verticesToRun = data.to_run;
-      const verticesIds = data.ids;
-
+      const verticesIds = (data?.ids ?? []) as string[];
       onStartVertices(verticesIds);
-
-      const verticesLayers: Array<Array<VertexLayerElementType>> =
-        verticesIds.map((id: string) => [{ id: id, reference: id }]);
-
-      useFlowStore.getState().updateVerticesBuild({
-        verticesLayers,
-        verticesIds,
-        verticesToRun,
-      });
       if (onValidateNodes) {
         try {
-          onValidateNodes(data.to_run);
+          onValidateNodes((data?.to_run ?? []) as string[]);
           if (onGetOrderSuccess) onGetOrderSuccess();
-          useFlowStore.getState().setIsBuilding(true);
           return true;
         } catch (_e) {
-          useFlowStore.getState().setIsBuilding(false);
           return false;
         }
       }
+      if (onGetOrderSuccess) onGetOrderSuccess();
       return true;
     }
     case "end_vertex": {
@@ -533,26 +520,24 @@ async function onEvent(
             onBuildError(t("Error Building Component"), errorMessages, [
               { id: buildData.id },
             ]);
-          onBuildUpdate(buildData, BuildStatus.ERROR, "");
+          onBuildUpdate(
+            buildData,
+            BuildStatus.ERROR,
+            buildData?.run_id ?? data?.run_id ?? "",
+          );
           buildResults.push(false);
           return false;
         } else {
-          onBuildUpdate(buildData, BuildStatus.BUILT, "");
+          onBuildUpdate(
+            buildData,
+            BuildStatus.BUILT,
+            buildData?.run_id ?? data?.run_id ?? "",
+          );
           buildResults.push(true);
         }
       }
 
-      await useFlowStore.getState().clearEdgesRunningByNodes();
-
-      if (buildData.next_vertices_ids) {
-        if (isStringArray(buildData.next_vertices_ids)) {
-          useFlowStore
-            .getState()
-            .setCurrentBuildingNodeId(buildData.next_vertices_ids ?? []);
-          useFlowStore
-            .getState()
-            .updateEdgesRunningByNodes(buildData.next_vertices_ids ?? [], true);
-        }
+      if (isStringArray(buildData.next_vertices_ids)) {
         onStartVertices(buildData.next_vertices_ids);
       }
       return true;
@@ -576,25 +561,17 @@ async function onEvent(
       return true;
     }
     case "end": {
-      const expectedVertices =
-        useFlowStore.getState().verticesBuild?.verticesToRun ?? [];
       const hasBuildResults = buildResults.length > 0;
       const allNodesValid =
         hasBuildResults && buildResults.every((result) => result);
 
       if (!hasBuildResults && onBuildError) {
-        const targetIds =
-          expectedVertices.length > 0
-            ? expectedVertices.map((id) => ({ id }))
-            : undefined;
         onBuildError(
           t("Error Building Flow"),
           [NO_BUILD_RESULTS_ERROR_MESSAGE],
-          targetIds,
         );
       }
       onBuildComplete && onBuildComplete(allNodesValid);
-      useFlowStore.getState().setIsBuilding(false);
       return true;
     }
     case "error": {
@@ -608,14 +585,6 @@ async function onEvent(
       buildResults.push(false);
       return true;
     }
-    case "build_start":
-      useFlowStore
-        .getState()
-        .updateBuildStatus([data.id], BuildStatus.BUILDING);
-      break;
-    case "build_end":
-      useFlowStore.getState().updateBuildStatus([data.id], BuildStatus.BUILT);
-      break;
     default:
       return true;
   }
@@ -653,7 +622,7 @@ export async function buildVertices({
     try {
       onValidateNodes(verticesOrderResponse.verticesToRun);
     } catch (_e) {
-      useFlowStore.getState().setIsBuilding(false);
+      useFlowStore.getState().endBuilding();
       return;
     }
   }
@@ -666,7 +635,7 @@ export async function buildVertices({
   let stop = false;
 
   useFlowStore.getState().updateBuildStatus(verticesIds, BuildStatus.TO_BUILD);
-  useFlowStore.getState().setIsBuilding(true);
+  useFlowStore.getState().beginBuilding();
   let currentLayerIndex = 0; // Start with the first layer
   // Set each vertex state to building
   const buildResults: Array<boolean> = [];
@@ -684,7 +653,7 @@ export async function buildVertices({
     if (onBuildComplete) {
       onBuildComplete(allNodesValid);
     }
-    useFlowStore.getState().setIsBuilding(false);
+    useFlowStore.getState().endBuilding();
   };
 
   // Build each layer

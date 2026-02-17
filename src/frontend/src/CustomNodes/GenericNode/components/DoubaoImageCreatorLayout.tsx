@@ -67,6 +67,12 @@ import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_consta
 import KlingElementPickerButton from "@/components/kling/KlingElementPickerButton";
 import type { KlingElement } from "@/stores/klingElementsStore";
 import { generationPromptInputBusyClass } from "./promptGenerationStyles";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const CONTROL_FIELDS = [
   // Requirement: model selector button width -100px.
@@ -707,6 +713,8 @@ export default function DoubaoImageCreatorLayout({
     kind: "input" | "output";
   } | null>(null);
   const [isMultiAngleEditorOpen, setMultiAngleEditorOpen] = useState(false);
+  const [isRepaintEditorOpen, setRepaintEditorOpen] = useState(false);
+  const isToolEditorOpen = isMultiAngleEditorOpen || isRepaintEditorOpen;
   const lockedPlusSide = quickAddMenu?.kind
     ? (quickAddMenu.kind === "input" ? "left" : "right")
     : null;
@@ -806,9 +814,12 @@ export default function DoubaoImageCreatorLayout({
     return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
   }, [canvasZoom]);
 
+  const previewActionsRef = useRef<DoubaoPreviewPanelActions | null>(null);
   const handlePreviewActionsChange = useCallback(
     (actions: DoubaoPreviewPanelActions) => {
+      previewActionsRef.current = actions;
       setMultiAngleEditorOpen(Boolean(actions?.isMultiAngleCameraOpen));
+      setRepaintEditorOpen(Boolean(actions?.isRepaintOpen));
       onPreviewActionsChange?.(actions);
     },
     [onPreviewActionsChange],
@@ -887,7 +898,7 @@ export default function DoubaoImageCreatorLayout({
 
   const showPlusForSide = useCallback(
     (side: PlusSide, clientX?: number, clientY?: number) => {
-      if (isMultiAngleEditorOpen) return;
+      if (isToolEditorOpen) return;
       clearPlusTimers();
       setActivePlusSide(side);
       setVisiblePlusSide(side);
@@ -899,12 +910,12 @@ export default function DoubaoImageCreatorLayout({
         }));
       }
     },
-    [clearPlusTimers, computePlusOffset, isMultiAngleEditorOpen],
+    [clearPlusTimers, computePlusOffset, isToolEditorOpen],
   );
 
   const updatePlusOffset = useCallback(
     (side: PlusSide, clientX: number, clientY: number) => {
-      if (isMultiAngleEditorOpen) return;
+      if (isToolEditorOpen) return;
       // If we moved from the bubble to the capture zone (or we jittered on the edge),
       // cancel any pending rebound/fade so we don't "twitch".
       clearPlusTimers();
@@ -916,12 +927,12 @@ export default function DoubaoImageCreatorLayout({
         [side]: computePlusOffset(side, clientX, clientY),
       }));
     },
-    [clearPlusTimers, computePlusOffset, isMultiAngleEditorOpen],
+    [clearPlusTimers, computePlusOffset, isToolEditorOpen],
   );
 
   const startHidePlus = useCallback(
     (side: PlusSide, clientX?: number, clientY?: number) => {
-      if (isMultiAngleEditorOpen) return;
+      if (isToolEditorOpen) return;
       if (typeof clientX === "number" && typeof clientY === "number") {
         lastPointerRef.current = { x: clientX, y: clientY };
       }
@@ -955,18 +966,18 @@ export default function DoubaoImageCreatorLayout({
         }, 200);
       }, 30);
     },
-    [clearPlusTimers, isPointerInCaptureZone, isMultiAngleEditorOpen, selected],
+    [clearPlusTimers, isPointerInCaptureZone, isToolEditorOpen, selected],
   );
 
   useEffect(() => {
-    if (!isMultiAngleEditorOpen) return;
-    // Suppress the "+" quick-add handles while multi-angle editing is open.
+    if (!isToolEditorOpen) return;
+    // Suppress the "+" quick-add handles while tool editing is open.
     clearPlusTimers();
     setQuickAddMenu(null);
     setActivePlusSide(null);
     setVisiblePlusSide(null);
     setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
-  }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, isMultiAngleEditorOpen]);
+  }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, isToolEditorOpen]);
 
   useEffect(() => {
     // Selection drives baseline state:
@@ -986,10 +997,8 @@ export default function DoubaoImageCreatorLayout({
 
   useEffect(() => () => clearPlusTimers(), [clearPlusTimers]);
   const buildFlow = useFlowStore((state) => state.buildFlow);
-  const isBuilding = useFlowStore((state) => state.isBuilding);
-  const stopBuilding = useFlowStore((state) => state.stopBuilding);
-  const clearFlowPoolForNodes = useFlowStore(
-    (state) => state.clearFlowPoolForNodes,
+  const stopLatestChainForNode = useFlowStore(
+    (state) => state.stopLatestChainForNode,
   );
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
   const eventDeliveryConfig = useUtilityStore((state) => state.eventDelivery);
@@ -999,7 +1008,7 @@ export default function DoubaoImageCreatorLayout({
     ? (findLastNode(data.node.flow.data!)?.id ?? data.id)
     : data.id;
 
-  const isBusy = buildStatus === BuildStatus.BUILDING || isBuilding;
+  const isBusy = buildStatus === BuildStatus.BUILDING;
   const promptReadonly = Boolean(data.node?.flow) || isBusy;
 
   const canonicalTemplate: APITemplateType | undefined = templates?.[data.type]?.template;
@@ -1135,14 +1144,24 @@ export default function DoubaoImageCreatorLayout({
     handleResolutionChange,
   ]);
 
+  const effectiveDisableRun = disableRun && !isRepaintEditorOpen;
+
   const handleRun = () => {
-    clearFlowPoolForNodes([nodeIdForRun]);
-    if (buildStatus === BuildStatus.BUILDING && isRunHovering) {
-      stopBuilding();
+    if (buildStatus === BuildStatus.BUILDING) {
+      stopLatestChainForNode(nodeIdForRun);
       return;
     }
-    if (disableRun) return;
     if (isBusy) return;
+
+    // While "重绘" is open, the run button should trigger the repaint flow (Wan image edit),
+    // instead of running the current node with its default model/template.
+    const previewActions = previewActionsRef.current;
+    if (previewActions?.isRepaintOpen) {
+      previewActions.runRepaint?.();
+      return;
+    }
+
+    if (effectiveDisableRun) return;
     buildFlow({
       stopNodeId: data.id,
       eventDelivery: eventDeliveryConfig,
@@ -1152,7 +1171,7 @@ export default function DoubaoImageCreatorLayout({
 
   const runIconName =
     buildStatus === BuildStatus.BUILDING
-      ? "Loader2"
+      ? "Square"
       : "Play";
 
   const handleSlashQuickFeatureSelect = useCallback(
@@ -1198,8 +1217,6 @@ export default function DoubaoImageCreatorLayout({
           (edge) => edge.source === data.id || edge.target === data.id,
         );
         if (!latestHasConnection && latestPrompt.length === 0) return;
-
-        flowState.clearFlowPoolForNodes([nodeIdForRun]);
         void flowState.buildFlow({
           stopNodeId: data.id,
           eventDelivery: eventDeliveryConfig,
@@ -1370,6 +1387,31 @@ export default function DoubaoImageCreatorLayout({
   const resolutionConfig = controlConfigs.find((config) => config.name === "resolution");
   const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
   const imageCountConfig = controlConfigs.find((config) => config.name === "image_count");
+
+  const imageCountButton = useMemo(() => {
+    if (!imageCountConfig) return null;
+    const disabledSet = new Set((imageCountConfig.disabledOptions ?? []).map((opt) => String(opt)));
+    const rawOptions = (imageCountConfig.options ?? []).filter((opt) => !disabledSet.has(String(opt)));
+    const options = rawOptions
+      .map((opt) => Number(opt))
+      .filter((n) => Number.isFinite(n) && n >= 1)
+      // Keep stable order as produced by RangeSpec.
+      ;
+    if (!options.length) return null;
+
+    const currentRaw = template.image_count?.value;
+    const currentNum = typeof currentRaw === "number" ? currentRaw : Number(currentRaw);
+    const current = Number.isFinite(currentNum) ? currentNum : options[0]!;
+    const currentNormalized = options.includes(current) ? current : options[0]!;
+
+    return {
+      options,
+      current: currentNormalized,
+    };
+  }, [imageCountConfig, template.image_count?.value]);
+
+  const [imageCountMenuOpen, setImageCountMenuOpen] = useState(false);
+  const allowImageCountMenuOpenRef = useRef(false);
 
   // When references are present and the model supports "adaptive" aspect ratio,
   // default to it (avoid overriding explicit user choices).
@@ -2657,33 +2699,33 @@ export default function DoubaoImageCreatorLayout({
                 proxy={referenceHandleMeta.proxy}
                 uiVariant="plus"
                 visible={
-                  !isMultiAngleEditorOpen &&
+                  !isToolEditorOpen &&
                   (selected || visiblePlusSide === "left" || lockedPlusSide === "left")
                 }
                 isTracking={
-                  !isMultiAngleEditorOpen &&
+                  !isToolEditorOpen &&
                   (activePlusSide === "left" || lockedPlusSide === "left")
                 }
                 clickMode="menu"
                 onMenuRequest={({ x, y, kind }) => {
-                  if (isMultiAngleEditorOpen) return;
+                  if (isToolEditorOpen) return;
                   clearPlusTimers();
                   setVisiblePlusSide("left");
                   setActivePlusSide("left");
                   setQuickAddMenu({ x, y, kind });
                 }}
                 onPlusPointerEnter={(event) =>
-                  lockedPlusSide || isMultiAngleEditorOpen
+                  lockedPlusSide || isToolEditorOpen
                     ? undefined
                     : showPlusForSide("left", event.clientX, event.clientY)
                 }
                 onPlusPointerMove={(event) =>
-                  lockedPlusSide || isMultiAngleEditorOpen
+                  lockedPlusSide || isToolEditorOpen
                     ? undefined
                     : updatePlusOffset("left", event.clientX, event.clientY)
                 }
                 onPlusPointerLeave={(event) =>
-                  lockedPlusSide || isMultiAngleEditorOpen
+                  lockedPlusSide || isToolEditorOpen
                     ? undefined
                     : startHidePlus("left", event.clientX, event.clientY)
                 }
@@ -2708,17 +2750,17 @@ export default function DoubaoImageCreatorLayout({
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
             onPointerEnter={(event) =>
-              quickAddMenu || isMultiAngleEditorOpen
+              quickAddMenu || isToolEditorOpen
                 ? undefined
                 : showPlusForSide("left", event.clientX, event.clientY)
             }
             onPointerMove={(event) =>
-              quickAddMenu || isMultiAngleEditorOpen
+              quickAddMenu || isToolEditorOpen
                 ? undefined
                 : updatePlusOffset("left", event.clientX, event.clientY)
             }
             onPointerLeave={(event) =>
-              quickAddMenu || isMultiAngleEditorOpen
+              quickAddMenu || isToolEditorOpen
                 ? undefined
                 : startHidePlus("left", event.clientX, event.clientY)
             }
@@ -2726,17 +2768,17 @@ export default function DoubaoImageCreatorLayout({
           <div
             className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
             onPointerEnter={(event) =>
-              quickAddMenu || isMultiAngleEditorOpen
+              quickAddMenu || isToolEditorOpen
                 ? undefined
                 : showPlusForSide("right", event.clientX, event.clientY)
             }
             onPointerMove={(event) =>
-              quickAddMenu || isMultiAngleEditorOpen
+              quickAddMenu || isToolEditorOpen
                 ? undefined
                 : updatePlusOffset("right", event.clientX, event.clientY)
             }
             onPointerLeave={(event) =>
-              quickAddMenu || isMultiAngleEditorOpen
+              quickAddMenu || isToolEditorOpen
                 ? undefined
                 : startHidePlus("right", event.clientX, event.clientY)
             }
@@ -2785,32 +2827,32 @@ export default function DoubaoImageCreatorLayout({
                     colorName={handle.colorName}
                     uiVariant="plus"
                     visible={
-                      !isMultiAngleEditorOpen &&
+                      !isToolEditorOpen &&
                       (selected || visiblePlusSide === "right" || lockedPlusSide === "right")
                     }
                     isTracking={
-                      !isMultiAngleEditorOpen &&
+                      !isToolEditorOpen &&
                       (activePlusSide === "right" || lockedPlusSide === "right")
                     }
                     clickMode="menu"
                     onMenuRequest={({ x, y, kind }) => {
-                      if (isMultiAngleEditorOpen) return;
+                      if (isToolEditorOpen) return;
                       setVisiblePlusSide("right");
                       setActivePlusSide("right");
                       setQuickAddMenu({ x, y, kind });
                     }}
                     onPlusPointerEnter={(event) =>
-                      lockedPlusSide || isMultiAngleEditorOpen
+                      lockedPlusSide || isToolEditorOpen
                         ? undefined
                         : showPlusForSide("right", event.clientX, event.clientY)
                     }
                     onPlusPointerMove={(event) =>
-                      lockedPlusSide || isMultiAngleEditorOpen
+                      lockedPlusSide || isToolEditorOpen
                         ? undefined
                         : updatePlusOffset("right", event.clientX, event.clientY)
                     }
                     onPlusPointerLeave={(event) =>
-                      lockedPlusSide || isMultiAngleEditorOpen
+                      lockedPlusSide || isToolEditorOpen
                         ? undefined
                         : startHidePlus("right", event.clientX, event.clientY)
                     }
@@ -2985,7 +3027,7 @@ export default function DoubaoImageCreatorLayout({
                   if (nativeIsComposing || isPromptComposing) return;
                   e.preventDefault();
                   e.stopPropagation();
-                  if (!disableRun) handleRun();
+                  if (!effectiveDisableRun) handleRun();
                 }}
                 />
 
@@ -3014,9 +3056,7 @@ export default function DoubaoImageCreatorLayout({
                 </>
               )}
 
-              {imageCountConfig && (
-                <DoubaoParameterButton data={data} config={imageCountConfig} />
-              )}
+              {/* image_count moved next to the Run button as a circular toggle (with dropdown fallback). */}
 
               {supportsGeminiFeatureButtons && (
                 <>
@@ -3066,13 +3106,84 @@ export default function DoubaoImageCreatorLayout({
                   />
                 )}
 
+                {imageCountButton && (
+                  <DropdownMenu
+                    open={imageCountMenuOpen}
+                    onOpenChange={(nextOpen) => {
+                      if (!allowImageCountMenuOpenRef.current) {
+                        setImageCountMenuOpen(false);
+                        return;
+                      }
+                      setImageCountMenuOpen(nextOpen);
+                      if (!nextOpen) {
+                        allowImageCountMenuOpenRef.current = false;
+                      }
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onMouseDown={(event) => {
+                          // Same pattern as DoubaoParameterButton: avoid focus -> tooltip sticky behavior.
+                          event.preventDefault();
+                        }}
+                        onClick={(event) => {
+                          if (!imageCountButton) return;
+                          if (event.shiftKey) {
+                            allowImageCountMenuOpenRef.current = true;
+                            setImageCountMenuOpen(true);
+                            return;
+                          }
+
+                          const options = imageCountButton.options;
+                          const current = imageCountButton.current;
+                          const idx = options.findIndex((n) => n === current);
+                          const next = idx >= 0 ? options[(idx + 1) % options.length]! : options[0]!;
+                          handleImageCountChange({ value: next });
+                        }}
+                        className={cn(
+                          "flex h-11 w-11 items-center justify-center rounded-full border border-[#E0E5F6] bg-[#F4F6FB] text-sm font-semibold text-[#2E3150] transition",
+                          "hover:bg-[#E9EEFF] dark:border-white/15 dark:bg-white/10 dark:text-white",
+                          isBusy && "cursor-not-allowed opacity-60 hover:bg-[#F4F6FB] dark:hover:bg-white/10",
+                        )}
+                        title="生成张数：点击切换；Shift+点击打开下拉选择"
+                      >
+                        {formatControlValue("image_count", imageCountButton.current)}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="max-h-72 w-40 overflow-auto"
+                      onCloseAutoFocus={(event) => {
+                        event.preventDefault();
+                      }}
+                    >
+                      {imageCountButton.options.map((opt) => (
+                        <DropdownMenuItem
+                          key={opt}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            handleImageCountChange({ value: opt });
+                            setImageCountMenuOpen(false);
+                            allowImageCountMenuOpenRef.current = false;
+                          }}
+                          className="text-sm"
+                        >
+                          {formatControlValue("image_count", opt)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
                 <button
                   type="button"
-                  disabled={disableRun}
+                  disabled={effectiveDisableRun}
                   className={cn(
                     "flex h-11 w-11 items-center justify-center rounded-full text-white",
                     "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
-                    disableRun
+                    effectiveDisableRun
                       ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
                       : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
                   )}
@@ -3082,10 +3193,7 @@ export default function DoubaoImageCreatorLayout({
                 >
                   <ForwardedIconComponent
                     name={runIconName}
-                    className={cn(
-                      "h-4 w-4",
-                      runIconName === "Loader2" && "animate-spin",
-                    )}
+                    className="h-4 w-4"
                   />
                   </button>
                 </div>

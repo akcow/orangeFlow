@@ -108,8 +108,13 @@ export type FlowStoreType = {
   addDataToFlowPool: (data: VertexBuildTypeAPI, nodeId: string) => void;
   CleanFlowPool: () => void;
   isBuilding: boolean;
+  // Number of active builds (parallel builds supported). `isBuilding` should reflect `buildingCount > 0`.
+  buildingCount: number;
   isPending: boolean;
-  setIsBuilding: (isBuilding: boolean) => void;
+  beginBuilding: () => void;
+  endBuilding: () => void;
+  // Force-clear building state (e.g. stop/cancel all builds).
+  resetBuilding: () => void;
   setPending: (isPending: boolean) => void;
   resetFlow: (flow: FlowType | undefined) => void;
   resetFlowState: () => void;
@@ -286,8 +291,25 @@ export type FlowStoreType = {
   ) => void;
   updateEdgesRunningByNodes: (ids: string[], running: boolean) => void;
   stopBuilding: () => void;
-  buildController: AbortController;
-  setBuildController: (controller: AbortController) => void;
+  // Controllers for active build requests (used to support stopping all ongoing builds).
+  buildControllers: AbortController[];
+  registerBuildController: (controller: AbortController) => void;
+  unregisterBuildController: (controller: AbortController) => void;
+  // Build chains are per "buildFlow" invocation (used to stop a single chain from a node's stop button).
+  buildChains: Record<
+    string,
+    { controller: AbortController; nodes: Record<string, true> }
+  >;
+  activeBuildChainsByNode: Record<string, string[]>;
+  registerBuildChain: (chainId: string, controller: AbortController) => void;
+  markChainNodesBuilding: (chainId: string, nodeIds: string[]) => void;
+  markChainNodeFinished: (
+    chainId: string,
+    nodeId: string,
+    status: BuildStatus,
+  ) => void;
+  finalizeBuildChain: (chainId: string) => void;
+  stopLatestChainForNode: (nodeId: string) => void;
   currentBuildingNodeId: string[] | undefined;
   setCurrentBuildingNodeId: (nodeIds: string[] | undefined) => void;
   clearEdgesRunningByNodes: () => Promise<void>;

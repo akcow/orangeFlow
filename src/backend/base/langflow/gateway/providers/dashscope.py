@@ -45,6 +45,17 @@ class DashScopeProvider(ProviderAdapter):
         if not isinstance(images, list):
             images = []
 
+        # Wanx image-edit (wanx2.1-imageedit) uses the older image-synthesis protocol and requires
+        # explicit base/mask image fields + a function name.
+        function_name = extra.get("function") or extra.get("imageedit_function") or ""
+        base_image_url = extra.get("base_image_url") or extra.get("base_image") or ""
+        mask_image_url = extra.get("mask_image_url") or extra.get("mask_image") or ""
+        is_wanx_imageedit = str(request.model).startswith("wanx") or bool(function_name)
+        if is_wanx_imageedit and not function_name:
+            function_name = "description_edit_with_mask"
+        if is_wanx_imageedit and not base_image_url:
+            raise UpstreamError("Missing base_image_url for wanx image-edit request.", provider="dashscope")
+
         negative_prompt = extra.get("negative_prompt") or ""
         seed = extra.get("seed") or 0
         prompt_extend = bool(extra.get("prompt_extend", True))
@@ -54,7 +65,7 @@ class DashScopeProvider(ProviderAdapter):
 
         # Heuristic: wan2.6 models support the newer multimodal-generation sync API;
         # wan2.5 models are often async-only.
-        force_async = bool(extra.get("force_async", False))
+        force_async = bool(extra.get("force_async", False)) or is_wanx_imageedit
         force_sync = bool(extra.get("force_sync", False))
         is_wan26 = str(request.model).startswith("wan2.6")
         is_qwen_edit = str(request.model).startswith("qwen-image-edit")
@@ -136,15 +147,25 @@ class DashScopeProvider(ProviderAdapter):
                     }
 
                 # Async protocol (text2image/image2image) + polling.
-                endpoint = "/services/aigc/text2image/image-synthesis" if not images else "/services/aigc/image2image/image-synthesis"
+                is_i2i = bool(images) or bool(base_image_url)
+                endpoint = "/services/aigc/text2image/image-synthesis" if not is_i2i else "/services/aigc/image2image/image-synthesis"
                 url = f"{self.base_url}{self._dashscope_api(endpoint)}"
                 async_headers = {**headers, "X-DashScope-Async": "enable"}
 
-                input_body: dict[str, Any] = {"prompt": request.prompt}
-                if images:
-                    input_body["images"] = images
-                if negative_prompt:
-                    input_body["negative_prompt"] = negative_prompt
+                if is_wanx_imageedit:
+                    input_body: dict[str, Any] = {
+                        "function": str(function_name or "").strip(),
+                        "prompt": request.prompt,
+                        "base_image_url": str(base_image_url or "").strip(),
+                    }
+                    if mask_image_url:
+                        input_body["mask_image_url"] = str(mask_image_url).strip()
+                else:
+                    input_body = {"prompt": request.prompt}
+                    if images:
+                        input_body["images"] = images
+                    if negative_prompt:
+                        input_body["negative_prompt"] = negative_prompt
 
                 parameters: dict[str, Any] = {"n": request.n, "prompt_extend": prompt_extend, "watermark": watermark}
                 if size:

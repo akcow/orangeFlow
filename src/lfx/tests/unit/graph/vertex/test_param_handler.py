@@ -191,3 +191,99 @@ class TestParameterHandlerTableLoadFromDb:
 
         assert set(load_from_db_columns) == {"col1", "col2"}
         assert "table:table_field" in self.handler.load_from_db_fields
+
+
+class TestShouldSkipFieldHiddenValues:
+    """Tests for should_skip_field handling of show=False fields with values."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mock_vertex = MagicMock()
+        self.mock_vertex.data = {
+            "node": {
+                "template": {
+                    "visible_field": {
+                        "type": "str",
+                        "show": True,
+                        "value": "hello",
+                    },
+                    "hidden_empty": {
+                        "type": "str",
+                        "show": False,
+                        "value": "",
+                    },
+                    "hidden_with_value": {
+                        "type": "str",
+                        "show": False,
+                        "value": "wanx2.1-imageedit",
+                    },
+                    "hidden_none": {
+                        "type": "str",
+                        "show": False,
+                        "value": None,
+                    },
+                    "hidden_list_empty": {
+                        "type": "str",
+                        "show": False,
+                        "value": [],
+                    },
+                    "hidden_list_with_value": {
+                        "type": "str",
+                        "show": False,
+                        "value": ["a.png", "b.png"],
+                    },
+                    "hidden_dict_empty": {
+                        "type": "str",
+                        "show": False,
+                        "value": {},
+                    },
+                    "hidden_dict_with_value": {
+                        "type": "str",
+                        "show": False,
+                        "value": {"key": "data"},
+                    },
+                }
+            }
+        }
+        self.handler = ParameterHandler(self.mock_vertex, storage_service=None)
+
+    def test_visible_field_not_skipped(self):
+        """show=True fields should never be skipped."""
+        field = self.mock_vertex.data["node"]["template"]["visible_field"]
+        assert not self.handler.should_skip_field("visible_field", field, {})
+
+    def test_hidden_empty_string_skipped(self):
+        """show=False + empty string value → skip (preserve existing behavior)."""
+        field = self.mock_vertex.data["node"]["template"]["hidden_empty"]
+        assert self.handler.should_skip_field("hidden_empty", field, {})
+
+    def test_hidden_with_value_not_skipped(self):
+        """show=False + non-empty string value → do NOT skip (bug fix)."""
+        field = self.mock_vertex.data["node"]["template"]["hidden_with_value"]
+        assert not self.handler.should_skip_field("hidden_with_value", field, {})
+
+    def test_hidden_none_skipped(self):
+        """show=False + None value → skip."""
+        field = self.mock_vertex.data["node"]["template"]["hidden_none"]
+        assert self.handler.should_skip_field("hidden_none", field, {})
+
+    def test_hidden_empty_list_skipped(self):
+        """show=False + empty list value → skip."""
+        field = self.mock_vertex.data["node"]["template"]["hidden_list_empty"]
+        assert self.handler.should_skip_field("hidden_list_empty", field, {})
+
+    def test_hidden_list_with_value_not_skipped(self):
+        """show=False + non-empty list value → do NOT skip."""
+        field = self.mock_vertex.data["node"]["template"]["hidden_list_with_value"]
+        assert not self.handler.should_skip_field("hidden_list_with_value", field, {})
+
+    def test_hidden_empty_dict_skipped(self):
+        """show=False + empty dict value → skip."""
+        field = self.mock_vertex.data["node"]["template"]["hidden_dict_empty"]
+        assert self.handler.should_skip_field("hidden_dict_empty", field, {})
+
+    def test_hidden_dict_with_value_not_skipped(self):
+        """show=False + non-empty dict value → do NOT skip."""
+        field = self.mock_vertex.data["node"]["template"]["hidden_dict_with_value"]
+        assert not self.handler.should_skip_field("hidden_dict_with_value", field, {})
+

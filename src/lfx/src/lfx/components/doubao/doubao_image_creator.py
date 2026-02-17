@@ -115,6 +115,13 @@ class DoubaoImageCreator(Component):
             "max_reference_images": 10,
             "supports_image_size": False,
         },
+        "kling O3": {
+            "provider": "kling",
+            "model_id": "kling-v3-omni",
+            # Official docs: image_list + element_list <= 10
+            "max_reference_images": 10,
+            "supports_image_size": False,
+        },
         "千问-图像编辑 · Max": {
             "provider": "dashscope",
             "model_id": "qwen-image-edit-max",
@@ -292,6 +299,15 @@ class DoubaoImageCreator(Component):
             info="Internal: JSON payload for multi-angle camera views (hidden).",
         ),
         StrInput(
+            name="tool_wan_imageedit_function",
+            display_name="Tool Wan ImageEdit Function",
+            value="description_edit_with_mask",
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: wanx2.1-imageedit function name for tool-driven runs (hidden).",
+        ),
+        StrInput(
             name="tool_enhance_resolution",
             display_name="Tool Enhance Resolution",
             value="4k",
@@ -369,7 +385,7 @@ class DoubaoImageCreator(Component):
             advanced=True,
             show=False,
             required=False,
-            info="仅 kling O1：主体库 element_id 列表（逗号分隔），用于 element_list，并可在 prompt 中用 <<<element_1>>> 引用。",
+            info="仅 kling O1/O3：主体库 element_id 列表（逗号分隔），用于 element_list，并可在 prompt 中引用。",
         ),
         StrInput(
             name="kling_callback_url",
@@ -378,7 +394,7 @@ class DoubaoImageCreator(Component):
             advanced=True,
             show=False,
             required=False,
-            info="仅 kling O1：任务状态回调地址（可选）。",
+            info="仅 kling O1/O3：任务状态回调地址（可选）。",
         ),
         StrInput(
             name="kling_external_task_id",
@@ -387,7 +403,7 @@ class DoubaoImageCreator(Component):
             advanced=True,
             show=False,
             required=False,
-            info="仅 kling O1：自定义任务 ID（可选，单用户需唯一）。",
+            info="仅 kling O1/O3：自定义任务 ID（可选，单用户需唯一）。",
         ),
         SecretStrInput(
             name="api_key",
@@ -413,7 +429,7 @@ class DoubaoImageCreator(Component):
     ]
 
     def update_build_config(self, build_config, field_value: Any, field_name: str | None = None):
-        """动态 UI 配置：为 kling O1 图片接入做字段禁用/约束。"""
+        """动态 UI 配置：为 kling O1/O3 图片接入做字段禁用/约束。"""
         if field_name and field_name in build_config:
             build_config[field_name]["value"] = field_value
 
@@ -422,7 +438,9 @@ class DoubaoImageCreator(Component):
         except Exception:
             model_value = ""
 
-        is_kling = model_value == "kling O1" or model_value.lower().startswith("kling")
+        is_kling_o1 = model_value == "kling O1"
+        is_kling_o3 = model_value == "kling O3"
+        is_kling = is_kling_o1 or is_kling_o3 or model_value.lower().startswith("kling")
 
         # Helper: restore a field back to its static definition (keeps current value).
         def _restore_field_defaults(field: str) -> None:
@@ -461,13 +479,18 @@ class DoubaoImageCreator(Component):
                 if f in build_config:
                     build_config[f]["show"] = False
 
-            # Resolution: only 1K/2K.
+            # Resolution: follow official enum; some models may support a subset.
             if "resolution" in build_config:
-                build_config["resolution"]["options"] = ["1K（草稿）", "2K（推荐）"]
-                val = str(build_config["resolution"].get("value") or "2K（推荐）").strip()
-                if val not in {"1K（草稿）", "2K（推荐）"}:
+                options = ["1K（草稿）", "2K（推荐）"] if is_kling_o1 else ["1K（草稿）", "2K（推荐）", "4K（超清）"]
+                build_config["resolution"]["options"] = options
+                val = str(build_config["resolution"].get("value") or (options[1] if len(options) > 1 else options[0])).strip()
+                if val not in set(options):
                     build_config["resolution"]["value"] = "2K（推荐）"
-                build_config["resolution"]["info"] = "kling O1：仅支持 1k / 2k（UI 显示为 1K/2K）。"
+                build_config["resolution"]["info"] = (
+                    "kling O1：resolution 枚举为 1k/2k（UI 显示为 1K/2K）。"
+                    if is_kling_o1
+                    else "kling O3：resolution 枚举为 1k/2k/4k（不同模型版本支持范围可能不同）。"
+                )
 
             # Aspect ratio: keep 'adaptive' (maps to upstream 'auto') and add 21:9.
             if "aspect_ratio" in build_config:
@@ -477,7 +500,7 @@ class DoubaoImageCreator(Component):
                 val = str(build_config["aspect_ratio"].get("value") or "adaptive").strip()
                 if val not in set(options):
                     build_config["aspect_ratio"]["value"] = "adaptive"
-                build_config["aspect_ratio"]["info"] = "kling O1：支持 21:9；UI 的 adaptive 会映射为上游的 auto。"
+                build_config["aspect_ratio"]["info"] = "kling O1/O3：支持 21:9；UI 的 adaptive 会映射为上游的 auto。"
 
             # Image count: 1-9.
             if "image_count" in build_config:
@@ -487,14 +510,14 @@ class DoubaoImageCreator(Component):
                 except Exception:
                     cnt = 1
                 build_config["image_count"]["value"] = max(1, min(cnt, 9))
-                build_config["image_count"]["info"] = "kling O1：生成张数范围 1-9。"
+                build_config["image_count"]["info"] = (
+                    "kling O1/O3：生成张数范围 1-9；kling O3 当生成张数 > 1 时会按文档自动启用组图模式（series_amount）。"
+                )
 
             # Reference images: jpg/jpeg/png only.
             if "reference_images" in build_config:
                 build_config["reference_images"]["file_types"] = ["jpg", "jpeg", "png"]
-                build_config["reference_images"]["info"] = (
-                    "仅 kling O1：支持 jpg/jpeg/png；单图 ≤10MB；参考图 + 主体数量之和 ≤10。"
-                )
+                build_config["reference_images"]["info"] = "仅 kling O1/O3：支持 jpg/jpeg/png；单图 ≤10MB；参考图 + 主体数量之和 ≤10。"
 
         else:
             # Hide Kling-only fields when switching away.
@@ -561,6 +584,8 @@ class DoubaoImageCreator(Component):
         tool_override = str(getattr(self, "tool_model_override", "") or "").strip()
         if tool_override.startswith("jimeng"):
             return self._build_images_jimeng_visual_gateway(model_id=tool_override)
+        if tool_override.startswith("wanx"):
+            return self._build_images_wanx_imageedit_gateway(prompt=prompt, model_id=tool_override)
 
         provider = str(model_meta.get("provider") or "").strip().lower()
         is_kling = provider == "kling"
@@ -903,6 +928,100 @@ class DoubaoImageCreator(Component):
             )
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Gateway jimeng-visual failed: {exc}")
+
+    def _build_images_wanx_imageedit_gateway(self, *, prompt: str, model_id: str) -> Data:
+        """Wanx2.1 image edit (e.g. description_edit_with_mask) via hosted gateway."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            function_name = str(getattr(self, "tool_wan_imageedit_function", "") or "").strip()
+            if not function_name:
+                function_name = "description_edit_with_mask"
+
+            # We use reference_images[0] as base image, reference_images[1] as mask image.
+            reference_payloads, reference_meta = self._prepare_reference_images(
+                max_reference_images=2,
+                allowed_extensions=set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS),
+            )
+            if len(reference_payloads) < 2:
+                return self._error("重绘需要 2 张参考图（原图 + 遮罩图）。")
+
+            base_image_url = str(reference_payloads[0] or "").strip()
+            mask_image_url = str(reference_payloads[1] or "").strip()
+            if not base_image_url or not mask_image_url:
+                return self._error("未读取到原图或遮罩图数据。")
+
+            response = images_generations(
+                model=str(model_id),
+                prompt=str(prompt or "").strip(),
+                n=1,
+                response_format="url",
+                extra_body={
+                    "function": function_name,
+                    "base_image_url": base_image_url,
+                    "mask_image_url": mask_image_url,
+                    # Wanx image edit uses the async image-synthesis protocol.
+                    "force_async": True,
+                },
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+
+            data_list = (response or {}).get("data") or []
+            if not isinstance(data_list, list) or not data_list:
+                return self._error(f"Gateway returned no images: {response}")
+            first = data_list[0] if isinstance(data_list[0], dict) else {}
+            image_url = first.get("url") or first.get("image_url")
+            if not isinstance(image_url, str) or not image_url.strip():
+                return self._error(f"Gateway returned invalid image url: {response}")
+            image_url = image_url.strip()
+
+            preview_data, preview_error = self._download_preview(image_url)
+            images: list[dict[str, Any]] = [
+                {
+                    "index": 0,
+                    "image_url": image_url,
+                    **({"image_data_url": preview_data} if preview_data else {}),
+                    **({"preview_error": preview_error} if preview_error else {}),
+                }
+            ]
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": True,
+                "generated_at": generated_at,
+                "payload": {
+                    "images": [
+                        {
+                            "index": 0,
+                            "image_url": image_url,
+                            "image_data_url": preview_data,
+                        }
+                    ],
+                    "model": {"name": "wanx", "model_id": str(model_id)},
+                    "tool": "repaint",
+                    "function": function_name,
+                    "reference_images": reference_meta,
+                },
+            }
+
+            self.status = f"✅ 重绘成功 ({model_id})"
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "model": {"name": "wanx", "model_id": str(model_id)},
+                    "function": function_name,
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway wanx-imageedit failed: {exc}")
 
     def _build_images_qwen_image_edit_gateway(self, *, prompt: str, model_id: str) -> Data:
         """Qwen Image Edit (DashScope) via hosted gateway (server-managed credentials)."""
@@ -1520,6 +1639,8 @@ class DoubaoImageCreator(Component):
             return "1k"
         if "2k" in v:
             return "2k"
+        if "4k" in v:
+            return "4k"
         return "1k"
 
     @staticmethod
@@ -1554,7 +1675,7 @@ class DoubaoImageCreator(Component):
         reference_payloads: list[str],
         reference_meta: list[dict[str, Any]],
     ) -> Data:
-        """Kling (kling-image-o1) image generation via hosted gateway."""
+        """Kling (kling-image-o1 / kling-v3-omni) image generation via hosted gateway."""
         try:
             from langflow.gateway.client import images_generations
 
@@ -1571,18 +1692,27 @@ class DoubaoImageCreator(Component):
             element_list = [{"element_id": eid} for eid in element_ids]
 
             if len(image_list) + len(element_list) > 10:
-                return self._error("kling O1：参考图（image_list）与主体（element_list）数量之和不得超过 10。")
+                return self._error("kling O1/O3：参考图（image_list）与主体（element_list）数量之和不得超过 10。")
 
             callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
             external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
 
+            model_id = str(model_meta.get("model_id") or "kling-image-o1").strip() or "kling-image-o1"
+            is_o3 = model_id == "kling-v3-omni"
             kling_payload: dict[str, Any] = {
-                "model_name": str(model_meta.get("model_id") or "kling-image-o1"),
+                "model_name": model_id,
                 "prompt": prompt,
                 "resolution": kling_resolution,
-                "n": int(image_count),
                 "aspect_ratio": kling_ratio,
             }
+            # Doc: single uses `n`; series uses `series_amount` (and `n` is ignored).
+            # Keep O1 on single-mode to avoid relying on model-specific "series" availability.
+            if is_o3 and int(image_count) > 1:
+                kling_payload["result_type"] = "series"
+                kling_payload["series_amount"] = int(image_count)
+            else:
+                kling_payload["result_type"] = "single"
+                kling_payload["n"] = int(image_count)
             if image_list:
                 kling_payload["image_list"] = image_list
             if element_list:
@@ -1652,6 +1782,7 @@ class DoubaoImageCreator(Component):
                     "resolution": kling_resolution,
                     "aspect_ratio": kling_ratio,
                     "count": image_count,
+                    "result_type": str(kling_payload.get("result_type") or "single"),
                     "reference_images": reference_meta,
                     "element_list": element_list,
                 },
@@ -3054,7 +3185,18 @@ class DoubaoImageCreator(Component):
         if not uploads:
             return [], []
 
-        raw_items = uploads if isinstance(uploads, list) else [uploads]
+        # Frontend may send FileInput value as either:
+        # - list[str] (preferred)
+        # - dict with {"file_path": [..]} or {"value": [..]} (common in some serializers)
+        # Normalize so mask+base can be correctly expanded into multiple items.
+        if isinstance(uploads, dict):
+            candidate = uploads.get("file_path") or uploads.get("path") or uploads.get("value")
+            if isinstance(candidate, (list, tuple)):
+                raw_items = list(candidate)
+            else:
+                raw_items = [uploads]
+        else:
+            raw_items = uploads if isinstance(uploads, list) else [uploads]
         limit = int(max_reference_images or self.MAX_REFERENCE_IMAGES)
         return self._prepare_reference_images_from_items(
             raw_items,
