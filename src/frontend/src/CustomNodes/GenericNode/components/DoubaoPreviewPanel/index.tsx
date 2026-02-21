@@ -38,6 +38,7 @@ import MultiAngleCameraOverlay, {
 } from "./MultiAngleCameraOverlay";
 import EnhanceOverlay, { type EnhanceModelOption } from "./EnhanceOverlay";
 import RepaintOverlay, { type RepaintOverlayHandle } from "./RepaintOverlay";
+import EraseOverlay, { type EraseOverlayHandle } from "./EraseOverlay";
 import ZoomableImageOverlay from "./ZoomableImageOverlay";
 import { cloneDeep } from "lodash";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
@@ -168,6 +169,10 @@ export type DoubaoPreviewPanelActions = {
   runRepaint: () => void;
   canRepaint: boolean;
   isRepaintOpen: boolean;
+  enterErase: () => void;
+  runErase: () => void;
+  canErase: boolean;
+  isEraseOpen: boolean;
   enterCrop: () => void;
   canCrop: boolean;
   enterEnhance: () => void;
@@ -852,12 +857,46 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
     const [isRepaintOpen, setRepaintOpen] = useState(false);
+    const [isEraseOpen, setEraseOpen] = useState(false);
     const [isCropOpen, setCropOpen] = useState(false);
     const [isEnhanceOpen, setEnhanceOpen] = useState(false);
     const [isOutpaintOpen, setOutpaintOpen] = useState(false);
     const [isMultiAngleCameraOpen, setMultiAngleCameraOpen] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const repaintOverlayRef = useRef<RepaintOverlayHandle | null>(null);
+    const eraseOverlayRef = useRef<EraseOverlayHandle | null>(null);
+
+    // While mask editors are open (repaint/erase), completely disable ReactFlow handle pointer events
+    // to prevent accidental edge/handle interactions through the overlay.
+    useEffect(() => {
+      if (typeof document === "undefined") return;
+      const root = document.documentElement;
+      const cls = "doubao-mask-editor-mode";
+      const styleId = "doubao-mask-editor-mode-style";
+      const shouldEnable = Boolean(isRepaintOpen || isEraseOpen);
+      if (shouldEnable) {
+        root.classList.add(cls);
+        if (!document.getElementById(styleId)) {
+          const style = document.createElement("style");
+          style.id = styleId;
+          // XYFlow/ReactFlow handle class names vary by version; cover both to ensure handles are inert
+          // while mask editors are open. Also disable pointer events on the nested plus bubbles.
+          style.textContent = `
+            .${cls} .react-flow__handle,
+            .${cls} .xyflow__handle,
+            .${cls} .react-flow__handle .source,
+            .${cls} .react-flow__handle .target,
+            .${cls} .xyflow__handle .source,
+            .${cls} .xyflow__handle .target {
+              pointer-events: none !important;
+            }
+          `;
+          document.head.appendChild(style);
+        }
+      } else {
+        root.classList.remove(cls);
+      }
+    }, [isEraseOpen, isRepaintOpen]);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
       if (kind !== "image" || !resolvedPreview?.payload) return null;
@@ -1321,6 +1360,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         currentImage?.imageSource &&
         !isPreviewOnlyNode,
     );
+    const canErase = Boolean(
+      appearance === "imageCreator" &&
+        kind === "image" &&
+        currentImage?.imageSource &&
+        !isPreviewOnlyNode,
+    );
     const canCrop = Boolean(
       appearance === "imageCreator" &&
         kind === "image" &&
@@ -1400,6 +1445,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         setEnhanceOpen(false);
         setOutpaintOpen(false);
         setMultiAngleCameraOpen(false);
+        setEraseOpen(false);
         setRepaintOpen(true);
       });
 
@@ -1444,6 +1490,64 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       repaintOverlayRef.current?.confirm?.();
     }, [isRepaintOpen]);
 
+    const enterErase = useCallback(() => {
+      if (!canErase) return;
+      unstable_batchedUpdates(() => {
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setRepaintOpen(false);
+        setCropOpen(false);
+        setEnhanceOpen(false);
+        setOutpaintOpen(false);
+        setMultiAngleCameraOpen(false);
+        setEraseOpen(true);
+      });
+
+        // Crop-style zoom + center, but reserve bottom space so toolbar + drawer are fully visible.
+        try {
+        const container =
+          (typeof document !== "undefined" &&
+            (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+          null;
+        const rect = container?.getBoundingClientRect();
+        const viewW = rect?.width ?? window.innerWidth;
+        const viewH = rect?.height ?? window.innerHeight;
+        const targetZoom = 1.03;
+
+        let target = getPreviewCenterFlow(nodeId);
+        if (!target) {
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const self: any = nodeById.get(nodeId);
+          if (self) {
+            const abs = getAbsolutePosition(self, nodeById as any);
+            const dim = getNodeDimensions(self);
+            target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+          }
+        }
+
+        if (target) {
+          const x = viewW / 2 - target.x * targetZoom;
+          // With 103% zoom, if we keep the component too high, the node top bar can be clipped.
+          // Move the "above center" target slightly down while still reserving drawer space.
+          const RESERVED_BOTTOM_PX = 320;
+          const DOWN_SHIFT_PX = 110;
+          const desiredCenterY = Math.max(260, viewH / 2 - RESERVED_BOTTOM_PX / 2 + DOWN_SHIFT_PX);
+          const y = desiredCenterY - target.y * targetZoom;
+          animateViewportTo({ x, y, zoom: targetZoom }, 800);
+        }
+      } catch (e) {
+        console.warn("Failed to animate viewport for erase mode:", e);
+      }
+    }, [animateViewportTo, canErase, getPreviewCenterFlow, nodeId, nodes, setNodes]);
+
+    const runErase = useCallback(() => {
+      if (!isEraseOpen) return;
+      eraseOverlayRef.current?.confirm?.();
+    }, [isEraseOpen]);
+
     const enterCrop = useCallback(() => {
       if (!canCrop) return;
       unstable_batchedUpdates(() => {
@@ -1454,6 +1558,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           ),
         );
         setRepaintOpen(false);
+        setEraseOpen(false);
         setCropOpen(true);
         setEnhanceOpen(false);
         setOutpaintOpen(false);
@@ -1504,6 +1609,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           ),
         );
         setRepaintOpen(false);
+        setEraseOpen(false);
         setCropOpen(false);
         setOutpaintOpen(false);
         setMultiAngleCameraOpen(false);
@@ -1552,6 +1658,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           ),
         );
         setRepaintOpen(false);
+        setEraseOpen(false);
         setCropOpen(false);
         setEnhanceOpen(false);
         setMultiAngleCameraOpen(false);
@@ -1602,6 +1709,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           ),
         );
         setRepaintOpen(false);
+        setEraseOpen(false);
         setCropOpen(false);
         setEnhanceOpen(false);
         setOutpaintOpen(false);
@@ -1657,6 +1765,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [canRepaint, isRepaintOpen]);
 
+    useEffect(() => {
+      if (!isEraseOpen) return;
+      if (!canErase) {
+        setEraseOpen(false);
+      }
+    }, [canErase, isEraseOpen]);
+
     // When the preview disappears (or switches kind), exit enhance mode.
     useEffect(() => {
       if (!isEnhanceOpen) return;
@@ -1689,6 +1804,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         runRepaint,
         canRepaint,
         isRepaintOpen,
+        enterErase,
+        runErase,
+        canErase,
+        isEraseOpen,
         enterCrop,
         canCrop,
         enterEnhance,
@@ -1703,6 +1822,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       });
     }, [
       canRepaint,
+      canErase,
       canCrop,
       canEnhance,
       canOutpaint,
@@ -1710,12 +1830,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       downloadInfo,
       enterRepaint,
       runRepaint,
+      enterErase,
+      runErase,
       enterCrop,
       enterEnhance,
       enterOutpaint,
       enterMultiAngleCamera,
       handleDownload,
       isRepaintOpen,
+      isEraseOpen,
       isEnhanceOpen,
       isOutpaintOpen,
       isMultiAngleCameraOpen,
@@ -2623,8 +2746,18 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
             // Keep both value/file_path in sync; the backend will read from file_path.
             const paths = [basePath.trim(), maskPath.trim()];
-            refField.value = paths;
+            // Match the regular upload shape: `value` as filenames, `file_path` as server paths.
+            // The backend reads from file_path; we also set explicit tool fields below as a fallback.
+            refField.value = [safeBaseName, safeMaskName];
             refField.file_path = paths;
+
+            // Extra safety: store explicit base/mask paths for wanx tool runs so the backend
+            // can always pick them up even if reference_images is merged/overridden.
+            const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+            toolTpl.tool_wan_base_image_path = toolTpl.tool_wan_base_image_path ?? { value: "" };
+            toolTpl.tool_wan_mask_image_path = toolTpl.tool_wan_mask_image_path ?? { value: "" };
+            toolTpl.tool_wan_base_image_path.value = basePath.trim();
+            toolTpl.tool_wan_mask_image_path.value = maskPath.trim();
           } catch (error) {
             console.error("Failed to upload repaint base/mask images:", error);
             showTransientBadge("上传失败");
@@ -2754,6 +2887,246 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           });
         } catch (e) {
           console.warn("Failed to animate viewport to repaint result node:", e);
+        }
+      },
+      [
+        animateViewportTo,
+        buildFlow,
+        currentFlowId,
+        currentImage?.imageSource,
+        getPreviewCenterFlow,
+        node,
+        nodeId,
+        nodes,
+        reactFlowInstance,
+        setEdges,
+        setNodes,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+        uploadReferenceFile,
+      ],
+    );
+
+
+    const handleConfirmErase = useCallback(
+      async ({
+        maskDataUrl,
+        fileName,
+        prompt,
+      }: {
+        maskDataUrl: string;
+        fileName: string;
+        prompt: string;
+      }) => {
+        if (!currentFlowId) {
+          showTransientBadge("\u8bf7\u5148\u4fdd\u5b58\u753b\u5e03\u540e\u518d\u751f\u6210");
+          return;
+        }
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["DoubaoImageCreator"];
+        if (!template) return;
+
+        takeSnapshot?.();
+
+        const REFERENCE_FIELD = "reference_images";
+        const IMAGE_OUTPUT_NAME = "image";
+        const NODE_OFFSET_X = 1300;
+        const DEFAULT_PROMPT = "\u79fb\u9664\u6d82\u62b9\u533a\u57df\u5185\u5bb9\u5e76\u81ea\u7136\u8865\u5168\u80cc\u666f";
+        const safePrompt = String(prompt ?? "").trim() || DEFAULT_PROMPT;
+        const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+
+        const newImageNodeId = getNodeId("DoubaoImageCreator");
+        const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+        const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+        const newNodeX = abs.x + NODE_OFFSET_X;
+        const newNodeY = computeAlignedNodeTopY({
+          anchorNodeId: nodeId,
+          anchorNodeType: currentFlowNode.data?.type,
+          targetNodeType: "DoubaoImageCreator",
+          nodeById: nodeById as any,
+          avoidOverlap: false,
+        });
+
+        const newTemplate = cloneDeep(template);
+        (newTemplate as any).display_name = "\u64e6\u9664\u7ed3\u679c";
+        (newTemplate as any).icon = "Eraser";
+
+        const refField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        if (refField) {
+          const safeBaseName = "erase-base.png";
+          const safeMaskName = (fileName && String(fileName).trim()) || "erase-mask.png";
+          try {
+            const baseSource = currentImage?.imageSource;
+            if (!baseSource) {
+              showTransientBadge("\u672a\u627e\u5230\u539f\u56fe");
+              return;
+            }
+            const baseBlob = await fetch(baseSource).then((r) => r.blob());
+            const baseFile = new File([baseBlob], safeBaseName, {
+              type: baseBlob.type || "image/png",
+            });
+            const baseResp = await uploadReferenceFile({ file: baseFile, id: currentFlowId });
+            const basePath = baseResp?.file_path ? String(baseResp.file_path) : "";
+            if (!basePath.trim()) {
+              showTransientBadge("\u4e0a\u4f20\u5931\u8d25");
+              return;
+            }
+
+            const maskBlob = await fetch(maskDataUrl).then((r) => r.blob());
+            const maskFile = new File([maskBlob], safeMaskName, {
+              type: maskBlob.type || "image/png",
+            });
+            const maskResp = await uploadReferenceFile({ file: maskFile, id: currentFlowId });
+            const maskPath = maskResp?.file_path ? String(maskResp.file_path) : "";
+            if (!maskPath.trim()) {
+              showTransientBadge("\u4e0a\u4f20\u5931\u8d25");
+              return;
+            }
+
+            const paths = [basePath.trim(), maskPath.trim()];
+            // Match the regular upload shape: `value` as filenames, `file_path` as server paths.
+            // The backend reads from file_path; we also set explicit tool fields below as a fallback.
+            refField.value = [safeBaseName, safeMaskName];
+            refField.file_path = paths;
+
+            // Extra safety: store explicit base/mask paths for wanx tool runs so the backend
+            // can always pick them up even if reference_images is merged/overridden.
+            const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+            toolTpl.tool_wan_base_image_path = toolTpl.tool_wan_base_image_path ?? { value: "" };
+            toolTpl.tool_wan_mask_image_path = toolTpl.tool_wan_mask_image_path ?? { value: "" };
+            toolTpl.tool_wan_base_image_path.value = basePath.trim();
+            toolTpl.tool_wan_mask_image_path.value = maskPath.trim();
+          } catch (error) {
+            console.error("Failed to upload erase base/mask images:", error);
+            showTransientBadge("\u4e0a\u4f20\u5931\u8d25");
+            return;
+          }
+        }
+
+        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
+        toolTpl.tool_model_override.value = "wanx2.1-imageedit";
+        toolTpl.tool_wan_imageedit_function = toolTpl.tool_wan_imageedit_function ?? { value: "" };
+        toolTpl.tool_wan_imageedit_function.value = "description_edit_with_mask";
+
+        if ((newTemplate as any)?.template?.prompt) {
+          (newTemplate as any).template.prompt.value = safePrompt;
+        }
+
+        if ((newTemplate as any)?.template?.draft_output) {
+          delete (newTemplate as any).template.draft_output;
+        }
+
+        const newImageNode: GenericNodeType = {
+          id: newImageNodeId,
+          type: "genericNode",
+          position: { x: newNodeX, y: newNodeY },
+          data: {
+            node: newTemplate as any,
+            showNode: !(newTemplate as any).minimized,
+            type: "DoubaoImageCreator",
+            id: newImageNodeId,
+            cropPreviewOnly: true,
+          },
+          selected: false,
+        };
+
+        const outputDefinition =
+          sourceTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+          sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+          sourceTemplate?.outputs?.[0];
+        const sourceOutputTypes =
+          outputDefinition?.types && outputDefinition.types.length === 1
+            ? outputDefinition.types
+            : outputDefinition?.selected
+              ? [outputDefinition.selected]
+              : ["Data"];
+        const sourceHandle = {
+          outputTypes: sourceOutputTypes,
+          type: outputDefinition?.type,
+          id: nodeId,
+          name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        };
+
+        const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        const targetHandle = {
+          inputTypes: referenceTemplateField?.input_types ?? ["Data"],
+          type: referenceTemplateField?.type,
+          id: newImageNodeId,
+          fieldName: REFERENCE_FIELD,
+          ...(referenceTemplateField?.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+        };
+
+        const edge: EdgeType = {
+          id: `xy-edge__${nodeId}-${sourceHandle.name}-${newImageNodeId}-${REFERENCE_FIELD}-erase`,
+          source: nodeId,
+          sourceHandle: scapedJSONStringfy(sourceHandle as any),
+          target: newImageNodeId,
+          targetHandle: scapedJSONStringfy(targetHandle as any),
+          type: "default",
+          className: "doubao-tool-edge",
+          data: {
+            sourceHandle,
+            targetHandle,
+            cropLink: true,
+          },
+        } as any;
+
+        unstable_batchedUpdates(() => {
+          setNodes((currentNodes) => [...currentNodes, newImageNode]);
+          setEdges((currentEdges) => [...currentEdges, edge]);
+          setEraseOpen(false);
+        });
+
+        window.requestAnimationFrame(() => {
+          try {
+            void buildFlow({ stopNodeId: newImageNodeId });
+          } catch (e) {
+            console.warn("Failed to start erase build:", e);
+          }
+        });
+
+        // After creating the downstream node, zoom out to 48% and center it (match other tool behaviors).
+        try {
+          const instance: any = reactFlowInstance as any;
+          if (!instance || typeof instance.setViewport !== "function") return;
+
+          const container =
+            (typeof document !== "undefined" &&
+              (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+            null;
+          const rect = container?.getBoundingClientRect();
+          const viewW = rect?.width ?? window.innerWidth;
+          const viewH = rect?.height ?? window.innerHeight;
+          const targetZoom = 0.48;
+
+          const anchorPreviewCenter = getPreviewCenterFlow(nodeId);
+          const anchorDim = getNodeDimensions(currentFlowNode);
+          const anchorCenterFallback = {
+            x: abs.x + anchorDim.width / 2,
+            y: abs.y + anchorDim.height / 2,
+          };
+          const anchorCenter = anchorPreviewCenter ?? anchorCenterFallback;
+
+          const offsetX = anchorCenter.x - abs.x;
+          const offsetY = anchorCenter.y - abs.y;
+          const targetFlowCenter = { x: newNodeX + offsetX, y: newNodeY + offsetY };
+
+          const viewportTo = {
+            x: viewW / 2 - targetFlowCenter.x * targetZoom,
+            y: viewH / 2 - targetFlowCenter.y * targetZoom,
+            zoom: targetZoom,
+          };
+
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              animateViewportTo(viewportTo, 800);
+            });
+          });
+        } catch (e) {
+          console.warn("Failed to animate viewport to erase result node:", e);
         }
       },
       [
@@ -3475,6 +3848,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 imageSource={currentImage.imageSource}
                 onCancel={() => setRepaintOpen(false)}
                 onConfirm={handleConfirmRepaint}
+                onRequestUpload={onRequestUpload}
+              />
+            )}
+            {appearance === "imageCreator" && canErase && currentImage?.imageSource && (
+              <EraseOverlay
+                ref={eraseOverlayRef}
+                open={isEraseOpen}
+                imageSource={currentImage.imageSource}
+                onCancel={() => setEraseOpen(false)}
+                onConfirm={handleConfirmErase}
                 onRequestUpload={onRequestUpload}
               />
             )}

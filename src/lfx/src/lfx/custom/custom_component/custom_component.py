@@ -178,7 +178,11 @@ class CustomComponent(BaseComponent):
     def get_full_path(self, path: str) -> str:
         storage_svc: StorageService = get_storage_service()
 
-        flow_id, file_name = path.split("/", 1)
+        # StorageService keys are usually "{uuid}/{filename}" but some serializers/platforms
+        # may persist them using backslashes. Normalize so downstream components can resolve
+        # uploads reliably across OSes.
+        normalized = str(path or "").replace("\\", "/")
+        flow_id, file_name = normalized.split("/", 1)
         return storage_svc.build_full_path(flow_id, file_name)
 
     @property

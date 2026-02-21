@@ -27,6 +27,7 @@ import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
 import GenerationHistoryPanel from "./components/generationHistoryPanel";
 import WorkflowsPanel from "./components/workflowsPanel";
 import AssetsPanel from "./components/AssetsPanel";
+import PoseGeneratorModal from "./components/PoseGeneratorModal";
 import { SidebarFilterComponent } from "./components/sidebarFilterComponent";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
@@ -166,6 +167,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [advancedEditorOpen, setAdvancedEditorOpen] = useState(false);
+  const [poseGeneratorOpen, setPoseGeneratorOpen] = useState(false);
   const [pendingCreateGroupId, setPendingCreateGroupId] = useState<string | null>(null);
   const nodes = useFlowStore((state) => state.nodes);
   const setNodes = useFlowStore((state) => state.setNodes);
@@ -399,6 +401,11 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
       });
   }, [addComponent, setAdvancedEditorOpen, setErrorData, setTypes, templates]);
 
+  const handleOpenPoseGenerator = useCallback(() => {
+    setPoseGeneratorOpen(true);
+    setAdvancedEditorOpen(false);
+  }, []);
+
   const advancedEditorItems = useMemo(
     () => [
       {
@@ -407,12 +414,22 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
         icon: "Camera",
         onClick: handleAddProCamera,
       },
+      {
+        key: "pose-generator",
+        label: "姿势生成器",
+        icon: "PersonStanding",
+        onClick: handleOpenPoseGenerator,
+      },
     ],
-    [handleAddProCamera],
+    [handleAddProCamera, handleOpenPoseGenerator],
   );
 
   return (
     <div className="noflow select-none pointer-events-none">
+      <PoseGeneratorModal
+        open={poseGeneratorOpen}
+        onOpenChange={setPoseGeneratorOpen}
+      />
       <div className="fixed left-4 top-1/2 z-50 -translate-y-1/2 pointer-events-auto">
         <div className="flex flex-col items-center gap-2 rounded-3xl border border-border bg-background/80 p-2 shadow-lg backdrop-blur">
           <Popover

@@ -18,15 +18,19 @@ type Props = {
   open: boolean;
   imageSource: string;
   onCancel: () => void;
-  onConfirm: (payload: { maskDataUrl: string; fileName: string; prompt: string }) => void | Promise<void>;
+  onConfirm: (payload: { maskDataUrl: string; fileName: string; prompt: string }) =>
+    | void
+    | Promise<void>;
   onRequestUpload?: () => void;
 };
 
 type InnerRect = { x: number; y: number; w: number; h: number };
 
-export type RepaintOverlayHandle = {
+export type EraseOverlayHandle = {
   confirm: () => void;
 };
+
+const DEFAULT_ERASE_PROMPT = "移除涂抹区域内容并自然补全背景";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -48,7 +52,7 @@ function computeContainRect(
   return { x, y, w, h };
 }
 
-const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintOverlay(
+const EraseOverlay = forwardRef<EraseOverlayHandle, Props>(function EraseOverlay(
   { open, imageSource, onCancel, onConfirm, onRequestUpload }: Props,
   ref,
 ) {
@@ -58,14 +62,19 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
   const mountedRef = useRef(false);
 
   const [renderUrl, setRenderUrl] = useState<string>("");
-  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(
+    null,
+  );
   const [innerRect, setInnerRect] = useState<InnerRect | null>(null);
   const [toolMode, setToolMode] = useState<ToolMode>("brush");
   const [brushSize, setBrushSize] = useState<number>(28);
   const [prompt, setPrompt] = useState<string>("");
   const [isConfirming, setConfirming] = useState(false);
 
-  const historyRef = useRef<{ stack: ImageData[]; index: number }>({ stack: [], index: -1 });
+  const historyRef = useRef<{ stack: ImageData[]; index: number }>({
+    stack: [],
+    index: -1,
+  });
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -255,9 +264,6 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
     } as any;
   }, [innerRect]);
 
-  // Rebuilding the display canvas from the mask avoids alpha "stacking" artifacts
-  // (multiple semi-transparent strokes overlapping becomes opaque). We throttle it
-  // to once per animation frame for smooth painting.
   const rebuildRafRef = useRef<number | null>(null);
   const scheduleRebuild = useCallback(() => {
     if (rebuildRafRef.current != null) return;
@@ -292,14 +298,14 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
       const scale = rect.width ? display.width / rect.width : 1;
       const lw = clamp(brushSize * scale, 2, 320);
 
-      const line = (
-        ctx: CanvasRenderingContext2D,
-        strokeStyle: string | CanvasPattern,
-      ) => {
+      const line = (ctx: CanvasRenderingContext2D) => {
         ctx.save();
         ctx.globalCompositeOperation =
           mode === "eraser" ? "destination-out" : "source-over";
-        ctx.strokeStyle = strokeStyle as any;
+        ctx.strokeStyle =
+          mode === "eraser"
+            ? ("rgba(0,0,0,1)" as any)
+            : ("rgba(255,255,255,1)" as any);
         ctx.lineWidth = lw;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -312,10 +318,7 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
       };
 
       // White pixels represent the masked area. Eraser uses destination-out to clear the mask.
-      line(
-        mctx,
-        mode === "eraser" ? ("rgba(0,0,0,1)" as any) : "rgba(255,255,255,1)",
-      );
+      line(mctx);
       scheduleRebuild();
     },
     [brushSize, scheduleRebuild],
@@ -330,7 +333,10 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
     if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null;
     const cx = (x / rect.width) * display.width;
     const cy = (y / rect.height) * display.height;
-    return { x: clamp(cx, 0, display.width), y: clamp(cy, 0, display.height) };
+    return {
+      x: clamp(cx, 0, display.width),
+      y: clamp(cy, 0, display.height),
+    };
   }, []);
 
   const commitSnapshot = useCallback(() => {
@@ -346,7 +352,8 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
 
     // Cap history to avoid large memory spikes.
     const MAX = 10;
-    const trimmed = nextStack.length > MAX ? nextStack.slice(nextStack.length - MAX) : nextStack;
+    const trimmed =
+      nextStack.length > MAX ? nextStack.slice(nextStack.length - MAX) : nextStack;
     const nextIndex = trimmed.length - 1;
     historyRef.current = { stack: trimmed, index: nextIndex };
     updateUndoState();
@@ -418,9 +425,12 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
       event.stopPropagation();
       const pt = eventToCanvasPoint(event);
       if (!pt) return;
-      const from = { x: drag.lastX, y: drag.lastY };
       // ToolMode is fixed per gesture: dragRef is only created for brush/eraser.
-      drawStroke(from, pt, toolMode === "eraser" ? "eraser" : "brush");
+      drawStroke(
+        { x: drag.lastX, y: drag.lastY },
+        pt,
+        toolMode === "eraser" ? "eraser" : "brush",
+      );
       drag.lastX = pt.x;
       drag.lastY = pt.y;
     },
@@ -431,13 +441,7 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
     (event: ReactPointerEvent) => {
       const drag = dragRef.current;
       if (!drag?.active) return;
-      event.preventDefault();
-      event.stopPropagation();
-      try {
-        (event.currentTarget as HTMLElement).releasePointerCapture(drag.pointerId);
-      } catch {
-        // ignore
-      }
+      if (event.pointerId !== drag.pointerId) return;
       dragRef.current = null;
       commitSnapshot();
     },
@@ -465,13 +469,16 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
 
   const handleConfirm = useCallback(async () => {
     if (isConfirming) return;
-    const safePrompt = String(prompt || "").trim();
-    if (!safePrompt) return;
     setConfirming(true);
     try {
       const maskDataUrl = exportMaskDataUrl();
       if (!maskDataUrl) return;
-      await onConfirm({ maskDataUrl, fileName: "repaint-mask.png", prompt: safePrompt });
+      // Prompt is optional; the caller will fall back to a default prompt if empty.
+      await onConfirm({
+        maskDataUrl,
+        fileName: "erase-mask.png",
+        prompt: String(prompt || "").trim(),
+      });
     } finally {
       if (mountedRef.current) setConfirming(false);
     }
@@ -511,7 +518,10 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
           >
-            <canvas ref={displayCanvasRef} className="h-full w-full touch-none select-none" />
+            <canvas
+              ref={displayCanvasRef}
+              className="h-full w-full touch-none select-none"
+            />
             <canvas ref={maskCanvasRef} className="hidden" />
           </div>
         )}
@@ -523,7 +533,7 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
               "flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
               "dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_12px_30px_rgba(0,0,0,0.28)]",
             )}
-            aria-label="重绘工具栏"
+            aria-label="擦除工具栏"
           >
             <button
               type="button"
@@ -568,7 +578,10 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
             <div className="mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15" />
 
             <div className="flex items-center gap-2">
-              <ForwardedIconComponent name="Minus" className="h-4 w-4 text-[#3C4258] opacity-70 dark:text-white/85" />
+              <ForwardedIconComponent
+                name="Minus"
+                className="h-4 w-4 text-[#3C4258] opacity-70 dark:text-white/85"
+              />
               <input
                 type="range"
                 min={6}
@@ -580,7 +593,10 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
                 aria-label="画笔粗细"
                 disabled={toolMode === "select"}
               />
-              <ForwardedIconComponent name="Plus" className="h-4 w-4 text-[#3C4258] opacity-70 dark:text-white/85" />
+              <ForwardedIconComponent
+                name="Plus"
+                className="h-4 w-4 text-[#3C4258] opacity-70 dark:text-white/85"
+              />
             </div>
 
             <div className="mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15" />
@@ -627,7 +643,7 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
             <button
               type="button"
               className="ml-1 flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-white dark:hover:bg-white/10"
-              aria-label="关闭重绘"
+              aria-label="关闭擦除"
               onClick={onCancel}
             >
               <ForwardedIconComponent name="X" className="h-5 w-5" />
@@ -643,16 +659,19 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
               "w-full overflow-hidden rounded-2xl border bg-background/95 shadow-lg backdrop-blur",
             )}
             role="region"
-            aria-label="重绘抽屉"
+            aria-label="擦除抽屉"
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="flex flex-col gap-3 p-4">
+              <div className="text-xs text-muted-foreground">
+                {"涂抹要擦除的区域；提示词可不填（将使用默认效果）。"}
+              </div>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 className="min-h-[110px] w-full resize-none rounded-xl border bg-background/60 p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-                placeholder="描述你想改变什么..."
+                placeholder={`可选：例如“去掉涂抹的文字/水印，补全背景”。留空将使用：${DEFAULT_ERASE_PROMPT}`}
               />
               <div className="flex items-center gap-3 pt-1">
                 <button
@@ -673,11 +692,11 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
                 <div className="ml-auto flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={isConfirming || !String(prompt || "").trim()}
+                    disabled={isConfirming}
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full text-white",
                       "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
-                      isConfirming || !String(prompt || "").trim()
+                      isConfirming
                         ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
                         : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
                     )}
@@ -703,4 +722,4 @@ const RepaintOverlay = forwardRef<RepaintOverlayHandle, Props>(function RepaintO
   );
 });
 
-export default RepaintOverlay;
+export default EraseOverlay;

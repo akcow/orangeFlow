@@ -8,10 +8,22 @@ export type KlingElement = {
   element_name: string;
   element_description: string;
   tag_id: string;
+  reference_type: "image_refer" | "video_refer" | string;
+  preview_file_id: string;
   frontal_file_id: string;
   refer_file_ids: string[];
+  video_file_id: string;
+  element_voice_id: string;
   created_at: string;
   updated_at: string;
+};
+
+export type KlingPresetElement = {
+  element_id: number;
+  element_name: string;
+  element_description: string;
+  reference_type: string;
+  frontal_image: string;
 };
 
 export const KLING_TAG_OPTIONS: Array<{ id: string; label: string }> = [
@@ -30,16 +42,21 @@ type KlingElementsStore = {
   loading: boolean;
   error: string | null;
   custom: KlingElement[];
+  presets: KlingPresetElement[];
 
   hydrate: () => void;
   refreshCustom: () => Promise<void>;
+  refreshPresets: () => Promise<void>;
 
   createCustom: (payload: {
     element_name: string;
     element_description: string;
-    frontal_file_id: string;
-    refer_file_ids: string[];
+    reference_type?: "image_refer" | "video_refer";
+    frontal_file_id?: string;
+    refer_file_ids?: string[];
+    video_file_id?: string;
     tag_id: string;
+    element_voice_id?: string;
   }) => Promise<KlingElement>;
 
   deleteCustom: (asset_id: string) => Promise<void>;
@@ -77,12 +94,30 @@ function normalizeList(value: unknown): KlingElement[] {
       element_name: toStr(x.element_name),
       element_description: toStr(x.element_description),
       tag_id: toStr(x.tag_id),
+      reference_type: toStr(x.reference_type) || "image_refer",
+      preview_file_id: toStr(x.preview_file_id),
       frontal_file_id: toStr(x.frontal_file_id),
       refer_file_ids: toStrArray(x.refer_file_ids),
+      video_file_id: toStr(x.video_file_id),
+      element_voice_id: toStr(x.element_voice_id),
       created_at: toStr(x.created_at),
       updated_at: toStr(x.updated_at),
     }))
     .filter((x) => x.asset_id && Number.isFinite(x.element_id));
+}
+
+function normalizePresets(value: unknown): KlingPresetElement[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((x) => ({
+      element_id: toNum(x.element_id),
+      element_name: toStr(x.element_name),
+      element_description: toStr(x.element_description),
+      reference_type: toStr(x.reference_type),
+      frontal_image: toStr(x.frontal_image),
+    }))
+    .filter((x) => Number.isFinite(x.element_id) && x.element_id > 0 && Boolean(x.element_name));
 }
 
 export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
@@ -90,11 +125,13 @@ export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
   loading: false,
   error: null,
   custom: [],
+  presets: [],
 
   hydrate: () => {
     if (get().hydrated) return;
     set({ hydrated: true });
     void get().refreshCustom();
+    void get().refreshPresets();
   },
 
   refreshCustom: async () => {
@@ -111,6 +148,21 @@ export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
       set({ custom: [], error: String(detail ?? err?.message ?? "加载主体失败") });
     } finally {
       set({ loading: false });
+    }
+  },
+
+  refreshPresets: async () => {
+    try {
+      const res = await api.get<unknown>(`${base()}/presets`, {
+        params: { page_num: 1, page_size: 200 },
+      });
+      const list = normalizePresets(res?.data);
+      set({ presets: list });
+    } catch (e: unknown) {
+      // Presets are optional; keep custom usable even if this fails.
+      const err = e as { message?: string; response?: { data?: { detail?: unknown; message?: unknown } } };
+      const detail = err?.response?.data?.detail ?? err?.response?.data?.message;
+      set({ presets: [], error: String(detail ?? err?.message ?? "加载官方主体失败") });
     }
   },
 

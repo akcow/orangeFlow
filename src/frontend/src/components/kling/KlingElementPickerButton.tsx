@@ -12,8 +12,27 @@ import {
 } from "@/components/ui/dropdown-menu";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { cn } from "@/utils/utils";
-import { type KlingElement, useKlingElementsStore } from "@/stores/klingElementsStore";
+import { type KlingElement, type KlingPresetElement, useKlingElementsStore } from "@/stores/klingElementsStore";
 import KlingElementCreateDialog from "./KlingElementCreateDialog";
+
+function presetToElement(p: KlingPresetElement): KlingElement {
+  // Downstream (nodes) only need element_id; fill the rest to satisfy the type.
+  return {
+    asset_id: `preset:${p.element_id}`,
+    element_id: p.element_id,
+    element_name: p.element_name,
+    element_description: p.element_description,
+    tag_id: "",
+    reference_type: p.reference_type || "",
+    preview_file_id: "",
+    frontal_file_id: "",
+    refer_file_ids: [],
+    video_file_id: "",
+    element_voice_id: "",
+    created_at: "",
+    updated_at: "",
+  };
+}
 
 export default function KlingElementPickerButton({
   disabled,
@@ -31,6 +50,7 @@ export default function KlingElementPickerButton({
   const loading = useKlingElementsStore((s) => s.loading);
   const error = useKlingElementsStore((s) => s.error);
   const custom = useKlingElementsStore((s) => s.custom);
+  const presets = useKlingElementsStore((s) => s.presets);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingIds, setPendingIds] = useState<number[]>([]);
@@ -44,14 +64,14 @@ export default function KlingElementPickerButton({
     const ids = Array.isArray(selectedElementIds) ? selectedElementIds : [];
     if (!ids.length) return "选择主体";
     const byId = new Map<number, KlingElement>();
-    for (const el of [...custom]) {
+    for (const el of [...custom, ...presets.map(presetToElement)]) {
       if (typeof el?.element_id === "number") byId.set(el.element_id, el);
     }
     const labels = ids.map((id) => byId.get(id)?.element_name ?? String(id));
     if (labels.length === 1) return `主体：${labels[0]}`;
     const prefix = labels.slice(0, 3).join("、");
     return `已选择 ${labels.length} 个主体：${prefix}${labels.length > 3 ? "…" : ""}`;
-  }, [custom, selectedElementIds]);
+  }, [custom, presets, selectedElementIds]);
 
   const onOpenMenu = useCallback(() => {
     hydrate();
@@ -63,7 +83,7 @@ export default function KlingElementPickerButton({
     (nextIds: number[]) => {
       const nextElements = (() => {
         const byId = new Map<number, KlingElement>();
-        for (const el of [...custom]) {
+        for (const el of [...custom, ...presets.map(presetToElement)]) {
           if (typeof el?.element_id === "number") byId.set(el.element_id, el);
         }
         return nextIds.map((id) => byId.get(id)).filter(Boolean) as KlingElement[];
@@ -73,7 +93,7 @@ export default function KlingElementPickerButton({
       onPick(nextElements, { skipSnapshot });
       didSnapshotRef.current = true;
     },
-    [custom, onPick],
+    [custom, presets, onPick],
   );
 
   const toggleId = useCallback(
@@ -139,6 +159,27 @@ export default function KlingElementPickerButton({
           )}
 
           <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs text-muted-foreground">
+            官方主体
+          </DropdownMenuLabel>
+          {presets.length === 0 ? (
+            <div className="px-2 py-1 text-xs text-muted-foreground">
+              {loading ? "加载中..." : "暂无主体"}
+            </div>
+          ) : (
+            presets.slice(0, 50).map((p) => (
+              <DropdownMenuCheckboxItem
+                key={`preset-${p.element_id}`}
+                checked={pendingIds.includes(p.element_id)}
+                onCheckedChange={() => toggleId(p.element_id)}
+                onSelect={(e) => e.preventDefault()}
+              >
+                {p.element_name}
+              </DropdownMenuCheckboxItem>
+            ))
+          )}
+
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setCreateOpen(true)} disabled={disabled}>
             <ForwardedIconComponent name="Plus" className="mr-2 h-4 w-4" />
             新建主体
@@ -153,7 +194,7 @@ export default function KlingElementPickerButton({
             setPendingIds((prev) => {
               const nextIds = prev.includes(el.element_id) ? prev : [...prev, el.element_id];
               const byId = new Map<number, KlingElement>();
-              for (const item of [...custom]) {
+              for (const item of [...custom, ...presets.map(presetToElement)]) {
                 if (typeof item?.element_id === "number") byId.set(item.element_id, item);
               }
               byId.set(el.element_id, el);

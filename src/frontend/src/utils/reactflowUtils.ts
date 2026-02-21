@@ -115,6 +115,7 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
     normalizedLower.includes("seedream") ||
     normalized.includes("即梦");
   const isKlingModel = normalizedLower.startsWith("kling");
+  const isKlingV3 = normalizedLower === "kling v3" || normalizedLower === "kling-v3";
   const isViduModel = normalizedLower.startsWith("vidu");
 
   if (isSoraModel) {
@@ -175,6 +176,16 @@ export function getImageRoleLimits(modelName: string): ImageRoleLimits {
       // "reference" here to make the default 2nd connection become "last".
       allowedRoles: ["first", "last"],
       maxTotal: 2,
+    };
+  }
+
+  if (isKlingV3) {
+    return {
+      // Kling V-series (kling-v3): image2video supports a single primary image + optional tail image.
+      // No reference images/videos.
+      allowedRoles: ["first", "last"],
+      maxTotal: 2,
+      maxReference: 0,
     };
   }
 

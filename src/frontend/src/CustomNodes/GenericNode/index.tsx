@@ -58,6 +58,8 @@ function DoubaoImageCreatorTopBar({
   canDownload,
   onRepaint,
   canRepaint,
+  onErase,
+  canErase,
   onEnhance,
   canEnhance,
   onCrop,
@@ -77,6 +79,8 @@ function DoubaoImageCreatorTopBar({
   canDownload: boolean;
   onRepaint?: () => void;
   canRepaint?: boolean;
+  onErase?: () => void;
+  canErase?: boolean;
   onEnhance?: () => void;
   canEnhance?: boolean;
   onCrop?: () => void;
@@ -166,12 +170,11 @@ function DoubaoImageCreatorTopBar({
       >
         <button
           type="button"
-          title="重绘"
           aria-label="重绘"
           disabled={!canRepaint}
           onClick={onRepaint}
           className={cn(
-            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canRepaint
               ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
               : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
@@ -183,12 +186,27 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
-          title="增强"
+          aria-label="擦除"
+          disabled={!canErase}
+          onClick={onErase}
+          className={cn(
+            "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
+            canErase
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Eraser" className="h-5 w-5" />
+          <span className="whitespace-nowrap">擦除</span>
+        </button>
+
+        <button
+          type="button"
           aria-label="增强"
           disabled={!canEnhance}
           onClick={onEnhance}
           className={cn(
-            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canEnhance
               ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
               : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
@@ -200,12 +218,11 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
-          title="多角度"
           aria-label="多角度"
           disabled={!canMultiAngleCamera}
           onClick={onMultiAngleCamera}
           className={cn(
-            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canMultiAngleCamera
               ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
               : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
@@ -217,12 +234,11 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
-          title="扩图"
           aria-label="扩图"
           disabled={!canOutpaint}
           onClick={onOutpaint}
           className={cn(
-            "flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition",
+            "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canOutpaint
               ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
               : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
@@ -243,7 +259,6 @@ function DoubaoImageCreatorTopBar({
         >
           <button
             type="button"
-            title="Logs"
             aria-label="Logs"
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
           >
@@ -253,7 +268,6 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
-          title="上传"
           aria-label="上传"
           onClick={handleUpload}
           className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
@@ -263,7 +277,6 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
-          title="放大"
           aria-label="放大"
           onClick={onOpenPreview}
           className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
@@ -273,7 +286,6 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
-          title="裁剪"
           aria-label="裁剪"
           disabled={!canCrop}
           onClick={onCrop}
@@ -289,7 +301,6 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
-          title="下载"
           aria-label="下载"
           disabled={!canDownload}
           onClick={onDownload}
@@ -1317,6 +1328,8 @@ function GenericNode({
                   canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
                   onRepaint={() => imageCreatorPreviewActions?.enterRepaint()}
                   canRepaint={Boolean(imageCreatorPreviewActions?.canRepaint)}
+                  onErase={() => imageCreatorPreviewActions?.enterErase()}
+                  canErase={Boolean(imageCreatorPreviewActions?.canErase)}
                   onEnhance={() => imageCreatorPreviewActions?.enterEnhance()}
                   canEnhance={Boolean(imageCreatorPreviewActions?.canEnhance)}
                   onCrop={() => imageCreatorPreviewActions?.enterCrop()}

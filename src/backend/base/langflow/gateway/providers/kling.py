@@ -12,9 +12,10 @@ from langflow.gateway.schemas import ImageGenerationRequest, VideoGenerationRequ
 
 
 class KlingProvider(ProviderAdapter):
-    """Adapter for Kling Omni (video + image).
+    """Adapter for Kling Omni + V-series (video) and Omni (image).
 
-    - Video: /v1/videos/omni-video
+    - Video (Omni): /v1/videos/omni-video
+    - Video (V-series): /v1/videos/text2video, /v1/videos/image2video
     - Image: /v1/images/omni-image
     """
 
@@ -36,13 +37,12 @@ class KlingProvider(ProviderAdapter):
 
     async def image_generation(self, request: ImageGenerationRequest) -> Dict[str, Any]:
         """
-        Create a Kling omni-image task, then poll until completion.
+        Create a Kling image task, then poll until completion.
 
         We accept either:
         - `extra_body.kling_payload`: a full upstream payload dict; or
         - standard gateway fields + passthrough keys in `extra_body`.
         """
-        create_url = f"{self.base_url}/v1/images/omni-image"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         extra = request.extra_body if isinstance(request.extra_body, dict) else {}
@@ -61,12 +61,17 @@ class KlingProvider(ProviderAdapter):
                 payload["resolution"] = extra["resolution"]
 
             # Passthrough official fields when present.
-            for key in ("image_list", "element_list", "callback_url", "external_task_id"):
+            for key in ("image_list", "element_list", "callback_url", "external_task_id", "image", "negative_prompt"):
                 if key in extra:
                     payload[key] = extra[key]
 
-        payload.setdefault("model_name", "kling-image-o1")
+        model_name = str(payload.get("model_name") or request.model or "kling-image-o1").strip() or "kling-image-o1"
+        payload["model_name"] = model_name
         payload.setdefault("prompt", request.prompt)
+
+        v_models = {"kling-v1", "kling-v1-5", "kling-v2", "kling-v2-new", "kling-v2-1", "kling-v3"}
+        is_v_series = model_name in v_models
+        create_url = f"{self.base_url}/v1/images/generations" if is_v_series else f"{self.base_url}/v1/images/omni-image"
 
         # Create task.
         try:
@@ -90,7 +95,11 @@ class KlingProvider(ProviderAdapter):
             raise UpstreamError(f"Missing task_id in response: {create_result}", provider="kling")
 
         # Poll status.
-        status_url = f"{self.base_url}/v1/images/omni-image/{task_id}"
+        status_url = (
+            f"{self.base_url}/v1/images/generations/{task_id}"
+            if is_v_series
+            else f"{self.base_url}/v1/images/omni-image/{task_id}"
+        )
         timeout_s = int(extra.get("timeout_s") or 600)
         poll_interval_s = float(extra.get("poll_interval_s") or 2.0)
         deadline = time.time() + max(5, timeout_s)
@@ -119,16 +128,17 @@ class KlingProvider(ProviderAdapter):
 
                     if status == "succeed":
                         task_result = data.get("task_result") if isinstance(data, dict) else None
-                        result_type = task_result.get("result_type") if isinstance(task_result, dict) else None
                         images = task_result.get("images") if isinstance(task_result, dict) else None
                         series_images = task_result.get("series_images") if isinstance(task_result, dict) else None
+                        result_type = task_result.get("result_type") if isinstance(task_result, dict) else None
 
-                        # Doc: single -> images; series -> series_images. Some upstream variants may include both.
-                        preferred: Any = None
-                        if str(result_type or "").strip().lower() == "series":
-                            preferred = series_images if isinstance(series_images, list) else images
-                        else:
-                            preferred = images if isinstance(images, list) else series_images
+                        preferred: Any = images
+                        if not is_v_series:
+                            # Omni-image: single -> images; series -> series_images. Some upstream variants may include both.
+                            if str(result_type or "").strip().lower() == "series":
+                                preferred = series_images if isinstance(series_images, list) else images
+                            else:
+                                preferred = images if isinstance(images, list) else series_images
 
                         urls: list[str] = []
                         if isinstance(preferred, list):
@@ -170,13 +180,12 @@ class KlingProvider(ProviderAdapter):
 
     async def video_generation(self, request: VideoGenerationRequest) -> Dict[str, Any]:
         """
-        Create a Kling omni-video task.
+        Create a Kling video task (Omni or V-series).
 
         We accept either:
         - `extra_body.kling_payload`: a full upstream payload dict; or
         - standard gateway fields + passthrough keys in `extra_body`.
         """
-        url = f"{self.base_url}/v1/videos/omni-video"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         extra = request.extra_body if isinstance(request.extra_body, dict) else {}
@@ -214,9 +223,23 @@ class KlingProvider(ProviderAdapter):
         payload.setdefault("model_name", "kling-video-o1")
         payload.setdefault("prompt", request.prompt)
 
+        model_name = str(payload.get("model_name") or request.model or "kling-video-o1").strip()
+        model_lower = model_name.lower()
+
+        # Route to the correct upstream endpoint.
+        # - Omni video models: kling-video-o1, kling-v3-omni
+        # - V-series models: kling-v1/v2/v3 (we currently expose kling-v3)
+        is_omni_video = model_lower in {"kling-video-o1", "kling-v3-omni"} or model_lower.endswith("-omni")
+        if is_omni_video:
+            create_url = f"{self.base_url}/v1/videos/omni-video"
+        else:
+            # V-series has separate t2v/i2v endpoints. If an image is present, use i2v.
+            has_image = any(k in payload for k in ("image", "image_tail"))
+            create_url = f"{self.base_url}/v1/videos/image2video" if has_image else f"{self.base_url}/v1/videos/text2video"
+
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(url, headers=headers, json=payload)
+                resp = await client.post(create_url, headers=headers, json=payload)
                 if resp.status_code != 200:
                     raise UpstreamError(resp.text, provider="kling", code=f"UPSTREAM_{resp.status_code}")
                 create_result = resp.json()
@@ -237,20 +260,33 @@ class KlingProvider(ProviderAdapter):
             raise UpstreamError(f"Request failed: {exc}", provider="kling")
 
     async def video_status(self, video_id: str) -> Dict[str, Any]:
-        url = f"{self.base_url}/v1/videos/omni-video/{video_id}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(url, headers=headers)
-                if resp.status_code != 200:
-                    raise UpstreamError(resp.text, provider="kling", code=f"UPSTREAM_{resp.status_code}")
-                result = resp.json()
+            # Task ids for Kling do not encode which endpoint they came from.
+            # Try Omni first, then V-series (t2v/i2v) endpoints as fallbacks.
+            urls = [
+                f"{self.base_url}/v1/videos/omni-video/{video_id}",
+                f"{self.base_url}/v1/videos/text2video/{video_id}",
+                f"{self.base_url}/v1/videos/image2video/{video_id}",
+            ]
+            last_error: UpstreamError | None = None
 
-            if isinstance(result, dict) and result.get("code") not in (None, 0, "0"):
-                raise UpstreamError(
-                    f"{result.get('message') or 'Upstream returned error'}: {result}",
-                    provider="kling",
-                )
-            return result
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                for url in urls:
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code != 200:
+                        last_error = UpstreamError(resp.text, provider="kling", code=f"UPSTREAM_{resp.status_code}")
+                        continue
+                    result = resp.json()
+                    if isinstance(result, dict) and result.get("code") not in (None, 0, "0"):
+                        raise UpstreamError(
+                            f"{result.get('message') or 'Upstream returned error'}: {result}",
+                            provider="kling",
+                        )
+                    return result
+
+            if last_error is not None:
+                raise last_error
+            raise UpstreamError("Upstream returned no response", provider="kling")
         except httpx.RequestError as exc:
             raise UpstreamError(f"Request failed: {exc}", provider="kling")

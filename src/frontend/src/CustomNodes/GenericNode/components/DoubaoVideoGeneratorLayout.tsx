@@ -162,6 +162,11 @@ const MODEL_LIMITS: Record<
     maxDuration: 15,
     enableLastFrame: true,
   },
+  "kling V3": {
+    minDuration: 3,
+    maxDuration: 15,
+    enableLastFrame: true,
+  },
   "viduq3-pro": {
     minDuration: 1,
     maxDuration: 16,
@@ -370,12 +375,17 @@ export default function DoubaoVideoGeneratorLayout({
   const isKlingModel = normalizedModelName.toLowerCase().startsWith("kling");
   const klingModelLower = normalizedModelName.trim().toLowerCase();
   const isKlingO3 = isKlingModel && (klingModelLower === "kling o3" || klingModelLower === "kling-v3-omni");
+  const isKlingV3 = isKlingModel && (klingModelLower === "kling v3" || klingModelLower === "kling-v3");
+  const isKlingMultiShotModel = isKlingO3 || isKlingV3;
   const klingMultiShotEnabled = useMemo(() => {
-    if (!isKlingO3) return false;
+    if (!isKlingMultiShotModel) return false;
     const field: any = (template as any).kling_multi_shot;
     const raw = field?.value ?? field?.default ?? false;
-    return raw === true || String(raw).trim().toLowerCase() === "true";
-  }, [isKlingO3, template]);
+    if (raw === true) return true;
+    if (raw === false) return false;
+    const s = String(raw).trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes";
+  }, [isKlingMultiShotModel, template]);
   const klingElementIdsValue = String(template.kling_element_ids?.value ?? "").trim();
   const selectedKlingElementIds = useMemo(() => {
     const raw = String(klingElementIdsValue || "");
@@ -411,7 +421,7 @@ export default function DoubaoVideoGeneratorLayout({
       : isVeoModel
         ? VEO_MAX_UPLOADS
         : isKlingModel
-          ? KLING_MAX_UPLOADS
+          ? (isKlingV3 ? 1 : KLING_MAX_UPLOADS)
           : isViduQ2Pro
             ? 6
             : isViduModel
@@ -970,9 +980,9 @@ export default function DoubaoVideoGeneratorLayout({
     );
   }, [allowLastFrame, data.id, isKlingModel, setNodes, template]);
 
-  // Multi-shot fields were introduced later for kling O3; older saved flows may not have them in the template.
+  // Multi-shot fields were introduced later for kling O3/V3; older saved flows may not have them in the template.
   useEffect(() => {
-    if (!isKlingO3) return;
+    if (!isKlingMultiShotModel) return;
     const hasMultiShot = Boolean((template as any).kling_multi_shot);
     const hasShotType = Boolean((template as any).kling_shot_type);
     const hasMultiPrompt = Boolean((template as any).kling_multi_prompt);
@@ -998,7 +1008,7 @@ export default function DoubaoVideoGeneratorLayout({
         };
       }),
     );
-  }, [data.id, isKlingO3, setNodes, template]);
+  }, [data.id, isKlingMultiShotModel, setNodes, template]);
   const hasAnyConnection = useMemo(
     () => edges.some((edge) => edge.source === data.id || edge.target === data.id),
     [edges, data.id],
@@ -1471,6 +1481,24 @@ export default function DoubaoVideoGeneratorLayout({
       let value = templateField.value;
       let disabledOptions: Array<string | number> | undefined;
 
+      // Backward-compat: some saved flows persist gateway model ids instead of display names.
+      if (field.name === "model_name") {
+        const normalizedValue = String(value ?? "").trim().toLowerCase();
+        const normalizedOptions = options.map((opt) => String(opt).trim());
+        if (
+          normalizedValue === "kling-v3-omni" &&
+          normalizedOptions.some((opt) => opt.toLowerCase() === "kling o3")
+        ) {
+          value = "kling O3";
+        }
+        if (
+          normalizedValue === "kling-v3" &&
+          normalizedOptions.some((opt) => opt.toLowerCase() === "kling v3")
+        ) {
+          value = "kling V3";
+        }
+      }
+
       if (field.name === "duration") {
         const rangeOptions = buildRangeOptions(templateField);
         options = rangeOptions.length ? rangeOptions : DEFAULT_DURATION_OPTIONS;
@@ -1526,7 +1554,7 @@ export default function DoubaoVideoGeneratorLayout({
           // - kling O3: 3-15; with reference video (feature): 3-10
           // - kling O1: keep historical UI constraint (some t2v/首帧场景仅 5/10)
           let allowedDurations: number[] = [];
-          if (isKlingO3) {
+          if (isKlingO3 || isKlingV3) {
             const max = klingHasVideoInput ? 10 : 15;
             allowedDurations = Array.from({ length: max - 2 }, (_, idx) => idx + 3); // 3..max
           } else {
@@ -1796,7 +1824,8 @@ export default function DoubaoVideoGeneratorLayout({
       // Wan t2v/i2v: `audio_url` controls audio behavior (omit => auto; set => use provided).
       // Wan r2v docs do not expose audio_url, so we hide the toggle to avoid a placebo option.
       ((normalizedModelName === "wan2.5" || normalizedModelName === "wan2.6") && wanMode !== "r2v") ||
-      isKlingO3),
+      isKlingO3 ||
+      isKlingV3),
   );
 
   const modelNameConfigWithPreserve = useMemo(() => {
@@ -4639,7 +4668,7 @@ export default function DoubaoVideoGeneratorLayout({
                   <DoubaoParameterButton data={data} config={modelNameConfigWithPreserve} />
                 )}
 
-                {(aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingO3) ? (
+                {(aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingMultiShotModel) ? (
                   <DoubaoVideoGeneratorResolutionAspectDurationButton
                     data={data}
                     aspectRatioConfig={aspectRatioConfig}

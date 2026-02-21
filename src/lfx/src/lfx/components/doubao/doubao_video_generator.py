@@ -64,8 +64,10 @@ class DoubaoVideoGenerator(Component):
         "sora-2-pro": "sora-2-pro",
         "kling O1": "kling-video-o1",
         "kling O3": "kling-v3-omni",
+        "kling V3": "kling-v3",
         # Backward-compatible: accept gateway model id as a saved value
         "kling-v3-omni": "kling-v3-omni",
+        "kling-v3": "kling-v3",
         # Vidu (direct API)
         "viduq2-pro": "viduq2-pro",
         "viduq3-pro": "viduq3-pro",
@@ -83,6 +85,7 @@ class DoubaoVideoGenerator(Component):
         "sora-2-pro",
         "kling O1",
         "kling O3",
+        "kling V3",
         "viduq2-pro",
         "viduq3-pro",
     ]
@@ -91,6 +94,7 @@ class DoubaoVideoGenerator(Component):
         "Doubao-Seedance-1.5-pro｜251215": "Seedance 1.5 pro",
         "Doubao-Seedance-1.0-pro｜250528": "Seedance 1.0 pro",
         "kling-v3-omni": "kling O3",
+        "kling-v3": "kling V3",
     }
 
     MODEL_LIMITS = {
@@ -187,6 +191,15 @@ class DoubaoVideoGenerator(Component):
             "supports_last_frame": True,
             "supports_reference_images": True,
             "supports_reference_videos": True,
+            "supported_ratios": ["16:9", "9:16", "1:1"],
+        },
+        "kling V3": {
+            "resolutions": ["720p", "1080p"],
+            "min_duration": 3,
+            "max_duration": 15,
+            "supports_last_frame": True,  # image_tail
+            "supports_reference_images": True,
+            "supports_reference_videos": False,
             "supported_ratios": ["16:9", "9:16", "1:1"],
         },
         "viduq3-pro": {
@@ -624,9 +637,9 @@ class DoubaoVideoGenerator(Component):
 
         # Vidu allows "prompt" to be optional for img2video when is_rec=true.
         endpoint_id: str | None = self.MODEL_MAPPING.get(model_name)
-        kling_multi_shot = bool(getattr(self, "kling_multi_shot", False))
+        kling_multi_shot = self._parse_boolish(getattr(self, "kling_multi_shot", False))
         kling_multi_shot_enabled = bool(
-            kling_multi_shot and str(endpoint_id or "").strip().lower() == "kling-v3-omni"
+            kling_multi_shot and str(endpoint_id or "").strip().lower() in {"kling-v3-omni", "kling-v3"}
         )
 
         if (
@@ -709,6 +722,34 @@ class DoubaoVideoGenerator(Component):
                     return
 
         if is_kling:
+            model_lower = model_value.strip().lower()
+            is_v3 = model_lower in {"kling v3", "kling-v3"}
+            is_o3 = model_lower in {"kling o3", "kling-v3-omni"}
+
+            # kling V3 is image-only. Hide video-edit/reference-video controls and forbid video uploads.
+            if is_v3:
+                refer_type = "feature"
+                if "kling_video_refer_type" in build_config:
+                    build_config["kling_video_refer_type"]["show"] = False
+                    build_config["kling_video_refer_type"]["value"] = "feature"
+                if "kling_keep_original_sound" in build_config:
+                    build_config["kling_keep_original_sound"]["show"] = False
+
+                if "first_frame_image" in build_config:
+                    build_config["first_frame_image"]["file_types"] = [
+                        "png",
+                        "jpg",
+                        "jpeg",
+                        "webp",
+                        "bmp",
+                        "gif",
+                        "tiff",
+                    ]
+                    build_config["first_frame_image"]["fileTypes"] = build_config["first_frame_image"]["file_types"]
+                    build_config["first_frame_image"]["info"] = (
+                        "kling V3ï¼šä»…æ”¯æŒ?å›¾ç”Ÿè§†é¢‘ï¼Œä¸æ”¯æŒ?å‚è€ƒè§†é¢‘/è§†é¢‘ç¼–è¾‘ã€‚"
+                    )
+
             # Resolution is not a Kling parameter.
             if "resolution" in build_config:
                 build_config["resolution"]["show"] = False
@@ -716,7 +757,7 @@ class DoubaoVideoGenerator(Component):
             # Aspect ratio: only 16:9 / 9:16 / 1:1.
             if "aspect_ratio" in build_config:
                 # Video editing mode outputs with the input video's aspect; this knob is irrelevant.
-                build_config["aspect_ratio"]["show"] = refer_type != "base"
+                build_config["aspect_ratio"]["show"] = is_v3 or (refer_type != "base")
                 build_config["aspect_ratio"]["options"] = list(self.KLING_SUPPORTED_RATIOS)
                 # Clear metadata to avoid stale icons/labels.
                 build_config["aspect_ratio"]["options_metadata"] = []
@@ -730,9 +771,8 @@ class DoubaoVideoGenerator(Component):
             # Duration: O1=3-10; O3=3-15 (video-reference mode may further restrict to 3-10).
             if "duration" in build_config:
                 # If user selected video editing (base), duration is ignored by upstream.
-                build_config["duration"]["show"] = refer_type != "base"
-                is_o3 = model_value.strip().lower() in {"kling o3", "kling-v3-omni"}
-                max_dur = 15 if is_o3 else 10
+                build_config["duration"]["show"] = is_v3 or (refer_type != "base")
+                max_dur = 15 if (is_o3 or is_v3) else 10
                 # Frontend expects `range_spec` (snake_case).
                 build_config["duration"]["range_spec"] = {"min": 3, "max": max_dur, "step": 1, "step_type": "int"}
                 try:
@@ -3007,6 +3047,20 @@ class DoubaoVideoGenerator(Component):
                     continue
         return out
 
+    @staticmethod
+    def _parse_boolish(value: Any) -> bool:
+        if value is True:
+            return True
+        if value is False or value is None:
+            return False
+        s = str(value).strip().lower()
+        if s in {"1", "true", "yes", "y", "on"}:
+            return True
+        if s in {"0", "false", "no", "n", "off", ""}:
+            return False
+        # Best-effort: non-empty values are treated as enabled.
+        return True
+
     def _collect_kling_media(self) -> dict[str, Any]:
         """Collect Kling image_list/video_list inputs from FileInput(s).
 
@@ -3170,12 +3224,13 @@ class DoubaoVideoGenerator(Component):
         return {"image_list": image_list, "video_list": video_list}
 
     def _build_video_kling_gateway(self, *, prompt: str, endpoint_id: str) -> Data:
-        """Kling Omni-Video (kling-video-o1 / kling-v3-omni) via hosted gateway."""
+        """Kling video generation via hosted gateway (Omni-Video + V-series)."""
         try:
             from langflow.gateway.client import videos_create
 
             kling_model_name = str(endpoint_id or "").strip() or "kling-video-o1"
             is_o3 = kling_model_name.lower() == "kling-v3-omni"
+            is_v3 = kling_model_name.lower() == "kling-v3"
 
             # Kling uses aspect_ratio (16:9, 9:16, 1:1) and duration.
             resolution = str(getattr(self, "resolution", "") or "").strip()
@@ -3183,7 +3238,7 @@ class DoubaoVideoGenerator(Component):
             ratio = raw_ratio if raw_ratio in {"16:9", "9:16", "1:1"} else "16:9"
 
             raw_duration = int(getattr(self, "duration", 5) or 5)
-            duration_max = 15 if is_o3 else 10
+            duration_max = 15 if (is_o3 or is_v3) else 10
             duration = max(3, min(raw_duration, duration_max))
 
             mode = str(getattr(self, "kling_mode", "pro") or "pro").strip() or "pro"
@@ -3196,6 +3251,176 @@ class DoubaoVideoGenerator(Component):
 
             enable_audio = bool(getattr(self, "enable_audio", True))
             sound = "on" if enable_audio else "off"
+
+            if is_v3:
+                # V-series (kling-v3): only supports text2video/image2video (no reference video / video editing).
+                entries = self._collect_multimodal_inputs("first_frame_image")
+                has_video = False
+                for entry in entries:
+                    url = str(entry.get("url") or "").strip()
+                    if not url:
+                        continue
+                    if entry.get("kind") == "video" or self._is_video_url(url):
+                        has_video = True
+                        break
+                last_frame_url = self._extract_image_url(getattr(self, "last_frame_image", None))
+                if isinstance(last_frame_url, str) and last_frame_url.strip() and self._is_video_url(last_frame_url):
+                    has_video = True
+                if has_video:
+                    return self._error("kling V3ï¼šä¸æ”¯æŒ?å‚è€ƒè§†é¢‘/è§†é¢‘ç¼–è¾‘ï¼Œè¯·ç§»é™¤è§†é¢‘è¾“å…¥ã€‚")
+
+                # Pick the primary image from first_frame_image (role-aware).
+                first_url: str | None = None
+                tail_url: str | None = None
+                for entry in entries:
+                    if entry.get("kind") != "image":
+                        continue
+                    if str(entry.get("role") or "").strip().lower() == "first":
+                        u = str(entry.get("url") or "").strip()
+                        if u:
+                            first_url = u
+                            break
+                if not first_url:
+                    for entry in entries:
+                        if entry.get("kind") != "image":
+                            continue
+                        u = str(entry.get("url") or "").strip()
+                        if u:
+                            first_url = u
+                            break
+
+                # Tail frame: prefer the dedicated input; fall back to any "last" role image in first_frame_image.
+                if isinstance(last_frame_url, str) and last_frame_url.strip():
+                    tail_url = last_frame_url.strip()
+                else:
+                    for entry in entries:
+                        if entry.get("kind") != "image":
+                            continue
+                        if str(entry.get("role") or "").strip().lower() == "last":
+                            u = str(entry.get("url") or "").strip()
+                            if u:
+                                tail_url = u
+                                break
+
+                # Enforce V-series media shape: only 1 primary image + optional tail image.
+                primary_images: list[str] = []
+                for entry in entries:
+                    if entry.get("kind") != "image":
+                        continue
+                    role = str(entry.get("role") or "").strip().lower()
+                    if role == "last":
+                        continue
+                    u = str(entry.get("url") or "").strip()
+                    if u:
+                        primary_images.append(u)
+                primary_images_unique = list(dict.fromkeys(primary_images))
+                if len(primary_images_unique) > 1:
+                    return self._error("kling V3ï¼šé¦–å¸§å‚è€ƒå›¾ä»…æ”¯æŒ? 1 å¼ ï¼Œå°¾å¸§è¯·ç”¨å°¾å¸§è¾“å…¥ï¼ˆimage_tailï¼‰ã€‚")
+
+                element_ids = self._parse_int_list(getattr(self, "kling_element_ids", None))
+                element_list = [{"element_id": eid} for eid in element_ids]
+                callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
+                external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
+
+                kling_multi_shot = self._parse_boolish(getattr(self, "kling_multi_shot", False))
+                shot_type = str(getattr(self, "kling_shot_type", "") or "customize").strip() or "customize"
+                raw_multi_prompt = getattr(self, "kling_multi_prompt", "[]")
+
+                # multi-shot prompt parsing (same constraints as O3 docs).
+                multi_prompt: list[dict[str, Any]] | None = None
+                if kling_multi_shot:
+                    import json
+
+                    label = "kling V3"
+                    if isinstance(raw_multi_prompt, list):
+                        parsed = raw_multi_prompt
+                    else:
+                        raw_text = str(raw_multi_prompt or "[]").strip() or "[]"
+                        parsed = json.loads(raw_text)
+                    if not isinstance(parsed, list):
+                        raise ValueError(f"{label}ï¼šmulti_prompt å¿…é¡»æ˜¯æ•°ç»„ JSONã€‚")
+                    if not (1 <= len(parsed) <= 6):
+                        raise ValueError(f"{label}ï¼šmulti_prompt åˆ†é•œæ•°é‡å¿…é¡»ä¸º 1-6ã€‚")
+
+                    normalized: list[dict[str, Any]] = []
+                    total = 0
+                    for idx, item in enumerate(parsed, start=1):
+                        if not isinstance(item, dict):
+                            raise ValueError(f"{label}ï¼šmulti_prompt æ¯é¡¹å¿…é¡»æ˜¯å¯¹è±¡ã€‚")
+                        prompt_i = str(item.get("prompt") or "").strip()
+                        if not prompt_i:
+                            raise ValueError(f"{label}ï¼šç¬¬ {idx} ä¸ªåˆ†é•œ prompt ä¸èƒ½ä¸ºç©ºã€‚")
+                        if len(prompt_i) > 512:
+                            raise ValueError(f"{label}ï¼šç¬¬ {idx} ä¸ªåˆ†é•œ prompt ä¸èƒ½è¶…è¿‡ 512 å­—ç¬¦ã€‚")
+                        try:
+                            dur_i = int(str(item.get("duration") or "").strip() or 0)
+                        except Exception:
+                            dur_i = 0
+                        if dur_i < 1:
+                            raise ValueError(f"{label}ï¼šç¬¬ {idx} ä¸ªåˆ†é•œ duration å¿…é¡» >= 1ã€‚")
+                        total += dur_i
+                        normalized.append(
+                            {
+                                "index": int(item.get("index") or idx),
+                                "prompt": prompt_i,
+                                "duration": str(dur_i),
+                            }
+                        )
+
+                    if total != int(duration):
+                        raise ValueError(f"{label}ï¼šmulti_prompt å„åˆ†é•œ duration ä¹‹å’Œå¿…é¡»ç­‰äºŽæ€»æ—¶é•¿ durationã€‚")
+                    multi_prompt = normalized
+
+                if (not kling_multi_shot) and (not str(prompt or "").strip()):
+                    return self._error("kling V3ï¼šprompt ä¸èƒ½ä¸ºç©ºï¼ˆå¼€å¯å¤šé•œå¤´æ¨¡å¼?æ—¶é™¤å¤–ï¼‰ã€‚")
+
+                kling_payload: dict[str, Any] = {
+                    "model_name": kling_model_name,
+                    "prompt": "" if kling_multi_shot else prompt,
+                    "mode": mode,
+                    "sound": sound,
+                    "aspect_ratio": ratio,
+                    "duration": str(duration),
+                }
+                if first_url:
+                    kling_payload["image"] = first_url
+                if tail_url:
+                    kling_payload["image_tail"] = tail_url
+                if kling_multi_shot:
+                    kling_payload["multi_shot"] = True
+                    kling_payload["shot_type"] = shot_type
+                    kling_payload["multi_prompt"] = multi_prompt or []
+                if element_list:
+                    kling_payload["element_list"] = element_list
+                if callback_url:
+                    kling_payload["callback_url"] = callback_url
+                if external_task_id:
+                    kling_payload["external_task_id"] = external_task_id
+
+                gateway_prompt = "" if kling_multi_shot else prompt
+                create = videos_create(
+                    model=endpoint_id,
+                    prompt=gateway_prompt,
+                    duration=duration,
+                    ratio=ratio,
+                    extra_body={"kling_payload": kling_payload},
+                    user_id=str(getattr(self, "user_id", "") or "") or None,
+                )
+                task_id = str(create.get("id") or "").strip()
+                if not task_id:
+                    return self._error(f"Gateway did not return task id: {create}")
+
+                return self._poll_gateway_video(
+                    task_id=task_id,
+                    prompt=prompt,
+                    endpoint_id=endpoint_id,
+                    model_display_name=str(self.model_name or endpoint_id),
+                    resolution=resolution,
+                    duration=duration,
+                    aspect_ratio=ratio,
+                    max_wait=900,
+                    poll_interval=3,
+                )
 
             media = self._collect_kling_media()
             image_list = media["image_list"]
@@ -3227,7 +3452,7 @@ class DoubaoVideoGenerator(Component):
             callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
             external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
 
-            kling_multi_shot = bool(getattr(self, "kling_multi_shot", False))
+            kling_multi_shot = self._parse_boolish(getattr(self, "kling_multi_shot", False))
             shot_type = str(getattr(self, "kling_shot_type", "") or "customize").strip() or "customize"
             raw_multi_prompt = getattr(self, "kling_multi_prompt", "[]")
 

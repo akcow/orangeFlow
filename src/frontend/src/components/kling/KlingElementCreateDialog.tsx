@@ -27,6 +27,22 @@ import { getURL } from "@/controllers/API/helpers/constants";
 
 type UploadedV2File = { id: string; name: string; path: string; size: number };
 
+function isSupportedKlingImage(file: File): boolean {
+  // Kling "advanced-custom-elements" doc: jpg/jpeg/png only.
+  const type = String(file.type || "").toLowerCase();
+  if (type === "image/jpeg" || type === "image/jpg" || type === "image/png") return true;
+  const name = String(file.name || "").toLowerCase();
+  return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png");
+}
+
+function isSupportedKlingVideo(file: File): boolean {
+  // Kling doc: MP4/MOV only.
+  const type = String(file.type || "").toLowerCase();
+  if (type === "video/mp4" || type === "video/quicktime") return true;
+  const name = String(file.name || "").toLowerCase();
+  return name.endsWith(".mp4") || name.endsWith(".mov");
+}
+
 async function uploadV2File(file: File): Promise<UploadedV2File> {
   const fd = new FormData();
   fd.append("file", file);
@@ -79,6 +95,7 @@ export default function KlingElementCreateDialog({
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [tagId, setTagId] = useState<string>("o_108");
+  const [referenceType, setReferenceType] = useState<"image_refer" | "video_refer">("image_refer");
 
   const [frontalFile, setFrontalFile] = useState<File | null>(null);
   const [referFiles, setReferFiles] = useState<Array<File | null>>([
@@ -86,6 +103,10 @@ export default function KlingElementCreateDialog({
     null,
     null,
   ]);
+
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const videoPreview = useObjectUrl(videoFile);
+  const [voiceId, setVoiceId] = useState("");
 
   const frontalPreview = useObjectUrl(frontalFile);
   const [referPreviews, setReferPreviews] = useState<string[]>([]);
@@ -112,22 +133,27 @@ export default function KlingElementCreateDialog({
   );
 
   const canSubmit = useMemo(() => {
+    const baseOk = name.trim().length > 0 && desc.trim().length > 0 && Boolean(tagId);
+    if (!baseOk) return false;
+    if (referenceType === "video_refer") {
+      return Boolean(videoFile);
+    }
     return (
-      name.trim().length > 0 &&
-      desc.trim().length > 0 &&
       Boolean(frontalFile) &&
       referFilledCount >= 1 &&
-      referFilledCount <= 3 &&
-      Boolean(tagId)
+      referFilledCount <= 3
     );
-  }, [name, desc, frontalFile, referFilledCount, tagId]);
+  }, [name, desc, tagId, referenceType, videoFile, frontalFile, referFilledCount]);
 
   const reset = useCallback(() => {
     setName("");
     setDesc("");
     setTagId("o_108");
+    setReferenceType("image_refer");
     setFrontalFile(null);
     setReferFiles([null, null, null]);
+    setVideoFile(null);
+    setVoiceId("");
     setSubmitting(false);
     setError(null);
   }, []);
@@ -143,14 +169,28 @@ export default function KlingElementCreateDialog({
   const onPickFrontal = useCallback((file: File | null) => {
     if (!file) return;
     setError(null);
+    if (!isSupportedKlingImage(file)) {
+      setError("仅支持 JPG/JPEG/PNG 图片");
+      return;
+    }
     setFrontalFile(file);
+  }, []);
+
+  const onPickVideo = useCallback((file: File | null) => {
+    if (!file) return;
+    setError(null);
+    if (!isSupportedKlingVideo(file)) {
+      setError("仅支持 MP4/MOV 视频");
+      return;
+    }
+    setVideoFile(file);
   }, []);
 
   const pickSingleFile = useCallback(async () => {
     return await new Promise<File | null>((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = "image/*";
+      input.accept = "image/png,image/jpeg";
       input.multiple = false;
       input.onchange = () => resolve(input.files?.[0] ?? null);
       input.click();
@@ -161,7 +201,7 @@ export default function KlingElementCreateDialog({
     return await new Promise<File[]>((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = "image/*";
+      input.accept = "image/png,image/jpeg";
       input.multiple = true;
       input.onchange = () => resolve(Array.from(input.files ?? []).slice(0, 3));
       input.click();
@@ -173,6 +213,10 @@ export default function KlingElementCreateDialog({
       const file = await pickSingleFile();
       if (!file) return;
       setError(null);
+      if (!isSupportedKlingImage(file)) {
+        setError("仅支持 JPG/JPEG/PNG 图片");
+        return;
+      }
       setReferFiles((prev) => {
         const next = [...prev];
         // Keep "first other reference image" in slot1 container whenever possible.
@@ -206,6 +250,11 @@ export default function KlingElementCreateDialog({
     if (!referFiles[0]) {
       const files = await pickMultipleFiles();
       if (!files.length) return;
+      const bad = files.find((f) => !isSupportedKlingImage(f));
+      if (bad) {
+        setError("仅支持 JPG/JPEG/PNG 图片");
+        return;
+      }
       const next: Array<File | null> = [null, null, null];
       files.forEach((f, idx) => {
         next[idx] = f;
@@ -224,19 +273,33 @@ export default function KlingElementCreateDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const frontalUp = await uploadV2File(frontalFile!);
-      const referUps = [];
-      for (const f of referFiles.filter(Boolean) as File[]) {
-        referUps.push(await uploadV2File(f));
-      }
+      let created: KlingElement;
+      if (referenceType === "video_refer") {
+        const videoUp = await uploadV2File(videoFile!);
+        created = await createCustom({
+          element_name: name.trim(),
+          element_description: desc.trim(),
+          reference_type: "video_refer",
+          video_file_id: videoUp.id,
+          tag_id: tagId,
+          element_voice_id: voiceId.trim() ? voiceId.trim() : undefined,
+        });
+      } else {
+        const frontalUp = await uploadV2File(frontalFile!);
+        const referUps = [];
+        for (const f of referFiles.filter(Boolean) as File[]) {
+          referUps.push(await uploadV2File(f));
+        }
 
-      const created = await createCustom({
-        element_name: name.trim(),
-        element_description: desc.trim(),
-        frontal_file_id: frontalUp.id,
-        refer_file_ids: referUps.map((x) => x.id),
-        tag_id: tagId,
-      });
+        created = await createCustom({
+          element_name: name.trim(),
+          element_description: desc.trim(),
+          reference_type: "image_refer",
+          frontal_file_id: frontalUp.id,
+          refer_file_ids: referUps.map((x) => x.id),
+          tag_id: tagId,
+        });
+      }
 
       onCreated?.(created);
       handleClose(false);
@@ -247,7 +310,7 @@ export default function KlingElementCreateDialog({
       setSubmitting(false);
       submitLockRef.current = false;
     }
-  }, [canSubmit, submitting, frontalFile, referFiles, createCustom, name, desc, tagId, onCreated, handleClose]);
+  }, [canSubmit, submitting, referenceType, videoFile, voiceId, frontalFile, referFiles, createCustom, name, desc, tagId, onCreated, handleClose]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -259,94 +322,169 @@ export default function KlingElementCreateDialog({
 
           <div className="mt-6 grid grid-cols-[560px_1fr] gap-10">
             <div>
-              <div className="text-sm font-medium">主体正面参考图（必填）</div>
-              <div className="mt-3">
-                <label
-                  className={cn(
-                    "relative flex h-[160px] w-[220px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
-                    frontalFile && "border-border/80",
-                  )}
+              <div className="mb-4 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={referenceType === "image_refer" ? "secondary" : "outline"}
+                  className="h-10 px-4"
+                  onClick={() => {
+                    setError(null);
+                    setReferenceType("image_refer");
+                    setVideoFile(null);
+                    setVoiceId("");
+                  }}
                 >
-                  {frontalPreview ? (
-                    <img src={frontalPreview} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="text-[13px] text-muted-foreground">点击上传</div>
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => onPickFrontal(e.target.files?.[0] ?? null)}
-                  />
-                </label>
-
-                <div className="mt-2 text-xs text-muted-foreground">
-                  支持 JPG/PNG/WebP；大小 10MB；宽高 300px；建议：正面清晰、主体完整。
-                </div>
+                  图片定制
+                </Button>
+                <Button
+                  type="button"
+                  variant={referenceType === "video_refer" ? "secondary" : "outline"}
+                  className="h-10 px-4"
+                  onClick={() => {
+                    setError(null);
+                    setReferenceType("video_refer");
+                    setFrontalFile(null);
+                    setReferFiles([null, null, null]);
+                  }}
+                >
+                  视频定制
+                </Button>
               </div>
 
-              <div className="mt-7 text-sm font-medium">
-                主体其他参考图（必填，1-3张）
-              </div>
-              <div className="mt-3 flex items-start gap-4">
-                {/* slot 1 */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    className="relative flex h-[180px] w-[260px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
-                    onClick={() => void handlePickReferSlot1()}
-                  >
-                    {referPreviews[0] ? (
-                      <img src={referPreviews[0]} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="text-[13px] text-muted-foreground">点击上传</div>
-                    )}
-                  </button>
-                  {referFiles[0] && (
-                    <button
-                      type="button"
-                      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-black/55 text-white opacity-90 hover:bg-black/70"
-                      onClick={() => deleteReferAt(0)}
-                      title="删除"
+              {referenceType === "video_refer" ? (
+                <div>
+                  <div className="text-sm font-medium">主体参考视频（必填，1段）</div>
+                  <div className="mt-3">
+                    <label
+                      className={cn(
+                        "relative flex h-[220px] w-[420px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
+                        videoFile && "border-border/80",
+                      )}
                     >
-                      ×
-                    </button>
-                  )}
-                </div>
+                      {videoPreview ? (
+                        <video src={videoPreview} className="h-full w-full object-cover" controls />
+                      ) : (
+                        <div className="text-[13px] text-muted-foreground">点击上传</div>
+                      )}
+                      <input
+                        type="file"
+                        accept="video/mp4,video/quicktime"
+                        className="hidden"
+                        onChange={(e) => onPickVideo(e.target.files?.[0] ?? null)}
+                      />
+                    </label>
 
-                {/* slot 2/3 */}
-                <div className="flex flex-col gap-4">
-                  {[1, 2].map((idx) => (
-                    <div key={idx} className="relative">
+                    {videoFile && (
+                      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                        <div className="truncate pr-2">{videoFile.name}</div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setVideoFile(null)}
+                        >
+                          清除
+                        </Button>
+                      </div>
+                    )}
+
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      仅支持 MP4/MOV；3-8秒；1080P；16:9 或 9:16；最大 200MB。
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-sm font-medium">主体正面参考图（必填）</div>
+                  <div className="mt-3">
+                    <label
+                      className={cn(
+                        "relative flex h-[160px] w-[220px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
+                        frontalFile && "border-border/80",
+                      )}
+                    >
+                      {frontalPreview ? (
+                        <img src={frontalPreview} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="text-[13px] text-muted-foreground">点击上传</div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg"
+                        className="hidden"
+                        onChange={(e) => onPickFrontal(e.target.files?.[0] ?? null)}
+                      />
+                    </label>
+
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      支持 JPG/JPEG/PNG；大小 10MB；宽高 300px；建议：正面清晰、主体完整。
+                    </div>
+                  </div>
+
+                  <div className="mt-7 text-sm font-medium">
+                    主体其他参考图（必填，1-3张）
+                  </div>
+                  <div className="mt-3 flex items-start gap-4">
+                    {/* slot 1 */}
+                    <div className="relative">
                       <button
                         type="button"
-                        className="relative flex h-[150px] w-[200px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
-                        onClick={() => void replaceReferAt(idx)}
+                        className="relative flex h-[180px] w-[260px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
+                        onClick={() => void handlePickReferSlot1()}
                       >
-                        {referPreviews[idx] ? (
-                          <img src={referPreviews[idx]} className="h-full w-full object-cover" />
+                        {referPreviews[0] ? (
+                          <img src={referPreviews[0]} className="h-full w-full object-cover" />
                         ) : (
                           <div className="text-[13px] text-muted-foreground">点击上传</div>
                         )}
                       </button>
-                      {referFiles[idx] && (
+                      {referFiles[0] && (
                         <button
                           type="button"
                           className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-black/55 text-white opacity-90 hover:bg-black/70"
-                          onClick={() => deleteReferAt(idx)}
+                          onClick={() => deleteReferAt(0)}
                           title="删除"
                         >
                           ×
                         </button>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
 
-              <div className="mt-3 text-sm text-muted-foreground">
-                必须有正面和侧面（至少 1 张其他参考图）。
-              </div>
+                    {/* slot 2/3 */}
+                    <div className="flex flex-col gap-4">
+                      {[1, 2].map((idx) => (
+                        <div key={idx} className="relative">
+                          <button
+                            type="button"
+                            className="relative flex h-[150px] w-[200px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
+                            onClick={() => void replaceReferAt(idx)}
+                          >
+                            {referPreviews[idx] ? (
+                              <img src={referPreviews[idx]} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="text-[13px] text-muted-foreground">点击上传</div>
+                            )}
+                          </button>
+                          {referFiles[idx] && (
+                            <button
+                              type="button"
+                              className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-black/55 text-white opacity-90 hover:bg-black/70"
+                              onClick={() => deleteReferAt(idx)}
+                              title="删除"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 text-sm text-muted-foreground">
+                    必须有正面和侧面（至少 1 张其他参考图）。
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-6">
@@ -379,6 +517,21 @@ export default function KlingElementCreateDialog({
                   </SelectContent>
                 </Select>
               </div>
+
+              {referenceType === "video_refer" && (
+                <div>
+                  <div className="mb-2 text-sm font-medium">绑定音色ID（可选）</div>
+                  <Input
+                    value={voiceId}
+                    onChange={(e) => setVoiceId(e.target.value)}
+                    placeholder="填写音色库中的 voice_id"
+                    className="h-11"
+                  />
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    仅视频定制主体支持绑定音色。
+                  </div>
+                </div>
+              )}
 
               <div>
                 <div className="mb-2 text-sm font-medium">主体描述（必填）</div>

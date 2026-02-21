@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any
+import uuid
 from uuid import uuid4
 
 import requests
@@ -120,6 +121,13 @@ class DoubaoImageCreator(Component):
             "model_id": "kling-v3-omni",
             # Official docs: image_list + element_list <= 10
             "max_reference_images": 10,
+            "supports_image_size": False,
+        },
+        "kling V3": {
+            "provider": "kling",
+            "model_id": "kling-v3",
+            # Official docs: one reference image (image) + element_list <= 10
+            "max_reference_images": 1,
             "supports_image_size": False,
         },
         "千问-图像编辑 · Max": {
@@ -308,6 +316,24 @@ class DoubaoImageCreator(Component):
             info="Internal: wanx2.1-imageedit function name for tool-driven runs (hidden).",
         ),
         StrInput(
+            name="tool_wan_base_image_path",
+            display_name="Tool Wan Base Image Path",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: storage path for wanx base image (hidden).",
+        ),
+        StrInput(
+            name="tool_wan_mask_image_path",
+            display_name="Tool Wan Mask Image Path",
+            value="",
+            advanced=True,
+            show=False,
+            required=False,
+            info="Internal: storage path for wanx mask image (hidden).",
+        ),
+        StrInput(
             name="tool_enhance_resolution",
             display_name="Tool Enhance Resolution",
             value="4k",
@@ -440,7 +466,8 @@ class DoubaoImageCreator(Component):
 
         is_kling_o1 = model_value == "kling O1"
         is_kling_o3 = model_value == "kling O3"
-        is_kling = is_kling_o1 or is_kling_o3 or model_value.lower().startswith("kling")
+        is_kling_v3 = model_value == "kling V3"
+        is_kling = is_kling_o1 or is_kling_o3 or is_kling_v3 or model_value.lower().startswith("kling")
 
         # Helper: restore a field back to its static definition (keeps current value).
         def _restore_field_defaults(field: str) -> None:
@@ -462,10 +489,8 @@ class DoubaoImageCreator(Component):
 
             # Hide unrelated knobs (other providers).
             for f in (
-                "negative_prompt",
                 "seed",
                 "prompt_extend",
-                "watermark",
                 "enable_multi_turn",
                 "enable_google_search",
                 "ak",
@@ -479,9 +504,28 @@ class DoubaoImageCreator(Component):
                 if f in build_config:
                     build_config[f]["show"] = False
 
+            # Kling V3 supports negative_prompt (text-to-image only) + watermark_info.
+            if "negative_prompt" in build_config:
+                build_config["negative_prompt"]["show"] = bool(is_kling_v3)
+                build_config["negative_prompt"]["info"] = (
+                    "仅 kling V3：负向提示词（图生图时会自动忽略）。"
+                    if is_kling_v3
+                    else "wan/dashscope 模型可选：不希望在图像中出现的内容。"
+                )
+            if "watermark" in build_config:
+                build_config["watermark"]["show"] = bool(is_kling_v3)
+                build_config["watermark"]["info"] = (
+                    "仅 kling V3：是否同时生成含水印的结果（映射到 watermark_info.enabled）。"
+                    if is_kling_v3
+                    else "wan/dashscope 模型可选：添加“AI生成”水印。"
+                )
+
             # Resolution: follow official enum; some models may support a subset.
             if "resolution" in build_config:
-                options = ["1K（草稿）", "2K（推荐）"] if is_kling_o1 else ["1K（草稿）", "2K（推荐）", "4K（超清）"]
+                if is_kling_o1 or is_kling_v3:
+                    options = ["1K（草稿）", "2K（推荐）"]
+                else:
+                    options = ["1K（草稿）", "2K（推荐）", "4K（超清）"]
                 build_config["resolution"]["options"] = options
                 val = str(build_config["resolution"].get("value") or (options[1] if len(options) > 1 else options[0])).strip()
                 if val not in set(options):
@@ -489,18 +533,32 @@ class DoubaoImageCreator(Component):
                 build_config["resolution"]["info"] = (
                     "kling O1：resolution 枚举为 1k/2k（UI 显示为 1K/2K）。"
                     if is_kling_o1
+                    else "kling V3：resolution 枚举为 1k/2k（UI 显示为 1K/2K）。"
+                    if is_kling_v3
                     else "kling O3：resolution 枚举为 1k/2k/4k（不同模型版本支持范围可能不同）。"
                 )
 
-            # Aspect ratio: keep 'adaptive' (maps to upstream 'auto') and add 21:9.
+            # Aspect ratio:
+            # - O1/O3: keep 'adaptive' (maps to upstream 'auto') and add 21:9.
+            # - V3: expose "adaptive" in UI; when selected we will derive an explicit ratio from the reference image
+            #   (or fall back to the default) since V-series doesn't document an "auto" enum.
             if "aspect_ratio" in build_config:
-                options = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9", "adaptive"]
+                options = (
+                    ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9", "adaptive"]
+                    if is_kling_v3
+                    else ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9", "adaptive"]
+                )
                 build_config["aspect_ratio"]["options"] = options
                 build_config["aspect_ratio"]["options_metadata"] = []
-                val = str(build_config["aspect_ratio"].get("value") or "adaptive").strip()
+                default_ratio = "16:9" if is_kling_v3 else "adaptive"
+                val = str(build_config["aspect_ratio"].get("value") or default_ratio).strip()
                 if val not in set(options):
-                    build_config["aspect_ratio"]["value"] = "adaptive"
-                build_config["aspect_ratio"]["info"] = "kling O1/O3：支持 21:9；UI 的 adaptive 会映射为上游的 auto。"
+                    build_config["aspect_ratio"]["value"] = default_ratio
+                build_config["aspect_ratio"]["info"] = (
+                    "kling V3：支持“自适应”（有参考图则推导显式比例；否则回退为上游 aspect_ratio=auto）。"
+                    if is_kling_v3
+                    else "kling O1/O3：支持 21:9；UI 的 adaptive 会映射为上游的 auto。"
+                )
 
             # Image count: 1-9.
             if "image_count" in build_config:
@@ -517,7 +575,11 @@ class DoubaoImageCreator(Component):
             # Reference images: jpg/jpeg/png only.
             if "reference_images" in build_config:
                 build_config["reference_images"]["file_types"] = ["jpg", "jpeg", "png"]
-                build_config["reference_images"]["info"] = "仅 kling O1/O3：支持 jpg/jpeg/png；单图 ≤10MB；参考图 + 主体数量之和 ≤10。"
+                build_config["reference_images"]["info"] = (
+                    "仅 kling V3：最多上传 1 张参考图（映射到 image）；单图 ≤10MB；参考图 + 主体数量之和 ≤10。"
+                    if is_kling_v3
+                    else "仅 kling O1/O3：支持 jpg/jpeg/png；单图 ≤10MB；参考图 + 主体数量之和 ≤10。"
+                )
 
         else:
             # Hide Kling-only fields when switching away.
@@ -695,6 +757,17 @@ class DoubaoImageCreator(Component):
             return self._error(str(exc))
 
         if is_kling:
+            model_id = str(model_meta.get("model_id") or "").strip()
+            if model_id and model_id.startswith("kling-v") and model_id != "kling-v3-omni":
+                return self._build_images_kling_v_gateway(
+                    prompt=prompt,
+                    model_meta=model_meta,
+                    resolution=resolution,
+                    aspect_ratio=aspect_ratio,
+                    image_count=image_count,
+                    reference_payloads=reference_payloads,
+                    reference_meta=reference_meta,
+                )
             return self._build_images_kling_gateway(
                 prompt=prompt,
                 model_meta=model_meta,
@@ -939,10 +1012,25 @@ class DoubaoImageCreator(Component):
                 function_name = "description_edit_with_mask"
 
             # We use reference_images[0] as base image, reference_images[1] as mask image.
-            reference_payloads, reference_meta = self._prepare_reference_images(
-                max_reference_images=2,
-                allowed_extensions=set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS),
-            )
+            allowed_exts = set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS)
+            explicit_base = str(getattr(self, "tool_wan_base_image_path", "") or "").strip()
+            explicit_mask = str(getattr(self, "tool_wan_mask_image_path", "") or "").strip()
+            # Prefer the actual FileInput field so ParamHandler can resolve StorageService keys
+            # to full local paths using the vertex's configured storage service. Fall back to
+            # explicit tool paths only if needed.
+            try:
+                reference_payloads, reference_meta = self._prepare_reference_images(
+                    max_reference_images=2,
+                    allowed_extensions=allowed_exts,
+                )
+            except Exception:
+                reference_payloads, reference_meta = [], []
+            if len(reference_payloads) < 2 and explicit_base and explicit_mask:
+                reference_payloads, reference_meta = self._prepare_reference_images_from_value(
+                    [explicit_base, explicit_mask],
+                    max_reference_images=2,
+                    allowed_extensions=allowed_exts,
+                )
             if len(reference_payloads) < 2:
                 return self._error("重绘需要 2 张参考图（原图 + 遮罩图）。")
 
@@ -1655,6 +1743,42 @@ class DoubaoImageCreator(Component):
         return v if v in allowed else "auto"
 
     @staticmethod
+    def _nearest_kling_aspect_ratio(*, width: int, height: int) -> str | None:
+        """Return the nearest explicit aspect_ratio enum given reference image dimensions."""
+        try:
+            w = int(width)
+            h = int(height)
+        except Exception:
+            return None
+        if w <= 0 or h <= 0:
+            return None
+
+        target = float(w) / float(h)
+        candidates = {
+            "16:9": 16 / 9,
+            "9:16": 9 / 16,
+            "1:1": 1.0,
+            "4:3": 4 / 3,
+            "3:4": 3 / 4,
+            "3:2": 3 / 2,
+            "2:3": 2 / 3,
+            "21:9": 21 / 9,
+        }
+        return min(candidates.keys(), key=lambda k: abs(candidates[k] - target))
+
+    def _resolve_kling_adaptive_aspect_ratio(self, reference_payloads: list[str]) -> str | None:
+        """Best-effort aspect ratio inference from the first reference image (data URL)."""
+        if not reference_payloads:
+            return None
+        data_url = reference_payloads[0]
+        if not isinstance(data_url, str) or not data_url.strip():
+            return None
+        width, height = self._get_image_dimensions_from_data_url(data_url)
+        if width is None or height is None:
+            return None
+        return self._nearest_kling_aspect_ratio(width=width, height=height)
+
+    @staticmethod
     def _strip_data_url_to_base64(value: str) -> str:
         """Kling image_list expects base64 string or an accessible URL; strip data-url prefix when present."""
         v = str(value or "").strip()
@@ -1680,7 +1804,11 @@ class DoubaoImageCreator(Component):
             from langflow.gateway.client import images_generations
 
             kling_resolution = self._map_kling_resolution(resolution)
-            kling_ratio = self._map_kling_aspect_ratio(aspect_ratio)
+            # "adaptive": derive explicit ratio from reference image; fallback to "auto".
+            if str(aspect_ratio or "").strip().lower() == "adaptive":
+                kling_ratio = self._resolve_kling_adaptive_aspect_ratio(reference_payloads) or "auto"
+            else:
+                kling_ratio = self._map_kling_aspect_ratio(aspect_ratio)
 
             image_list: list[dict[str, Any]] = []
             for payload in reference_payloads:
@@ -1805,6 +1933,172 @@ class DoubaoImageCreator(Component):
             )
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Gateway kling image failed: {exc}")
+
+    def _build_images_kling_v_gateway(
+        self,
+        *,
+        prompt: str,
+        model_meta: dict[str, Any],
+        resolution: str,
+        aspect_ratio: str,
+        image_count: int,
+        reference_payloads: list[str],
+        reference_meta: list[dict[str, Any]],
+    ) -> Data:
+        """Kling V-series (kling-v*) image generation via hosted gateway."""
+        try:
+            from langflow.gateway.client import images_generations
+
+            if len(str(prompt or "")) > 2500:
+                return self._error("kling V3：prompt 不能超过 2500 个字符。")
+
+            model_id = str(model_meta.get("model_id") or "kling-v3").strip() or "kling-v3"
+            # Doc: resolution enum is 1k/2k for V-series.
+            kling_resolution = self._map_kling_resolution(resolution)
+            if kling_resolution not in {"1k", "2k"}:
+                kling_resolution = "2k"
+
+            # V-series aspect_ratio enum is explicit; we also support UI "adaptive" by deriving
+            # the nearest explicit ratio from the reference image when available; fallback to "auto".
+            allowed_ratios = {"16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9", "auto"}
+            ratio_raw = str(aspect_ratio or "").strip()
+
+            # Doc: single reference image field "image".
+            image_value = ""
+            if reference_payloads:
+                image_value = self._strip_data_url_to_base64(reference_payloads[0])
+
+            if ratio_raw.lower() == "adaptive":
+                ratio = self._resolve_kling_adaptive_aspect_ratio(reference_payloads) or "auto"
+            else:
+                ratio = ratio_raw
+                if ratio.lower() == "auto":
+                    ratio = "auto"
+                if ratio not in allowed_ratios:
+                    ratio = "16:9"
+
+            element_ids = self._parse_int_list(getattr(self, "kling_element_ids", None))
+            element_list = [{"element_id": eid} for eid in element_ids]
+
+            if (1 if image_value else 0) + len(element_list) > 10:
+                return self._error("kling V3：参考图（image）与主体（element_list）数量之和不得超过 10。")
+
+            callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
+            external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
+
+            negative_prompt = str(getattr(self, "negative_prompt", "") or "").strip()
+            # Doc: i2i (image present) does not support negative_prompt -> ignore (per user decision).
+            if image_value:
+                negative_prompt = ""
+            if negative_prompt and len(negative_prompt) > 2500:
+                return self._error("kling V3：negative_prompt 不能超过 2500 个字符。")
+
+            kling_payload: dict[str, Any] = {
+                "model_name": model_id,
+                "prompt": prompt,
+                "resolution": kling_resolution,
+                "n": int(image_count),
+                "aspect_ratio": ratio,
+            }
+            if negative_prompt:
+                kling_payload["negative_prompt"] = negative_prompt
+            if image_value:
+                kling_payload["image"] = image_value
+            if element_list:
+                kling_payload["element_list"] = element_list
+
+            # Doc: watermark_info.enabled
+            if bool(getattr(self, "watermark", False)):
+                kling_payload["watermark_info"] = {"enabled": True}
+
+            if callback_url:
+                kling_payload["callback_url"] = callback_url
+            if external_task_id:
+                kling_payload["external_task_id"] = external_task_id
+
+            response = images_generations(
+                model=model_id,
+                prompt=prompt,
+                n=int(image_count),
+                size="1024x1024",
+                response_format="url",
+                extra_body={"kling_payload": kling_payload},
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+
+            response_data = (response or {}).get("data") or []
+            if not isinstance(response_data, list) or not response_data:
+                return self._error(f"Gateway returned no images: {response}")
+
+            images: list[dict[str, Any]] = []
+            preview_gallery: list[dict[str, Any]] = []
+
+            for index, entry in enumerate(response_data):
+                if not isinstance(entry, dict):
+                    continue
+                image_url = entry.get("url") or entry.get("image_url")
+                if not isinstance(image_url, str) or not image_url.strip():
+                    continue
+                image_url = image_url.strip()
+
+                preview_data, preview_error = self._download_preview(image_url)
+                image_record: dict[str, Any] = {
+                    "index": index,
+                    "image_url": image_url,
+                    "resolution": kling_resolution,
+                    "aspect_ratio": ratio,
+                }
+                if preview_data:
+                    image_record["image_data_url"] = preview_data
+                if preview_error:
+                    image_record["preview_error"] = preview_error
+                images.append(image_record)
+
+                preview_gallery.append(
+                    {
+                        "index": index,
+                        "image_url": image_url,
+                        "image_data_url": preview_data,
+                        "ratio": ratio,
+                    }
+                )
+
+            generated_at = datetime.now(timezone.utc).isoformat()
+            preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
+            doubao_preview = {
+                "token": preview_token,
+                "kind": "image",
+                "available": bool(preview_gallery),
+                "generated_at": generated_at,
+                "payload": {
+                    "images": preview_gallery,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": model_id},
+                    "resolution": kling_resolution,
+                    "aspect_ratio": ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                    "element_list": element_list,
+                },
+            }
+
+            return Data(
+                data={
+                    "provider": "gateway",
+                    "images": images,
+                    "prompt": prompt,
+                    "model": {"name": self.model_name, "model_id": model_id},
+                    "resolution": kling_resolution,
+                    "aspect_ratio": ratio,
+                    "count": image_count,
+                    "reference_images": reference_meta,
+                    "provider_response": (response or {}).get("provider_response"),
+                    "doubao_preview": doubao_preview,
+                },
+                type="image",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway kling v-image failed: {exc}")
 
     def _build_images_wan_gateway(
         self,
@@ -3244,6 +3538,18 @@ class DoubaoImageCreator(Component):
             path_value = self._extract_file_path(item)
             if not path_value:
                 continue
+
+            # StorageService keys are typically "{uuid}/{filename}", but on Windows some
+            # callers persist them as "{uuid}\\{filename}". Normalize so `get_full_path()`
+            # fallback works cross-platform.
+            if "\\" in path_value and "/" not in path_value:
+                head, tail = path_value.split("\\", 1)
+                try:
+                    uuid.UUID(str(head))
+                except Exception:
+                    pass
+                else:
+                    path_value = f"{head}/{tail.replace('\\', '/')}"
 
             resolved = self.resolve_path(path_value)
             file_path = Path(resolved)

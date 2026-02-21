@@ -1328,6 +1328,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
 
       const modelName = getDoubaoVideoModelName(targetNode);
       const isTargetKling = modelName.toLowerCase().startsWith("kling");
+      const isTargetKlingV3 = ["kling v3", "kling-v3"].includes(modelName.trim().toLowerCase());
 
       const isVideoBridgeEdge =
         targetFieldName === IMAGE_ROLE_FIELD &&
@@ -1423,6 +1424,17 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         const addingVideo = Boolean(connectingToFirstFrame && isVideoBridgeEdge);
         const addingImage =
           Boolean(connectingToFirstFrame && !isVideoBridgeEdge) || Boolean(connectingToLastFrame);
+
+        // Kling V3 (V-series): forbid any video inputs (no reference video / video editing).
+        const isVideoSourceForKlingV3 =
+          resolvedSourceType === "UserUploadVideo" || sourceNode?.data?.type === IMAGE_ROLE_TARGET;
+        if (isTargetKlingV3 && (connectingToFirstFrame || connectingToLastFrame) && isVideoSourceForKlingV3) {
+          setErrorData({
+            title: "Unsupported connection",
+            list: ["kling V3：不支持参考视频/视频编辑输入，请连接图片（首帧/尾帧）或移除视频连接。"],
+          });
+          return oldEdges;
+        }
 
         if (connectingToLastFrame && hasExistingLastFrame) {
           setErrorData({

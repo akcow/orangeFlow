@@ -107,6 +107,8 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     .toLowerCase();
   const isVidu = modelRaw.startsWith("vidu");
   const isKlingO3 = modelRaw === "kling o3" || modelRaw === "kling-v3-omni";
+  const isKlingV3 = modelRaw === "kling v3" || modelRaw === "kling-v3";
+  const isKlingMultiShotModel = isKlingO3 || isKlingV3;
   const klingMultiShotField = template?.kling_multi_shot ?? null;
   const klingMultiShotEnabled = useMemo(() => {
     const raw = klingMultiShotField?.value ?? klingMultiShotField?.default ?? false;
@@ -766,7 +768,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
             </div>
           )}
 
-          {isKlingO3 && klingMultiShotField && (
+          {isKlingMultiShotModel && klingMultiShotField && (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
                 多镜头模式

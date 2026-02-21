@@ -89,6 +89,13 @@ const MULTI_TURN_FIELD = "enable_multi_turn";
 const ONLINE_SEARCH_FIELD = "enable_google_search";
 const MAX_REFERENCE_IMAGES = 14;
 
+// Keep this local to avoid cross-module coupling issues. This layout only needs image_count formatting.
+function formatImageCountValue(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? `${n}X` : `${value}X`;
+}
+
 const SLASH_QUICK_FEATURES = [
   {
     id: "multi_cam_grid",
@@ -714,7 +721,9 @@ export default function DoubaoImageCreatorLayout({
   } | null>(null);
   const [isMultiAngleEditorOpen, setMultiAngleEditorOpen] = useState(false);
   const [isRepaintEditorOpen, setRepaintEditorOpen] = useState(false);
-  const isToolEditorOpen = isMultiAngleEditorOpen || isRepaintEditorOpen;
+  const [isEraseEditorOpen, setEraseEditorOpen] = useState(false);
+  const isToolEditorOpen =
+    isMultiAngleEditorOpen || isRepaintEditorOpen || isEraseEditorOpen;
   const lockedPlusSide = quickAddMenu?.kind
     ? (quickAddMenu.kind === "input" ? "left" : "right")
     : null;
@@ -820,6 +829,7 @@ export default function DoubaoImageCreatorLayout({
       previewActionsRef.current = actions;
       setMultiAngleEditorOpen(Boolean(actions?.isMultiAngleCameraOpen));
       setRepaintEditorOpen(Boolean(actions?.isRepaintOpen));
+      setEraseEditorOpen(Boolean(actions?.isEraseOpen));
       onPreviewActionsChange?.(actions);
     },
     [onPreviewActionsChange],
@@ -1144,7 +1154,7 @@ export default function DoubaoImageCreatorLayout({
     handleResolutionChange,
   ]);
 
-  const effectiveDisableRun = disableRun && !isRepaintEditorOpen;
+  const effectiveDisableRun = disableRun && !isRepaintEditorOpen && !isEraseEditorOpen;
 
   const handleRun = () => {
     if (buildStatus === BuildStatus.BUILDING) {
@@ -1158,6 +1168,11 @@ export default function DoubaoImageCreatorLayout({
     const previewActions = previewActionsRef.current;
     if (previewActions?.isRepaintOpen) {
       previewActions.runRepaint?.();
+      return;
+    }
+
+    if (previewActions?.isEraseOpen) {
+      previewActions.runErase?.();
       return;
     }
 
@@ -2698,6 +2713,9 @@ export default function DoubaoImageCreatorLayout({
                 testIdComplement={`${data.type?.toLowerCase()}-preview-handle`}
                 proxy={referenceHandleMeta.proxy}
                 uiVariant="plus"
+                // While tool editors (repaint/erase/multi-angle) are open, don't allow any
+                // ReactFlow handle interactions (drag/connect/menu) from the preview handles.
+                disablePointerEvents={isToolEditorOpen}
                 visible={
                   !isToolEditorOpen &&
                   (selected || visiblePlusSide === "left" || lockedPlusSide === "left")
@@ -2826,6 +2844,9 @@ export default function DoubaoImageCreatorLayout({
                     proxy={handle.proxy}
                     colorName={handle.colorName}
                     uiVariant="plus"
+                    // While tool editors (repaint/erase/multi-angle) are open, don't allow any
+                    // ReactFlow handle interactions (drag/connect/menu) from the preview handles.
+                    disablePointerEvents={isToolEditorOpen}
                     visible={
                       !isToolEditorOpen &&
                       (selected || visiblePlusSide === "right" || lockedPlusSide === "right")
@@ -3149,7 +3170,7 @@ export default function DoubaoImageCreatorLayout({
                         )}
                         title="生成张数：点击切换；Shift+点击打开下拉选择"
                       >
-                        {formatControlValue("image_count", imageCountButton.current)}
+                        {formatImageCountValue(imageCountButton.current)}
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -3170,7 +3191,7 @@ export default function DoubaoImageCreatorLayout({
                           }}
                           className="text-sm"
                         >
-                          {formatControlValue("image_count", opt)}
+                          {formatImageCountValue(opt)}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuContent>
