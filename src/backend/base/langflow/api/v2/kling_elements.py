@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from typing import Any, Annotated
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlmodel import col, select
 
+from langflow.api.schemas import UploadFileResponse
 from langflow.api.utils import CurrentActiveUser, DbSession
 from langflow.services.database.models.user_asset.model import UserAsset
 from langflow.services.deps import get_settings_service, get_storage_service
@@ -72,7 +73,7 @@ def _resolve_kling_api_key() -> str:
     # Return 400 (not 401) so the UI doesn't misinterpret it as a login problem.
     raise HTTPException(
         status_code=HTTPStatus.BAD_REQUEST,
-        detail="未配置 KLING_API_KEY（或 provider credentials: kling）。请先配置后再创建/删除主体。",
+        detail="未配置 KLING_API_KEY（或 provider credentials: kling）。请先配置后再创建/删除主体或智能补齐。",
     )
 
 
@@ -219,6 +220,167 @@ async def _kling_request(
     return payload.get("data") if isinstance(payload, dict) else payload
 
 
+def _resolve_gemini_api_key() -> str:
+    key = (
+        _normalize_key(os.getenv("GEMINI_API_KEY"))
+        or _normalize_key(os.getenv("GOOGLE_API_KEY"))
+        or _load_provider_credentials_key(providers=["gemini", "google"])
+    )
+    if key:
+        return key
+    raise HTTPException(
+        status_code=HTTPStatus.BAD_REQUEST,
+        detail="未配置 GEMINI_API_KEY/GOOGLE_API_KEY（或 provider credentials: gemini/google）。请先配置后再使用智能描述。",
+    )
+
+
+def _resolve_gemini_base_url() -> str:
+    # Keep consistent with gateway Gemini provider and canvas_assistant.
+    return str(
+        os.getenv("GEMINI_API_BASE") or os.getenv("GEMINI_API_BASE_URL") or "https://new.12ai.org/v1beta"
+    ).rstrip("/")
+
+
+def _extract_gemini_text(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return ""
+    first = candidates[0]
+    if not isinstance(first, dict):
+        return ""
+    content = first.get("content")
+    if not isinstance(content, dict):
+        return ""
+    parts = content.get("parts")
+    if not isinstance(parts, list) or not parts:
+        return ""
+    texts: list[str] = []
+    for p in parts:
+        if not isinstance(p, dict):
+            continue
+        t = p.get("text")
+        if isinstance(t, str) and t.strip():
+            texts.append(t.strip())
+    return "\n".join(texts).strip()
+
+
+def _guess_image_mime_from_filename(filename: str) -> str:
+    lower = (filename or "").lower()
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return "image/jpeg"
+    if lower.endswith(".png"):
+        return "image/png"
+    # Default to PNG: safe for most image bytes we store.
+    return "image/png"
+
+
+async def _load_file_bytes_as_base64_and_mime(
+    *,
+    file_id: uuid.UUID,
+    current_user: Any,
+    session: Any,
+    storage_service: StorageService,
+    max_bytes: int = 12 * 1024 * 1024,
+) -> tuple[str, str]:
+    """Load a user file as base64 + mimeType for Gemini inlineData."""
+
+    # Import lazily to avoid heavy deps at module import.
+    from langflow.services.database.models.file.model import File as UserFile
+
+    row = await session.get(UserFile, file_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"File not found: {file_id}")
+    if row.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You don't have access to this file")
+
+    file_path = str(row.path or "")
+    if "/" not in file_path:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    prefix, filename = file_path.split("/", 1)
+    try:
+        flow_id = str(uuid.UUID(prefix))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid file path") from exc
+    if not filename:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    try:
+        file_stream = await storage_service.get_file(flow_id=flow_id, file_name=filename)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found") from None
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {exc}") from exc
+
+    if isinstance(file_stream, bytes):
+        data = bytes(file_stream)
+    elif hasattr(file_stream, "__aiter__"):
+        buf = bytearray()
+        async for chunk in file_stream:
+            buf.extend(chunk)
+            if max_bytes and len(buf) > int(max_bytes):
+                raise HTTPException(status_code=413, detail="图片过大，请更换更小的图片后再试。")
+        data = bytes(buf)
+    elif hasattr(file_stream, "read"):
+        try:
+            data = await file_stream.read()
+        except TypeError:
+            data = file_stream.read()
+        if not isinstance(data, (bytes, bytearray)):
+            raise HTTPException(status_code=500, detail="Invalid file stream read() result")
+        data = bytes(data)
+    else:
+        raise HTTPException(status_code=500, detail="Unsupported file stream type")
+
+    if not data:
+        raise HTTPException(status_code=400, detail="图片为空，请重新上传后再试。")
+    if max_bytes and len(data) > int(max_bytes):
+        raise HTTPException(status_code=413, detail="图片过大，请更换更小的图片后再试。")
+
+    return base64.b64encode(data).decode("ascii"), _guess_image_mime_from_filename(filename)
+
+
+async def _gemini_generate_content(
+    *,
+    model: str,
+    parts: list[dict[str, Any]],
+    temperature: float = 0.2,
+    max_output_tokens: int = 256,
+    timeout_s: float = 60.0,
+) -> str:
+    api_key = _resolve_gemini_api_key()
+    base_url = _resolve_gemini_base_url()
+    url = f"{base_url}/models/{model}:generateContent"
+    params = {"key": api_key}
+    headers = {"Content-Type": "application/json"}
+    body: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {"temperature": float(temperature), "maxOutputTokens": int(max_output_tokens)},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=float(timeout_s)) as client:
+            resp = await client.post(url, headers=headers, params=params, json=body)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=f"Gemini 请求失败: {exc}") from exc
+
+    if resp.status_code != 200:
+        body_txt = (resp.text or "").strip()
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_GATEWAY,
+            detail=f"Gemini 上游返回 HTTP {resp.status_code}" + (f": {body_txt[:500]}" if body_txt else ""),
+        )
+
+    try:
+        payload = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=f"Gemini 返回非 JSON: {resp.text[:500]}") from exc
+
+    text = _extract_gemini_text(payload)
+    return str(text or "").strip()
+
+
 async def _poll_kling_task(
     *,
     task_id: str,
@@ -251,6 +413,126 @@ async def _poll_kling_task(
         status_code=HTTPStatus.GATEWAY_TIMEOUT,
         detail=f"主体创建超时，请稍后刷新重试（task_id={task_id}, last_status={last_status or 'unknown'}）",
     )
+
+
+async def _poll_kling_multi_shot_task(
+    *,
+    task_id: str,
+    timeout_s: float = 120.0,
+) -> dict[str, Any]:
+    """Poll Kling /v1/general/ai-multi-shot task until it reaches a terminal state."""
+
+    deadline = _now() + timedelta(seconds=float(timeout_s))
+    sleep_s = 1.2
+    last_status = ""
+    while _now() < deadline:
+        data = await _kling_request(method="GET", path=f"/v1/general/ai-multi-shot/{task_id}")
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Kling returned invalid task payload")
+
+        status = str(data.get("task_status") or "").strip()
+        last_status = status or last_status
+        if status in ("succeed", "failed"):
+            return data
+
+        await asyncio.sleep(min(max(sleep_s, 0.2), 5.0))
+        sleep_s = min(sleep_s * 1.4, 5.0)
+
+    raise HTTPException(
+        status_code=HTTPStatus.GATEWAY_TIMEOUT,
+        detail=f"智能补齐主体图超时，请稍后重试（task_id={task_id}, last_status={last_status or 'unknown'}）",
+    )
+
+
+def _extract_multi_shot_urls(task: dict[str, Any]) -> list[str]:
+    task_result = task.get("task_result") if isinstance(task.get("task_result"), dict) else {}
+    images = task_result.get("images") if isinstance(task_result.get("images"), list) else []
+
+    out: list[tuple[int, str]] = []
+    for item in images:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
+        try:
+            idx = int(item.get("index") if item.get("index") is not None else 0)
+        except Exception:
+            idx = 0
+        out.append((idx, url))
+    out.sort(key=lambda x: x[0])
+    return [u for _i, u in out]
+
+
+def _guess_image_ext(*, url: str, content_type: str | None) -> str:
+    ct = str(content_type or "").lower().split(";", 1)[0].strip()
+    if ct in ("image/jpeg", "image/jpg"):
+        return ".jpg"
+    if ct == "image/png":
+        return ".png"
+
+    try:
+        path = urlparse(url).path or ""
+    except Exception:
+        path = ""
+    lower = path.lower()
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return ".jpg"
+    if lower.endswith(".png"):
+        return ".png"
+    return ".png"
+
+
+async def _download_image_bytes(*, url: str) -> tuple[bytes, str]:
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            resp = await client.get(url)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=f"下载生成图片失败：{exc}") from exc
+
+    if resp.status_code < 200 or resp.status_code >= 300:
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=f"下载生成图片失败：HTTP {resp.status_code}")
+
+    data = bytes(resp.content or b"")
+    if not data:
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="下载生成图片失败：内容为空")
+    if len(data) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="下载生成图片失败：图片过大")
+
+    ext = _guess_image_ext(url=url, content_type=resp.headers.get("Content-Type"))
+    return data, ext
+
+
+async def _persist_user_image_file(
+    *,
+    session: Any,
+    current_user: Any,
+    storage_service: StorageService,
+    data: bytes,
+    ext: str,
+) -> Any:
+    """Save bytes to storage and insert a File row for the current user."""
+
+    # Import lazily to avoid heavy deps at module import.
+    from langflow.services.database.models.file.model import File as UserFile
+
+    file_id = uuid.uuid4()
+    root = f"kling_multi_shot_{file_id.hex}"
+    safe_ext = ext if ext in (".png", ".jpg") else ".png"
+    stored_file_name = f"{root}{safe_ext}"
+
+    await storage_service.save_file(flow_id=str(current_user.id), file_name=stored_file_name, data=data)
+    size = await storage_service.get_file_size(flow_id=str(current_user.id), file_name=stored_file_name)
+
+    row = UserFile(
+        id=file_id,
+        user_id=current_user.id,
+        name=root,
+        path=f"{current_user.id}/{stored_file_name}",
+        size=int(size or 0),
+    )
+    session.add(row)
+    return row
 
 
 class KlingElementCreateRequest(BaseModel):
@@ -291,6 +573,30 @@ class KlingPresetElementRead(BaseModel):
 
 class KlingElementDeleteRequest(BaseModel):
     asset_id: uuid.UUID
+
+
+class KlingSmartFillRequest(BaseModel):
+    """智能补齐主体图：只给一张正面图，生成 1-3 张其他角度参考图，并落盘到用户文件库。"""
+
+    frontal_file_id: uuid.UUID
+    # UI 用于“只补空位”：传需要补齐的张数（1-3）。
+    need: int = Field(3, ge=1, le=3)
+    timeout_s: float = Field(120.0, ge=5.0, le=600.0)
+
+
+class KlingSmartFillResponse(BaseModel):
+    task_id: str
+    files: list[UploadFileResponse]
+
+
+class KlingSmartDescribeRequest(BaseModel):
+    file_ids: list[uuid.UUID] = Field(..., description="Images to analyze: frontal + refer images (1-4).")
+    user_description: str | None = Field(None, max_length=200, description="Optional user draft to optimize.")
+    timeout_s: float = Field(60.0, ge=5.0, le=180.0)
+
+
+class KlingSmartDescribeResponse(BaseModel):
+    description: str
 
 
 router = APIRouter(prefix="/library/kling-elements", tags=["Kling Elements"])
@@ -622,6 +928,130 @@ async def create_custom_element(
     await session.commit()
     await session.refresh(asset)
     return _asset_to_read(asset)
+
+
+@router.post("/smart-fill", response_model=KlingSmartFillResponse, status_code=HTTPStatus.OK)
+async def smart_fill_element_images(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+    payload: KlingSmartFillRequest,
+):
+    """智能补齐主体图（只补空位的张数由 need 控制）。"""
+
+    frontal_b64 = await _load_file_bytes_as_base64(
+        file_id=payload.frontal_file_id,
+        current_user=current_user,
+        session=session,
+        storage_service=storage_service,
+    )
+
+    created_task = await _kling_request(
+        method="POST",
+        path="/v1/general/ai-multi-shot",
+        json={
+            "element_frontal_image": frontal_b64,
+            # Keep a traceable id for debugging.
+            "external_task_id": str(payload.frontal_file_id),
+        },
+    )
+    if not isinstance(created_task, dict) or not created_task.get("task_id"):
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Kling returned invalid create task payload")
+
+    task_id = str(created_task.get("task_id"))
+    task = await _poll_kling_multi_shot_task(task_id=task_id, timeout_s=float(payload.timeout_s))
+    task_status = str(task.get("task_status") or "")
+    if task_status == "failed":
+        msg = str(task.get("task_status_msg") or "智能补齐主体图失败").strip()
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=msg)
+
+    urls = _extract_multi_shot_urls(task)
+    if not urls:
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Kling returned no image urls")
+
+    need = max(1, min(int(payload.need), 3))
+    selected = urls[:need]
+
+    rows: list[Any] = []
+    for u in selected:
+        data, ext = await _download_image_bytes(url=u)
+        rows.append(
+            await _persist_user_image_file(
+                session=session,
+                current_user=current_user,
+                storage_service=storage_service,
+                data=data,
+                ext=ext,
+            )
+        )
+
+    await session.commit()
+
+    files = [
+        UploadFileResponse(
+            id=r.id,
+            name=str(r.name),
+            path=str(r.path),
+            size=int(getattr(r, "size", 0) or 0),
+            provider=getattr(r, "provider", None),
+        )
+        for r in rows
+    ]
+    return KlingSmartFillResponse(task_id=task_id, files=files)
+
+
+@router.post("/smart-describe", response_model=KlingSmartDescribeResponse, status_code=HTTPStatus.OK)
+async def smart_describe_element(
+    *,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+    payload: KlingSmartDescribeRequest,
+):
+    file_ids = [uuid.UUID(str(x)) for x in (payload.file_ids or [])]
+    if not file_ids:
+        raise HTTPException(status_code=400, detail="请先上传主体图片后再使用智能描述。")
+    if len(file_ids) > 4:
+        raise HTTPException(status_code=400, detail="最多支持 4 张图片（正面图 + 其他参考图）。")
+
+    user_desc = str(payload.user_description or "").strip()
+    prompt = (
+        "你是角色/主体设定专家。请基于给定图片，为“主体库”生成一段中文主体描述，用于保持人物/主体外观一致。\n"
+        "要求：\n"
+        "- 只输出描述文本，不要输出任何前缀、标题、引号或换行。\n"
+        "- 描述主体的核心特征（外貌/物种/材质/颜色/服饰/配饰/风格），并尽量补全细节。\n"
+        "- 如果用户提供了描述，请在不改变主体核心特征的前提下进行优化、补充与纠错。\n"
+        "- 最终文本不超过100字。\n"
+    )
+    if user_desc:
+        prompt += f"\n用户描述（可优化）：{user_desc}"
+
+    parts: list[dict[str, Any]] = [{"text": prompt}]
+    for fid in file_ids:
+        data_b64, mime = await _load_file_bytes_as_base64_and_mime(
+            file_id=fid,
+            current_user=current_user,
+            session=session,
+            storage_service=storage_service,
+        )
+        # Gemini inlineData expects base64 string.
+        parts.append({"inlineData": {"mimeType": mime, "data": data_b64}})
+
+    text = await _gemini_generate_content(
+        model="gemini-3-flash-preview",
+        parts=parts,
+        temperature=0.2,
+        max_output_tokens=256,
+        timeout_s=float(payload.timeout_s),
+    )
+    # Normalize to a single line and enforce the 100-char constraint from element_description.
+    out = " ".join(str(text or "").split()).strip()
+    if not out:
+        raise HTTPException(status_code=502, detail="Gemini 未返回可用的描述。")
+    if len(out) > 100:
+        out = out[:100]
+    return KlingSmartDescribeResponse(description=out)
 
 
 @router.post("/delete", status_code=HTTPStatus.OK)

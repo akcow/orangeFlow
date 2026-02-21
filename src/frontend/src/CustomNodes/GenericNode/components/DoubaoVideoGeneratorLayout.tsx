@@ -294,7 +294,8 @@ const KLING_SHOT_TYPE_FIELD_FALLBACK: InputFieldType = {
   readonly: false,
   name: "kling_shot_type",
   display_name: "Kling 分镜方式",
-  value: "customize",
+  // Default per requirement: intelligent storyboarding.
+  value: "intelligence",
 };
 const KLING_MULTI_PROMPT_FIELD_FALLBACK: InputFieldType = {
   type: "str",
@@ -386,6 +387,19 @@ export default function DoubaoVideoGeneratorLayout({
     const s = String(raw).trim().toLowerCase();
     return s === "true" || s === "1" || s === "yes";
   }, [isKlingMultiShotModel, template]);
+  const klingShotType = useMemo(() => {
+    if (!isKlingMultiShotModel) return "customize";
+    const raw: any =
+      (template as any).kling_shot_type?.value ??
+      (template as any).kling_shot_type?.default ??
+      "";
+    const s = String(raw ?? "").trim().toLowerCase();
+    if (s === "customize" || s === "intelligence") return s;
+    return "intelligence";
+  }, [isKlingMultiShotModel, template]);
+  const klingIntelligentShotEnabled = Boolean(
+    isKlingMultiShotModel && klingMultiShotEnabled && klingShotType === "intelligence",
+  );
   const klingElementIdsValue = String(template.kling_element_ids?.value ?? "").trim();
   const selectedKlingElementIds = useMemo(() => {
     const raw = String(klingElementIdsValue || "");
@@ -994,7 +1008,22 @@ export default function DoubaoVideoGeneratorLayout({
         const currentTemplate = node.data?.node?.template ?? {};
         const nextTemplate: any = { ...currentTemplate };
         if (!nextTemplate.kling_multi_shot) nextTemplate.kling_multi_shot = { ...KLING_MULTI_SHOT_FIELD_FALLBACK };
-        if (!nextTemplate.kling_shot_type) nextTemplate.kling_shot_type = { ...KLING_SHOT_TYPE_FIELD_FALLBACK };
+        if (!nextTemplate.kling_shot_type) {
+          // Backward-compat: before we introduced `shot_type=intelligence`, multi-shot always meant multi_prompt (customize).
+          // If an older saved flow has multi-shot enabled (or has a non-empty multi_prompt), default to customize to preserve behavior.
+          const rawMultiShot =
+            currentTemplate?.kling_multi_shot?.value ?? currentTemplate?.kling_multi_shot?.default ?? false;
+          const multiShotEnabled =
+            rawMultiShot === true ||
+            (typeof rawMultiShot === "string" &&
+              ["true", "1", "yes"].includes(rawMultiShot.trim().toLowerCase()));
+          const rawMultiPrompt = String(
+            currentTemplate?.kling_multi_prompt?.value ?? currentTemplate?.kling_multi_prompt?.default ?? "",
+          ).trim();
+          const hasMultiPrompt = rawMultiPrompt !== "" && rawMultiPrompt !== "[]";
+          const inferred = multiShotEnabled || hasMultiPrompt ? "customize" : "intelligence";
+          nextTemplate.kling_shot_type = { ...KLING_SHOT_TYPE_FIELD_FALLBACK, value: inferred };
+        }
         if (!nextTemplate.kling_multi_prompt) nextTemplate.kling_multi_prompt = { ...KLING_MULTI_PROMPT_FIELD_FALLBACK };
         return {
           ...node,
@@ -1057,7 +1086,8 @@ export default function DoubaoVideoGeneratorLayout({
   // When switching into multi-shot mode, seed multi_prompt from the current prompt (best-effort)
   // (prompt is ignored in multi-shot mode, but we keep it so users can toggle back).
   useEffect(() => {
-    if (!klingMultiShotEnabled) return;
+    // Only seed when the user is in "customize" mode; intelligent mode uses `prompt` directly.
+    if (!klingMultiShotEnabled || klingIntelligentShotEnabled) return;
     const raw = klingMultiPromptRaw.trim();
     const isEmpty = raw === "" || raw === "[]";
     if (!isEmpty) return;
@@ -1095,10 +1125,12 @@ export default function DoubaoVideoGeneratorLayout({
     return { hasContent, valid: true, sum, error: "" };
   }, [klingMultiPromptItems, klingMultiShotEnabled, template.duration?.default, template.duration?.value]);
 
-  const disableRun =
-    (!hasAnyConnection &&
-      (klingMultiShotEnabled ? !klingMultiPromptSummary.hasContent : isPromptEmpty)) ||
-    (klingMultiShotEnabled && !klingMultiPromptSummary.valid);
+  const klingCustomizeShotEnabled = Boolean(klingMultiShotEnabled && !klingIntelligentShotEnabled);
+  const disableRun = klingIntelligentShotEnabled
+    ? isPromptEmpty
+    : klingCustomizeShotEnabled
+      ? (!klingMultiPromptSummary.hasContent || !klingMultiPromptSummary.valid)
+      : (!hasAnyConnection && isPromptEmpty);
   useEffect(() => {
     if (isPromptFocused || isPromptComposing) return;
     setPromptDraftValue(promptValue);
@@ -4407,7 +4439,7 @@ export default function DoubaoVideoGeneratorLayout({
             )}
             style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
           >
-            {!klingMultiShotEnabled && (
+            {(!klingMultiShotEnabled || klingIntelligentShotEnabled) && (
               <PromptModal
                 id={`doubao-video-prompt-${data.id}`}
                 field_name={PROMPT_NAME}
@@ -4495,7 +4527,7 @@ export default function DoubaoVideoGeneratorLayout({
                     )}
                   </div>
                 )}
-              {klingMultiShotEnabled ? (
+              {klingMultiShotEnabled && !klingIntelligentShotEnabled ? (
                 <div className="space-y-3">
                   <div className="text-xs text-[#5E6484] dark:text-slate-300">
                     Kling O3 多镜头：请配置 1-6 个分镜（每个分镜 prompt ≤ 512），且分镜时长之和必须等于总时长。

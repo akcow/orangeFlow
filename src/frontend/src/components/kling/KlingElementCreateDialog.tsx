@@ -10,11 +10,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/utils/utils";
+import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import {
   KLING_TAG_OPTIONS,
   type KlingElement,
   useKlingElementsStore,
 } from "@/stores/klingElementsStore";
+import { getFilesDownloadUrl } from "@/utils/workflowUtils";
 import {
   Select,
   SelectContent,
@@ -26,6 +28,7 @@ import { api } from "@/controllers/API/api";
 import { getURL } from "@/controllers/API/helpers/constants";
 
 type UploadedV2File = { id: string; name: string; path: string; size: number };
+type ReferSlot = { local: File | null; uploaded: UploadedV2File | null };
 
 function isSupportedKlingImage(file: File): boolean {
   // Kling "advanced-custom-elements" doc: jpg/jpeg/png only.
@@ -98,10 +101,11 @@ export default function KlingElementCreateDialog({
   const [referenceType, setReferenceType] = useState<"image_refer" | "video_refer">("image_refer");
 
   const [frontalFile, setFrontalFile] = useState<File | null>(null);
-  const [referFiles, setReferFiles] = useState<Array<File | null>>([
-    null,
-    null,
-    null,
+  const [frontalUploaded, setFrontalUploaded] = useState<UploadedV2File | null>(null);
+  const [referSlots, setReferSlots] = useState<ReferSlot[]>([
+    { local: null, uploaded: null },
+    { local: null, uploaded: null },
+    { local: null, uploaded: null },
   ]);
 
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -111,10 +115,19 @@ export default function KlingElementCreateDialog({
   const frontalPreview = useObjectUrl(frontalFile);
   const [referPreviews, setReferPreviews] = useState<string[]>([]);
   useEffect(() => {
-    const urls = referFiles.map((f) => (f ? URL.createObjectURL(f) : ""));
+    const urls = referSlots.map((s) =>
+      s.local
+        ? URL.createObjectURL(s.local)
+        : s.uploaded
+          ? getFilesDownloadUrl(s.uploaded.path)
+          : "",
+    );
     setReferPreviews(urls);
     return () => {
-      urls.filter(Boolean).forEach((u) => {
+      // Only revoke object urls we created for local files.
+      urls.forEach((u, idx) => {
+        if (!u) return;
+        if (!referSlots[idx]?.local) return;
         try {
           URL.revokeObjectURL(u);
         } catch {
@@ -122,14 +135,16 @@ export default function KlingElementCreateDialog({
         }
       });
     };
-  }, [referFiles]);
+  }, [referSlots]);
 
   const [submitting, setSubmitting] = useState(false);
+  const [filling, setFilling] = useState(false);
+  const [describing, setDescribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const referFilledCount = useMemo(
-    () => referFiles.filter(Boolean).length,
-    [referFiles],
+    () => referSlots.filter((s) => Boolean(s.local || s.uploaded)).length,
+    [referSlots],
   );
 
   const canSubmit = useMemo(() => {
@@ -139,11 +154,11 @@ export default function KlingElementCreateDialog({
       return Boolean(videoFile);
     }
     return (
-      Boolean(frontalFile) &&
+      Boolean(frontalFile || frontalUploaded) &&
       referFilledCount >= 1 &&
       referFilledCount <= 3
     );
-  }, [name, desc, tagId, referenceType, videoFile, frontalFile, referFilledCount]);
+  }, [name, desc, tagId, referenceType, videoFile, frontalFile, frontalUploaded, referFilledCount]);
 
   const reset = useCallback(() => {
     setName("");
@@ -151,10 +166,17 @@ export default function KlingElementCreateDialog({
     setTagId("o_108");
     setReferenceType("image_refer");
     setFrontalFile(null);
-    setReferFiles([null, null, null]);
+    setFrontalUploaded(null);
+    setReferSlots([
+      { local: null, uploaded: null },
+      { local: null, uploaded: null },
+      { local: null, uploaded: null },
+    ]);
     setVideoFile(null);
     setVoiceId("");
     setSubmitting(false);
+    setFilling(false);
+    setDescribing(false);
     setError(null);
   }, []);
 
@@ -174,6 +196,7 @@ export default function KlingElementCreateDialog({
       return;
     }
     setFrontalFile(file);
+    setFrontalUploaded(null); // re-upload if the user changes the file
   }, []);
 
   const onPickVideo = useCallback((file: File | null) => {
@@ -217,14 +240,11 @@ export default function KlingElementCreateDialog({
         setError("仅支持 JPG/JPEG/PNG 图片");
         return;
       }
-      setReferFiles((prev) => {
+      setReferSlots((prev) => {
         const next = [...prev];
-        // Keep "first other reference image" in slot1 container whenever possible.
-        if (!next[0] && index !== 0) {
-          next[0] = file;
-        } else {
-          next[index] = file;
-        }
+        const slot0Empty = !next[0]?.local && !next[0]?.uploaded;
+        const target = slot0Empty && index !== 0 ? 0 : index;
+        next[target] = { local: file, uploaded: null };
         return next;
       });
     },
@@ -232,12 +252,15 @@ export default function KlingElementCreateDialog({
   );
 
   const deleteReferAt = useCallback((index: number) => {
-    setReferFiles((prev) => {
-      const remaining = prev
-        .filter((f, idx) => idx !== index && Boolean(f)) as File[];
-      const next: Array<File | null> = [null, null, null];
-      remaining.slice(0, 3).forEach((f, idx) => {
-        next[idx] = f;
+    setReferSlots((prev) => {
+      const remaining = prev.filter((s, idx) => idx !== index && Boolean(s.local || s.uploaded));
+      const next: ReferSlot[] = [
+        { local: null, uploaded: null },
+        { local: null, uploaded: null },
+        { local: null, uploaded: null },
+      ];
+      remaining.slice(0, 3).forEach((s, idx) => {
+        next[idx] = s;
       });
       return next;
     });
@@ -247,7 +270,7 @@ export default function KlingElementCreateDialog({
     // Slot1 is special:
     // - empty: allow picking 1-3 images at once and fill slots 1..3
     // - filled: replace only slot1 (single)
-    if (!referFiles[0]) {
+    if (!referSlots[0]?.local && !referSlots[0]?.uploaded) {
       const files = await pickMultipleFiles();
       if (!files.length) return;
       const bad = files.find((f) => !isSupportedKlingImage(f));
@@ -255,15 +278,156 @@ export default function KlingElementCreateDialog({
         setError("仅支持 JPG/JPEG/PNG 图片");
         return;
       }
-      const next: Array<File | null> = [null, null, null];
+      const next: ReferSlot[] = [
+        { local: null, uploaded: null },
+        { local: null, uploaded: null },
+        { local: null, uploaded: null },
+      ];
       files.forEach((f, idx) => {
-        next[idx] = f;
+        next[idx] = { local: f, uploaded: null };
       });
-      setReferFiles(next);
+      setReferSlots(next);
     } else {
       await replaceReferAt(0);
     }
-  }, [pickMultipleFiles, referFiles, replaceReferAt]);
+  }, [pickMultipleFiles, referSlots, replaceReferAt]);
+
+  const handleSmartFill = useCallback(async () => {
+    if (referenceType !== "image_refer") return;
+    if (filling || submitting) return;
+    const need = 3 - referFilledCount;
+    if (need <= 0) return;
+
+    if (!frontalFile && !frontalUploaded) {
+      setError("请先上传主体正面参考图");
+      return;
+    }
+
+    setFilling(true);
+    setError(null);
+    try {
+      const frontalUp = frontalUploaded ?? (await uploadV2File(frontalFile!));
+      if (!frontalUploaded) setFrontalUploaded(frontalUp);
+
+      const res = await api.post(getURL("KLING_ELEMENTS", {}, true) + "/smart-fill", {
+        frontal_file_id: frontalUp.id,
+        need,
+      });
+      const raw = res?.data as any;
+      const filesRaw = Array.isArray(raw?.files) ? raw.files : [];
+      const filled = filesRaw
+        .filter((x: any) => x && x.id && x.path)
+        .map(
+          (x: any): UploadedV2File => ({
+            id: String(x.id),
+            name: String(x.name ?? ""),
+            path: String(x.path),
+            size: Number(x.size ?? 0),
+          }),
+        );
+      if (!filled.length) throw new Error("补齐失败：未返回图片");
+
+      setReferSlots((prev) => {
+        const next = [...prev];
+        const emptyIdx = next
+          .map((s, idx) => (!s.local && !s.uploaded ? idx : -1))
+          .filter((idx) => idx >= 0);
+        let j = 0;
+        for (const idx of emptyIdx) {
+          if (j >= filled.length) break;
+          next[idx] = { local: null, uploaded: filled[j++] };
+        }
+        return next;
+      });
+    } catch (e: unknown) {
+      const err = e as AxiosLikeError;
+      const detail = err?.response?.data?.detail ?? err?.response?.data?.message;
+      setError(String(detail ?? err?.message ?? "智能补齐失败"));
+    } finally {
+      setFilling(false);
+    }
+  }, [referenceType, filling, submitting, referFilledCount, frontalFile, frontalUploaded]);
+
+  const handleSmartDescribe = useCallback(async () => {
+    if (referenceType !== "image_refer") return;
+    if (describing || filling || submitting) return;
+    if (!frontalFile && !frontalUploaded) {
+      setError("请先上传主体正面参考图");
+      return;
+    }
+    if (referFilledCount < 1) {
+      setError("请先上传至少 1 张主体其他参考图（或先点“智能补齐”）");
+      return;
+    }
+
+    setDescribing(true);
+    setError(null);
+    try {
+      const frontalUp = frontalUploaded ?? (await uploadV2File(frontalFile!));
+      if (!frontalUploaded) setFrontalUploaded(frontalUp);
+
+      // Ensure all filled refer slots have uploaded file ids so the backend can read them.
+      const filledRefs = referSlots
+        .map((s, idx) => ({ s, idx }))
+        .filter(({ s }) => Boolean(s.local || s.uploaded));
+
+      const uploadedByIdx = new Map<number, UploadedV2File>();
+      for (const { s, idx } of filledRefs) {
+        if (s.uploaded) {
+          uploadedByIdx.set(idx, s.uploaded);
+          continue;
+        }
+        if (s.local) {
+          uploadedByIdx.set(idx, await uploadV2File(s.local));
+        }
+      }
+
+      // Persist uploads into state (keep local preview if present).
+      if (uploadedByIdx.size > 0) {
+        setReferSlots((prev) => {
+          const next = [...prev];
+          for (const [idx, up] of uploadedByIdx.entries()) {
+            if (!next[idx]) continue;
+            next[idx] = { local: next[idx]!.local, uploaded: up };
+          }
+          return next;
+        });
+      }
+
+      const fileIds = [
+        frontalUp.id,
+        ...filledRefs
+          .map(({ idx }) => uploadedByIdx.get(idx))
+          .filter(Boolean)
+          .map((x) => (x as UploadedV2File).id),
+      ].slice(0, 4);
+
+      const res = await api.post(getURL("KLING_ELEMENTS", {}, true) + "/smart-describe", {
+        file_ids: fileIds,
+        user_description: desc.trim() ? desc.trim() : undefined,
+      });
+      const raw = res?.data as any;
+      const nextDesc = String(raw?.description ?? "").trim();
+      if (!nextDesc) throw new Error("智能描述失败：未返回描述");
+      setDesc(nextDesc.slice(0, 100));
+    } catch (e: unknown) {
+      const err = e as AxiosLikeError;
+      const detail = err?.response?.data?.detail ?? err?.response?.data?.message;
+      setError(String(detail ?? err?.message ?? "智能描述失败"));
+    } finally {
+      setDescribing(false);
+    }
+  }, [
+    referenceType,
+    describing,
+    filling,
+    submitting,
+    frontalFile,
+    frontalUploaded,
+    referSlots,
+    referFilledCount,
+    desc,
+  ]);
 
   const submitLockRef = useRef(false);
   const handleSubmit = useCallback(async () => {
@@ -285,10 +449,16 @@ export default function KlingElementCreateDialog({
           element_voice_id: voiceId.trim() ? voiceId.trim() : undefined,
         });
       } else {
-        const frontalUp = await uploadV2File(frontalFile!);
-        const referUps = [];
-        for (const f of referFiles.filter(Boolean) as File[]) {
-          referUps.push(await uploadV2File(f));
+        const frontalUp = frontalUploaded ?? (await uploadV2File(frontalFile!));
+        const referUps: UploadedV2File[] = [];
+        for (const slot of referSlots) {
+          if (slot.uploaded) {
+            referUps.push(slot.uploaded);
+            continue;
+          }
+          if (slot.local) {
+            referUps.push(await uploadV2File(slot.local));
+          }
         }
 
         created = await createCustom({
@@ -310,7 +480,7 @@ export default function KlingElementCreateDialog({
       setSubmitting(false);
       submitLockRef.current = false;
     }
-  }, [canSubmit, submitting, referenceType, videoFile, voiceId, frontalFile, referFiles, createCustom, name, desc, tagId, onCreated, handleClose]);
+  }, [canSubmit, submitting, referenceType, videoFile, voiceId, frontalFile, frontalUploaded, referSlots, createCustom, name, desc, tagId, onCreated, handleClose]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -344,7 +514,12 @@ export default function KlingElementCreateDialog({
                     setError(null);
                     setReferenceType("video_refer");
                     setFrontalFile(null);
-                    setReferFiles([null, null, null]);
+                    setFrontalUploaded(null);
+                    setReferSlots([
+                      { local: null, uploaded: null },
+                      { local: null, uploaded: null },
+                      { local: null, uploaded: null },
+                    ]);
                   }}
                 >
                   视频定制
@@ -421,8 +596,25 @@ export default function KlingElementCreateDialog({
                     </div>
                   </div>
 
-                  <div className="mt-7 text-sm font-medium">
-                    主体其他参考图（必填，1-3张）
+                  <div className="mt-7 flex items-center justify-between">
+                    <div className="text-sm font-medium">
+                      主体其他参考图（必填，1-3张）
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9"
+                      disabled={
+                        filling ||
+                        submitting ||
+                        referFilledCount >= 3 ||
+                        (!frontalFile && !frontalUploaded)
+                      }
+                      onClick={() => void handleSmartFill()}
+                      title="根据正面图智能补齐其他参考图（只补空位）"
+                    >
+                      {filling ? "补齐中..." : "智能补齐"}
+                    </Button>
                   </div>
                   <div className="mt-3 flex items-start gap-4">
                     {/* slot 1 */}
@@ -438,7 +630,7 @@ export default function KlingElementCreateDialog({
                           <div className="text-[13px] text-muted-foreground">点击上传</div>
                         )}
                       </button>
-                      {referFiles[0] && (
+                      {(referSlots[0]?.local || referSlots[0]?.uploaded) && (
                         <button
                           type="button"
                           className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-black/55 text-white opacity-90 hover:bg-black/70"
@@ -465,7 +657,7 @@ export default function KlingElementCreateDialog({
                               <div className="text-[13px] text-muted-foreground">点击上传</div>
                             )}
                           </button>
-                          {referFiles[idx] && (
+                          {(referSlots[idx]?.local || referSlots[idx]?.uploaded) && (
                             <button
                               type="button"
                               className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-black/55 text-white opacity-90 hover:bg-black/70"
@@ -535,13 +727,40 @@ export default function KlingElementCreateDialog({
 
               <div>
                 <div className="mb-2 text-sm font-medium">主体描述（必填）</div>
-                <Textarea
-                  value={desc}
-                  maxLength={100}
-                  onChange={(e) => setDesc(e.target.value)}
-                  placeholder="不超过100个字符"
-                  className="min-h-[180px]"
-                />
+                <div className="relative">
+                  <Textarea
+                    value={desc}
+                    maxLength={100}
+                    onChange={(e) => setDesc(e.target.value)}
+                    placeholder={
+                      "请描述主体的核心特征，如「一个可爱甜美的短发女孩」。还可以描述希望保留的细节，如「佩戴着金色耳环」;或者描述想要忽略的特征，如「不要脸上的雀斑」。不超过100字"
+                    }
+                    className="min-h-[180px] pb-12"
+                  />
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="absolute bottom-2 left-2 h-9 px-3 text-xs"
+                    disabled={
+                      referenceType !== "image_refer" ||
+                      describing ||
+                      filling ||
+                      submitting ||
+                      (!frontalFile && !frontalUploaded) ||
+                      referFilledCount < 1
+                    }
+                    onClick={() => void handleSmartDescribe()}
+                    title="用 Gemini 分析主体图片并生成/优化描述（不超过100字）"
+                  >
+                    <ForwardedIconComponent
+                      name={describing ? "Loader2" : "Sparkles"}
+                      className={cn("mr-2 h-4 w-4", describing && "animate-spin")}
+                    />
+                    {describing ? "生成中..." : "智能描述"}
+                  </Button>
+                </div>
+
                 <div className="mt-1 text-right text-xs text-muted-foreground">
                   {desc.length}/100
                 </div>

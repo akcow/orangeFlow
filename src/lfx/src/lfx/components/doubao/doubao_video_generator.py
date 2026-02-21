@@ -569,8 +569,8 @@ class DoubaoVideoGenerator(Component):
         DropdownInput(
             name="kling_shot_type",
             display_name="Kling 分镜方式",
-            options=["customize"],
-            value="customize",
+            options=["intelligence", "customize"],
+            value="intelligence",
             show=False,
             advanced=True,
             required=False,
@@ -641,11 +641,24 @@ class DoubaoVideoGenerator(Component):
         kling_multi_shot_enabled = bool(
             kling_multi_shot and str(endpoint_id or "").strip().lower() in {"kling-v3-omni", "kling-v3"}
         )
+        kling_shot_type = str(getattr(self, "kling_shot_type", "") or "intelligence").strip().lower() or "intelligence"
+        if kling_shot_type not in {"intelligence", "customize"}:
+            kling_shot_type = "intelligence"
+        kling_allow_empty_prompt = bool(kling_multi_shot_enabled and kling_shot_type == "customize")
+        # Backward-compat: older flows may not have shot_type and rely on multi_prompt with an empty prompt.
+        if kling_multi_shot_enabled and (not merged_prompt):
+            raw_multi_prompt = getattr(self, "kling_multi_prompt", None)
+            has_multi_prompt = (isinstance(raw_multi_prompt, list) and len(raw_multi_prompt) > 0) or (
+                isinstance(raw_multi_prompt, str) and str(raw_multi_prompt).strip() not in {"", "[]"}
+            )
+            if has_multi_prompt:
+                kling_allow_empty_prompt = True
 
         if (
             not merged_prompt
             and not self._is_vidu_model(model_name)
-            and not (self._is_kling_model(model_name) and kling_multi_shot_enabled)
+            # Kling multi-shot "customize" mode uses multi_prompt instead of prompt.
+            and not (self._is_kling_model(model_name) and kling_allow_empty_prompt)
         ):
             draft = getattr(self, "draft_output", None)
             if isinstance(draft, Data):
@@ -3323,12 +3336,24 @@ class DoubaoVideoGenerator(Component):
                 external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
 
                 kling_multi_shot = self._parse_boolish(getattr(self, "kling_multi_shot", False))
-                shot_type = str(getattr(self, "kling_shot_type", "") or "customize").strip() or "customize"
+                shot_type = str(getattr(self, "kling_shot_type", "") or "intelligence").strip().lower() or "intelligence"
+                if shot_type not in {"intelligence", "customize"}:
+                    shot_type = "intelligence"
                 raw_multi_prompt = getattr(self, "kling_multi_prompt", "[]")
+
+                # Backward-compat: older flows may have multi_prompt filled but no prompt.
+                # If prompt is empty, prefer interpreting multi-shot as "customize".
+                if kling_multi_shot and shot_type == "intelligence" and (not str(prompt or "").strip()):
+                    if (isinstance(raw_multi_prompt, list) and len(raw_multi_prompt) > 0) or (
+                        isinstance(raw_multi_prompt, str) and str(raw_multi_prompt).strip() not in {"", "[]"}
+                    ):
+                        shot_type = "customize"
+
+                is_customize_shot = bool(kling_multi_shot and shot_type == "customize")
 
                 # multi-shot prompt parsing (same constraints as O3 docs).
                 multi_prompt: list[dict[str, Any]] | None = None
-                if kling_multi_shot:
+                if is_customize_shot:
                     import json
 
                     label = "kling V3"
@@ -3371,12 +3396,13 @@ class DoubaoVideoGenerator(Component):
                         raise ValueError(f"{label}ï¼šmulti_prompt å„åˆ†é•œ duration ä¹‹å’Œå¿…é¡»ç­‰äºŽæ€»æ—¶é•¿ durationã€‚")
                     multi_prompt = normalized
 
-                if (not kling_multi_shot) and (not str(prompt or "").strip()):
+                # In multi-shot "intelligence" mode, prompt is required; only "customize" may omit prompt.
+                if (not str(prompt or "").strip()) and (not is_customize_shot):
                     return self._error("kling V3ï¼šprompt ä¸èƒ½ä¸ºç©ºï¼ˆå¼€å¯å¤šé•œå¤´æ¨¡å¼?æ—¶é™¤å¤–ï¼‰ã€‚")
 
                 kling_payload: dict[str, Any] = {
                     "model_name": kling_model_name,
-                    "prompt": "" if kling_multi_shot else prompt,
+                    "prompt": "" if is_customize_shot else prompt,
                     "mode": mode,
                     "sound": sound,
                     "aspect_ratio": ratio,
@@ -3389,7 +3415,8 @@ class DoubaoVideoGenerator(Component):
                 if kling_multi_shot:
                     kling_payload["multi_shot"] = True
                     kling_payload["shot_type"] = shot_type
-                    kling_payload["multi_prompt"] = multi_prompt or []
+                    if is_customize_shot:
+                        kling_payload["multi_prompt"] = multi_prompt or []
                 if element_list:
                     kling_payload["element_list"] = element_list
                 if callback_url:
@@ -3397,7 +3424,7 @@ class DoubaoVideoGenerator(Component):
                 if external_task_id:
                     kling_payload["external_task_id"] = external_task_id
 
-                gateway_prompt = "" if kling_multi_shot else prompt
+                gateway_prompt = "" if is_customize_shot else prompt
                 create = videos_create(
                     model=endpoint_id,
                     prompt=gateway_prompt,
@@ -3453,11 +3480,23 @@ class DoubaoVideoGenerator(Component):
             external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
 
             kling_multi_shot = self._parse_boolish(getattr(self, "kling_multi_shot", False))
-            shot_type = str(getattr(self, "kling_shot_type", "") or "customize").strip() or "customize"
+            shot_type = str(getattr(self, "kling_shot_type", "") or "intelligence").strip().lower() or "intelligence"
+            if shot_type not in {"intelligence", "customize"}:
+                shot_type = "intelligence"
             raw_multi_prompt = getattr(self, "kling_multi_prompt", "[]")
 
+            # Backward-compat: older flows may have multi_prompt filled but no prompt.
+            # If prompt is empty, prefer interpreting multi-shot as "customize".
+            if kling_multi_shot and shot_type == "intelligence" and (not str(prompt or "").strip()):
+                if (isinstance(raw_multi_prompt, list) and len(raw_multi_prompt) > 0) or (
+                    isinstance(raw_multi_prompt, str) and str(raw_multi_prompt).strip() not in {"", "[]"}
+                ):
+                    shot_type = "customize"
+
+            is_customize_shot = bool(kling_multi_shot and shot_type == "customize")
+
             multi_prompt: list[dict[str, Any]] | None = None
-            if is_o3 and kling_multi_shot:
+            if is_o3 and is_customize_shot:
                 import json
 
                 if isinstance(raw_multi_prompt, list):
@@ -3495,7 +3534,7 @@ class DoubaoVideoGenerator(Component):
 
             kling_payload: dict[str, Any] = {
                 "model_name": kling_model_name,
-                "prompt": "" if (is_o3 and kling_multi_shot) else prompt,
+                "prompt": "" if (is_o3 and is_customize_shot) else prompt,
                 "mode": mode,
             }
             if is_o3:
@@ -3503,7 +3542,8 @@ class DoubaoVideoGenerator(Component):
             if is_o3 and kling_multi_shot:
                 kling_payload["multi_shot"] = True
                 kling_payload["shot_type"] = shot_type
-                kling_payload["multi_prompt"] = multi_prompt or []
+                if is_customize_shot:
+                    kling_payload["multi_prompt"] = multi_prompt or []
             # Kling docs: duration is ignored for video-editing (refer_type=base); aspect_ratio is also irrelevant there.
             if refer_type != "base":
                 if ratio:
@@ -3521,7 +3561,7 @@ class DoubaoVideoGenerator(Component):
             if external_task_id:
                 kling_payload["external_task_id"] = external_task_id
 
-            gateway_prompt = "" if (is_o3 and kling_multi_shot) else prompt
+            gateway_prompt = "" if (is_o3 and is_customize_shot) else prompt
             create = videos_create(
                 model=endpoint_id,
                 prompt=gateway_prompt,

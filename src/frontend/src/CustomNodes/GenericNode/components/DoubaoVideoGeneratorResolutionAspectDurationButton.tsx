@@ -2,13 +2,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useEffect, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
-import { Switch } from "@/components/ui/switch";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
 import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
 import { formatControlValue, type DoubaoControlConfig } from "./DoubaoParameterButton";
 import useFlowStore from "@/stores/flowStore";
 import { scapeJSONParse } from "@/utils/reactflowUtils";
+import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { useUpdateNodeInternals } from "@xyflow/react";
 
 type Props = {
   data: NodeDataType;
@@ -92,14 +93,17 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     nodeId: data.id,
     name: "vidu_audio",
   });
-  const { handleOnNewValue: handleKlingMultiShotChange } = useHandleOnNewValue({
+  const { handleOnNewValue: handleKlingShotTypeChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
-    name: "kling_multi_shot",
+    name: "kling_shot_type",
   });
 
   const edges = useFlowStore((state) => state.edges);
   const nodes = useFlowStore((state) => state.nodes);
+  const setNode = useFlowStore((state) => state.setNode);
+  const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+  const updateNodeInternals = useUpdateNodeInternals();
 
   const template: any = (data.node as any)?.template ?? {};
   const modelRaw = String(template?.model_name?.value ?? template?.model_name?.default ?? "")
@@ -110,6 +114,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   const isKlingV3 = modelRaw === "kling v3" || modelRaw === "kling-v3";
   const isKlingMultiShotModel = isKlingO3 || isKlingV3;
   const klingMultiShotField = template?.kling_multi_shot ?? null;
+  const klingShotTypeField = template?.kling_shot_type ?? null;
   const klingMultiShotEnabled = useMemo(() => {
     const raw = klingMultiShotField?.value ?? klingMultiShotField?.default ?? false;
     if (raw === true) return true;
@@ -117,6 +122,43 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     const s = String(raw).trim().toLowerCase();
     return s === "true" || s === "1" || s === "yes";
   }, [klingMultiShotField?.default, klingMultiShotField?.value]);
+  const klingShotType = useMemo(() => {
+    const raw = klingShotTypeField?.value ?? klingShotTypeField?.default ?? "";
+    const s = String(raw ?? "").trim().toLowerCase();
+    if (s === "customize" || s === "intelligence") return s;
+    return "intelligence";
+  }, [klingShotTypeField?.default, klingShotTypeField?.value]);
+
+  // NOTE: We update both kling_multi_shot and kling_shot_type in a single state write.
+  // Using useHandleOnNewValue twice in one click will race on stale `node` props and can
+  // end up overwriting the first change (making the toggle look "not working").
+  const applyKlingMultiShot = (enabled: boolean) => {
+    takeSnapshot();
+    setNode(
+      data.id,
+      (oldNode) => {
+        const current = (oldNode.data as any)?.node ?? {};
+        const currentTemplate = (current.template ?? {}) as any;
+        const nextTemplate: any = { ...currentTemplate };
+
+        const existingMultiShot = nextTemplate.kling_multi_shot ?? { name: "kling_multi_shot" };
+        nextTemplate.kling_multi_shot = { ...existingMultiShot, value: enabled };
+
+        if (enabled) {
+          const existingShotType = nextTemplate.kling_shot_type ?? { name: "kling_shot_type" };
+          nextTemplate.kling_shot_type = { ...existingShotType, value: "intelligence" };
+        }
+
+        const nextNodeClass = { ...current, template: nextTemplate };
+        return {
+          ...oldNode,
+          data: { ...(oldNode.data as any), node: nextNodeClass },
+        } as any;
+      },
+      true,
+      () => updateNodeInternals(data.id),
+    );
+  };
 
   const getTargetFieldName = useMemo(() => {
     return (edge: any) => {
@@ -772,25 +814,98 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
                 多镜头模式
-                <ShadTooltip content="kling O3：开启后使用 multi_prompt 分镜生成，多镜头分镜时长之和需等于总时长。">
+                <ShadTooltip content="kling O3/V3：开启后为多镜头模式；可选“智能分镜”（用 prompt）或“自定义分镜”（用 multi_prompt）。自定义分镜时长之和需等于总时长。">
                   <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[11px] opacity-60">
                     ?
                   </span>
                 </ShadTooltip>
               </div>
-              <div className="flex items-center justify-between rounded-[18px] bg-[#EEF2FF] px-4 py-3 dark:bg-white/10">
-                <div className="text-xs text-[#5E6484] dark:text-slate-300">
-                  关闭=单镜头（使用 prompt）；开启=多镜头（使用分镜）。
+              <div className="space-y-2">
+                <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        if (disabled) return;
+                        applyKlingMultiShot(true);
+                      }}
+                      className={cn(
+                        "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                        klingMultiShotEnabled
+                          ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                          : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                        disabled && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      开启
+                    </button>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        if (disabled) return;
+                        applyKlingMultiShot(false);
+                      }}
+                      className={cn(
+                        "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                        !klingMultiShotEnabled
+                          ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                          : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                        disabled && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      关闭
+                    </button>
+                  </div>
                 </div>
-                <Switch
-                  checked={klingMultiShotEnabled}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => {
-                    if (disabled) return;
-                    handleKlingMultiShotChange({ value: checked });
-                  }}
-                />
+                <div className="text-xs text-[#5E6484] dark:text-slate-300">
+                  关闭=单镜头（使用 prompt）；开启=多镜头（支持智能分镜/自定义分镜）。
+                </div>
               </div>
+              {klingMultiShotEnabled && klingShotTypeField && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
+                    {"\u5206\u955c\u65b9\u5f0f"}
+                  </div>
+                  <div className="flex rounded-full bg-white/70 p-1 dark:bg-white/10">
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        if (disabled) return;
+                        handleKlingShotTypeChange({ value: "intelligence" });
+                      }}
+                      className={cn(
+                        "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                        klingShotType === "intelligence"
+                          ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                          : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                        disabled && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      {"\u667a\u80fd\u5206\u955c"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        if (disabled) return;
+                        handleKlingShotTypeChange({ value: "customize" });
+                      }}
+                      className={cn(
+                        "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                        klingShotType === "customize"
+                          ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                          : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                        disabled && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      {"\u81ea\u5b9a\u4e49\u5206\u955c"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
