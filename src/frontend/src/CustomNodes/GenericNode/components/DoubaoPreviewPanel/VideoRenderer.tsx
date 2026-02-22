@@ -18,6 +18,16 @@ type VideoRendererProps = {
    * - undefined: no programmatic control (default behavior)
    */
   autoPlay?: boolean;
+  /**
+   * Controls whether hover-autoplay should be muted.
+   * - If omitted, hover-autoplay defaults to muted (matches previous behavior).
+   * - Has no effect for modal playback or when `autoPlay` is undefined.
+   */
+  muted?: boolean;
+  /**
+   * Exposes the underlying <video> element for parent features like "capture frame".
+   */
+  onVideoElement?: (el: HTMLVideoElement | null) => void;
   onMeta?: (meta: { width?: number; height?: number; aspectRatio?: number }) => void;
   hideControls?: boolean;
 };
@@ -33,6 +43,8 @@ const VideoRenderer = ({
   showSpeedControl = false,
   onDownloadClick,
   autoPlay,
+  muted,
+  onVideoElement,
   onMeta,
   hideControls = false,
 }: VideoRendererProps) => {
@@ -46,6 +58,15 @@ const VideoRenderer = ({
   const retryTimeoutRef = useRef<number | null>(null);
 
   const isModal = variant === "modal";
+  const shouldMuteHoverAutoplay = Boolean(autoPlay && !isModal ? muted ?? true : false);
+  // Persistent preview frames can overlay extra buttons (e.g. "capture frame") in the bottom-right.
+  // Reserve space so the progress bar remains usable and unobstructed.
+  const reserveRightForOverlayButton = Boolean(!isModal && autoPlay !== undefined);
+
+  useEffect(() => {
+    onVideoElement?.(videoRef.current);
+    return () => onVideoElement?.(null);
+  }, [onVideoElement]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -121,15 +142,9 @@ const VideoRenderer = ({
 
     if (!autoPlay) {
       video.pause();
-      video.currentTime = 0;
-      setCurrentTime(0);
       setIsPlaying(false);
       return;
     }
-
-    // Start from the beginning for "hover preview" style playback.
-    video.currentTime = 0;
-    setCurrentTime(0);
 
     video
       .play()
@@ -139,6 +154,14 @@ const VideoRenderer = ({
         console.error("Failed to play video:", error);
       });
   }, [autoPlay, videoUrl]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (autoPlay === undefined) return;
+    // Keep `muted` in sync while hover autoplay is active (supports "toggle sound" button).
+    video.muted = shouldMuteHoverAutoplay;
+  }, [autoPlay, shouldMuteHoverAutoplay]);
 
   useEffect(() => {
     setRetryCount(0);
@@ -202,11 +225,9 @@ const VideoRenderer = ({
     () =>
       isModal
         ? "flex flex-col gap-3 rounded-xl border border-white/15 bg-black/70 p-4 text-white"
-        : "absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3 text-white",
-    [isModal],
+        : `absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3 text-white ${reserveRightForOverlayButton ? "pr-16" : ""} nodrag`,
+    [isModal, reserveRightForOverlayButton],
   );
-
-  const shouldHideProgressBar = Boolean(autoPlay && !isModal && isPlaying);
 
   if (!videoUrl) {
     return (
@@ -234,7 +255,7 @@ const VideoRenderer = ({
         ref={videoRef}
         src={videoUrl}
         poster={poster}
-        muted={Boolean(autoPlay && !isModal)}
+        muted={shouldMuteHoverAutoplay}
         className={
           isModal
             ? "max-h-[60vh] w-full rounded-xl object-contain"
@@ -251,7 +272,10 @@ const VideoRenderer = ({
           <div className="flex items-center gap-3">
             <button
               onClick={togglePlayback}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
+              className="nodrag flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               aria-label={isPlaying ? "暂停" : "播放"}
             >
               {isPlaying ? (
@@ -261,17 +285,18 @@ const VideoRenderer = ({
               )}
             </button>
 
-            {!shouldHideProgressBar && (
-              <input
-                type="range"
-                min="0"
-                max={videoDuration || 0}
-                step="0.1"
-                value={currentTime}
-                onChange={handleSeek}
-                className="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/50 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-              />
-            )}
+            <input
+              type="range"
+              min="0"
+              max={videoDuration || 0}
+              step="0.1"
+              value={currentTime}
+              onChange={handleSeek}
+              className="nodrag flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/50 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            />
 
             <span className="text-xs tabular-nums">
               {formatTime(currentTime)} / {formatTime(videoDuration)}

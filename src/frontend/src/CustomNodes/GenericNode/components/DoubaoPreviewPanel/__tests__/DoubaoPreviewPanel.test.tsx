@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import DoubaoPreviewPanel from "../index";
 import { useDoubaoPreview } from "../../../../hooks/use-doubao-preview";
 
@@ -493,7 +493,7 @@ describe("DoubaoPreviewPanel", () => {
     expect(saveButtons).toHaveLength(1);
   });
 
-  test("autoplays video on hover in persistent video generator preview and hides progress bar", async () => {
+  test("autoplays video on hover in persistent video generator preview and keeps progress bar usable", async () => {
     const mockVideoPreview = {
       kind: "video" as const,
       available: true,
@@ -533,19 +533,43 @@ describe("DoubaoPreviewPanel", () => {
     playMock.mockClear();
     pauseMock.mockClear();
 
-    fireEvent.mouseEnter(frame);
+    await act(async () => {
+      fireEvent.mouseEnter(frame);
+    });
     expect(playMock).toHaveBeenCalled();
 
     await waitFor(() => {
-      expect(container.querySelector('input[type="range"]')).toBeNull();
+      expect(container.querySelector('input[type="range"]')).not.toBeNull();
     });
 
-    fireEvent.mouseLeave(frame);
+    // When the cursor leaves and comes back, hover autoplay should resume from the same position
+    // (do not reset currentTime to 0).
+    const videoEl = container.querySelector("video") as HTMLVideoElement | null;
+    expect(videoEl).not.toBeNull();
+    if (videoEl) {
+      videoEl.currentTime = 3.2;
+    }
+
+    await act(async () => {
+      fireEvent.mouseLeave(frame);
+    });
     expect(pauseMock).toHaveBeenCalled();
 
     await waitFor(() => {
       expect(container.querySelector('input[type="range"]')).not.toBeNull();
     });
+    if (videoEl) {
+      expect(videoEl.currentTime).toBeCloseTo(3.2, 3);
+    }
+
+    playMock.mockClear();
+    await act(async () => {
+      fireEvent.mouseEnter(frame);
+    });
+    expect(playMock).toHaveBeenCalled();
+    if (videoEl) {
+      expect(videoEl.currentTime).toBeCloseTo(3.2, 3);
+    }
   });
 
   test("shows uploaded reference video in persistent video generator preview when no generated output", async () => {
@@ -583,14 +607,18 @@ describe("DoubaoPreviewPanel", () => {
     playMock.mockClear();
     pauseMock.mockClear();
 
-    fireEvent.mouseEnter(frame);
+    await act(async () => {
+      fireEvent.mouseEnter(frame);
+    });
     expect(playMock).toHaveBeenCalled();
 
     await waitFor(() => {
-      expect(container.querySelector('input[type=\"range\"]')).toBeNull();
+      expect(container.querySelector('input[type=\"range\"]')).not.toBeNull();
     });
 
-    fireEvent.mouseLeave(frame);
+    await act(async () => {
+      fireEvent.mouseLeave(frame);
+    });
     expect(pauseMock).toHaveBeenCalled();
 
     await waitFor(() => {

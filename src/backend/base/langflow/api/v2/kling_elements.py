@@ -5,6 +5,8 @@ import base64
 import hashlib
 import hmac
 import os
+import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -178,6 +180,58 @@ async def _load_user_file_for_owner(
     if row.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="You don't have access to this file")
     return row
+
+
+async def _load_user_file_bytes_by_path(
+    *,
+    file_path: str,
+    storage_service: StorageService,
+    max_bytes: int | None = None,
+) -> bytes:
+    if "/" not in (file_path or ""):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    prefix, filename = str(file_path).split("/", 1)
+    try:
+        flow_id = str(uuid.UUID(prefix))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid file path") from exc
+    if not filename:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    try:
+        file_stream = await storage_service.get_file(flow_id=flow_id, file_name=filename)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found") from None
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {exc}") from exc
+
+    if isinstance(file_stream, bytes):
+        data = bytes(file_stream)
+    elif hasattr(file_stream, "__aiter__"):
+        buf = bytearray()
+        async for chunk in file_stream:
+            if not isinstance(chunk, (bytes, bytearray)):
+                raise HTTPException(status_code=500, detail="Invalid file stream chunk")
+            buf.extend(chunk)
+            if max_bytes is not None and len(buf) > int(max_bytes):
+                raise HTTPException(status_code=413, detail="File too large")
+        data = bytes(buf)
+    elif hasattr(file_stream, "read"):
+        try:
+            data = await file_stream.read()
+        except TypeError:
+            data = file_stream.read()
+        if not isinstance(data, (bytes, bytearray)):
+            raise HTTPException(status_code=500, detail="Invalid file stream read() result")
+        data = bytes(data)
+    else:
+        raise HTTPException(status_code=500, detail="Unsupported file stream type")
+
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+    if max_bytes is not None and len(data) > int(max_bytes):
+        raise HTTPException(status_code=413, detail="File too large")
+    return data
 
 
 async def _kling_request(
@@ -575,6 +629,12 @@ class KlingElementDeleteRequest(BaseModel):
     asset_id: uuid.UUID
 
 
+class KlingVideoTrimRequest(BaseModel):
+    file_id: uuid.UUID
+    start_s: float = Field(..., ge=0)
+    end_s: float = Field(..., gt=0)
+
+
 class KlingSmartFillRequest(BaseModel):
     """智能补齐主体图：只给一张正面图，生成 1-3 张其他角度参考图，并落盘到用户文件库。"""
 
@@ -716,6 +776,107 @@ async def public_file_download(
         media_type = "video/quicktime"
 
     return StreamingResponse(_iter_chunks(), media_type=media_type)
+
+
+@router.post("/trim-video", response_model=UploadFileResponse, status_code=HTTPStatus.OK)
+async def trim_video_for_kling(
+    *,
+    payload: KlingVideoTrimRequest,
+    session: DbSession,
+    current_user: CurrentActiveUser,
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+):
+    """Trim a user video to 3-8s so it can be used for Kling video_refer subjects."""
+
+    start_s = float(payload.start_s)
+    end_s = float(payload.end_s)
+    if end_s <= start_s:
+        raise HTTPException(status_code=400, detail="end_s must be greater than start_s")
+
+    dur = end_s - start_s
+    if dur < 3.0 or dur > 8.0:
+        raise HTTPException(status_code=400, detail="裁剪后时长必须在 3s ~ 8s 之间")
+
+    row = await _load_user_file_for_owner(file_id=payload.file_id, current_user=current_user, session=session)
+    file_path = str(getattr(row, "path", "") or "")
+    lower = file_path.lower()
+    if not (lower.endswith(".mp4") or lower.endswith(".mov")):
+        raise HTTPException(status_code=400, detail="仅支持 MP4/MOV 视频裁剪")
+
+    # Guardrail (matches upstream doc): max 200MB.
+    max_bytes = 200 * 1024 * 1024
+    src_bytes = await _load_user_file_bytes_by_path(
+        file_path=file_path,
+        storage_service=storage_service,
+        max_bytes=max_bytes,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="kling-trim-") as td:
+        in_path = os.path.join(td, "input" + (".mov" if lower.endswith(".mov") else ".mp4"))
+        out_path = os.path.join(td, "output.mp4")
+        with open(in_path, "wb") as f:
+            f.write(src_bytes)
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            str(start_s),
+            "-to",
+            str(end_s),
+            "-i",
+            in_path,
+            # Re-encode so trimming is accurate and output is mp4 for upstream pull.
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+            out_path,
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            msg = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=f"视频裁剪失败：{msg}") from exc
+
+        try:
+            with open(out_path, "rb") as f:
+                out_bytes = f.read()
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to read trimmed output: {exc}") from exc
+
+    # Persist as a new user file; return file_id to the UI.
+    from langflow.services.database.models.file.model import File as UserFile
+
+    new_id = uuid.uuid4()
+    stored_file_name = f"trim_{new_id}.mp4"
+    await storage_service.save_file(flow_id=str(current_user.id), file_name=stored_file_name, data=out_bytes)
+    try:
+        size = await storage_service.get_file_size(flow_id=str(current_user.id), file_name=stored_file_name)
+    except Exception:
+        size = len(out_bytes)
+
+    new_file = UserFile(
+        id=new_id,
+        user_id=current_user.id,
+        name=f"trim_{new_id}",
+        path=f"{current_user.id}/{stored_file_name}",
+        size=int(size or 0),
+    )
+    session.add(new_file)
+    await session.commit()
+    await session.refresh(new_file)
+
+    return UploadFileResponse(id=new_file.id, name=str(new_file.name), path=str(new_file.path), size=int(new_file.size or 0))
 
 
 @router.get("/custom", response_model=list[KlingElementRead], status_code=HTTPStatus.OK)

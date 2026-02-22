@@ -109,8 +109,18 @@ export default function KlingElementCreateDialog({
   ]);
 
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const videoPreview = useObjectUrl(videoFile);
+  const [videoUploaded, setVideoUploaded] = useState<UploadedV2File | null>(null);
+  const videoPreviewLocal = useObjectUrl(videoFile);
+  const videoPreviewSrc = useMemo(() => {
+    return videoPreviewLocal || (videoUploaded ? getFilesDownloadUrl(videoUploaded.path) : "");
+  }, [videoPreviewLocal, videoUploaded]);
   const [voiceId, setVoiceId] = useState("");
+
+  const [videoMeta, setVideoMeta] = useState<{ duration: number; width: number; height: number } | null>(null);
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(0);
+  const [trimming, setTrimming] = useState(false);
+  const [trimError, setTrimError] = useState<string | null>(null);
 
   const frontalPreview = useObjectUrl(frontalFile);
   const [referPreviews, setReferPreviews] = useState<string[]>([]);
@@ -137,6 +147,58 @@ export default function KlingElementCreateDialog({
     };
   }, [referSlots]);
 
+  // Load video metadata for validation + trimming UI.
+  useEffect(() => {
+    if (referenceType !== "video_refer") {
+      setVideoMeta(null);
+      return;
+    }
+    const src = videoPreviewSrc;
+    if (!src) {
+      setVideoMeta(null);
+      return;
+    }
+
+    let cancelled = false;
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.src = src;
+    v.onloadedmetadata = () => {
+      if (cancelled) return;
+      setVideoMeta({
+        duration: Number(v.duration || 0),
+        width: Number((v as any).videoWidth || 0),
+        height: Number((v as any).videoHeight || 0),
+      });
+    };
+    v.onerror = () => {
+      if (cancelled) return;
+      setVideoMeta(null);
+    };
+    return () => {
+      cancelled = true;
+      try {
+        v.src = "";
+      } catch {
+        // ignore
+      }
+    };
+  }, [referenceType, videoPreviewSrc]);
+
+  // Initialize trim range whenever the video source changes.
+  useEffect(() => {
+    if (referenceType !== "video_refer") return;
+    setTrimError(null);
+    if (!videoMeta || !Number.isFinite(videoMeta.duration) || videoMeta.duration <= 0) {
+      setTrimStart(0);
+      setTrimEnd(0);
+      return;
+    }
+    setTrimStart(0);
+    // Default: clamp to 8s; if shorter, use full duration.
+    setTrimEnd(Math.min(8, Math.max(0, videoMeta.duration)));
+  }, [referenceType, videoPreviewSrc, videoMeta?.duration]);
+
   const [submitting, setSubmitting] = useState(false);
   const [filling, setFilling] = useState(false);
   const [describing, setDescribing] = useState(false);
@@ -147,18 +209,63 @@ export default function KlingElementCreateDialog({
     [referSlots],
   );
 
+  const videoIssues = useMemo(() => {
+    if (referenceType !== "video_refer") return [] as string[];
+    if (!videoFile && !videoUploaded) return ["请上传视频"];
+    if (!videoMeta) return ["无法读取视频信息，请更换视频文件后重试"];
+
+    const issues: string[] = [];
+    const duration = Number(videoMeta.duration || 0);
+    const w = Number(videoMeta.width || 0);
+    const h = Number(videoMeta.height || 0);
+
+    const sizeBytes = Number(videoFile?.size ?? videoUploaded?.size ?? 0);
+    if (Number.isFinite(sizeBytes) && sizeBytes > 200 * 1024 * 1024) {
+      issues.push("视频大小不能超过 200MB");
+    }
+
+    // Doc requirement: 1080P + aspect ratio 16:9 or 9:16.
+    const is1080pLandscape = w === 1920 && h === 1080;
+    const is1080pPortrait = w === 1080 && h === 1920;
+    if (!is1080pLandscape && !is1080pPortrait) {
+      issues.push("仅支持 1080P（1920x1080 或 1080x1920）视频");
+    }
+
+    if (!Number.isFinite(duration) || duration <= 0) {
+      issues.push("无法获取视频时长");
+    } else {
+      if (duration < 3 - 1e-3) issues.push("视频时长需介于 3s ~ 8s（当前过短）");
+      if (duration > 8 + 1e-3) issues.push("视频时长需介于 3s ~ 8s（当前过长，请先裁剪）");
+    }
+
+    return issues;
+  }, [referenceType, videoFile, videoUploaded, videoMeta]);
+
+  const trimDuration = useMemo(() => {
+    const d = Number(trimEnd) - Number(trimStart);
+    return Number.isFinite(d) ? Math.max(0, d) : 0;
+  }, [trimStart, trimEnd]);
+
+  const canTrim = useMemo(() => {
+    if (referenceType !== "video_refer") return false;
+    if (!videoMeta || !Number.isFinite(videoMeta.duration) || videoMeta.duration <= 0) return false;
+    if (!videoFile && !videoUploaded) return false;
+    if (trimming) return false;
+    return trimDuration >= 3 - 1e-3 && trimDuration <= 8 + 1e-3;
+  }, [referenceType, videoMeta, videoFile, videoUploaded, trimming, trimDuration]);
+
   const canSubmit = useMemo(() => {
     const baseOk = name.trim().length > 0 && desc.trim().length > 0 && Boolean(tagId);
     if (!baseOk) return false;
     if (referenceType === "video_refer") {
-      return Boolean(videoFile);
+      return Boolean(videoFile || videoUploaded) && videoIssues.length === 0 && !trimming;
     }
     return (
       Boolean(frontalFile || frontalUploaded) &&
       referFilledCount >= 1 &&
       referFilledCount <= 3
     );
-  }, [name, desc, tagId, referenceType, videoFile, frontalFile, frontalUploaded, referFilledCount]);
+  }, [name, desc, tagId, referenceType, videoFile, videoUploaded, videoIssues.length, trimming, frontalFile, frontalUploaded, referFilledCount]);
 
   const reset = useCallback(() => {
     setName("");
@@ -173,6 +280,12 @@ export default function KlingElementCreateDialog({
       { local: null, uploaded: null },
     ]);
     setVideoFile(null);
+    setVideoUploaded(null);
+    setVideoMeta(null);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setTrimming(false);
+    setTrimError(null);
     setVoiceId("");
     setSubmitting(false);
     setFilling(false);
@@ -207,6 +320,11 @@ export default function KlingElementCreateDialog({
       return;
     }
     setVideoFile(file);
+    setVideoUploaded(null); // re-upload if the user changes the file
+    setVideoMeta(null);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setTrimError(null);
   }, []);
 
   const pickSingleFile = useCallback(async () => {
@@ -429,6 +547,73 @@ export default function KlingElementCreateDialog({
     desc,
   ]);
 
+  const handleTrimVideo = useCallback(async () => {
+    if (referenceType !== "video_refer") return;
+    if (trimming) return;
+    setTrimError(null);
+    setError(null);
+
+    const meta = videoMeta;
+    if (!meta || !Number.isFinite(meta.duration) || meta.duration <= 0) {
+      setTrimError("无法读取视频信息，暂不可裁剪");
+      return;
+    }
+
+    const start = Number(trimStart);
+    const end = Number(trimEnd);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      setTrimError("裁剪区间不合法");
+      return;
+    }
+    if (end <= start) {
+      setTrimError("结束时间必须大于开始时间");
+      return;
+    }
+    if (start < 0 || end > meta.duration + 1e-3) {
+      setTrimError("裁剪区间超出视频范围");
+      return;
+    }
+    const dur = end - start;
+    if (dur < 3 - 1e-3 || dur > 8 + 1e-3) {
+      setTrimError("裁剪后时长需介于 3s ~ 8s");
+      return;
+    }
+
+    if (!videoUploaded && !videoFile) {
+      setTrimError("请先上传视频");
+      return;
+    }
+
+    setTrimming(true);
+    try {
+      const up = videoUploaded ?? (await uploadV2File(videoFile!));
+      if (!videoUploaded) setVideoUploaded(up);
+
+      const res = await api.post(getURL("KLING_ELEMENTS", {}, true) + "/trim-video", {
+        file_id: up.id,
+        start_s: start,
+        end_s: end,
+      });
+      const trimmed = res?.data as any;
+      if (!trimmed?.id) throw new Error("裁剪失败：未返回文件ID");
+
+      const nextUp: UploadedV2File = {
+        id: String(trimmed.id),
+        name: String(trimmed.name ?? ""),
+        path: String(trimmed.path ?? ""),
+        size: Number(trimmed.size ?? 0),
+      };
+      setVideoUploaded(nextUp);
+      setVideoFile(null); // use the trimmed server file as the source of truth
+    } catch (e: unknown) {
+      const err = e as AxiosLikeError;
+      const detail = err?.response?.data?.detail ?? err?.response?.data?.message;
+      setTrimError(String(detail ?? err?.message ?? "视频裁剪失败"));
+    } finally {
+      setTrimming(false);
+    }
+  }, [referenceType, trimming, videoMeta, trimStart, trimEnd, videoUploaded, videoFile]);
+
   const submitLockRef = useRef(false);
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || submitting) return;
@@ -439,7 +624,8 @@ export default function KlingElementCreateDialog({
     try {
       let created: KlingElement;
       if (referenceType === "video_refer") {
-        const videoUp = await uploadV2File(videoFile!);
+        const videoUp = videoUploaded ?? (await uploadV2File(videoFile!));
+        if (!videoUploaded) setVideoUploaded(videoUp);
         created = await createCustom({
           element_name: name.trim(),
           element_description: desc.trim(),
@@ -480,7 +666,7 @@ export default function KlingElementCreateDialog({
       setSubmitting(false);
       submitLockRef.current = false;
     }
-  }, [canSubmit, submitting, referenceType, videoFile, voiceId, frontalFile, frontalUploaded, referSlots, createCustom, name, desc, tagId, onCreated, handleClose]);
+  }, [canSubmit, submitting, referenceType, videoFile, videoUploaded, voiceId, frontalFile, frontalUploaded, referSlots, createCustom, name, desc, tagId, onCreated, handleClose]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -501,6 +687,11 @@ export default function KlingElementCreateDialog({
                     setError(null);
                     setReferenceType("image_refer");
                     setVideoFile(null);
+                    setVideoUploaded(null);
+                    setVideoMeta(null);
+                    setTrimStart(0);
+                    setTrimEnd(0);
+                    setTrimError(null);
                     setVoiceId("");
                   }}
                 >
@@ -520,6 +711,12 @@ export default function KlingElementCreateDialog({
                       { local: null, uploaded: null },
                       { local: null, uploaded: null },
                     ]);
+                    setVideoFile(null);
+                    setVideoUploaded(null);
+                    setVideoMeta(null);
+                    setTrimStart(0);
+                    setTrimEnd(0);
+                    setTrimError(null);
                   }}
                 >
                   视频定制
@@ -529,15 +726,15 @@ export default function KlingElementCreateDialog({
               {referenceType === "video_refer" ? (
                 <div>
                   <div className="text-sm font-medium">主体参考视频（必填，1段）</div>
-                  <div className="mt-3">
+                  <div className="mt-3 space-y-3">
                     <label
                       className={cn(
                         "relative flex h-[220px] w-[420px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
-                        videoFile && "border-border/80",
+                        videoPreviewSrc && "border-border/80",
                       )}
                     >
-                      {videoPreview ? (
-                        <video src={videoPreview} className="h-full w-full object-cover" controls />
+                      {videoPreviewSrc ? (
+                        <video src={videoPreviewSrc} className="h-full w-full object-cover" controls />
                       ) : (
                         <div className="text-[13px] text-muted-foreground">点击上传</div>
                       )}
@@ -549,22 +746,151 @@ export default function KlingElementCreateDialog({
                       />
                     </label>
 
-                    {videoFile && (
+                    {(videoFile || videoUploaded) && (
                       <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                        <div className="truncate pr-2">{videoFile.name}</div>
+                        <div className="truncate pr-2">
+                          {videoFile?.name ?? videoUploaded?.name ?? ""}
+                          {videoMeta && Number.isFinite(videoMeta.duration) && videoMeta.duration > 0 && (
+                            <span className="ml-2">
+                              · {videoMeta.width}x{videoMeta.height} · {videoMeta.duration.toFixed(2)}s
+                            </span>
+                          )}
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
                           className="h-7 px-2 text-xs"
-                          onClick={() => setVideoFile(null)}
+                          onClick={() => {
+                            setVideoFile(null);
+                            setVideoUploaded(null);
+                            setVideoMeta(null);
+                            setTrimStart(0);
+                            setTrimEnd(0);
+                            setTrimError(null);
+                          }}
                         >
                           清除
                         </Button>
                       </div>
                     )}
 
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      仅支持 MP4/MOV；3-8秒；1080P；16:9 或 9:16；最大 200MB。
+                    {videoIssues.length > 0 && (
+                      <div className="text-sm text-red-600">
+                        {videoIssues.map((m, idx) => (
+                          <div key={idx}>{m}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="rounded-xl border border-border/60 bg-muted/10 p-3">
+                      <div className="text-sm font-medium">裁剪（将视频裁剪到 3-8 秒）</div>
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="mb-1 text-xs text-muted-foreground">开始时间（秒）</div>
+                          <Input
+                            type="number"
+                            value={trimStart}
+                            step={0.1}
+                            min={0}
+                            max={videoMeta?.duration ?? 0}
+                            onChange={(e) => {
+                              const next = Number(e.target.value);
+                              if (!Number.isFinite(next)) return;
+                              setTrimError(null);
+                              setTrimStart(next);
+                              if (Number(trimEnd) <= next) {
+                                const maxDur = Number(videoMeta?.duration ?? next);
+                                setTrimEnd(Math.min(maxDur, next + 3));
+                              }
+                            }}
+                            className="h-10"
+                          />
+                        </div>
+                        <div>
+                          <div className="mb-1 text-xs text-muted-foreground">结束时间（秒）</div>
+                          <Input
+                            type="number"
+                            value={trimEnd}
+                            step={0.1}
+                            min={0}
+                            max={videoMeta?.duration ?? 0}
+                            onChange={(e) => {
+                              const next = Number(e.target.value);
+                              if (!Number.isFinite(next)) return;
+                              setTrimError(null);
+                              setTrimEnd(next);
+                              if (next <= Number(trimStart)) setTrimStart(Math.max(0, next - 3));
+                            }}
+                            className="h-10"
+                          />
+                        </div>
+                      </div>
+
+                      {videoMeta && videoMeta.duration > 0 && (
+                        <div className="mt-3 space-y-2">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={videoMeta.duration}
+                                step={0.1}
+                                value={trimStart}
+                                onChange={(e) => {
+                                  const next = Number(e.target.value);
+                                  if (!Number.isFinite(next)) return;
+                                  setTrimError(null);
+                                  setTrimStart(next);
+                                  if (Number(trimEnd) <= next) setTrimEnd(Math.min(videoMeta.duration, next + 3));
+                                }}
+                                className="w-full"
+                              />
+                            </div>
+                            <div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={videoMeta.duration}
+                                step={0.1}
+                                value={trimEnd}
+                                onChange={(e) => {
+                                  const next = Number(e.target.value);
+                                  if (!Number.isFinite(next)) return;
+                                  setTrimError(null);
+                                  setTrimEnd(next);
+                                  if (next <= Number(trimStart)) setTrimStart(Math.max(0, next - 3));
+                                }}
+                                className="w-full"
+                              />
+                            </div>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            已选区间：{trimStart.toFixed(2)}s - {trimEnd.toFixed(2)}s（{trimDuration.toFixed(2)}s）
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <div className="text-xs text-muted-foreground">
+                          裁剪后将生成一个新视频文件，并替换当前视频。
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={!canTrim}
+                          onClick={() => void handleTrimVideo()}
+                        >
+                          {trimming ? "裁剪中..." : "裁剪并替换"}
+                        </Button>
+                      </div>
+
+                      {trimError && (
+                        <div className="mt-2 text-sm text-red-600">{trimError}</div>
+                      )}
+                    </div>
+
+                    <div className="text-xs text-muted-foreground">
+                      仅支持 MP4/MOV；时长 3-8 秒；1080P（1920x1080 或 1080x1920）；最大 200MB。
                     </div>
                   </div>
                 </div>

@@ -3,6 +3,7 @@ import {
   lazy,
   Suspense,
   type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
   useMemo,
   useCallback,
   useState,
@@ -31,6 +32,7 @@ import { formatFileSize } from "@/utils/stringManipulation";
 import useFlowStore from "@/stores/flowStore";
 import useAlertStore from "@/stores/alertStore";
 import OutputModal from "../outputModal";
+import { BASE_URL_API } from "@/constants/constants";
 import CropOverlay from "./CropOverlay";
 import OutpaintOverlay from "./OutpaintOverlay";
 import MultiAngleCameraOverlay, {
@@ -149,6 +151,35 @@ function normalizePublicFilePreviewUrl(
   return `${prefix}${replacement}${withoutQuery}`;
 }
 
+function toStableInternalFileUrl(
+  source: unknown,
+  kind: "image" | "video" | "audio",
+): string | undefined {
+  if (typeof source !== "string") return undefined;
+  const trimmed = source.trim();
+  if (!trimmed) return undefined;
+
+  const publicNormalized = normalizePublicFilePreviewUrl(trimmed, kind);
+  const normalizedCandidate = (publicNormalized ?? trimmed).trim();
+  if (/^(data:|blob:|https?:)/i.test(normalizedCandidate)) return normalizedCandidate;
+
+  const normalized = normalizedCandidate.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (normalized.startsWith("api/v1/files/")) {
+    return `/${normalized}`;
+  }
+  if (normalized.startsWith("files/")) {
+    return `${BASE_URL_API}${normalized}`;
+  }
+
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length < 2) return undefined;
+  const [flowId, ...rest] = parts;
+  const encodedFlow = encodeURIComponent(flowId);
+  const encodedFile = rest.map((p) => encodeURIComponent(p)).join("/");
+  const prefix = kind === "image" ? "files/images/" : "files/media/";
+  return `${BASE_URL_API}${prefix}${encodedFlow}/${encodedFile}`;
+}
+
 export type DoubaoReferenceImage = {
   id: string;
   imageSource: string;
@@ -261,6 +292,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const { mutateAsync: uploadReferenceFile } = usePostUploadFile();
     const setSuccessData = useAlertStore((state) => state.setSuccessData);
     const setErrorData = useAlertStore((state) => state.setErrorData);
+    const setNoticeData = useAlertStore((state) => state.setNoticeData);
     const templates = useTypesStore((state) => state.templates);
     const node = useMemo(
       () => (nodes.find((candidate) => candidate.id === nodeId)?.data as any)?.node,
@@ -349,6 +381,34 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const [isPersistentPreviewHovered, setIsPersistentPreviewHovered] =
       useState(false);
     const enableHoverAutoplay = isMinimal && appearance === "videoGenerator";
+
+    // Hover autoplay starts muted (browser policy-friendly). Users can opt-in to sound per node.
+    const [isHoverAutoplayMuted, setIsHoverAutoplayMuted] = useState(true);
+    const hoverVideoElementRef = useRef<HTMLVideoElement | null>(null);
+    const handleHoverVideoElement = useCallback((el: HTMLVideoElement | null) => {
+      hoverVideoElementRef.current = el;
+    }, []);
+    const handleToggleHoverAutoplaySound = useCallback(
+      (event: ReactMouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        setIsHoverAutoplayMuted((prev) => {
+          const next = !prev;
+          const video = hoverVideoElementRef.current;
+          if (video) {
+            try {
+              video.muted = next;
+              if (!next) video.volume = 1;
+            } catch {
+              // ignore
+            }
+          }
+          return next;
+        });
+      },
+      [],
+    );
 
     const kind = useMemo(() => {
       if (resolvedPreview?.kind) return resolvedPreview.kind;
@@ -1078,6 +1138,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const hasAudioPreview =
       kind === "audio" && Boolean(resolvedPreview?.available && audioPreview);
 
+    const hasHoverAutoplayVideo = Boolean(
+      isPersistentPreview &&
+        enableHoverAutoplay &&
+        kind === "video" &&
+        videoPreview?.videoUrl,
+    );
+
     const galleryForRenderer = hasGeneratedImagePreview
       ? imageGallery
       : hasReferencePreview
@@ -1091,6 +1158,179 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       hasAudioPreview;
     const shouldShowWaveLoading = isMinimal && isBuilding;
     const emptyPreviewBuildingState = isBuilding && !shouldShowWaveLoading;
+
+    const isCapturingFrameRef = useRef(false);
+    const handleCaptureHoverVideoFrame = useCallback(
+      async (event: ReactMouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (isCapturingFrameRef.current) return;
+        if (!hasHoverAutoplayVideo) return;
+
+        if (!currentFlowId) {
+          showTransientBadge("请先保存画布后再截帧");
+          return;
+        }
+
+        const template = (templates as any)?.UserUploadImage;
+        if (!template) {
+          showTransientBadge("未加载到“上传图片（UserUploadImage）”模板");
+          return;
+        }
+
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+
+        const video = hoverVideoElementRef.current;
+        if (!video) {
+          showTransientBadge("视频未就绪");
+          return;
+        }
+        if ((video as any).readyState !== undefined && video.readyState < 2) {
+          showTransientBadge("视频加载中，请稍后");
+          return;
+        }
+
+        // Global notice while generating/uploading the captured frame.
+        setNoticeData({ title: "正在生成视频截帧..." });
+        isCapturingFrameRef.current = true;
+        try {
+          const width = Number(video.videoWidth || 0);
+          const height = Number(video.videoHeight || 0);
+          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            showTransientBadge("视频元数据未就绪");
+            return;
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            setErrorData({ title: "视频截帧失败" });
+            showTransientBadge("截帧失败");
+            return;
+          }
+
+          try {
+            ctx.drawImage(video, 0, 0, width, height);
+          } catch (error) {
+            console.error("Failed to draw video frame:", error);
+            setErrorData({ title: "视频截帧失败", list: ["跨域视频无法截取"] });
+            showTransientBadge("截帧失败（跨域视频无法截取）");
+            return;
+          }
+
+          const blob = await new Promise<Blob>((resolve, reject) => {
+            try {
+              canvas.toBlob(
+                (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
+                "image/png",
+              );
+            } catch (e) {
+              reject(e);
+            }
+          });
+
+          const fileName = `video_frame_${Date.now()}.png`;
+          let uploadedPath = "";
+          try {
+            const file = new File([blob], fileName, { type: blob.type || "image/png" });
+            const resp: any = await uploadReferenceFile({ file, id: currentFlowId });
+            uploadedPath = String(resp?.file_path ?? "").trim();
+          } catch (error) {
+            console.error("Failed to upload captured frame:", error);
+            setErrorData({ title: "视频截帧上传失败" });
+            showTransientBadge("上传失败");
+            return;
+          }
+          if (!uploadedPath) {
+            setErrorData({ title: "视频截帧上传失败" });
+            showTransientBadge("上传失败");
+            return;
+          }
+
+          // Preload the uploaded image so the new node appears with the frame already rendered.
+          const previewUrl = toStableInternalFileUrl(uploadedPath, "image");
+          if (previewUrl) {
+            try {
+              const preload = new Promise<void>((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error("image load failed"));
+                img.src = previewUrl;
+              });
+              await Promise.race([
+                preload,
+                new Promise<void>((resolve) => window.setTimeout(resolve, 8000)),
+              ]);
+            } catch {
+              // ignore (still create the node even if preload fails)
+            }
+          }
+
+          takeSnapshot?.();
+
+          const seeded = cloneDeep(template);
+          seeded.display_name = "视频截帧";
+          if (seeded.template?.file) {
+            seeded.template.file.value = fileName;
+            seeded.template.file.file_path = uploadedPath;
+          }
+
+          const newNodeId = getNodeId("UserUploadImage");
+          const NODE_OFFSET_X = 760;
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+          const newNodeX = abs.x + NODE_OFFSET_X;
+          const newNodeY = computeAlignedNodeTopY({
+            anchorNodeId: nodeId,
+            anchorNodeType: currentFlowNode.data?.type,
+            targetNodeType: "UserUploadImage",
+            targetX: newNodeX,
+            fallbackTopY: abs.y + 80,
+            avoidOverlap: true,
+          });
+
+          const newImageNode: GenericNodeType = {
+            id: newNodeId,
+            type: "genericNode",
+            position: { x: newNodeX, y: newNodeY },
+            data: {
+              node: seeded as any,
+              showNode: !(seeded as any).minimized,
+              type: "UserUploadImage",
+              id: newNodeId,
+            },
+            selected: false,
+          };
+
+          unstable_batchedUpdates(() => {
+            setNodes((currentNodes: any[]) => [...(currentNodes ?? []), newImageNode as any]);
+          });
+
+          setSuccessData({ title: "视频截帧已生成" });
+          showTransientBadge("已生成“视频截帧”");
+        } finally {
+          isCapturingFrameRef.current = false;
+        }
+      },
+      [
+        currentFlowId,
+        hasHoverAutoplayVideo,
+        nodeId,
+        nodes,
+        setNodes,
+        setErrorData,
+        setNoticeData,
+        setSuccessData,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+        uploadReferenceFile,
+      ],
+    );
 
     // Image creator and video generator should always use containerStyle for smooth aspect ratio transitions.
     const appliedContainerStyle =
@@ -3185,6 +3425,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             duration={videoPreview.duration}
             frameless={appearance === "videoGenerator"}
             autoPlay={enableHoverAutoplay ? isPersistentPreviewHovered : undefined}
+            muted={enableHoverAutoplay ? isHoverAutoplayMuted : undefined}
+            onVideoElement={enableHoverAutoplay ? handleHoverVideoElement : undefined}
             onMeta={handlePreviewMeta}
             hideControls={shouldShowWaveLoading}
           />
@@ -3588,6 +3830,23 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                       tonedByPreview={Boolean(hasRenderablePreview)}
                       active={Boolean(shouldShowWaveLoading)}
                     />
+                    {hasHoverAutoplayVideo && !shouldShowWaveLoading && (
+                      <button
+                        type="button"
+                        aria-label={isHoverAutoplayMuted ? "开启声音" : "关闭声音"}
+                        title={isHoverAutoplayMuted ? "开启声音" : "静音"}
+                        onClick={handleToggleHoverAutoplaySound}
+                        className={cn(
+                          "absolute left-4 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white shadow transition hover:bg-black/60",
+                          showReferenceSelectionBadge ? "top-14" : "top-4",
+                        )}
+                      >
+                        <ForwardedIconComponent
+                          name={isHoverAutoplayMuted ? "VolumeX" : "Volume2"}
+                          className="h-4 w-4"
+                        />
+                      </button>
+                    )}
                   </div>
                 </div>
                 {showReferenceSelectionBadge && (
@@ -3663,15 +3922,53 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
                 {!shouldShowWaveLoading &&
                   appearance !== "imageCreator" &&
-                  downloadInfo &&
+                  hasHoverAutoplayVideo &&
+                  !isAudioMinimal && (
+                  <button
+                    type="button"
+                    aria-label="截帧"
+                    title="截帧"
+                    onClick={handleCaptureHoverVideoFrame}
+                    className={cn(
+                      "absolute bottom-4 right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full shadow transition",
+                      isMinimal
+                        ? "bg-black/55 text-white hover:bg-black/70"
+                        : "bg-white/90 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                    )}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />
+                      <circle cx="12" cy="13" r="3" />
+                    </svg>
+                  </button>
+                )}
+
+                {!shouldShowWaveLoading &&
+                  appearance !== "imageCreator" &&
+                  false &&
                   !isAudioMinimal && (
                   <button
                     onClick={handleDownload}
                     className={cn(
                       "absolute flex items-center gap-1 text-xs font-medium transition",
                       isMinimal
-                        ? "bottom-4 right-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow"
-                        : "bottom-4 right-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                        ? cn(
+                            "bottom-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow",
+                            hasHoverAutoplayVideo ? "right-16" : "right-4",
+                          )
+                        : cn(
+                            "bottom-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                            hasHoverAutoplayVideo ? "right-16" : "right-4",
+                          ),
                     )}
                   >
                     <ForwardedIconComponent name="Download" className="h-4 w-4" />
