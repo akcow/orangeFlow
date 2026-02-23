@@ -11,6 +11,7 @@ import { useDarkStore } from "../../../stores/darkStore";
 import { IconComponentProps } from "../../../types/components";
 import { getCachedIcon, getNodeIcon } from "../../../utils/styleUtils";
 import { cn } from "../../../utils/utils";
+import { getInlineIconComponent } from "./inlineIcons";
 
 export const ForwardedIconComponent = memo(
   forwardRef(
@@ -33,12 +34,21 @@ export const ForwardedIconComponent = memo(
 
       const [showFallback, setShowFallback] = useState(false);
       const [iconError, setIconError] = useState(false);
-      const [TargetIcon, setTargetIcon] = useState<any>(getCachedIcon(name));
+      const [TargetIcon, setTargetIcon] = useState<any>(
+        () => getInlineIconComponent(name) ?? getCachedIcon(name),
+      );
 
       useEffect(() => {
         setIconError(false);
-        setTargetIcon(null);
         setShowFallback(false);
+
+        const inlineIcon = getInlineIconComponent(name);
+        if (inlineIcon) {
+          setTargetIcon(() => inlineIcon);
+          return;
+        }
+
+        setTargetIcon(null);
 
         let isMounted = true;
         let timer: NodeJS.Timeout | null = null;

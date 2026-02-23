@@ -215,7 +215,7 @@ export default function VideoClipOverlay({
     if (!open) return;
     seededRef.current = false;
     setHintIndex(0);
-  }, [open]);
+  }, [open, videoSource]);
 
   useEffect(() => {
     if (!open) return;
@@ -228,16 +228,35 @@ export default function VideoClipOverlay({
   useEffect(() => {
     if (!open) return;
     if (!hasDuration) return;
-    if (seededRef.current) return;
-    seededRef.current = true;
+    if (seededRef.current && outPoint > inPoint + 1e-3) return;
 
-    const DEFAULT_SELECTION_S = 3;
-    const sel = Math.min(DEFAULT_SELECTION_S, effectiveDurationS);
-    const center = clamp(Number(playheadS) || 0, 0, effectiveDurationS);
-    const start = clamp(center - sel / 2, 0, Math.max(0, effectiveDurationS - sel));
-    setInPoint(start);
-    setOutPoint(clamp(start + sel, 0, effectiveDurationS));
-  }, [effectiveDurationS, hasDuration, open, playheadS]);
+    // Defer one frame so the underlying <video> has a chance to sync its currentTime,
+    // otherwise we may incorrectly seed from 0 and start the selection at the beginning.
+    let cancelled = false;
+    const id = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      const DEFAULT_SELECTION_S = 3;
+      const sel = Math.min(DEFAULT_SELECTION_S, effectiveDurationS);
+
+      // Default selection should be visually centered (not starting from 0s).
+      // We intentionally seed from duration center instead of the current playhead.
+      const rawCenter = effectiveDurationS / 2;
+
+      const center = clamp(rawCenter, 0, effectiveDurationS);
+      const start = clamp(
+        center - sel / 2,
+        0,
+        Math.max(0, effectiveDurationS - sel),
+      );
+      seededRef.current = true;
+      setInPoint(start);
+      setOutPoint(clamp(start + sel, 0, effectiveDurationS));
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(id);
+    };
+  }, [effectiveDurationS, hasDuration, inPoint, open, outPoint]);
 
   const selectionDuration = useMemo(
     () => Math.max(0, outPoint - inPoint),

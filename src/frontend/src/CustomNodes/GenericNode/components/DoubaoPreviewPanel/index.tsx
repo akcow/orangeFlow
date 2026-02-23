@@ -41,6 +41,7 @@ import MultiAngleCameraOverlay, {
 import EnhanceOverlay, { type EnhanceModelOption } from "./EnhanceOverlay";
 import RepaintOverlay, { type RepaintOverlayHandle } from "./RepaintOverlay";
 import EraseOverlay, { type EraseOverlayHandle } from "./EraseOverlay";
+import AnnotateOverlay from "./AnnotateOverlay";
 import ZoomableImageOverlay from "./ZoomableImageOverlay";
 import VideoClipOverlay from "./VideoClipOverlay";
 import { cloneDeep } from "lodash";
@@ -206,11 +207,12 @@ async function tryPreloadVideoMetadata(url: string, timeoutMs = 9000): Promise<b
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
-    video.preload = "metadata";
+    // Preload enough data for the first frame so the downstream node appears "ready".
+    video.preload = "auto";
     video.crossOrigin = "anonymous";
 
     const timer = window.setTimeout(() => finish(false), timeoutMs);
-    const onMeta = () => {
+    const onReady = () => {
       window.clearTimeout(timer);
       finish(true);
     };
@@ -219,9 +221,16 @@ async function tryPreloadVideoMetadata(url: string, timeoutMs = 9000): Promise<b
       finish(false);
     };
 
-    video.addEventListener("loadedmetadata", onMeta, { once: true });
+    // Prefer first-frame readiness; fall back to metadata if the browser can't decode yet.
+    video.addEventListener("loadeddata", onReady, { once: true });
+    video.addEventListener("loadedmetadata", onReady, { once: true });
     video.addEventListener("error", onErr, { once: true });
     video.src = src;
+    try {
+      video.load();
+    } catch {
+      // ignore
+    }
   });
 }
 
@@ -241,6 +250,9 @@ export type DoubaoPreviewPanelActions = {
   openPreview: () => void;
   download: () => void;
   canDownload: boolean;
+  enterAnnotate: () => void;
+  canAnnotate: boolean;
+  isAnnotateOpen: boolean;
   enterRepaint: () => void;
   runRepaint: () => void;
   canRepaint: boolean;
@@ -968,6 +980,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     );
 
     const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
+    const [isAnnotateOpen, setAnnotateOpen] = useState(false);
     const [isRepaintOpen, setRepaintOpen] = useState(false);
     const [isEraseOpen, setEraseOpen] = useState(false);
     const [isCropOpen, setCropOpen] = useState(false);
@@ -976,6 +989,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const [isMultiAngleCameraOpen, setMultiAngleCameraOpen] = useState(false);
     const [isClipOpen, setClipOpen] = useState(false);
     const [isClipTrimming, setClipTrimming] = useState(false);
+    const [isAnnotateUploading, setAnnotateUploading] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const repaintOverlayRef = useRef<RepaintOverlayHandle | null>(null);
     const eraseOverlayRef = useRef<EraseOverlayHandle | null>(null);
@@ -1055,6 +1069,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       else root.classList.remove(cls);
       return () => root.classList.remove(cls);
     }, [isClipOpen]);
+
+    // While annotate editor is open, hide handles/"+" bubbles to avoid accidental canvas interactions.
+    useEffect(() => {
+      if (typeof document === "undefined") return;
+      const root = document.documentElement;
+      const cls = "doubao-annotate-editor-mode";
+      if (isAnnotateOpen) root.classList.add(cls);
+      else root.classList.remove(cls);
+      return () => root.classList.remove(cls);
+    }, [isAnnotateOpen]);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
       if (kind !== "image" || !resolvedPreview?.payload) return null;
@@ -1352,15 +1376,23 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           // Preload the uploaded image so the new node appears with the frame already rendered.
           const previewUrl = toStableInternalFileUrl(uploadedPath, "image");
           if (previewUrl) {
-            try {
-              const preload = new Promise<void>((resolve, reject) => {
-                const img = new Image();
-                img.onload = () => resolve();
-                img.onerror = () => reject(new Error("image load failed"));
-                img.src = previewUrl;
-              });
-              await Promise.race([
-                preload,
+              try {
+                const preload = new Promise<void>((resolve, reject) => {
+                  const img = new Image();
+                  img.onload = () => {
+                    // Best-effort decode to reduce the "new node appears then stutters" effect.
+                    const decode = (img as any).decode;
+                    if (typeof decode === "function") {
+                      (decode.call(img) as Promise<void>).then(resolve).catch(resolve);
+                      return;
+                    }
+                    resolve();
+                  };
+                  img.onerror = () => reject(new Error("image load failed"));
+                  img.src = previewUrl;
+                });
+                await Promise.race([
+                  preload,
                 new Promise<void>((resolve) => window.setTimeout(resolve, 8000)),
               ]);
             } catch {
@@ -1704,6 +1736,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         currentImage?.imageSource &&
         !isPreviewOnlyNode,
     );
+    const canAnnotate = Boolean(
+      appearance === "imageCreator" && kind === "image" && currentImage?.imageSource,
+    );
     const canCrop = Boolean(
       appearance === "imageCreator" &&
         kind === "image" &&
@@ -1792,6 +1827,115 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         initialAspectRatio,
       };
     }, [node, templates]);
+
+    const enterAnnotate = useCallback(() => {
+      if (!canAnnotate) return;
+      unstable_batchedUpdates(() => {
+        // Exit selection mode: annotate should not rely on node selection state.
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setAnnotateOpen(true);
+        setRepaintOpen(false);
+        setEraseOpen(false);
+        setCropOpen(false);
+        setEnhanceOpen(false);
+        setOutpaintOpen(false);
+        setMultiAngleCameraOpen(false);
+        setClipOpen(false);
+      });
+
+      // Clip-style zoom + center. Auto-calculate zoom so the preview + annotate toolbar fit on screen.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          try {
+            const container =
+              (typeof document !== "undefined" &&
+                (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+              null;
+            const rect = container?.getBoundingClientRect();
+            const viewW = rect?.width ?? window.innerWidth;
+            const viewH = rect?.height ?? window.innerHeight;
+
+            const instance: any = reactFlowInstance as any;
+            const currentViewport =
+              instance && typeof instance.getViewport === "function"
+                ? instance.getViewport()
+                : { zoom: 1 };
+            const currentZoom = Math.max(1e-3, Number(currentViewport?.zoom ?? 1) || 1);
+
+            const esc =
+              typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                ? CSS.escape(nodeId)
+                : nodeId.replace(/["\\]/g, "\\$&");
+            const nodeRoot = document.querySelector(
+              `.react-flow__node[data-id="${esc}"]`,
+            ) as HTMLElement | null;
+            const previewWrap = nodeRoot?.querySelector(
+              `[data-preview-wrap="doubao"]`,
+            ) as HTMLElement | null;
+            const editorWrap = nodeRoot?.querySelector(
+              `[data-annotate-editor-wrap="doubao"]`,
+            ) as HTMLElement | null;
+
+            let target = getPreviewCenterFlow(nodeId);
+            if (!target) {
+              const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+              const self: any = nodeById.get(nodeId);
+              if (self) {
+                const abs = getAbsolutePosition(self, nodeById as any);
+                const dim = getNodeDimensions(self);
+                target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+              }
+            }
+            if (!target) return;
+
+            // Fallback: if we can't measure DOM rects, zoom slightly in and center on preview.
+            if (!previewWrap || !editorWrap) {
+              const fallbackZoom = 1.08;
+              const desiredCenterY = Math.max(220, viewH * 0.48);
+              const x = viewW / 2 - target.x * fallbackZoom;
+              const y = desiredCenterY - target.y * fallbackZoom;
+              animateViewportTo({ x, y, zoom: fallbackZoom }, 800);
+              return;
+            }
+
+            const pre = previewWrap.getBoundingClientRect();
+            const ed = editorWrap.getBoundingClientRect();
+            const unionLeft = Math.min(pre.left, ed.left);
+            const unionRight = Math.max(pre.right, ed.right);
+            const unionTop = Math.min(pre.top, ed.top);
+            const unionBottom = Math.max(pre.bottom, ed.bottom);
+            const unionW = Math.max(1, unionRight - unionLeft);
+            const unionH = Math.max(1, unionBottom - unionTop);
+
+            const marginX = Math.max(28, Math.min(120, viewW * 0.06));
+            const marginY = Math.max(28, Math.min(160, viewH * 0.09));
+            const fitScale = Math.min(
+              (viewW - marginX * 2) / unionW,
+              (viewH - marginY * 2) / unionH,
+            );
+
+            const clampZoom = (z: number) => Math.max(0.35, Math.min(1.8, z));
+            const targetZoom = clampZoom(currentZoom * fitScale * 0.98);
+
+            const previewCenterScreen = { x: pre.left + pre.width / 2, y: pre.top + pre.height / 2 };
+            const unionCenterScreen = { x: unionLeft + unionW / 2, y: unionTop + unionH / 2 };
+            const offsetFlowX = (unionCenterScreen.x - previewCenterScreen.x) / currentZoom;
+            const offsetFlowY = (unionCenterScreen.y - previewCenterScreen.y) / currentZoom;
+
+            const desiredCenter = { x: viewW / 2, y: Math.max(220, viewH * 0.48) };
+            const x = desiredCenter.x - (target.x + offsetFlowX) * targetZoom;
+            const y = desiredCenter.y - (target.y + offsetFlowY) * targetZoom;
+            animateViewportTo({ x, y, zoom: targetZoom }, 800);
+          } catch (e) {
+            console.warn("Failed to animate viewport for annotate mode:", e);
+          }
+        });
+      });
+    }, [animateViewportTo, canAnnotate, getPreviewCenterFlow, nodeId, nodes, reactFlowInstance, setNodes]);
 
     const enterRepaint = useCallback(() => {
       if (!canRepaint) return;
@@ -2235,6 +2379,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [canCrop, isCropOpen]);
 
+    // When the preview disappears (or switches kind), exit annotate mode.
+    useEffect(() => {
+      if (!isAnnotateOpen) return;
+      if (!canAnnotate) {
+        setAnnotateOpen(false);
+      }
+    }, [canAnnotate, isAnnotateOpen]);
+
     // When the preview disappears (or switches kind / file), exit clip mode.
     useEffect(() => {
       if (!isClipOpen) return;
@@ -2285,6 +2437,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         openPreview: openModal,
         download: handleDownload,
         canDownload: Boolean(downloadInfo),
+        enterAnnotate,
+        canAnnotate,
+        isAnnotateOpen,
         enterRepaint,
         runRepaint,
         canRepaint,
@@ -2309,6 +2464,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         isClipOpen,
       });
     }, [
+      canAnnotate,
       canRepaint,
       canErase,
       canCrop,
@@ -2317,6 +2473,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       canMultiAngleCamera,
       canClip,
       downloadInfo,
+      enterAnnotate,
       enterRepaint,
       runRepaint,
       enterErase,
@@ -2327,6 +2484,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       enterMultiAngleCamera,
       enterClip,
       handleDownload,
+      isAnnotateOpen,
       isRepaintOpen,
       isEraseOpen,
       isEnhanceOpen,
@@ -2919,6 +3077,180 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         }
       },
       [animateViewportTo, getPreviewCenterFlow, node, nodeId, nodes, reactFlowInstance, setEdges, setNodes, takeSnapshot, templates],
+    );
+
+    const handleConfirmAnnotate = useCallback(
+      async ({ dataUrl, fileName }: { dataUrl: string; fileName: string }) => {
+        if (isAnnotateUploading) return;
+        if (!currentFlowId) {
+          showTransientBadge("\u8BF7\u5148\u4FDD\u5B58\u753B\u5E03\u540E\u518D\u6807\u6CE8");
+          return;
+        }
+
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["UserUploadImage"];
+        if (!template) {
+          showTransientBadge(
+            "\u672A\u52A0\u8F7D\u5230\u201C\u4E0A\u4F20\u56FE\u7247\uFF08UserUploadImage\uFF09\u201D\u6A21\u677F",
+          );
+          return;
+        }
+
+        setAnnotateUploading(true);
+        setNoticeData({ title: "\u6B63\u5728\u4E0A\u4F20\u6807\u6CE8\u7ED3\u679C..." });
+        try {
+          const safeName = (fileName && String(fileName).trim()) || "annotated.png";
+          const blob = await fetch(dataUrl).then((r) => r.blob());
+          const file = new File([blob], safeName, { type: blob.type || "image/png" });
+          const resp = await uploadReferenceFile({ file, id: currentFlowId });
+          const serverPath = String((resp as any)?.file_path ?? "").trim();
+          if (!serverPath) {
+            throw new Error("Missing file_path");
+          }
+          const safePath = serverPath.replace(/\\/g, "/").replace(/^\/+/, "");
+
+          // Preload the uploaded image so the new node appears with the annotation already rendered.
+          const previewUrl = toStableInternalFileUrl(safePath, "image");
+          if (previewUrl) {
+            try {
+              const preload = new Promise<void>((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error("image load failed"));
+                img.src = previewUrl;
+              });
+              await Promise.race([
+                preload,
+                new Promise<void>((resolve) => window.setTimeout(resolve, 8000)),
+              ]);
+            } catch {
+              // ignore (still create the node even if preload fails)
+            }
+          }
+
+          takeSnapshot?.();
+
+          const FILE_FIELD = "file";
+          const NODE_OFFSET_X = 1300;
+
+          const newNodeId = getNodeId("UserUploadImage");
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+          const newNodeX = abs.x + NODE_OFFSET_X;
+          const newNodeY = computeAlignedNodeTopY({
+            anchorNodeId: nodeId,
+            anchorNodeType: currentFlowNode.data?.type,
+            targetNodeType: "UserUploadImage",
+            targetX: newNodeX,
+            fallbackTopY: abs.y,
+            avoidOverlap: true,
+          });
+
+          const newTemplate = cloneDeep(template);
+          try {
+            (newTemplate as any).display_name = "\u6807\u6CE8\u7ED3\u679C";
+          } catch {
+            // ignore
+          }
+          const fileField = (newTemplate as any)?.template?.[FILE_FIELD];
+          if (fileField) {
+            fileField.value = safeName;
+            fileField.file_path = safePath;
+          }
+          if ((newTemplate as any)?.template?.draft_output) {
+            delete (newTemplate as any).template.draft_output;
+          }
+
+          const newImageNode: GenericNodeType = {
+            id: newNodeId,
+            type: "genericNode",
+            position: { x: newNodeX, y: newNodeY },
+            data: {
+              node: newTemplate as any,
+              showNode: !(newTemplate as any).minimized,
+              type: "UserUploadImage",
+              id: newNodeId,
+            },
+            selected: false,
+          };
+
+          unstable_batchedUpdates(() => {
+            setNodes((currentNodes) => [...currentNodes, newImageNode]);
+            setAnnotateOpen(false);
+          });
+
+          // Zoom out and center the new node, similar to clip result behavior.
+          try {
+            const container =
+              (typeof document !== "undefined" &&
+                (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+              null;
+            const rect = container?.getBoundingClientRect();
+            const viewW = rect?.width ?? window.innerWidth;
+            const viewH = rect?.height ?? window.innerHeight;
+            const targetZoom = 0.6;
+
+            const anchorPreviewCenter = getPreviewCenterFlow(nodeId);
+            const anchorDim = getNodeDimensions(currentFlowNode);
+            const anchorCenterFallback = {
+              x: abs.x + anchorDim.width / 2,
+              y: abs.y + anchorDim.height / 2,
+            };
+            const anchorCenter = anchorPreviewCenter ?? anchorCenterFallback;
+
+            const offsetX = anchorCenter.x - abs.x;
+            const offsetY = anchorCenter.y - abs.y;
+            const targetFlowCenter = { x: newNodeX + offsetX, y: newNodeY + offsetY };
+            const viewportTo = {
+              x: viewW / 2 - targetFlowCenter.x * targetZoom,
+              y: viewH / 2 - targetFlowCenter.y * targetZoom,
+              zoom: targetZoom,
+            };
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => {
+                animateViewportTo(viewportTo, 800);
+              });
+            });
+          } catch (e) {
+            console.warn("Failed to animate viewport to annotate result node:", e);
+          }
+
+          setSuccessData({ title: "\u6807\u6CE8\u5B8C\u6210" });
+        } catch (e: any) {
+          setErrorData({
+            title: "\u6807\u6CE8\u5931\u8D25",
+            list: [e?.response?.data?.detail ?? e?.message ?? "\u7F51\u7EDC\u5F02\u5E38\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5"],
+          });
+        } finally {
+          setAnnotateUploading(false);
+          if (typeof dataUrl === "string" && dataUrl.startsWith("blob:")) {
+            try {
+              URL.revokeObjectURL(dataUrl);
+            } catch {
+              // ignore
+            }
+          }
+        }
+      },
+      [
+        animateViewportTo,
+        currentFlowId,
+        getPreviewCenterFlow,
+        isAnnotateUploading,
+        nodeId,
+        nodes,
+        setAnnotateOpen,
+        setAnnotateUploading,
+        setErrorData,
+        setNoticeData,
+        setNodes,
+        setSuccessData,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+        uploadReferenceFile,
+      ],
     );
 
     const handleConfirmClip = useCallback(
@@ -4442,15 +4774,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                         size="sm"
                         className="h-7 rounded-full px-2 text-[11px]"
                       >
-                        <ForwardedIconComponent
-                          name="FileText"
-                          className="mr-1 h-3 w-3"
-                        />
-                        Logs
-                      </Button>
-                    </OutputModal>
-                  </div>
-                )}
+                         <ForwardedIconComponent
+                           name="FileText"
+                           className="mr-1 h-3 w-3"
+                         />
+                         日志
+                       </Button>
+                     </OutputModal>
+                   </div>
+                 )}
 
                 <div className={previewSurfaceClassName}>
                   <div className="relative h-full w-full">
@@ -4586,6 +4918,15 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               </>
             )}
           </div>
+            {appearance === "imageCreator" && canAnnotate && currentImage?.imageSource && (
+              <AnnotateOverlay
+                open={isAnnotateOpen}
+                imageSource={currentImage.imageSource}
+                imageFileName={currentImage.fileName ?? currentImage.label}
+                onCancel={() => setAnnotateOpen(false)}
+                onConfirm={handleConfirmAnnotate}
+              />
+            )}
             {appearance === "imageCreator" && canRepaint && currentImage?.imageSource && (
               <RepaintOverlay
                 ref={repaintOverlayRef}

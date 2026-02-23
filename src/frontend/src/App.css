@@ -198,6 +198,22 @@ body {
   opacity: 0 !important;
 }
 
+/* Annotate mode: hide "+" handles and prevent handle interactions. */
+.doubao-annotate-editor-mode .react-flow__handle,
+.doubao-annotate-editor-mode .xyflow__handle,
+.doubao-annotate-editor-mode .react-flow__handle *,
+.doubao-annotate-editor-mode .xyflow__handle * {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
+/* Tool modes: also disable the "+ capture zone" hover areas to avoid accidental triggering. */
+.doubao-clip-editor-mode [data-plus-capture-zone="doubao"],
+.doubao-annotate-editor-mode [data-plus-capture-zone="doubao"],
+.doubao-mask-editor-mode [data-plus-capture-zone="doubao"] {
+  pointer-events: none !important;
+}
+
 .react-flow__edge.ran .react-flow__edge-path {
   stroke: hsl(var(--foreground)) !important;
   stroke-width: 2px !important;

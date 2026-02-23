@@ -722,8 +722,9 @@ export default function DoubaoImageCreatorLayout({
   const [isMultiAngleEditorOpen, setMultiAngleEditorOpen] = useState(false);
   const [isRepaintEditorOpen, setRepaintEditorOpen] = useState(false);
   const [isEraseEditorOpen, setEraseEditorOpen] = useState(false);
+  const [isAnnotateEditorOpen, setAnnotateEditorOpen] = useState(false);
   const isToolEditorOpen =
-    isMultiAngleEditorOpen || isRepaintEditorOpen || isEraseEditorOpen;
+    isMultiAngleEditorOpen || isRepaintEditorOpen || isEraseEditorOpen || isAnnotateEditorOpen;
   const lockedPlusSide = quickAddMenu?.kind
     ? (quickAddMenu.kind === "input" ? "left" : "right")
     : null;
@@ -830,6 +831,7 @@ export default function DoubaoImageCreatorLayout({
       setMultiAngleEditorOpen(Boolean(actions?.isMultiAngleCameraOpen));
       setRepaintEditorOpen(Boolean(actions?.isRepaintOpen));
       setEraseEditorOpen(Boolean(actions?.isEraseOpen));
+      setAnnotateEditorOpen(Boolean(actions?.isAnnotateOpen));
       onPreviewActionsChange?.(actions);
     },
     [onPreviewActionsChange],
@@ -2767,6 +2769,7 @@ export default function DoubaoImageCreatorLayout({
           {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
+            data-plus-capture-zone="doubao"
             onPointerEnter={(event) =>
               quickAddMenu || isToolEditorOpen
                 ? undefined
@@ -2785,6 +2788,7 @@ export default function DoubaoImageCreatorLayout({
           />
           <div
             className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
+            data-plus-capture-zone="doubao"
             onPointerEnter={(event) =>
               quickAddMenu || isToolEditorOpen
                 ? undefined

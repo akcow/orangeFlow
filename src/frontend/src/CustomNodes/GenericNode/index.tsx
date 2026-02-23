@@ -56,6 +56,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview,
   onDownload,
   canDownload,
+  onAnnotate,
+  canAnnotate,
   onRepaint,
   canRepaint,
   onErase,
@@ -77,6 +79,8 @@ function DoubaoImageCreatorTopBar({
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
+  onAnnotate?: () => void;
+  canAnnotate?: boolean;
   onRepaint?: () => void;
   canRepaint?: boolean;
   onErase?: () => void;
@@ -170,6 +174,7 @@ function DoubaoImageCreatorTopBar({
       >
         <button
           type="button"
+          title="重绘"
           aria-label="重绘"
           disabled={!canRepaint}
           onClick={onRepaint}
@@ -186,6 +191,7 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="擦除"
           aria-label="擦除"
           disabled={!canErase}
           onClick={onErase}
@@ -202,6 +208,7 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="增强"
           aria-label="增强"
           disabled={!canEnhance}
           onClick={onEnhance}
@@ -218,6 +225,7 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="多角度"
           aria-label="多角度"
           disabled={!canMultiAngleCamera}
           onClick={onMultiAngleCamera}
@@ -234,6 +242,7 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="扩图"
           aria-label="扩图"
           disabled={!canOutpaint}
           onClick={onOutpaint}
@@ -259,7 +268,8 @@ function DoubaoImageCreatorTopBar({
         >
           <button
             type="button"
-            aria-label="Logs"
+            title="日志"
+            aria-label="日志"
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
           >
             <ForwardedIconComponent name="FileText" className="h-5 w-5" />
@@ -268,6 +278,23 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="标注"
+          aria-label="标注"
+          disabled={!canAnnotate}
+          onClick={onAnnotate}
+          className={cn(
+            "flex h-10 w-10 items-center justify-center rounded-full transition",
+            canAnnotate
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Brush" className="h-5 w-5" />
+        </button>
+
+        <button
+          type="button"
+          title="上传"
           aria-label="上传"
           onClick={handleUpload}
           className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
@@ -277,6 +304,7 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="放大"
           aria-label="放大"
           onClick={onOpenPreview}
           className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
@@ -286,6 +314,7 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="裁剪"
           aria-label="裁剪"
           disabled={!canCrop}
           onClick={onCrop}
@@ -301,6 +330,7 @@ function DoubaoImageCreatorTopBar({
 
         <button
           type="button"
+          title="下载"
           aria-label="下载"
           disabled={!canDownload}
           onClick={onDownload}
@@ -417,7 +447,8 @@ function DoubaoVideoGeneratorTopBar({
       >
         <button
           type="button"
-          aria-label="\u526A\u8F91"
+          title="剪辑"
+          aria-label="剪辑"
           disabled={!canClip}
           onClick={onClip}
           className={cn(
@@ -428,7 +459,7 @@ function DoubaoVideoGeneratorTopBar({
           )}
         >
           <ForwardedIconComponent name="Scissors" className="h-5 w-5" />
-          <span>{"\u526A\u8F91"}</span>
+          <span>剪辑</span>
         </button>
 
         <div className="mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15" />
@@ -442,8 +473,8 @@ function DoubaoVideoGeneratorTopBar({
         >
           <button
             type="button"
-            title="Logs"
-            aria-label="Logs"
+            title="日志"
+            aria-label="日志"
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
           >
             <ForwardedIconComponent name="FileText" className="h-5 w-5" />
@@ -533,8 +564,8 @@ function DoubaoAudioTopBar({
         >
           <button
             type="button"
-            title="Logs"
-            aria-label="Logs"
+            title="日志"
+            aria-label="日志"
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
           >
             <ForwardedIconComponent name="FileText" className="h-5 w-5" />
@@ -610,8 +641,8 @@ function TextCreationTopBar({
         >
           <button
             type="button"
-            title="Logs"
-            aria-label="Logs"
+            title="日志"
+            aria-label="日志"
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
           >
             <ForwardedIconComponent name="FileText" className="h-5 w-5" />
@@ -1348,6 +1379,8 @@ function GenericNode({
                   onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
                   onDownload={() => imageCreatorPreviewActions?.download()}
                   canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+                  onAnnotate={() => imageCreatorPreviewActions?.enterAnnotate()}
+                  canAnnotate={Boolean(imageCreatorPreviewActions?.canAnnotate)}
                   onRepaint={() => imageCreatorPreviewActions?.enterRepaint()}
                   canRepaint={Boolean(imageCreatorPreviewActions?.canRepaint)}
                   onErase={() => imageCreatorPreviewActions?.enterErase()}

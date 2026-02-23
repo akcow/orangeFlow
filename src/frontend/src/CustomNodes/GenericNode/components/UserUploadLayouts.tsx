@@ -170,6 +170,7 @@ function UserUploadLayout({
   const { mutateAsync: uploadFile } = usePostUploadFile();
   const { validateFileSize } = useFileSizeValidator();
   const [isUploading, setUploading] = useState(false);
+  const [isToolEditorOpen, setToolEditorOpen] = useState(false);
 
   const { handleOnNewValue } = useHandleOnNewValue({
     node: data.node!,
@@ -353,6 +354,7 @@ function UserUploadLayout({
 
   const showPlusForSide = useCallback(
     (side: PlusSide, clientX?: number, clientY?: number) => {
+      if (isToolEditorOpen) return;
       clearPlusTimers();
       setActivePlusSide(side);
       setVisiblePlusSide(side);
@@ -364,11 +366,12 @@ function UserUploadLayout({
         }));
       }
     },
-    [clearPlusTimers, computePlusOffset],
+    [clearPlusTimers, computePlusOffset, isToolEditorOpen],
   );
 
   const updatePlusOffset = useCallback(
     (side: PlusSide, clientX: number, clientY: number) => {
+      if (isToolEditorOpen) return;
       clearPlusTimers();
       setActivePlusSide(side);
       setVisiblePlusSide(side);
@@ -378,11 +381,12 @@ function UserUploadLayout({
         [side]: computePlusOffset(side, clientX, clientY),
       }));
     },
-    [clearPlusTimers, computePlusOffset],
+    [clearPlusTimers, computePlusOffset, isToolEditorOpen],
   );
 
   const startHidePlus = useCallback(
     (side: PlusSide, clientX?: number, clientY?: number) => {
+      if (isToolEditorOpen) return;
       if (typeof clientX === "number" && typeof clientY === "number") {
         lastPointerRef.current = { x: clientX, y: clientY };
       }
@@ -407,7 +411,7 @@ function UserUploadLayout({
         }, 200);
       }, 30);
     },
-    [DEFAULT_PLUS_OFFSET, clearPlusTimers, isPointerInCaptureZone, selected],
+    [DEFAULT_PLUS_OFFSET, clearPlusTimers, isPointerInCaptureZone, isToolEditorOpen, selected],
   );
 
   useEffect(() => {
@@ -418,6 +422,29 @@ function UserUploadLayout({
   }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, selected]);
 
   useEffect(() => () => clearPlusTimers(), [clearPlusTimers]);
+
+  const handlePreviewActionsChange = useCallback(
+    (actions: DoubaoPreviewPanelActions) => {
+      const toolOpen = Boolean(
+        actions?.isRepaintOpen ||
+          actions?.isEraseOpen ||
+          actions?.isAnnotateOpen ||
+          actions?.isMultiAngleCameraOpen ||
+          actions?.isClipOpen,
+      );
+      setToolEditorOpen(toolOpen);
+      onPreviewActionsChange?.(actions);
+    },
+    [onPreviewActionsChange],
+  );
+
+  useEffect(() => {
+    if (!isToolEditorOpen) return;
+    clearPlusTimers();
+    setActivePlusSide(null);
+    setVisiblePlusSide(null);
+    setPlusOffsetBySide(DEFAULT_PLUS_OFFSET);
+  }, [DEFAULT_PLUS_OFFSET, clearPlusTimers, isToolEditorOpen]);
 
   // Sync the output "+" handle with the persistent preview frame aspect-ratio animation (avoid end-of-animation jumps).
   const rightHandlesMotionRef = useRef<HTMLDivElement | null>(null);
@@ -487,18 +514,19 @@ function UserUploadLayout({
           {/* Hover/capture zone: a 212x212 square centered on the default "+" center point. */}
           <div
             className="absolute left-full top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-y-1/2 lg:block"
+            data-plus-capture-zone="doubao"
             onPointerEnter={(event) =>
-              lockedPlusSide
+              lockedPlusSide || isToolEditorOpen
                 ? undefined
                 : showPlusForSide("right", event.clientX, event.clientY)
             }
             onPointerMove={(event) =>
-              lockedPlusSide
+              lockedPlusSide || isToolEditorOpen
                 ? undefined
                 : updatePlusOffset("right", event.clientX, event.clientY)
             }
             onPointerLeave={(event) =>
-              lockedPlusSide
+              lockedPlusSide || isToolEditorOpen
                 ? undefined
                 : startHidePlus("right", event.clientX, event.clientY)
             }
@@ -509,7 +537,7 @@ function UserUploadLayout({
           componentName={data.type}
           appearance={appearance}
           onRequestUpload={doUpload}
-          onActionsChange={onPreviewActionsChange}
+          onActionsChange={handlePreviewActionsChange}
           previewOverride={previewOverride}
           onPersistentPreviewMotionStart={handlePersistentPreviewMotionStart}
           onPersistentPreviewMotionCommit={handlePersistentPreviewMotionCommit}
@@ -535,27 +563,30 @@ function UserUploadLayout({
                     proxy={handle.proxy}
                     colorName={handle.colorName}
                     uiVariant="plus"
+                    disablePointerEvents={isToolEditorOpen}
                     visible={
-                      selected ||
-                      visiblePlusSide === "right" ||
-                      lockedPlusSide === "right"
+                      !isToolEditorOpen &&
+                      (selected ||
+                        visiblePlusSide === "right" ||
+                        lockedPlusSide === "right")
                     }
                     isTracking={
-                      activePlusSide === "right" || lockedPlusSide === "right"
+                      !isToolEditorOpen &&
+                      (activePlusSide === "right" || lockedPlusSide === "right")
                     }
                     clickMode="none"
                     onPlusPointerEnter={(event) =>
-                      lockedPlusSide
+                      lockedPlusSide || isToolEditorOpen
                         ? undefined
                         : showPlusForSide("right", event.clientX, event.clientY)
                     }
                     onPlusPointerMove={(event) =>
-                      lockedPlusSide
+                      lockedPlusSide || isToolEditorOpen
                         ? undefined
                         : updatePlusOffset("right", event.clientX, event.clientY)
                     }
                     onPlusPointerLeave={(event) =>
-                      lockedPlusSide
+                      lockedPlusSide || isToolEditorOpen
                         ? undefined
                         : startHidePlus("right", event.clientX, event.clientY)
                     }
