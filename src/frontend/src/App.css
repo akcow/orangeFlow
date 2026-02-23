@@ -173,6 +173,31 @@ body {
   stroke-dasharray: 7 6;
 }
 
+@keyframes doubao-clip-hint-snap {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0px);
+  }
+}
+
+.doubao-clip-hint-snap {
+  will-change: transform, opacity;
+  animation: doubao-clip-hint-snap 180ms ease-out both;
+}
+
+/* Clip mode: hide "+" handles and prevent handle interactions. */
+.doubao-clip-editor-mode .react-flow__handle,
+.doubao-clip-editor-mode .xyflow__handle,
+.doubao-clip-editor-mode .react-flow__handle *,
+.doubao-clip-editor-mode .xyflow__handle * {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
 .react-flow__edge.ran .react-flow__edge-path {
   stroke: hsl(var(--foreground)) !important;
   stroke-width: 2px !important;

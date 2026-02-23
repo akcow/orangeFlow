@@ -42,6 +42,7 @@ import EnhanceOverlay, { type EnhanceModelOption } from "./EnhanceOverlay";
 import RepaintOverlay, { type RepaintOverlayHandle } from "./RepaintOverlay";
 import EraseOverlay, { type EraseOverlayHandle } from "./EraseOverlay";
 import ZoomableImageOverlay from "./ZoomableImageOverlay";
+import VideoClipOverlay from "./VideoClipOverlay";
 import { cloneDeep } from "lodash";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useTypesStore } from "@/stores/typesStore";
@@ -50,6 +51,8 @@ import { computeAlignedNodeTopY } from "@/CustomNodes/helpers/previewCenterAlign
 import { getNodeId, scapedJSONStringfy } from "@/utils/reactflowUtils";
 import type { EdgeType, GenericNodeType } from "@/types/flow";
 import { getAbsolutePosition, getNodeDimensions } from "@/utils/groupingUtils";
+import { api } from "@/controllers/API/api";
+import { getURL } from "@/controllers/API/helpers/constants";
 
 const PANEL_BG = {
   // Dark mode: avoid translucent tinted backdrops here, otherwise they override the
@@ -180,6 +183,48 @@ function toStableInternalFileUrl(
   return `${BASE_URL_API}${prefix}${encodedFlow}/${encodedFile}`;
 }
 
+async function tryPreloadVideoMetadata(url: string, timeoutMs = 9000): Promise<boolean> {
+  if (typeof document === "undefined") return true;
+  const src = String(url ?? "").trim();
+  if (!src) return false;
+
+  return await new Promise<boolean>((resolve) => {
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      try {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      } catch {
+        // ignore
+      }
+      resolve(ok);
+    };
+
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.crossOrigin = "anonymous";
+
+    const timer = window.setTimeout(() => finish(false), timeoutMs);
+    const onMeta = () => {
+      window.clearTimeout(timer);
+      finish(true);
+    };
+    const onErr = () => {
+      window.clearTimeout(timer);
+      finish(false);
+    };
+
+    video.addEventListener("loadedmetadata", onMeta, { once: true });
+    video.addEventListener("error", onErr, { once: true });
+    video.src = src;
+  });
+}
+
 export type DoubaoReferenceImage = {
   id: string;
   imageSource: string;
@@ -215,6 +260,9 @@ export type DoubaoPreviewPanelActions = {
   enterMultiAngleCamera: () => void;
   canMultiAngleCamera: boolean;
   isMultiAngleCameraOpen: boolean;
+  enterClip: () => void;
+  canClip: boolean;
+  isClipOpen: boolean;
 };
 
 type Props = {
@@ -380,14 +428,18 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       isAudioMinimal;
     const [isPersistentPreviewHovered, setIsPersistentPreviewHovered] =
       useState(false);
-    const enableHoverAutoplay = isMinimal && appearance === "videoGenerator";
 
     // Hover autoplay starts muted (browser policy-friendly). Users can opt-in to sound per node.
     const [isHoverAutoplayMuted, setIsHoverAutoplayMuted] = useState(true);
     const hoverVideoElementRef = useRef<HTMLVideoElement | null>(null);
+    const [previewVideoEl, setPreviewVideoEl] = useState<HTMLVideoElement | null>(
+      null,
+    );
     const handleHoverVideoElement = useCallback((el: HTMLVideoElement | null) => {
       hoverVideoElementRef.current = el;
+      setPreviewVideoEl(el);
     }, []);
+
     const handleToggleHoverAutoplaySound = useCallback(
       (event: ReactMouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
@@ -922,9 +974,45 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const [isEnhanceOpen, setEnhanceOpen] = useState(false);
     const [isOutpaintOpen, setOutpaintOpen] = useState(false);
     const [isMultiAngleCameraOpen, setMultiAngleCameraOpen] = useState(false);
+    const [isClipOpen, setClipOpen] = useState(false);
+    const [isClipTrimming, setClipTrimming] = useState(false);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const repaintOverlayRef = useRef<RepaintOverlayHandle | null>(null);
     const eraseOverlayRef = useRef<EraseOverlayHandle | null>(null);
+
+    const enableHoverAutoplay =
+      isMinimal && appearance === "videoGenerator" && !isClipOpen;
+
+    const [clipVideoDurationS, setClipVideoDurationS] = useState(0);
+    useEffect(() => {
+      if (!isClipOpen) return;
+      // Seed from preview payload (if present) to avoid a 0-duration flash.
+      const seed = Number((resolvedPreview as any)?.payload?.duration);
+      if (Number.isFinite(seed) && seed > 0) {
+        setClipVideoDurationS((prev) => (prev > 0 ? prev : seed));
+      }
+      const video = previewVideoEl;
+      if (!video) return;
+      const onMeta = () => setClipVideoDurationS(video.duration || 0);
+      onMeta();
+      video.addEventListener("loadedmetadata", onMeta);
+      return () => {
+        video.removeEventListener("loadedmetadata", onMeta);
+      };
+    }, [isClipOpen, previewVideoEl, resolvedPreview]);
+
+    // Entering clip mode disables hover autoplay; ensure video isn't inadvertently started by hover.
+    useEffect(() => {
+      if (!isClipOpen) return;
+      setIsPersistentPreviewHovered(false);
+      const video = previewVideoEl;
+      if (!video) return;
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+    }, [isClipOpen, previewVideoEl]);
 
     // While mask editors are open (repaint/erase), completely disable ReactFlow handle pointer events
     // to prevent accidental edge/handle interactions through the overlay.
@@ -957,6 +1045,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         root.classList.remove(cls);
       }
     }, [isEraseOpen, isRepaintOpen]);
+
+    // While clip editor is open, hide handles/"+" bubbles to avoid accidental canvas interactions.
+    useEffect(() => {
+      if (typeof document === "undefined") return;
+      const root = document.documentElement;
+      const cls = "doubao-clip-editor-mode";
+      if (isClipOpen) root.classList.add(cls);
+      else root.classList.remove(cls);
+      return () => root.classList.remove(cls);
+    }, [isClipOpen]);
 
     const imageGallery = useMemo<GalleryItem[] | null>(() => {
       if (kind !== "image" || !resolvedPreview?.payload) return null;
@@ -1631,6 +1729,28 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         !isPreviewOnlyNode,
     );
 
+    const clipFilePath = useMemo(() => {
+      if (kind !== "video") return null;
+      if (!currentFlowId) return null;
+
+      const payload: any = resolvedPreview?.payload ?? null;
+      const raw = typeof payload?.file_path === "string" ? payload.file_path : null;
+      const derived =
+        (raw && raw.trim()) ||
+        (videoPreview?.videoUrl
+          ? deriveFlowFilePathFromVideoUrl(videoPreview.videoUrl)
+          : null);
+      if (!derived) return null;
+      const normalized = String(derived).replace(/\\/g, "/").replace(/^\/+/, "").trim();
+      if (!normalized) return null;
+      if (!normalized.startsWith(`${currentFlowId}/`)) return null;
+      return normalized;
+    }, [currentFlowId, kind, resolvedPreview?.payload, videoPreview?.videoUrl]);
+
+    const canClip = Boolean(
+      appearance === "videoGenerator" && kind === "video" && clipFilePath && !isPreviewOnlyNode,
+    );
+
     const outpaintWorkspace = useMemo(() => {
       const baseTemplate = (templates as any)?.["DoubaoImageCreator"]?.template ?? {};
 
@@ -1840,6 +1960,123 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [animateViewportTo, canCrop, getPreviewCenterFlow, nodeId, nodes, setNodes]);
 
+    const enterClip = useCallback(() => {
+      if (!canClip) return;
+      unstable_batchedUpdates(() => {
+        // Exit selection mode: clipping should not rely on node selection state.
+        setNodes((currentNodes) =>
+          currentNodes.map((candidate) =>
+            candidate.id === nodeId ? { ...candidate, selected: false } : candidate,
+          ),
+        );
+        setRepaintOpen(false);
+        setEraseOpen(false);
+        setCropOpen(false);
+        setEnhanceOpen(false);
+        setOutpaintOpen(false);
+        setMultiAngleCameraOpen(false);
+        setClipOpen(true);
+      });
+
+      // Crop-style zoom + center. Auto-calculate zoom so the preview + timeline editor fit on screen.
+      // (Important for tall ratios like 9:16).
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          try {
+            const container =
+              (typeof document !== "undefined" &&
+                (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+              null;
+            const rect = container?.getBoundingClientRect();
+            const viewW = rect?.width ?? window.innerWidth;
+            const viewH = rect?.height ?? window.innerHeight;
+
+            const instance: any = reactFlowInstance as any;
+            const currentViewport =
+              instance && typeof instance.getViewport === "function"
+                ? instance.getViewport()
+                : { zoom: 1 };
+            const currentZoom = Math.max(1e-3, Number(currentViewport?.zoom ?? 1) || 1);
+
+            const esc =
+              typeof CSS !== "undefined" && typeof CSS.escape === "function"
+                ? CSS.escape(nodeId)
+                : nodeId.replace(/["\\]/g, "\\$&");
+            const nodeRoot = document.querySelector(
+              `.react-flow__node[data-id="${esc}"]`,
+            ) as HTMLElement | null;
+            const previewWrap = nodeRoot?.querySelector(
+              `[data-preview-wrap="doubao"]`,
+            ) as HTMLElement | null;
+            const editorWrap = nodeRoot?.querySelector(
+              `[data-clip-editor-wrap="doubao"]`,
+            ) as HTMLElement | null;
+
+            let target = getPreviewCenterFlow(nodeId);
+            if (!target) {
+              const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+              const self: any = nodeById.get(nodeId);
+              if (self) {
+                const abs = getAbsolutePosition(self, nodeById as any);
+                const dim = getNodeDimensions(self);
+                target = { x: abs.x + dim.width / 2, y: abs.y + dim.height / 2 };
+              }
+            }
+            if (!target) return;
+
+            // Fallback: if we can't measure DOM rects, zoom slightly in and center on preview.
+            if (!previewWrap || !editorWrap) {
+              const fallbackZoom = 1.12;
+              const desiredCenterY = Math.max(220, viewH * 0.48);
+              const x = viewW / 2 - target.x * fallbackZoom;
+              const y = desiredCenterY - target.y * fallbackZoom;
+              animateViewportTo({ x, y, zoom: fallbackZoom }, 800);
+              return;
+            }
+
+            const pre = previewWrap.getBoundingClientRect();
+            const ed = editorWrap.getBoundingClientRect();
+            const unionLeft = Math.min(pre.left, ed.left);
+            const unionRight = Math.max(pre.right, ed.right);
+            const unionTop = Math.min(pre.top, ed.top);
+            const unionBottom = Math.max(pre.bottom, ed.bottom);
+            const unionW = Math.max(1, unionRight - unionLeft);
+            const unionH = Math.max(1, unionBottom - unionTop);
+
+            const marginX = Math.max(28, Math.min(120, viewW * 0.06));
+            const marginY = Math.max(28, Math.min(140, viewH * 0.08));
+            const fitScale = Math.min(
+              (viewW - marginX * 2) / unionW,
+              (viewH - marginY * 2) / unionH,
+            );
+
+            const clampZoom = (z: number) => Math.max(0.35, Math.min(1.8, z));
+            const targetZoom = clampZoom(currentZoom * fitScale * 0.98);
+
+            const previewCenterScreen = {
+              x: pre.left + pre.width / 2,
+              y: pre.top + pre.height / 2,
+            };
+            const unionCenterScreen = {
+              x: unionLeft + unionW / 2,
+              y: unionTop + unionH / 2,
+            };
+            const offsetFlowX =
+              (unionCenterScreen.x - previewCenterScreen.x) / currentZoom;
+            const offsetFlowY =
+              (unionCenterScreen.y - previewCenterScreen.y) / currentZoom;
+
+            const desiredCenter = { x: viewW / 2, y: Math.max(220, viewH * 0.48) };
+            const x = desiredCenter.x - (target.x + offsetFlowX) * targetZoom;
+            const y = desiredCenter.y - (target.y + offsetFlowY) * targetZoom;
+            animateViewportTo({ x, y, zoom: targetZoom }, 800);
+          } catch (e) {
+            console.warn("Failed to animate viewport for clip mode:", e);
+          }
+        });
+      });
+    }, [animateViewportTo, canClip, getPreviewCenterFlow, nodeId, nodes, reactFlowInstance, setNodes]);
+
     const enterEnhance = useCallback(() => {
       if (!canEnhance) return;
       unstable_batchedUpdates(() => {
@@ -1998,6 +2235,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [canCrop, isCropOpen]);
 
+    // When the preview disappears (or switches kind / file), exit clip mode.
+    useEffect(() => {
+      if (!isClipOpen) return;
+      if (!canClip) {
+        setClipOpen(false);
+      }
+    }, [canClip, isClipOpen]);
+
     useEffect(() => {
       if (!isRepaintOpen) return;
       if (!canRepaint) {
@@ -2059,6 +2304,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         enterMultiAngleCamera,
         canMultiAngleCamera,
         isMultiAngleCameraOpen,
+        enterClip,
+        canClip,
+        isClipOpen,
       });
     }, [
       canRepaint,
@@ -2067,6 +2315,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       canEnhance,
       canOutpaint,
       canMultiAngleCamera,
+      canClip,
       downloadInfo,
       enterRepaint,
       runRepaint,
@@ -2076,12 +2325,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       enterEnhance,
       enterOutpaint,
       enterMultiAngleCamera,
+      enterClip,
       handleDownload,
       isRepaintOpen,
       isEraseOpen,
       isEnhanceOpen,
       isOutpaintOpen,
       isMultiAngleCameraOpen,
+      isClipOpen,
       onActionsChange,
       openModal,
     ]);
@@ -2670,6 +2921,175 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       [animateViewportTo, getPreviewCenterFlow, node, nodeId, nodes, reactFlowInstance, setEdges, setNodes, takeSnapshot, templates],
     );
 
+    const handleConfirmClip = useCallback(
+      async ({ startS, endS }: { startS: number; endS: number }) => {
+        if (isClipTrimming) return;
+        if (!currentFlowId) {
+          showTransientBadge(
+            "\u8BF7\u5148\u4FDD\u5B58\u753B\u5E03\u540E\u518D\u8FDB\u884C\u526A\u8F91",
+          );
+          return;
+        }
+        if (!clipFilePath) {
+          showTransientBadge("\u5F53\u524D\u89C6\u9891\u4E0D\u652F\u6301\u526A\u8F91");
+          return;
+        }
+
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["UserUploadVideo"];
+        if (!template) {
+          showTransientBadge(
+            "\u672A\u52A0\u8F7D\u5230\u201C\u4E0A\u4F20\u89C6\u9891\uFF08UserUploadVideo\uFF09\u201D\u6A21\u677F",
+          );
+          return;
+        }
+
+        setClipTrimming(true);
+        setNoticeData({ title: "\u6B63\u5728\u526A\u8F91\u89C6\u9891..." });
+        try {
+          const res = await api.post(`${getURL("FILES")}/trim-video/${currentFlowId}`, {
+            file_path: clipFilePath,
+            start_s: startS,
+            end_s: endS,
+          });
+
+          const serverPath = String((res as any)?.data?.file_path ?? "");
+          if (!serverPath) {
+            throw new Error("Missing file_path");
+          }
+          const safePath = serverPath.replace(/\\/g, "/").replace(/^\/+/, "");
+          const fileName = safePath.split("/").pop() || "trim.mp4";
+
+          takeSnapshot?.();
+
+          const FILE_FIELD = "file";
+          const VIDEO_OUTPUT_NAME = "video";
+          const NODE_OFFSET_X = 1300;
+
+          const newNodeId = getNodeId("UserUploadVideo");
+          const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+          const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+          const newNodeX = abs.x + NODE_OFFSET_X;
+          const newNodeY = computeAlignedNodeTopY({
+            anchorNodeId: nodeId,
+            anchorNodeType: currentFlowNode.data?.type,
+            targetNodeType: "UserUploadVideo",
+            targetX: newNodeX,
+            fallbackTopY: abs.y,
+            avoidOverlap: true,
+          });
+
+          const newTemplate = cloneDeep(template);
+          // Ensure the node title communicates it's a derived asset.
+          try {
+            (newTemplate as any).display_name = "\u526A\u8F91\u7ED3\u679C";
+          } catch {
+            // ignore
+          }
+
+          const fileField = (newTemplate as any)?.template?.[FILE_FIELD];
+          if (fileField) {
+            fileField.value = fileName;
+            fileField.file_path = safePath;
+          }
+          if ((newTemplate as any)?.template?.draft_output) {
+            delete (newTemplate as any).template.draft_output;
+          }
+
+          const newVideoNode: GenericNodeType = {
+            id: newNodeId,
+            type: "genericNode",
+            position: { x: newNodeX, y: newNodeY },
+            data: {
+              node: newTemplate as any,
+              showNode: !(newTemplate as any).minimized,
+              type: "UserUploadVideo",
+              id: newNodeId,
+            },
+            selected: false,
+          };
+
+          // Best-effort warmup so the new node can render the trimmed video immediately.
+          const stablePreviewUrl = toStableInternalFileUrl(safePath, "video");
+          if (stablePreviewUrl) {
+            setNoticeData({ title: "\u6B63\u5728\u52A0\u8F7D\u526A\u8F91\u7ED3\u679C..." });
+            await tryPreloadVideoMetadata(stablePreviewUrl);
+          }
+
+          unstable_batchedUpdates(() => {
+            setNodes((currentNodes) => [...currentNodes, newVideoNode]);
+            setClipOpen(false);
+          });
+
+          // Zoom out and center the new node, similar to crop result behavior.
+          try {
+            const container =
+              (typeof document !== "undefined" &&
+                (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+              null;
+            const rect = container?.getBoundingClientRect();
+            const viewW = rect?.width ?? window.innerWidth;
+            const viewH = rect?.height ?? window.innerHeight;
+            const targetZoom = 0.6;
+
+            const anchorPreviewCenter = getPreviewCenterFlow(nodeId);
+            const anchorDim = getNodeDimensions(currentFlowNode);
+            const anchorCenterFallback = {
+              x: abs.x + anchorDim.width / 2,
+              y: abs.y + anchorDim.height / 2,
+            };
+            const anchorCenter = anchorPreviewCenter ?? anchorCenterFallback;
+            const offsetX = anchorCenter.x - abs.x;
+            const offsetY = anchorCenter.y - abs.y;
+            const targetFlowCenter = { x: newNodeX + offsetX, y: newNodeY + offsetY };
+            const viewportTo = {
+              x: viewW / 2 - targetFlowCenter.x * targetZoom,
+              y: viewH / 2 - targetFlowCenter.y * targetZoom,
+              zoom: targetZoom,
+            };
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => {
+                animateViewportTo(viewportTo, 800);
+              });
+            });
+          } catch (e) {
+            console.warn("Failed to animate viewport to clip result node:", e);
+          }
+
+          setSuccessData({ title: "\u526A\u8F91\u5B8C\u6210" });
+        } catch (e: any) {
+          setErrorData({
+            title: "\u526A\u8F91\u5931\u8D25",
+            list: [
+              e?.response?.data?.detail ??
+                e?.message ??
+                "\u7F51\u7EDC\u5F02\u5E38\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5",
+            ],
+          });
+        } finally {
+          setClipTrimming(false);
+        }
+      },
+      [
+        animateViewportTo,
+        clipFilePath,
+        currentFlowId,
+        getPreviewCenterFlow,
+        isClipTrimming,
+        node,
+        nodeId,
+        nodes,
+        setErrorData,
+        setNoticeData,
+        setNodes,
+        setSuccessData,
+        showTransientBadge,
+        takeSnapshot,
+        templates,
+      ],
+    );
+
     const handleConfirmOutpaint = useCallback(
       async ({
         dataUrl,
@@ -3185,7 +3605,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           anchorNodeId: nodeId,
           anchorNodeType: currentFlowNode.data?.type,
           targetNodeType: "DoubaoImageCreator",
-          nodeById: nodeById as any,
+          targetX: newNodeX,
+          fallbackTopY: abs.y,
           avoidOverlap: false,
         });
 
@@ -3426,7 +3847,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             frameless={appearance === "videoGenerator"}
             autoPlay={enableHoverAutoplay ? isPersistentPreviewHovered : undefined}
             muted={enableHoverAutoplay ? isHoverAutoplayMuted : undefined}
-            onVideoElement={enableHoverAutoplay ? handleHoverVideoElement : undefined}
+            onVideoElement={handleHoverVideoElement}
             onMeta={handlePreviewMeta}
             hideControls={shouldShowWaveLoading}
           />
@@ -3837,14 +4258,41 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                         title={isHoverAutoplayMuted ? "开启声音" : "静音"}
                         onClick={handleToggleHoverAutoplaySound}
                         className={cn(
-                          "absolute left-4 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white shadow transition hover:bg-black/60",
+                          "absolute left-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white shadow transition hover:bg-black/60",
                           showReferenceSelectionBadge ? "top-14" : "top-4",
                         )}
                       >
-                        <ForwardedIconComponent
-                          name={isHoverAutoplayMuted ? "VolumeX" : "Volume2"}
-                          className="h-4 w-4"
-                        />
+                        {isHoverAutoplayMuted ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                            <line x1="22" y1="9" x2="16" y2="15" />
+                            <line x1="16" y1="9" x2="22" y2="15" />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                          </svg>
+                        )}
                       </button>
                     )}
                   </div>
@@ -4208,6 +4656,46 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 </div>
               </div>
             )}
+
+            {appearance === "videoGenerator" && canClip && videoPreview?.videoUrl && (
+              <VideoClipOverlay
+                open={isClipOpen}
+                durationS={Math.max(
+                  0,
+                  clipVideoDurationS ||
+                    Number((resolvedPreview as any)?.payload?.duration) ||
+                    0,
+                )}
+                currentTimeS={0}
+                videoSource={videoPreview.videoUrl}
+                videoEl={previewVideoEl}
+                onCancel={() => setClipOpen(false)}
+                onConfirm={({ startS, endS }) => void handleConfirmClip({ startS, endS })}
+                onSeek={(timeS) => {
+                  const video = previewVideoEl ?? hoverVideoElementRef.current;
+                  if (!video) return;
+                  try {
+                    video.currentTime = Math.max(0, timeS);
+                  } catch {
+                    // ignore
+                  }
+                }}
+                onTogglePlayback={() => {
+                  const video = previewVideoEl ?? hoverVideoElementRef.current;
+                  if (!video) return;
+                  try {
+                    if (video.paused) {
+                      void video.play();
+                    } else {
+                      video.pause();
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }}
+                isBusy={isClipTrimming}
+              />
+            )}
           </div>
         </div>
 
@@ -4493,6 +4981,33 @@ function isVideoCandidate(source: string | undefined, fileName?: string) {
     // Some uploads get stored with a "masked" extension (e.g. ".mp_") but are still MP4 content.
     combined.includes(".mp_")
   );
+}
+
+function deriveFlowFilePathFromVideoUrl(url: string): string | null {
+  const raw = String(url || "").trim();
+  if (!raw) return null;
+  // Supports both absolute and relative URLs.
+  const markers = [
+    "/api/v1/files/media/",
+    "/api/v1/files/public/",
+    "/files/media/",
+    "/files/public/",
+  ];
+  const marker = markers.find((m) => raw.includes(m));
+  if (!marker) return null;
+  const idx = raw.indexOf(marker);
+  if (idx < 0) return null;
+  const rest = raw.slice(idx + marker.length).split("?", 1)[0].split("#", 1)[0];
+  const parts = rest.split("/").filter(Boolean);
+  if (parts.length < 2) return null;
+  const flowId = parts[0];
+  const fileName = parts.slice(1).join("/");
+  try {
+    return `${decodeURIComponent(flowId)}/${decodeURIComponent(fileName)}`;
+  } catch {
+    // If it's not valid URI encoding, keep the raw.
+    return `${flowId}/${fileName}`;
+  }
 }
 
 async function downloadPreviewFile(source: string, fileName: string) {

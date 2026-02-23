@@ -1420,17 +1420,43 @@ export default function TextCreationLayout({
   const noopDownload = useCallback(() => undefined, []);
   const noopEnterCrop = useCallback(() => undefined, []);
   const noopEnterOutpaint = useCallback(() => undefined, []);
+  const noopEnter = useCallback(() => undefined, []);
   useEffect(() => {
     onPreviewActionsChange?.({
       openPreview,
       download: noopDownload,
       canDownload: false,
+      enterRepaint: noopEnter,
+      runRepaint: noopEnter,
+      canRepaint: false,
+      isRepaintOpen: false,
+      enterErase: noopEnter,
+      runErase: noopEnter,
+      canErase: false,
+      isEraseOpen: false,
       enterCrop: noopEnterCrop,
       canCrop: false,
+      enterEnhance: noopEnter,
+      canEnhance: false,
+      isEnhanceOpen: false,
       enterOutpaint: noopEnterOutpaint,
       canOutpaint: false,
+      isOutpaintOpen: false,
+      enterMultiAngleCamera: noopEnter,
+      canMultiAngleCamera: false,
+      isMultiAngleCameraOpen: false,
+      enterClip: noopEnter,
+      canClip: false,
+      isClipOpen: false,
     });
-  }, [noopDownload, noopEnterCrop, noopEnterOutpaint, onPreviewActionsChange, openPreview]);
+  }, [
+    noopDownload,
+    noopEnter,
+    noopEnterCrop,
+    noopEnterOutpaint,
+    onPreviewActionsChange,
+    openPreview,
+  ]);
 
   return (
     <div className="relative flex flex-col gap-4 px-4 pb-4 transition-all duration-300 ease-in-out">

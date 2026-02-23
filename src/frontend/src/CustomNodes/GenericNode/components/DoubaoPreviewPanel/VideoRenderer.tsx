@@ -56,6 +56,10 @@ const VideoRenderer = ({
   const [reloadToken, setReloadToken] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
   const retryTimeoutRef = useRef<number | null>(null);
+  const tickerRef = useRef<{ rafId: number | null; rvfcId: number | null }>({
+    rafId: null,
+    rvfcId: null,
+  });
 
   const isModal = variant === "modal";
   const shouldMuteHoverAutoplay = Boolean(autoPlay && !isModal ? muted ?? true : false);
@@ -123,6 +127,88 @@ const VideoRenderer = ({
       video.removeEventListener("error", handleError);
     };
   }, [playbackRate, retryCount, videoUrl]);
+
+  // Smoother progress updates while playing (timeupdate can be coarse).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const anyVideo = video as any;
+    const stop = () => {
+      const { rafId, rvfcId } = tickerRef.current;
+      if (rafId != null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      if (rvfcId != null && typeof anyVideo.cancelVideoFrameCallback === "function") {
+        try {
+          anyVideo.cancelVideoFrameCallback(rvfcId);
+        } catch {
+          // ignore
+        }
+      }
+      tickerRef.current.rafId = null;
+      tickerRef.current.rvfcId = null;
+    };
+
+    const tick = () => {
+      setCurrentTime(video.currentTime || 0);
+      if (video.paused || video.ended) return;
+      if (typeof anyVideo.requestVideoFrameCallback === "function") {
+        tickerRef.current.rvfcId = anyVideo.requestVideoFrameCallback(() => tick());
+      } else {
+        tickerRef.current.rafId = window.requestAnimationFrame(() => tick());
+      }
+    };
+    const ensureTicker = () => {
+      if (video.paused || video.ended) return;
+      if (tickerRef.current.rafId != null || tickerRef.current.rvfcId != null) return;
+      tick();
+    };
+
+    const onPlay = () => {
+      stop();
+      tick();
+    };
+    const onPause = () => {
+      stop();
+      setCurrentTime(video.currentTime || 0);
+    };
+    const onSeeking = () => {
+      // Avoid stale callbacks while scrubbing; some browsers won't emit `play` again reliably.
+      stop();
+      setCurrentTime(video.currentTime || 0);
+    };
+    const onSeeked = () => {
+      setCurrentTime(video.currentTime || 0);
+      ensureTicker();
+    };
+    const onTimeUpdate = () => {
+      // Backstop: restart ticker if the video is playing but our callbacks got cancelled.
+      ensureTicker();
+    };
+
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("ended", onPause);
+    video.addEventListener("seeking", onSeeking);
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("timeupdate", onTimeUpdate);
+
+    // If we mount while already playing (rare), start ticker.
+    if (!video.paused && !video.ended) {
+      tick();
+    }
+
+    return () => {
+      stop();
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("ended", onPause);
+      video.removeEventListener("seeking", onSeeking);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("timeupdate", onTimeUpdate);
+    };
+  }, [videoUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -289,7 +375,7 @@ const VideoRenderer = ({
               type="range"
               min="0"
               max={videoDuration || 0}
-              step="0.1"
+              step="0.01"
               value={currentTime}
               onChange={handleSeek}
               className="nodrag flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/50 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"

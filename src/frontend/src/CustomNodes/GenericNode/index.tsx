@@ -322,6 +322,8 @@ function DoubaoVideoGeneratorTopBar({
   nodeId,
   isOpen,
   setOpen,
+  onClip,
+  canClip,
   onOpenPreview,
   onDownload,
   canDownload,
@@ -331,6 +333,8 @@ function DoubaoVideoGeneratorTopBar({
   nodeId: string;
   isOpen: boolean;
   setOpen: (open: boolean) => void;
+  onClip?: () => void;
+  canClip?: boolean;
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
@@ -411,6 +415,24 @@ function DoubaoVideoGeneratorTopBar({
         )}
         style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
+        <button
+          type="button"
+          aria-label="\u526A\u8F91"
+          disabled={!canClip}
+          onClick={onClip}
+          className={cn(
+            "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
+            canClip
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Scissors" className="h-5 w-5" />
+          <span>{"\u526A\u8F91"}</span>
+        </button>
+
+        <div className="mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15" />
+
         <OutputModal
           open={isOpen}
           setOpen={setOpen}
@@ -1350,12 +1372,14 @@ function GenericNode({
           {showNode &&
             usesWideDoubaoLayout &&
             (isDoubaoVideoGenerator || isUserUploadVideo) &&
-            selected && (
+            selected && !videoGeneratorPreviewActions?.isClipOpen && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
               <DoubaoVideoGeneratorTopBar
                 nodeId={data.id}
                 isOpen={isVideoGeneratorLogsOpen}
                 setOpen={setVideoGeneratorLogsOpen}
+                onClip={() => videoGeneratorPreviewActions?.enterClip()}
+                canClip={Boolean(videoGeneratorPreviewActions?.canClip)}
                 onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
                 onDownload={() => videoGeneratorPreviewActions?.download()}
                 canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
