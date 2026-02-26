@@ -71,6 +71,7 @@ type TextItem = {
   text: string;
 };
 type Item = StrokeItem | RectItem | ArrowItem | PenItem | TextItem;
+type ItemBounds = { minX: number; minY: number; maxX: number; maxY: number };
 
 export type StudioLayer = {
   id: string;
@@ -127,8 +128,187 @@ type Props = {
   setLayers: (updater: any) => void;
   selectedLayerId: string;
   setSelectedLayerId: (updater: any) => void;
+  onRequestToolChange?: (tool: StudioTool) => void;
   onRequestBack: () => void;
 };
+
+const TEXT_FONT_FAMILY = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial";
+let textMeasureContext: CanvasRenderingContext2D | null = null;
+
+function getTextMeasureContext(): CanvasRenderingContext2D | null {
+  if (textMeasureContext) return textMeasureContext;
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  textMeasureContext = canvas.getContext("2d");
+  return textMeasureContext;
+}
+
+function getTextLayout(item: TextItem): {
+  lines: string[];
+  lineHeight: number;
+  contentWidth: number;
+  contentHeight: number;
+} {
+  const text = String(item.text ?? "");
+  const lines = text.split(/\r?\n/);
+  if (!lines.length) lines.push("");
+
+  const fontSize = Math.max(12, Number(item.fontSize || 12));
+  const lineHeight = Math.max(18, fontSize * 1.24);
+  const measureCtx = getTextMeasureContext();
+  let contentWidth = Math.max(fontSize * 0.72, 1);
+
+  if (measureCtx) {
+    measureCtx.font = `${fontSize}px ${TEXT_FONT_FAMILY}`;
+    for (const line of lines) {
+      const metrics = measureCtx.measureText(line || " ");
+      const widthByBounds =
+        Math.abs(metrics.actualBoundingBoxLeft || 0) +
+        Math.abs(metrics.actualBoundingBoxRight || 0);
+      contentWidth = Math.max(contentWidth, metrics.width, widthByBounds);
+    }
+  } else {
+    for (const line of lines) {
+      const charCount = Math.max(1, line.length);
+      contentWidth = Math.max(contentWidth, charCount * fontSize * 0.62);
+    }
+  }
+
+  const contentHeight = Math.max(lineHeight, lines.length * lineHeight);
+  return { lines, lineHeight, contentWidth, contentHeight };
+}
+
+function getItemBounds(item: Item): ItemBounds | null {
+  if (item.kind === "stroke" || item.kind === "pen") {
+    const points = item.points ?? [];
+    if (!points.length) return null;
+    let minX = points[0]!.x;
+    let minY = points[0]!.y;
+    let maxX = minX;
+    let maxY = minY;
+    for (const p of points) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+    const pad = Math.max(6, item.width / 2 + 2);
+    return {
+      minX: minX - pad,
+      minY: minY - pad,
+      maxX: maxX + pad,
+      maxY: maxY + pad,
+    };
+  }
+  if (item.kind === "rect") {
+    const minX = Math.min(item.x, item.x + item.w);
+    const maxX = Math.max(item.x, item.x + item.w);
+    const minY = Math.min(item.y, item.y + item.h);
+    const maxY = Math.max(item.y, item.y + item.h);
+    const pad = Math.max(6, item.width / 2 + 2);
+    return {
+      minX: minX - pad,
+      minY: minY - pad,
+      maxX: maxX + pad,
+      maxY: maxY + pad,
+    };
+  }
+  if (item.kind === "arrow") {
+    const minX = Math.min(item.x1, item.x2);
+    const maxX = Math.max(item.x1, item.x2);
+    const minY = Math.min(item.y1, item.y2);
+    const maxY = Math.max(item.y1, item.y2);
+    const pad = Math.max(8, item.width + 8);
+    return {
+      minX: minX - pad,
+      minY: minY - pad,
+      maxX: maxX + pad,
+      maxY: maxY + pad,
+    };
+  }
+  const textLayout = getTextLayout(item);
+  const padX = 8;
+  const padY = 6;
+  return {
+    minX: item.x - 4,
+    minY: item.y - 4,
+    maxX: item.x + textLayout.contentWidth + padX + 4,
+    maxY: item.y + textLayout.contentHeight + padY + 4,
+  };
+}
+
+function translateItem(item: Item, dx: number, dy: number): Item {
+  if (item.kind === "stroke" || item.kind === "pen") {
+    return {
+      ...item,
+      points: (item.points ?? []).map((p) => ({ x: p.x + dx, y: p.y + dy })),
+    };
+  }
+  if (item.kind === "rect") {
+    return { ...item, x: item.x + dx, y: item.y + dy };
+  }
+  if (item.kind === "arrow") {
+    return {
+      ...item,
+      x1: item.x1 + dx,
+      y1: item.y1 + dy,
+      x2: item.x2 + dx,
+      y2: item.y2 + dy,
+    };
+  }
+  return { ...item, x: item.x + dx, y: item.y + dy };
+}
+
+function transformPointByBounds(
+  x: number,
+  y: number,
+  from: ItemBounds,
+  to: ItemBounds,
+): Point {
+  const fw = Math.max(1e-6, from.maxX - from.minX);
+  const fh = Math.max(1e-6, from.maxY - from.minY);
+  const tw = Math.max(1e-6, to.maxX - to.minX);
+  const th = Math.max(1e-6, to.maxY - to.minY);
+  return {
+    x: to.minX + ((x - from.minX) / fw) * tw,
+    y: to.minY + ((y - from.minY) / fh) * th,
+  };
+}
+
+function scaleItemByBounds(
+  item: Item,
+  from: ItemBounds,
+  to: ItemBounds,
+): Item {
+  if (item.kind === "stroke" || item.kind === "pen") {
+    return {
+      ...item,
+      points: (item.points ?? []).map((p) =>
+        transformPointByBounds(p.x, p.y, from, to),
+      ),
+    };
+  }
+  if (item.kind === "rect") {
+    const p1 = transformPointByBounds(item.x, item.y, from, to);
+    const p2 = transformPointByBounds(item.x + item.w, item.y + item.h, from, to);
+    return { ...item, x: p1.x, y: p1.y, w: p2.x - p1.x, h: p2.y - p1.y };
+  }
+  if (item.kind === "arrow") {
+    const p1 = transformPointByBounds(item.x1, item.y1, from, to);
+    const p2 = transformPointByBounds(item.x2, item.y2, from, to);
+    return { ...item, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+  }
+  const p = transformPointByBounds(item.x, item.y, from, to);
+  const scaleX = Math.max(0.1, (to.maxX - to.minX) / Math.max(1e-6, from.maxX - from.minX));
+  const scaleY = Math.max(0.1, (to.maxY - to.minY) / Math.max(1e-6, from.maxY - from.minY));
+  const scale = Math.max(0.1, Math.max(scaleX, scaleY));
+  return {
+    ...item,
+    x: p.x,
+    y: p.y,
+    fontSize: Math.max(12, Math.round(item.fontSize * scale)),
+  };
+}
 
 const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
   function ScribbleStudioCanvas(
@@ -147,6 +327,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
       setLayers,
       selectedLayerId,
       setSelectedLayerId,
+      onRequestToolChange,
     }: Props,
     ref,
   ) {
@@ -181,6 +362,21 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
             startWorld: Point;
             originCenter: Point;
             layerId: string;
+          }
+        | {
+            mode: "move-item";
+            layerId: string;
+            itemId: string;
+            startLocal: Point;
+            originItem: Item;
+          }
+        | {
+            mode: "scale-item";
+            layerId: string;
+            itemId: string;
+            startBounds: ItemBounds;
+            anchor: Point;
+            originItem: Item;
           }
         | { mode: "draw-stroke"; layerId: string; itemId: string }
         | {
@@ -280,6 +476,15 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
       layerId: string;
       itemId: string;
     }>(null);
+    const [selectedObject, setSelectedObject] = useState<null | {
+      layerId: string;
+      itemId: string;
+    }>(null);
+    const selectedObjectRef = useRef<null | { layerId: string; itemId: string }>(
+      null,
+    );
+    const textInputRef = useRef<HTMLTextAreaElement | null>(null);
+    const shouldSelectTextRef = useRef(false);
     const [hoverCanvasEdge, setHoverCanvasEdge] = useState<
       null | "n" | "s" | "w" | "e"
     >(null);
@@ -290,6 +495,10 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
       startClient: Point;
       startRect: CanvasRect;
     }>(null);
+
+    useEffect(() => {
+      selectedObjectRef.current = selectedObject;
+    }, [selectedObject]);
 
     const baseLayer = useMemo(
       () => layers.find((l) => l.isBase) ?? null,
@@ -364,6 +573,8 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
 
     const canvasUserResizedRef = useRef(false);
     const lastPresetKeyRef = useRef<string>("");
+    const initializedViewRef = useRef(false);
+    const lastViewIdentityKeyRef = useRef<string>("");
 
     const resetView = useCallback(() => {
       const el = containerRef.current;
@@ -395,6 +606,12 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
       sourceMode,
     ]);
 
+    const viewIdentityKey = useMemo(() => {
+      return sourceMode === "upload"
+        ? `upload:${baseBitmapKey}:${baseNatural?.w ?? 0}x${baseNatural?.h ?? 0}`
+        : "blank";
+    }, [baseBitmapKey, baseNatural?.h, baseNatural?.w, sourceMode]);
+
     useEffect(() => {
       if (!active) return;
 
@@ -406,8 +623,15 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         setCanvasRect(computePresetCanvasRect());
       }
 
-      // Layout can still be settling when the studio first opens; do a double-rAF reset
-      // to avoid first-frame offsets (especially after uploading an image).
+      // Keep manual zoom/pan when only changing ratio/resolution.
+      // Auto-fit only when first entering, or when base source changes.
+      const shouldResetView =
+        !initializedViewRef.current ||
+        lastViewIdentityKeyRef.current !== viewIdentityKey;
+      if (!shouldResetView) return;
+
+      initializedViewRef.current = true;
+      lastViewIdentityKeyRef.current = viewIdentityKey;
       resetView();
       const id1 = window.requestAnimationFrame(() => resetView());
       const id2 = window.requestAnimationFrame(() =>
@@ -417,7 +641,14 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         window.cancelAnimationFrame(id1);
         window.cancelAnimationFrame(id2);
       };
-    }, [active, computePresetCanvasRect, presetKey, resetView]);
+    }, [active, computePresetCanvasRect, presetKey, resetView, viewIdentityKey]);
+
+    useEffect(() => {
+      if (!active) {
+        initializedViewRef.current = false;
+        lastViewIdentityKeyRef.current = "";
+      }
+    }, [active]);
 
     useEffect(() => {
       const el = containerRef.current;
@@ -575,6 +806,32 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         return null;
       },
       [distance, localFromWorld],
+    );
+
+    const hitTestItemAtWorld = useCallback(
+      (world: Point): { layer: StudioLayer; item: Item } | null => {
+        for (let i = layersRef.current.length - 1; i >= 0; i -= 1) {
+          const layer = layersRef.current[i];
+          if (!layer?.visible) continue;
+          const local = localFromWorld(layer, world);
+          const items = layer.items ?? [];
+          for (let j = items.length - 1; j >= 0; j -= 1) {
+            const item = items[j]!;
+            const bounds = getItemBounds(item);
+            if (!bounds) continue;
+            if (
+              local.x >= bounds.minX &&
+              local.x <= bounds.maxX &&
+              local.y >= bounds.minY &&
+              local.y <= bounds.maxY
+            ) {
+              return { layer, item };
+            }
+          }
+        }
+        return null;
+      },
+      [localFromWorld],
     );
 
     // Must be declared before any hook dependency arrays that reference it;
@@ -869,10 +1126,13 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
             if (item.closed) ctx.closePath();
             ctx.stroke();
           } else if (item.kind === "text") {
+            const layout = getTextLayout(item);
             ctx.fillStyle = item.color;
-            ctx.font = `${item.fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial`;
+            ctx.font = `${Math.max(12, item.fontSize)}px ${TEXT_FONT_FAMILY}`;
             ctx.textBaseline = "top";
-            ctx.fillText(item.text || "", item.x, item.y);
+            layout.lines.forEach((line, idx) => {
+              ctx.fillText(line, item.x, item.y + idx * layout.lineHeight);
+            });
           }
         }
       },
@@ -903,7 +1163,10 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, width, height);
         if (!forExport) {
-          ctx.fillStyle = "#0b0d10";
+          const isDark =
+            typeof document !== "undefined" &&
+            document.documentElement.classList.contains("dark");
+          ctx.fillStyle = isDark ? "#0b0d10" : "#d8dade";
           ctx.fillRect(0, 0, width, height);
         }
 
@@ -1052,6 +1315,61 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         window.requestAnimationFrame(() => checkpoint());
       });
     }, [checkpoint]);
+
+    const removeSelectedObject = useCallback(() => {
+      const target = selectedObjectRef.current;
+      if (!target) return;
+
+      const prevLayers = layersRef.current;
+      let didDelete = false;
+      let removedLayerId = "";
+      const nextLayers: StudioLayer[] = [];
+
+      for (const layer of prevLayers) {
+        if (layer.id !== target.layerId) {
+          nextLayers.push(layer);
+          continue;
+        }
+        const nextItems = (layer.items ?? []).filter((it) => {
+          const hit = it.id === target.itemId;
+          if (hit) didDelete = true;
+          return !hit;
+        });
+        const shouldDropLayer =
+          didDelete &&
+          !layer.isBase &&
+          !String(layer.bitmapSrc || "").trim() &&
+          nextItems.length === 0;
+        if (shouldDropLayer) {
+          removedLayerId = layer.id;
+          continue;
+        }
+        nextLayers.push({ ...layer, items: nextItems });
+      }
+
+      if (!didDelete) return;
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
+      setSelectedObject(null);
+      setEditingText((current) => {
+        if (!current) return current;
+        if (
+          current.layerId === target.layerId &&
+          current.itemId === target.itemId
+        ) {
+          return null;
+        }
+        return current;
+      });
+      setSelectedLayerId((current) => {
+        if (removedLayerId && current === removedLayerId) {
+          return nextLayers[nextLayers.length - 1]?.id ?? "";
+        }
+        const exists = nextLayers.some((l) => l.id === current);
+        return exists ? current : (nextLayers[nextLayers.length - 1]?.id ?? "");
+      });
+      checkpointSoon();
+    }, [checkpointSoon, setLayers, setSelectedLayerId]);
 
     const updateSelectedLayer = useCallback(
       (updater: (layer: StudioLayer) => StudioLayer) => {
@@ -1383,6 +1701,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         // While cropping we only allow moving one layer.
         if (cropMode || mode === "select") {
           if (insideCanvas === false) {
+            setSelectedObject(null);
             try {
               e.currentTarget.setPointerCapture(e.pointerId);
             } catch {
@@ -1403,10 +1722,37 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
             return;
           }
 
+          const hitItem = hitTestItemAtWorld(world);
+          if (hitItem) {
+            const { layer, item } = hitItem;
+            if (selectedLayerIdRef.current !== layer.id) {
+              setSelectedLayerId(layer.id);
+            }
+            setSelectedObject({ layerId: layer.id, itemId: item.id });
+            const local = localFromWorld(layer, world);
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+              // ignore
+            }
+            dragRef.current = {
+              pointerId: e.pointerId,
+              kind: {
+                mode: "move-item",
+                layerId: layer.id,
+                itemId: item.id,
+                startLocal: local,
+                originItem: JSON.parse(JSON.stringify(item)) as Item,
+              },
+            };
+            return;
+          }
+
           const fallbackLayer =
             selected ?? layersRef.current[layersRef.current.length - 1] ?? null;
           const hit = hitTestLayerAtWorld(world) ?? fallbackLayer;
           if (!hit) return;
+          setSelectedObject(null);
           if (selected && hit.id !== selected.id) {
             setSelectedLayerId(hit.id);
           }
@@ -1575,14 +1921,17 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
                 fontSize: Math.max(12, textFontSize),
                 x: local.x,
                 y: local.y,
-                text: "",
+                text: "文本",
               },
             ],
             isBase: false,
           };
           setLayers((prev: StudioLayer[]) => [...prev, layer]);
           setSelectedLayerId(layerId);
+          shouldSelectTextRef.current = true;
           setEditingText({ layerId, itemId });
+          setSelectedObject({ layerId, itemId });
+          onRequestToolChange?.("select");
           return;
         }
 
@@ -1634,9 +1983,13 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         cropMode,
         eraseAtWorld,
         getSelectedLayer,
+        hitTestItemAtWorld,
         hitTestLayerAtWorld,
+        localFromWorld,
         nextId,
+        onRequestToolChange,
         setLayers,
+        setSelectedObject,
         setSelectedLayerId,
         textColor,
         textFontSize,
@@ -1832,6 +2185,62 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
         const world = worldFromClient(e.clientX, e.clientY);
         if (!world) return;
 
+        if (kind.mode === "move-item") {
+          const layer =
+            layersRef.current.find((l) => l.id === kind.layerId) ?? null;
+          if (!layer) return;
+          const local = localFromWorld(layer, world);
+          const dx = local.x - kind.startLocal.x;
+          const dy = local.y - kind.startLocal.y;
+          const nextItem = translateItem(kind.originItem, dx, dy);
+          setLayers((prev: StudioLayer[]) =>
+            prev.map((l) => {
+              if (l.id !== kind.layerId) return l;
+              const items = (l.items ?? []).map((it) =>
+                it.id === kind.itemId ? nextItem : it,
+              );
+              return { ...l, items };
+            }),
+          );
+          return;
+        }
+
+        if (kind.mode === "scale-item") {
+          const layer =
+            layersRef.current.find((l) => l.id === kind.layerId) ?? null;
+          if (!layer) return;
+          const local = localFromWorld(layer, world);
+          const minSize = 6;
+          let minX = Math.min(kind.anchor.x, local.x);
+          let maxX = Math.max(kind.anchor.x, local.x);
+          let minY = Math.min(kind.anchor.y, local.y);
+          let maxY = Math.max(kind.anchor.y, local.y);
+          if (maxX - minX < minSize) {
+            if (local.x < kind.anchor.x) minX = maxX - minSize;
+            else maxX = minX + minSize;
+          }
+          if (maxY - minY < minSize) {
+            if (local.y < kind.anchor.y) minY = maxY - minSize;
+            else maxY = minY + minSize;
+          }
+          const nextBounds: ItemBounds = { minX, minY, maxX, maxY };
+          const nextItem = scaleItemByBounds(
+            kind.originItem,
+            kind.startBounds,
+            nextBounds,
+          );
+          setLayers((prev: StudioLayer[]) =>
+            prev.map((l) => {
+              if (l.id !== kind.layerId) return l;
+              const items = (l.items ?? []).map((it) =>
+                it.id === kind.itemId ? nextItem : it,
+              );
+              return { ...l, items };
+            }),
+          );
+          return;
+        }
+
         if (kind.mode === "move-layer") {
           const dx = world.x - kind.startWorld.x;
           const dy = world.y - kind.startWorld.y;
@@ -1992,6 +2401,14 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
     useEffect(() => {
       if (!active) return;
       const onKey = (e: KeyboardEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (
+          target?.closest("input") ||
+          target?.closest("textarea") ||
+          target?.closest("[contenteditable='true']")
+        ) {
+          return;
+        }
         if (e.key === "Escape") {
           if (cropMode) {
             cancelCrop();
@@ -2020,6 +2437,14 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
             checkpointSoon();
           }
         }
+        if (e.key === "Delete" || e.key === "Backspace") {
+          if (cropMode || editingText) return;
+          if (toolRef.current !== "select") return;
+          if (!selectedObjectRef.current) return;
+          e.preventDefault();
+          removeSelectedObject();
+          return;
+        }
         if (e.key === "Enter") {
           const draft = penDraftRef.current;
           if (!draft) return;
@@ -2040,7 +2465,15 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
       };
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
-    }, [active, cancelCrop, checkpointSoon, cropMode, editingText, setLayers]);
+    }, [
+      active,
+      cancelCrop,
+      checkpointSoon,
+      cropMode,
+      editingText,
+      removeSelectedObject,
+      setLayers,
+    ]);
 
     const editingTextarea = useMemo(() => {
       if (!editingText) return null;
@@ -2064,6 +2497,115 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
       };
     }, [clientFromWorld, editingText, layers, worldFromLocal]);
 
+    useEffect(() => {
+      if (!selectedObject) return;
+      const layer = layers.find((l) => l.id === selectedObject.layerId) ?? null;
+      if (!layer) {
+        setSelectedObject(null);
+        return;
+      }
+      const exists = (layer.items ?? []).some((it) => it.id === selectedObject.itemId);
+      if (!exists) setSelectedObject(null);
+    }, [layers, selectedObject]);
+
+    const selectedItemOverlay = useMemo(() => {
+      if (!selectedObject) return null;
+      const layer = layers.find((l) => l.id === selectedObject.layerId) ?? null;
+      if (!layer) return null;
+      const item = (layer.items ?? []).find((it) => it.id === selectedObject.itemId) ?? null;
+      if (!item) return null;
+      const bounds = getItemBounds(item);
+      if (!bounds) return null;
+
+      const corners = {
+        nw: clientFromWorld(worldFromLocal(layer, { x: bounds.minX, y: bounds.minY })),
+        ne: clientFromWorld(worldFromLocal(layer, { x: bounds.maxX, y: bounds.minY })),
+        sw: clientFromWorld(worldFromLocal(layer, { x: bounds.minX, y: bounds.maxY })),
+        se: clientFromWorld(worldFromLocal(layer, { x: bounds.maxX, y: bounds.maxY })),
+      };
+      const left = Math.min(corners.nw.x, corners.ne.x, corners.sw.x, corners.se.x);
+      const right = Math.max(corners.nw.x, corners.ne.x, corners.sw.x, corners.se.x);
+      const top = Math.min(corners.nw.y, corners.ne.y, corners.sw.y, corners.se.y);
+      const bottom = Math.max(corners.nw.y, corners.ne.y, corners.sw.y, corners.se.y);
+      return {
+        layer,
+        item,
+        bounds,
+        left,
+        top,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
+      };
+    }, [clientFromWorld, layers, selectedObject, worldFromLocal]);
+
+    const startScaleSelectedItem = useCallback(
+      (handle: "nw" | "ne" | "sw" | "se") => (e: ReactPointerEvent) => {
+        const selected = selectedObjectRef.current;
+        if (!selected) return;
+        const layer =
+          layersRef.current.find((l) => l.id === selected.layerId) ?? null;
+        if (!layer) return;
+        const item =
+          (layer.items ?? []).find((it) => it.id === selected.itemId) ?? null;
+        if (!item) return;
+        const startBounds = getItemBounds(item);
+        if (!startBounds) return;
+
+        const anchor =
+          handle === "nw"
+            ? { x: startBounds.maxX, y: startBounds.maxY }
+            : handle === "ne"
+              ? { x: startBounds.minX, y: startBounds.maxY }
+              : handle === "sw"
+                ? { x: startBounds.maxX, y: startBounds.minY }
+                : { x: startBounds.minX, y: startBounds.minY };
+
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
+        dragRef.current = {
+          pointerId: e.pointerId,
+          kind: {
+            mode: "scale-item",
+            layerId: layer.id,
+            itemId: item.id,
+            startBounds,
+            anchor,
+            originItem: JSON.parse(JSON.stringify(item)) as Item,
+          },
+        };
+      },
+      [],
+    );
+
+    const editingTextKey = editingTextarea
+      ? `${editingTextarea.layerId}:${editingTextarea.itemId}`
+      : "";
+
+    useEffect(() => {
+      if (!editingTextKey) return;
+      const id = window.requestAnimationFrame(() => {
+        const input = textInputRef.current;
+        if (!input) return;
+        input.focus();
+        if (shouldSelectTextRef.current) {
+          input.select();
+          shouldSelectTextRef.current = false;
+        }
+      });
+      return () => window.cancelAnimationFrame(id);
+    }, [editingTextKey]);
+
+    useEffect(() => {
+      if (!selectedObject) return;
+      if (selectedObject.layerId === selectedLayerId) return;
+      setSelectedObject(null);
+    }, [selectedLayerId, selectedObject]);
+
     const handleDoubleClick = useCallback(
       (e: ReactMouseEvent) => {
         if (!active) return;
@@ -2081,6 +2623,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
             const r = Math.max(28, it.fontSize * 0.8);
             if (distance({ x: it.x, y: it.y }, local) <= r) {
               setSelectedLayerId(layer.id);
+              setSelectedObject({ layerId: layer.id, itemId: it.id });
               setEditingText({ layerId: layer.id, itemId: it.id });
               return;
             }
@@ -2156,6 +2699,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
             const hPx = Math.max(1, bottom - top);
             const inset = 18;
             const thick = 10;
+            const outsideGap = 6;
             const halfW = Math.max(24, Math.round((wPx - inset * 2) * 0.5));
             const halfH = Math.max(24, Math.round((hPx - inset * 2) * 0.5));
             const topBarLeft = left + Math.round((wPx - halfW) / 2);
@@ -2176,7 +2720,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
                   )}
                   style={{
                     left: topBarLeft,
-                    top: top - thick / 2,
+                    top: top - thick - outsideGap,
                     width: halfW,
                     height: thick,
                   }}
@@ -2193,7 +2737,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
                   )}
                   style={{
                     left: topBarLeft,
-                    top: bottom - thick / 2,
+                    top: bottom + outsideGap,
                     width: halfW,
                     height: thick,
                   }}
@@ -2209,7 +2753,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
                     !isW && "hidden",
                   )}
                   style={{
-                    left: left - thick / 2,
+                    left: left - thick - outsideGap,
                     top: sideBarTop,
                     width: thick,
                     height: halfH,
@@ -2226,7 +2770,7 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
                     !isE && "hidden",
                   )}
                   style={{
-                    left: right - thick / 2,
+                    left: right + outsideGap,
                     top: sideBarTop,
                     width: thick,
                     height: halfH,
@@ -2355,8 +2899,91 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
             );
           })()}
 
+        {!cropMode && !editingTextarea && tool === "select" && selectedItemOverlay && (
+          <div className="pointer-events-none absolute inset-0 z-[18]">
+            <div
+              className="absolute rounded-md border-2 border-[#2E7BFF] shadow-[0_0_0_1px_rgba(255,255,255,0.7)]"
+              style={{
+                left: `${Math.round(selectedItemOverlay.left)}px`,
+                top: `${Math.round(selectedItemOverlay.top)}px`,
+                width: `${Math.round(selectedItemOverlay.width)}px`,
+                height: `${Math.round(selectedItemOverlay.height)}px`,
+              }}
+            />
+            {[
+              {
+                key: "nw",
+                className:
+                  "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize",
+              },
+              {
+                key: "ne",
+                className:
+                  "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize",
+              },
+              {
+                key: "sw",
+                className:
+                  "left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize",
+              },
+              {
+                key: "se",
+                className:
+                  "right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize",
+              },
+            ].map((handle) => (
+              <button
+                key={handle.key}
+                type="button"
+                className={cn(
+                  "pointer-events-auto absolute h-3 w-3 rounded border border-white bg-[#2E7BFF] shadow",
+                  handle.className,
+                )}
+                style={{
+                  left:
+                    handle.key === "ne" || handle.key === "se"
+                      ? `${Math.round(
+                          selectedItemOverlay.left + selectedItemOverlay.width,
+                        )}px`
+                      : `${Math.round(selectedItemOverlay.left)}px`,
+                  top:
+                    handle.key === "sw" || handle.key === "se"
+                      ? `${Math.round(
+                          selectedItemOverlay.top + selectedItemOverlay.height,
+                        )}px`
+                      : `${Math.round(selectedItemOverlay.top)}px`,
+                }}
+                onPointerDown={startScaleSelectedItem(handle.key as any)}
+                aria-label="Scale object"
+              />
+            ))}
+            <button
+              type="button"
+              className="pointer-events-auto absolute h-6 rounded-md border border-rose-400/60 bg-background/90 px-2 text-[11px] font-medium text-rose-500 shadow hover:bg-background"
+              style={{
+                left: `${Math.round(
+                  selectedItemOverlay.left + selectedItemOverlay.width - 42,
+                )}px`,
+                top: `${Math.round(selectedItemOverlay.top - 28)}px`,
+              }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                removeSelectedObject();
+              }}
+            >
+              Del
+            </button>
+          </div>
+        )}
+
         {editingTextarea && (
           <textarea
+            ref={textInputRef}
             autoFocus
             className={cn(
               "pointer-events-auto absolute z-50 min-h-[60px] resize-y rounded-xl border",
@@ -2423,4 +3050,3 @@ const ScribbleStudioCanvas = forwardRef<ScribbleStudioCanvasHandle, Props>(
 );
 
 export default ScribbleStudioCanvas;
-

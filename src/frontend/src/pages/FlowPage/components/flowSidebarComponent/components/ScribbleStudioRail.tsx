@@ -182,36 +182,45 @@ export default function ScribbleStudioRail({
           />
         </button>
 
-        <button
-          type="button"
-          className={cn(
-            "my-2 flex h-[72px] w-[72px] items-center justify-center rounded-2xl border-2 border-dashed",
-            selected
-              ? "border-[#2E7BFF]/70 bg-background/60"
-              : "border-border/60 bg-muted/20",
-          )}
-          disabled={!selected}
-          onClick={() => {
-            if (!selected) return;
-            onSelect(selected.id);
-          }}
-          onContextMenu={(e) => {
-            openMenu(e, selected?.id || "");
-          }}
-          aria-label={selected?.label || title}
-          title={selected?.label || title}
-        >
-          {selected?.thumbnailSrc ? (
-            <img
-              src={selected.thumbnailSrc}
-              alt={selected.label}
-              className="h-[60px] w-[60px] rounded-xl object-cover"
-              draggable={false}
-            />
+        <div className="my-2 flex w-full flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto px-1 py-1">
+          {items.length === 0 ? (
+            <div className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl border-2 border-dashed border-border/60 bg-muted/20" />
           ) : (
-            <div className="h-[60px] w-[60px] rounded-xl bg-[conic-gradient(from_90deg,#ffffff_0_25%,#1f2937_0_50%,#ffffff_0_75%,#1f2937_0)] bg-[length:16px_16px]" />
+            items.map((item) => {
+              const active = item.id === selectedId;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={cn(
+                    "flex h-[72px] w-[72px] items-center justify-center rounded-2xl border-2 transition",
+                    active
+                      ? "border-[#2E7BFF] bg-background/80"
+                      : "border-border/60 bg-background/40 hover:border-[#2E7BFF]/50 hover:bg-background/70",
+                  )}
+                  onClick={() => onSelect(item.id)}
+                  onContextMenu={(e) => {
+                    e.stopPropagation();
+                    openMenu(e, item.id);
+                  }}
+                  aria-label={item.label || title}
+                  title={item.label || title}
+                >
+                  {item.thumbnailSrc ? (
+                    <img
+                      src={item.thumbnailSrc}
+                      alt={item.label}
+                      className="h-[60px] w-[60px] rounded-xl object-cover"
+                      draggable={false}
+                    />
+                  ) : (
+                    <div className="h-[60px] w-[60px] rounded-xl bg-[conic-gradient(from_90deg,#ffffff_0_25%,#1f2937_0_50%,#ffffff_0_75%,#1f2937_0)] bg-[length:16px_16px]" />
+                  )}
+                </button>
+              );
+            })
           )}
-        </button>
+        </div>
 
         <button
           type="button"

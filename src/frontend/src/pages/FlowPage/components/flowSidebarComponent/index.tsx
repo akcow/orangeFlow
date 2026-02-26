@@ -411,6 +411,12 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
     setAdvancedEditorOpen(false);
   }, []);
 
+  const handleOpenScribbleVideo = useCallback(() => {
+    setStudioInitialTab("scribble-video");
+    setStudioOpen(true);
+    setAdvancedEditorOpen(false);
+  }, []);
+
   const handleOpenPoseGenerator = useCallback(() => {
     setStudioInitialTab("pose-generator");
     setStudioOpen(true);
@@ -426,6 +432,12 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
         onClick: handleAddProCamera,
       },
       {
+        key: "scribble-video",
+        label: "涂鸦生视频",
+        icon: "Clapperboard",
+        onClick: handleOpenScribbleVideo,
+      },
+      {
         key: "scribble-image",
         label: "涂鸦生图",
         icon: "Paintbrush",
@@ -438,7 +450,12 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
         onClick: handleOpenPoseGenerator,
       },
     ],
-    [handleAddProCamera, handleOpenPoseGenerator, handleOpenScribbleImage],
+    [
+      handleAddProCamera,
+      handleOpenPoseGenerator,
+      handleOpenScribbleImage,
+      handleOpenScribbleVideo,
+    ],
   );
 
   return (

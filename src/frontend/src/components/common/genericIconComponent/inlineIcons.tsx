@@ -1,4 +1,23 @@
 import React, { forwardRef } from "react";
+import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpRight,
+  ArrowUpToLine,
+  ChevronUp,
+  Crop,
+  FlipHorizontal,
+  FlipVertical,
+  Fullscreen,
+  Paintbrush,
+  Palette,
+  PenTool,
+  Square,
+  SquareStack,
+  Timer,
+  type LucideIcon,
+} from "lucide-react";
 
 // A small set of "high-frequency, obvious" canvas button icons rendered as inline SVG.
 // This avoids lazy-loading delays/chunk misses for common UI affordances.
@@ -52,6 +71,23 @@ function createInlineLucideIcon(displayName: string, iconNode: IconNode) {
   return Comp;
 }
 
+function fromLucide(displayName: string, Icon: LucideIcon) {
+  const Comp = forwardRef<SVGSVGElement, InlineIconProps>(
+    ({ isDark: _isDark, style, ...props }, ref) => (
+      <Icon
+        ref={ref}
+        style={{
+          strokeWidth: DEFAULT_STROKE_WIDTH,
+          ...style,
+        }}
+        {...props}
+      />
+    ),
+  );
+  Comp.displayName = `InlineLucide(${displayName})`;
+  return Comp;
+}
+
 // Icon node data is copied from lucide-react (ISC) to keep visuals consistent with existing icons.
 const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
   Plus: createInlineLucideIcon("Plus", [
@@ -82,6 +118,7 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
   ChevronDown: createInlineLucideIcon("ChevronDown", [
     ["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }],
   ]),
+  ChevronUp: fromLucide("ChevronUp", ChevronUp),
   ChevronRight: createInlineLucideIcon("ChevronRight", [
     ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }],
   ]),
@@ -376,6 +413,21 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     ["path", { d: "M7 11v4a2 2 0 0 0 2 2h4", key: "xkn7yn" }],
     ["rect", { width: "8", height: "8", x: "13", y: "13", rx: "2", key: "1cgmvn" }],
   ]),
+  Fullscreen: fromLucide("Fullscreen", Fullscreen),
+  ArrowUpToLine: fromLucide("ArrowUpToLine", ArrowUpToLine),
+  ArrowDownToLine: fromLucide("ArrowDownToLine", ArrowDownToLine),
+  Paintbrush: fromLucide("Paintbrush", Paintbrush),
+  Crop: fromLucide("Crop", Crop),
+  FlipHorizontal: fromLucide("FlipHorizontal", FlipHorizontal),
+  FlipVertical: fromLucide("FlipVertical", FlipVertical),
+  Palette: fromLucide("Palette", Palette),
+  Square: fromLucide("Square", Square),
+  ArrowUpRight: fromLucide("ArrowUpRight", ArrowUpRight),
+  PenTool: fromLucide("PenTool", PenTool),
+  Timer: fromLucide("Timer", Timer),
+  SquareStack: fromLucide("SquareStack", SquareStack),
+  ArrowUp: fromLucide("ArrowUp", ArrowUp),
+  ArrowDown: fromLucide("ArrowDown", ArrowDown),
 };
 
 export function getInlineIconComponent(name: string) {

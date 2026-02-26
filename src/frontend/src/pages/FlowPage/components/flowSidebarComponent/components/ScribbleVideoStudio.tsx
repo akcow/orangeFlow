@@ -44,9 +44,9 @@ type SourceMode = "upload" | "blank";
 type GeneratedItem = {
   id: string;
   label: string;
-  src: string;
-  natural?: { w: number; h: number } | null;
-  rawPayloadSingle: any;
+  thumbnailSrc: string;
+  videoSrc: string;
+  rawPayload: any;
 };
 
 const RESOLUTION_PRESETS = [
@@ -65,6 +65,187 @@ const ASPECT_PRESETS = [
   { key: "3:2", label: "3:2" },
   { key: "2:3", label: "2:3" },
 ] as const;
+
+type VideoModelLimits = {
+  resolutions?: string[];
+  minDuration?: number;
+  maxDuration?: number;
+  availableDurations?: number[];
+  minCount?: number;
+  maxCount?: number;
+};
+
+const VIDEO_MODEL_LIMITS: Record<string, VideoModelLimits> = {
+  "Seedance 1.5 pro": {
+    resolutions: ["480p", "720p", "1080p"],
+    minDuration: 4,
+    maxDuration: 12,
+  },
+  "Seedance 1.0 pro": {
+    resolutions: ["480p", "720p", "1080p"],
+    minDuration: 2,
+    maxDuration: 12,
+  },
+  "wan2.6": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 5,
+    maxDuration: 15,
+  },
+  "wan2.5": {
+    resolutions: ["480p", "720p", "1080p"],
+    minDuration: 5,
+    maxDuration: 10,
+  },
+  "VEO3.1": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 4,
+    maxDuration: 8,
+  },
+  "veo3.1-fast": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 4,
+    maxDuration: 8,
+  },
+  "sora-2": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 10,
+    maxDuration: 15,
+    availableDurations: [10, 15],
+  },
+  "sora-2-pro": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 10,
+    maxDuration: 25,
+    availableDurations: [10, 15, 25],
+  },
+  "kling O1": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 3,
+    maxDuration: 10,
+  },
+  "kling O3": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 3,
+    maxDuration: 15,
+  },
+  "kling V3": {
+    resolutions: ["720p", "1080p"],
+    minDuration: 3,
+    maxDuration: 15,
+  },
+  "viduq3-pro": {
+    resolutions: ["540p", "720p", "1080p"],
+    minDuration: 1,
+    maxDuration: 16,
+  },
+  "viduq2-pro": {
+    resolutions: ["540p", "720p", "1080p"],
+    minDuration: 0,
+    maxDuration: 10,
+  },
+};
+
+const VIDEO_MODEL_LIMIT_ALIASES: Record<string, string> = {
+  "Doubao-Seedance-1.5-pro（251215）": "Seedance 1.5 pro",
+  "Doubao-Seedance-1.0-pro（250528）": "Seedance 1.0 pro",
+  "kling-v3-omni": "kling O3",
+  "kling-v3": "kling V3",
+};
+
+function resolveVideoModelLimits(modelName: string): VideoModelLimits | null {
+  const raw = String(modelName || "").trim();
+  if (!raw) return null;
+  const normalized = VIDEO_MODEL_LIMIT_ALIASES[raw] || raw;
+  return VIDEO_MODEL_LIMITS[normalized] ?? null;
+}
+
+function normalizeDurationValue(
+  value: number,
+  min: number,
+  max: number,
+  available: number[],
+): number {
+  const safeMin = Math.min(min, max);
+  const safeMax = Math.max(min, max);
+  const allowed = available
+    .map((n) => Math.floor(Number(n)))
+    .filter((n) => Number.isFinite(n) && n >= safeMin && n <= safeMax)
+    .sort((a, b) => a - b);
+  if (allowed.length > 0) {
+    const current = Math.floor(Number(value));
+    if (allowed.includes(current)) return current;
+    let nearest = allowed[0]!;
+    let nearestDiff = Math.abs(current - nearest);
+    for (const item of allowed) {
+      const diff = Math.abs(current - item);
+      if (diff < nearestDiff) {
+        nearest = item;
+        nearestDiff = diff;
+      }
+    }
+    return nearest;
+  }
+  return clampInt(value, safeMin, safeMax);
+}
+
+function stepDurationValue(
+  current: number,
+  dir: -1 | 1,
+  min: number,
+  max: number,
+  available: number[],
+): number {
+  const safeMin = Math.min(min, max);
+  const safeMax = Math.max(min, max);
+  const allowed = available
+    .map((n) => Math.floor(Number(n)))
+    .filter((n) => Number.isFinite(n) && n >= safeMin && n <= safeMax)
+    .sort((a, b) => a - b);
+  if (allowed.length > 0) {
+    const normalized = normalizeDurationValue(current, safeMin, safeMax, allowed);
+    const idx = allowed.indexOf(normalized);
+    if (idx < 0) return normalized;
+    const nextIdx = Math.max(0, Math.min(allowed.length - 1, idx + dir));
+    return allowed[nextIdx]!;
+  }
+  return clampInt(current + dir, safeMin, safeMax);
+}
+
+function extractCountRangeFromTemplate(
+  template: any,
+): { min: number; max: number } {
+  const field =
+    template?.template?.video_count ??
+    template?.template?.image_count ??
+    null;
+  if (!field) return { min: 1, max: 1 };
+
+  const rangeSpec = field?.range_spec ?? null;
+  const minFromRange = Number(rangeSpec?.min);
+  const maxFromRange = Number(rangeSpec?.max);
+  if (Number.isFinite(minFromRange) && Number.isFinite(maxFromRange)) {
+    return {
+      min: Math.max(1, Math.floor(Math.min(minFromRange, maxFromRange))),
+      max: Math.max(1, Math.floor(Math.max(minFromRange, maxFromRange))),
+    };
+  }
+
+  const options = Array.isArray(field?.options) ? field.options : [];
+  const numericOptions = options
+    .map((x: any) => Number(x))
+    .filter((x: number) => Number.isFinite(x))
+    .map((x: number) => Math.floor(x));
+  if (numericOptions.length > 0) {
+    return {
+      min: Math.max(1, Math.min(...numericOptions)),
+      max: Math.max(1, Math.max(...numericOptions)),
+    };
+  }
+
+  const fallback = Number(field?.value ?? field?.default ?? 1);
+  const safe = Number.isFinite(fallback) ? Math.max(1, Math.floor(fallback)) : 1;
+  return { min: safe, max: safe };
+}
 
 function nextId(prefix: string) {
   return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
@@ -155,20 +336,40 @@ function extractPreviewFromBuild(
   return null;
 }
 
-function clonePreviewPayloadSingle(rawPayload: any, imageIndex: number): any {
-  if (!rawPayload || typeof rawPayload !== "object") return rawPayload;
-  const cloned = cloneDeep(rawPayload);
-  const dp = (cloned as any)?.doubao_preview;
-  const payload = dp?.payload;
-  const images = Array.isArray(payload?.images) ? payload.images : [];
-  const one =
-    images.find((img: any) => Number(img?.index ?? 0) === imageIndex) ??
-    images[imageIndex] ??
-    null;
-  if (one) {
-    (dp.payload as any).images = [{ ...one, index: 0 }];
+function extractVideoItemsFromPreview(
+  preview: DoubaoPreviewDescriptor | null | undefined,
+): Array<{ videoSrc: string; coverSrc: string; index: number }> {
+  if (!preview) return [];
+  const payload: any = (preview as any)?.payload ?? {};
+  const videos = Array.isArray(payload?.videos) ? payload.videos : [];
+  const result: Array<{ videoSrc: string; coverSrc: string; index: number }> = [];
+
+  if (videos.length > 0) {
+    videos.forEach((video: any, idx: number) => {
+      const videoSrc = String(video?.video_url || video?.url || "").trim();
+      if (!videoSrc) return;
+      const coverSrc = String(
+        video?.cover_preview_base64 ||
+          video?.cover_url ||
+          video?.last_frame_url ||
+          payload?.cover_preview_base64 ||
+          payload?.cover_url ||
+          payload?.last_frame_url ||
+          "",
+      ).trim();
+      result.push({ videoSrc, coverSrc, index: idx });
+    });
+    return result;
   }
-  return cloned;
+
+  const fallbackVideo = String(payload?.video_url || payload?.url || "").trim();
+  if (fallbackVideo) {
+    const coverSrc = String(
+      payload?.cover_preview_base64 || payload?.cover_url || payload?.last_frame_url || "",
+    ).trim();
+    result.push({ videoSrc: fallbackVideo, coverSrc, index: 0 });
+  }
+  return result;
 }
 
 function extractFirstImageSrcFromPreview(
@@ -197,7 +398,7 @@ function extractFirstImageSrcFromPreview(
   ).trim();
 }
 
-export default function ScribbleImageStudio({
+export default function ScribbleVideoStudio({
   active,
   onRequestClose,
   onDirtyChange,
@@ -219,8 +420,6 @@ export default function ScribbleImageStudio({
   const [sourceMode, setSourceMode] = useState<SourceMode>("upload");
   const [isBusy, setBusy] = useState(false);
 
-  const [baseFileName, setBaseFileName] = useState<string>("");
-  const [baseServerPath, setBaseServerPath] = useState<string>("");
   const [baseNatural, setBaseNatural] = useState<{
     w: number;
     h: number;
@@ -233,6 +432,10 @@ export default function ScribbleImageStudio({
   const [backgroundMode, setBackgroundMode] = useState<"white" | "transparent">(
     "white",
   );
+  const [videoModelName, setVideoModelName] = useState<string>("");
+  const [videoResolution, setVideoResolution] = useState<string>("1080p");
+  const [videoDurationSec, setVideoDurationSec] = useState<number>(8);
+  const [videoCount, setVideoCount] = useState<number>(1);
 
   const [tool, setTool] = useState<StudioTool>("select");
   const [toolColor, setToolColor] = useState<string>("#2E7BFF");
@@ -248,7 +451,6 @@ export default function ScribbleImageStudio({
   const [selectedGeneratedId, setSelectedGeneratedId] = useState<string>("");
 
   const [prompt, setPrompt] = useState<string>("");
-  const [imageCount, setImageCount] = useState<number>(1);
 
   const hasAnyVisualContent = useMemo(() => {
     return (
@@ -270,29 +472,126 @@ export default function ScribbleImageStudio({
     if (!active || step !== "edit") return false;
     const hasPrompt = Boolean(String(prompt || "").trim());
     const hasGenerated = generated.length > 0;
-    const hasCustomConfig =
-      sourceMode !== "upload" ||
-      aspectKey !== "adaptive" ||
-      resolutionKey !== "2K" ||
-      backgroundMode !== "white" ||
-      imageCount !== 1;
-    return hasPrompt || hasGenerated || hasAnyVisualContent || hasCustomConfig;
-  }, [
-    active,
-    aspectKey,
-    backgroundMode,
-    generated.length,
-    hasAnyVisualContent,
-    imageCount,
-    prompt,
-    resolutionKey,
-    sourceMode,
-    step,
-  ]);
+    return hasPrompt || hasGenerated || hasAnyVisualContent || sourceMode !== "upload";
+  }, [active, generated.length, hasAnyVisualContent, prompt, sourceMode, step]);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
+
+  const videoTemplate = useMemo(
+    () => (templates as any)?.DoubaoVideoGenerator as any,
+    [templates],
+  );
+
+  const videoModelOptions = useMemo(() => {
+    const options = Array.isArray(videoTemplate?.template?.model_name?.options)
+      ? (videoTemplate.template.model_name.options as string[])
+      : [];
+    return options;
+  }, [videoTemplate]);
+
+  const videoResolutionOptions = useMemo(() => {
+    const options = Array.isArray(videoTemplate?.template?.resolution?.options)
+      ? (videoTemplate.template.resolution.options as string[])
+      : [];
+    return options;
+  }, [videoTemplate]);
+
+  const selectedVideoModelLimits = useMemo(
+    () => resolveVideoModelLimits(videoModelName),
+    [videoModelName],
+  );
+
+  const durationRange = useMemo(() => {
+    const templateRange = (videoTemplate as any)?.template?.duration?.range_spec ?? null;
+    const templateMin = Number(templateRange?.min);
+    const templateMax = Number(templateRange?.max);
+    let min = Number.isFinite(templateMin) ? Math.floor(templateMin) : 1;
+    let max = Number.isFinite(templateMax) ? Math.floor(templateMax) : 25;
+    if (selectedVideoModelLimits?.minDuration !== undefined) {
+      min = Math.max(min, Math.floor(selectedVideoModelLimits.minDuration));
+    }
+    if (selectedVideoModelLimits?.maxDuration !== undefined) {
+      max = Math.min(max, Math.floor(selectedVideoModelLimits.maxDuration));
+    }
+    if (min > max) {
+      const fixed = Math.max(min, max);
+      min = fixed;
+      max = fixed;
+    }
+
+    const fromTemplateOptions = Array.isArray((videoTemplate as any)?.template?.duration?.options)
+      ? ((videoTemplate as any).template.duration.options as any[])
+          .map((x) => Number(x))
+          .filter((n) => Number.isFinite(n))
+          .map((n) => Math.floor(n))
+      : [];
+    const fromModel = Array.isArray(selectedVideoModelLimits?.availableDurations)
+      ? selectedVideoModelLimits.availableDurations
+      : [];
+    const available = (fromModel.length ? fromModel : fromTemplateOptions)
+      .map((n) => Math.floor(Number(n)))
+      .filter((n) => Number.isFinite(n) && n >= min && n <= max)
+      .sort((a, b) => a - b);
+
+    return { min, max, available };
+  }, [selectedVideoModelLimits, videoTemplate]);
+
+  const durationAvailableKey = useMemo(
+    () => durationRange.available.join(","),
+    [durationRange.available],
+  );
+
+  const selectableVideoResolutions = useMemo(() => {
+    const templateOptions = videoResolutionOptions.length
+      ? videoResolutionOptions
+      : ["1080p"];
+    const limited = selectedVideoModelLimits?.resolutions ?? null;
+    if (!limited?.length) return templateOptions;
+    const allowedSet = new Set(limited.map((x) => String(x).toLowerCase()));
+    const matched = templateOptions.filter((x) =>
+      allowedSet.has(String(x).toLowerCase()),
+    );
+    return matched.length ? matched : templateOptions;
+  }, [selectedVideoModelLimits, videoResolutionOptions]);
+
+  const resolutionOptionsWithDisabled = useMemo(() => {
+    const allOptions = videoResolutionOptions.length
+      ? videoResolutionOptions
+      : selectableVideoResolutions;
+    const allowedSet = new Set(
+      selectableVideoResolutions.map((x) => String(x).toLowerCase()),
+    );
+    return allOptions.map((value) => ({
+      value,
+      disabled:
+        selectableVideoResolutions.length > 0 &&
+        !allowedSet.has(String(value).toLowerCase()),
+    }));
+  }, [selectableVideoResolutions, videoResolutionOptions]);
+
+  const templateVideoCountRange = useMemo(
+    () => extractCountRangeFromTemplate(videoTemplate),
+    [videoTemplate],
+  );
+
+  const videoCountRange = useMemo(() => {
+    let min = templateVideoCountRange.min;
+    let max = templateVideoCountRange.max;
+    if (selectedVideoModelLimits?.minCount !== undefined) {
+      min = Math.max(min, Math.floor(selectedVideoModelLimits.minCount));
+    }
+    if (selectedVideoModelLimits?.maxCount !== undefined) {
+      max = Math.min(max, Math.floor(selectedVideoModelLimits.maxCount));
+    }
+    if (min > max) {
+      const fixed = Math.max(min, max);
+      min = fixed;
+      max = fixed;
+    }
+    return { min, max };
+  }, [selectedVideoModelLimits, templateVideoCountRange.max, templateVideoCountRange.min]);
 
   const selectedLayer = useMemo(
     () => layers.find((l) => l.id === selectedLayerId) ?? null,
@@ -315,8 +614,6 @@ export default function ScribbleImageStudio({
     setStep("pick");
     setSourceMode("upload");
     setBusy(false);
-    setBaseFileName("");
-    setBaseServerPath("");
     setBaseNatural(null);
     setAspectKey("adaptive");
     setResolutionKey("2K");
@@ -333,7 +630,10 @@ export default function ScribbleImageStudio({
     setGenerated([]);
     setSelectedGeneratedId("");
     setPrompt("");
-    setImageCount(1);
+    setVideoModelName("");
+    setVideoDurationSec(8);
+    setVideoResolution("1080p");
+    setVideoCount(1);
 
     previewRevokeRef.current.forEach((fn) => {
       try {
@@ -349,6 +649,58 @@ export default function ScribbleImageStudio({
     if (active) return;
     resetAll();
   }, [active, resetAll]);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const nextModel = String(
+      videoTemplate?.template?.model_name?.value ||
+        videoTemplate?.template?.model_name?.default ||
+        videoModelOptions[0] ||
+        "",
+    ).trim();
+    if (nextModel) setVideoModelName(nextModel);
+
+    const nextResolution = String(
+      videoTemplate?.template?.resolution?.value ||
+        videoTemplate?.template?.resolution?.default ||
+        videoResolutionOptions[0] ||
+        "1080p",
+    ).trim();
+    if (nextResolution) setVideoResolution(nextResolution);
+
+    const nextDurationRaw =
+      videoTemplate?.template?.duration?.value ??
+      videoTemplate?.template?.duration?.default ??
+      8;
+    const nextDuration = Number(nextDurationRaw);
+    if (Number.isFinite(nextDuration)) {
+      setVideoDurationSec(clampInt(nextDuration, 1, 25));
+    }
+  }, [active, videoModelOptions, videoResolutionOptions, videoTemplate]);
+
+  useEffect(() => {
+    setVideoDurationSec((prev) =>
+      normalizeDurationValue(
+        prev,
+        durationRange.min,
+        durationRange.max,
+        durationRange.available,
+      ),
+    );
+  }, [durationAvailableKey, durationRange.max, durationRange.min]);
+
+  useEffect(() => {
+    if (!selectableVideoResolutions.length) return;
+    setVideoResolution((prev) => {
+      if (selectableVideoResolutions.includes(prev)) return prev;
+      return selectableVideoResolutions[0]!;
+    });
+  }, [selectableVideoResolutions]);
+
+  useEffect(() => {
+    setVideoCount((prev) => clampInt(prev, videoCountRange.min, videoCountRange.max));
+  }, [videoCountRange.max, videoCountRange.min]);
 
   useEffect(() => {
     if (!active) return;
@@ -382,12 +734,10 @@ export default function ScribbleImageStudio({
 
   const handleEnterBlank = useCallback(() => {
     if (!currentFlowId) {
-      setErrorData({ title: "请先保存画布后再使用涂鸦生图" });
+      setErrorData({ title: "请先保存画布后再使用涂鸦生视频" });
       return;
     }
     setSourceMode("blank");
-    setBaseFileName("blank.png");
-    setBaseServerPath("");
     setBaseNatural(null);
 
     const baseLayer: StudioLayer = {
@@ -411,7 +761,7 @@ export default function ScribbleImageStudio({
   const handleEnterUpload = useCallback(async () => {
     if (isBusy) return;
     if (!currentFlowId) {
-      setErrorData({ title: "请先保存画布后再使用涂鸦生图" });
+      setErrorData({ title: "请先保存画布后再使用涂鸦生视频" });
       return;
     }
     const files = await createFileUpload({
@@ -443,8 +793,6 @@ export default function ScribbleImageStudio({
       if (!serverPath) throw new Error("缺少文件路径");
 
       setSourceMode("upload");
-      setBaseFileName(file.name);
-      setBaseServerPath(serverPath);
 
       const baseLayer: StudioLayer = {
         id: nextId("layer"),
@@ -483,20 +831,56 @@ export default function ScribbleImageStudio({
     [aspectKey],
   );
 
+  const canDecreaseDuration = useMemo(() => {
+    if (isBusy) return false;
+    return (
+      stepDurationValue(
+        videoDurationSec,
+        -1,
+        durationRange.min,
+        durationRange.max,
+        durationRange.available,
+      ) !== videoDurationSec
+    );
+  }, [durationRange.available, durationRange.max, durationRange.min, isBusy, videoDurationSec]);
+
+  const canIncreaseDuration = useMemo(() => {
+    if (isBusy) return false;
+    return (
+      stepDurationValue(
+        videoDurationSec,
+        1,
+        durationRange.min,
+        durationRange.max,
+        durationRange.available,
+      ) !== videoDurationSec
+    );
+  }, [durationRange.available, durationRange.max, durationRange.min, isBusy, videoDurationSec]);
+
+  const canDecreaseCount = useMemo(
+    () => !isBusy && videoCount > videoCountRange.min,
+    [isBusy, videoCount, videoCountRange.min],
+  );
+
+  const canIncreaseCount = useMemo(
+    () => !isBusy && videoCount < videoCountRange.max,
+    [isBusy, videoCount, videoCountRange.max],
+  );
+
   const buildPrompt = useCallback(
     (userPrompt: string) => {
       const safe = String(userPrompt || "").trim();
       if (sourceMode === "upload") {
         const base = [
           "你会收到一张参考图：它是原图与涂鸦/标注合并后的图片。",
-          "请基于这张参考图进行图像编辑，并优先参考标注区域。",
-          "尽量保持未标注区域不变，输出一张修改后的完整图片。",
+          "请基于这张参考图生成一段视频，并优先参考标注区域的主体与构图。",
+          "尽量保持未标注区域风格一致，输出完整可用的视频镜头。",
         ].join("");
         return safe ? `${base}\n要求：${safe}` : base;
       }
       const base = [
         "你会收到一张涂鸦参考图。",
-        "请根据涂鸦的构图与形状生成高质量完整图片。",
+        "请根据涂鸦的构图与形状生成高质量完整视频。",
         "不要保留涂鸦线条或画布痕迹。",
       ].join("");
       return safe ? `${base}\n要求：${safe}` : base;
@@ -520,6 +904,7 @@ export default function ScribbleImageStudio({
 
   const runModelOnce = useCallback(
     async (
+      componentType: "DoubaoImageCreator" | "DoubaoVideoGenerator",
       seededTemplate: any,
       onDone: (preview: DoubaoPreviewDescriptor, rawPayload: any) => void,
     ) => {
@@ -527,7 +912,7 @@ export default function ScribbleImageStudio({
         setErrorData({ title: "请先保存画布后再生成" });
         return;
       }
-      const runNodeId = getNodeId("DoubaoImageCreator");
+      const runNodeId = getNodeId(componentType);
       const buildNode: any = {
         id: runNodeId,
         type: "genericNode",
@@ -535,7 +920,7 @@ export default function ScribbleImageStudio({
         data: {
           node: seededTemplate,
           showNode: true,
-          type: "DoubaoImageCreator",
+          type: componentType,
           id: runNodeId,
         },
       };
@@ -553,7 +938,7 @@ export default function ScribbleImageStudio({
           if (!buildData) return;
           const extracted = extractPreviewFromBuild(
             buildData,
-            "DoubaoImageCreator",
+            componentType,
           );
           if (!extracted) return;
           onDone(extracted.preview, extracted.rawPayload);
@@ -577,11 +962,11 @@ export default function ScribbleImageStudio({
       setErrorData({ title: "请先保存画布后再生成" });
       return;
     }
-    const tpl = (templates as any)?.DoubaoImageCreator as any;
+    const tpl = (templates as any)?.DoubaoVideoGenerator as any;
     if (!tpl) {
       setErrorData({
         title: "组件未加载",
-        list: ["未找到 DoubaoImageCreator 模板，请刷新页面后重试。"],
+        list: ["未找到 DoubaoVideoGenerator 模板，请刷新页面后重试。"],
       });
       return;
     }
@@ -606,46 +991,84 @@ export default function ScribbleImageStudio({
       if (!compositePath) throw new Error("上传涂鸦图片失败");
 
       const seeded = cloneDeep(tpl);
-      seeded.display_name = "涂鸦生图";
-      seeded.icon = "Paintbrush";
+      seeded.display_name = "涂鸦生视频";
+      seeded.icon = "Clapperboard";
       const seededTpl = (seeded.template ??= {});
+      const normalizedDuration = normalizeDurationValue(
+        videoDurationSec,
+        durationRange.min,
+        durationRange.max,
+        durationRange.available,
+      );
+      const normalizedCount = clampInt(
+        videoCount,
+        videoCountRange.min,
+        videoCountRange.max,
+      );
 
-      if (seededTpl.model_name) seededTpl.model_name.value = "Nano Banana Pro";
+      if (seededTpl.model_name) {
+        seededTpl.model_name.value =
+          videoModelName ||
+          seededTpl.model_name.value ||
+          seededTpl.model_name.default ||
+          "";
+      }
       if (seededTpl.aspect_ratio)
         seededTpl.aspect_ratio.value = resolveAspectForModel();
       if (seededTpl.resolution)
-        seededTpl.resolution.value = resolveResolutionForModel();
+        seededTpl.resolution.value = videoResolution;
+      if (seededTpl.duration)
+        seededTpl.duration.value = normalizedDuration;
+      if (seededTpl.video_count) seededTpl.video_count.value = normalizedCount;
+      if (seededTpl.image_count) seededTpl.image_count.value = normalizedCount;
       if (seededTpl.prompt) seededTpl.prompt.value = buildPrompt(prompt);
-      if (seededTpl.image_count)
-        seededTpl.image_count.value = clampInt(imageCount, 1, 6);
       if (seededTpl.draft_output) delete seededTpl.draft_output;
 
-      if (seededTpl.reference_images) {
-        // Always send a single merged reference image to the model.
-        seededTpl.reference_images.value = [compositeFile.name];
-        seededTpl.reference_images.file_path = [compositePath];
+      if (seededTpl.first_frame_image) {
+        // Feed the merged doodle as first frame for image-to-video.
+        seededTpl.first_frame_image.value = [
+          {
+            name: compositeFile.name,
+            display_name: compositeFile.name,
+            role: "first",
+          },
+        ];
+        seededTpl.first_frame_image.file_path = [compositePath];
+      }
+      if (seededTpl.last_frame_image) {
+        seededTpl.last_frame_image.value = null;
+        seededTpl.last_frame_image.file_path = null;
       }
 
-      const rawItems: Array<{ src: string; raw: any; idx: number }> = [];
-      await runModelOnce(seeded, (preview, rawPayload) => {
-        const images = Array.isArray(preview?.payload?.images)
-          ? preview.payload.images
-          : [];
-        images.forEach((img: any, idx: number) => {
-          const src = String(
-            img?.image_data_url || img?.image_url || "",
-          ).trim();
-          if (!src) return;
-          rawItems.push({
-            src,
-            raw: clonePreviewPayloadSingle(
-              rawPayload,
-              Number(img?.index ?? idx),
-            ),
+      const rawItemsMap = new Map<
+        string,
+        {
+          videoSrc: string;
+          coverSrc: string;
+          rawPayload: any;
+          idx: number;
+        }
+      >();
+      await runModelOnce("DoubaoVideoGenerator", seeded, (preview, rawPayload) => {
+        const videos = extractVideoItemsFromPreview(preview);
+        videos.forEach((item, idx) => {
+          const key = `${item.videoSrc}::${item.coverSrc || "no-cover"}`;
+          if (rawItemsMap.has(key)) return;
+          rawItemsMap.set(key, {
+            videoSrc: item.videoSrc,
+            coverSrc: item.coverSrc,
+            rawPayload,
             idx,
           });
         });
       });
+
+      const rawItems: Array<{
+        videoSrc: string;
+        coverSrc: string;
+        rawPayload: any;
+        idx: number;
+      }> = Array.from(rawItemsMap.values()).sort((a, b) => a.idx - b.idx);
 
       if (!rawItems.length) {
         setErrorData({ title: "未获取到生成结果" });
@@ -655,39 +1078,22 @@ export default function ScribbleImageStudio({
       const renderables: GeneratedItem[] = [];
       const revokers: Array<() => void> = [];
       for (const item of rawItems) {
-        const { url, revoke } = await toRenderableImageSource(item.src);
-        if (revoke) revokers.push(revoke);
-        const natural = await loadNaturalSize(url);
+        const { url, revoke } = await toRenderableImageSource(item.coverSrc);
+        if (revoke) {
+          revokers.push(revoke);
+        }
         renderables.push({
           id: nextId("gen"),
           label: `结果 ${item.idx + 1}`,
-          src: url,
-          natural,
-          rawPayloadSingle: item.raw,
+          thumbnailSrc: url,
+          videoSrc: item.videoSrc,
+          rawPayload: item.rawPayload,
         });
       }
       previewRevokeRef.current.push(...revokers);
 
-      const newLayers: StudioLayer[] = renderables.map((g, idx) => ({
-        id: nextId("layer"),
-        name: `生成结果 ${idx + 1}`,
-        visible: true,
-        bitmapSrc: g.src,
-        bitmapNatural: g.natural ?? null,
-        center: { x: 0, y: 0 },
-        scale: 1,
-        flipX: false,
-        flipY: false,
-        items: [],
-        isBase: false,
-        meta: { kind: "generated", rawPayloadSingle: g.rawPayloadSingle },
-      }));
-
       setGenerated(renderables);
       setSelectedGeneratedId(renderables[0]!.id);
-      setLayers((prev) => [...prev, ...newLayers]);
-      setSelectedLayerId(newLayers[newLayers.length - 1]!.id);
-      window.requestAnimationFrame(() => canvasRef.current?.checkpoint?.());
     } catch (error: any) {
       setErrorData({
         title: "生成失败",
@@ -698,20 +1104,24 @@ export default function ScribbleImageStudio({
     }
   }, [
     backgroundMode,
-    baseFileName,
-    baseServerPath,
     buildPrompt,
     currentFlowId,
-    imageCount,
+    durationAvailableKey,
+    durationRange.max,
+    durationRange.min,
     isBusy,
     prompt,
     resolveAspectForModel,
-    resolveResolutionForModel,
     runModelOnce,
     setErrorData,
-    sourceMode,
     templates,
     uploadFile,
+    videoCount,
+    videoCountRange.max,
+    videoCountRange.min,
+    videoDurationSec,
+    videoModelName,
+    videoResolution,
   ]);
 
   const handleCutout = useCallback(async () => {
@@ -772,17 +1182,8 @@ export default function ScribbleImageStudio({
       }
 
       let cutoutSrc = "";
-      let cutoutRaw: any = null;
-      await runModelOnce(seeded, (preview, rawPayload) => {
+      await runModelOnce("DoubaoImageCreator", seeded, (preview) => {
         cutoutSrc = extractFirstImageSrcFromPreview(preview);
-        // Best-effort: keep a single-image payload when possible.
-        const images = Array.isArray((preview as any)?.payload?.images)
-          ? (preview as any).payload.images
-          : [];
-        const first = images[0] ?? null;
-        cutoutRaw = first
-          ? clonePreviewPayloadSingle(rawPayload, Number(first?.index ?? 0))
-          : rawPayload;
       });
       if (!cutoutSrc) {
         setErrorData({ title: "未获取到抠图结果" });
@@ -792,25 +1193,6 @@ export default function ScribbleImageStudio({
       const { url, revoke } = await toRenderableImageSource(cutoutSrc);
       const natural = await loadNaturalSize(url);
       if (revoke) previewRevokeRef.current.push(revoke);
-
-      // Also append a "抠图结果" node under the currently selected generated result (left panel).
-      if (cutoutRaw) {
-        const cutoutGen: GeneratedItem = {
-          id: nextId("gen"),
-          label: "抠图结果",
-          src: url,
-          natural,
-          rawPayloadSingle: cutoutRaw,
-        };
-        setGenerated((prev) => {
-          const next = prev.slice();
-          const idx = next.findIndex((g) => g.id === selectedGeneratedId);
-          if (idx >= 0) next.splice(idx + 1, 0, cutoutGen);
-          else next.push(cutoutGen);
-          return next;
-        });
-        setSelectedGeneratedId(cutoutGen.id);
-      }
 
       const cutoutLayerId = nextId("layer");
       setLayers((prev) => [
@@ -847,31 +1229,30 @@ export default function ScribbleImageStudio({
     resolveResolutionForModel,
     runModelOnce,
     setErrorData,
-    selectedGeneratedId,
     templates,
     uploadFile,
   ]);
 
-  const insertGeneratedToCanvas = useCallback(
-    (rawPayloadSingle: any) => {
-      const tpl = (templates as any)?.DoubaoImageCreator as any;
+  const insertGeneratedToNode = useCallback(
+    (rawPayload: any) => {
+      const tpl = (templates as any)?.DoubaoVideoGenerator as any;
       if (!tpl) {
         setErrorData({
           title: "组件未加载",
-          list: ["未找到 DoubaoImageCreator 模板，请刷新页面后重试。"],
+          list: ["未找到 DoubaoVideoGenerator 模板，请刷新页面后重试。"],
         });
         return;
       }
       const seeded = cloneDeep(tpl);
-      seeded.display_name = "生成结果";
-      seeded.icon = "Layers";
+      seeded.display_name = "涂鸦生视频结果";
+      seeded.icon = "Clapperboard";
       const seededTpl = (seeded.template ??= {});
       seededTpl.draft_output = seededTpl.draft_output ?? { value: null };
-      seededTpl.draft_output.value = rawPayloadSingle;
+      seededTpl.draft_output.value = rawPayload;
 
-      const newNodeId = getNodeId("DoubaoImageCreator");
+      const newNodeId = getNodeId("DoubaoVideoGenerator");
       const center = resolveViewportCenterFlow(reactFlowInstance as any);
-      const estimated = { width: 760, height: 640 };
+      const estimated = { width: 860, height: 720 };
       const position = {
         x: center.x - estimated.width / 2,
         y: center.y - estimated.height / 2,
@@ -886,9 +1267,8 @@ export default function ScribbleImageStudio({
         data: {
           node: seeded,
           showNode: !seeded.minimized,
-          type: "DoubaoImageCreator",
+          type: "DoubaoVideoGenerator",
           id: newNodeId,
-          cropPreviewOnly: true,
         },
         selected: true,
       };
@@ -1053,93 +1433,76 @@ export default function ScribbleImageStudio({
         <div className="flex h-full items-center justify-center px-10 py-10">
           <div className="w-full max-w-[1200px]">
             <div className="px-10 py-10">
-              <div className="mx-auto w-full max-w-[920px] overflow-hidden rounded-2xl bg-muted/30">
-                {/* Inline preview (keeps the layout 1:1 without shipping external assets). */}
+              <div className="mx-auto w-full max-w-[1040px] overflow-hidden rounded-3xl border border-border bg-muted/30 p-6">
                 <svg
-                  viewBox="0 0 1280 420"
-                  className="h-[280px] w-full"
+                  viewBox="0 0 1280 520"
+                  className="h-[440px] w-full rounded-2xl border border-border"
                   xmlns="http://www.w3.org/2000/svg"
                   role="img"
-                  aria-label="涂鸦生图示例"
+                  aria-label="涂鸦生视频示例"
                 >
                   <defs>
-                    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0" stopColor="#ffffff" />
-                      <stop offset="1" stopColor="#f3f4f6" />
+                    <linearGradient id="video-bg" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stopColor="#F4F7FD" />
+                      <stop offset="1" stopColor="#E8EDF8" />
+                    </linearGradient>
+                    <linearGradient id="video-card" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stopColor="#FFF9EF" />
+                      <stop offset="0.55" stopColor="#EAF0FD" />
+                      <stop offset="1" stopColor="#E1EAFE" />
                     </linearGradient>
                   </defs>
-                  <rect x="0" y="0" width="1280" height="420" fill="url(#bg)" />
-                  {/* bottle */}
+                  <rect x="0" y="0" width="1280" height="520" fill="url(#video-bg)" />
                   <rect
-                    x="560"
-                    y="50"
-                    width="160"
-                    height="310"
-                    rx="50"
-                    fill="#e5e7eb"
+                    x="120"
+                    y="96"
+                    width="1040"
+                    height="328"
+                    rx="26"
+                    fill="url(#video-card)"
+                    stroke="rgba(15,23,42,0.1)"
                   />
-                  <rect
-                    x="585"
-                    y="80"
-                    width="110"
-                    height="250"
-                    rx="24"
-                    fill="#ffffff"
-                  />
-                  <rect
-                    x="585"
-                    y="50"
-                    width="110"
-                    height="55"
-                    rx="18"
-                    fill="#60a5fa"
-                  />
-                  <text
-                    x="640"
-                    y="210"
-                    textAnchor="middle"
-                    fontFamily="Inter, system-ui"
-                    fontSize="42"
-                    fill="#111827"
-                  >
-                    Milk
-                  </text>
-                  {/* scribble */}
+
                   <path
-                    d="M420 70 C 520 20, 740 20, 820 70 C 930 140, 930 280, 820 330 C 740 370, 520 370, 420 330"
+                    d="M450 160 C 560 110, 720 110, 835 165 C 930 210, 940 305, 850 352 C 730 410, 550 406, 435 347"
                     fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="22"
+                    stroke="#4D88FF"
+                    strokeWidth="18"
                     strokeLinecap="round"
                   />
                   <path
-                    d="M500 350 C 560 390, 720 390, 780 350"
+                    d="M500 364 C 560 390, 715 392, 780 366"
                     fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="26"
+                    stroke="#4D88FF"
+                    strokeWidth="16"
                     strokeLinecap="round"
                   />
-                  <text
-                    x="980"
-                    y="130"
-                    fontFamily="Inter, system-ui"
-                    fontSize="26"
-                    fill="#2563eb"
-                  >
-                    MILK SP
-                  </text>
-                  <path
-                    d="M1040 170 C 1100 190, 1120 230, 1100 270"
-                    fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="10"
-                    strokeLinecap="round"
+                  <circle cx="942" cy="198" r="30" fill="rgba(15,23,42,0.08)" />
+                  <polygon points="934,184 934,212 958,198" fill="#FFFFFF" />
+
+                  <rect
+                    x="186"
+                    y="212"
+                    width="186"
+                    height="118"
+                    rx="16"
+                    fill="rgba(255,255,255,0.55)"
+                    stroke="rgba(15,23,42,0.08)"
+                  />
+                  <rect
+                    x="908"
+                    y="238"
+                    width="186"
+                    height="118"
+                    rx="16"
+                    fill="rgba(255,255,255,0.55)"
+                    stroke="rgba(15,23,42,0.08)"
                   />
                   <path
-                    d="M1100 270 L 1085 248 M1100 270 L 1120 255"
+                    d="M970 314 C 1015 284, 1046 290, 1066 318"
                     fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="10"
+                    stroke="#FFB86B"
+                    strokeWidth="8"
                     strokeLinecap="round"
                   />
                 </svg>
@@ -1147,11 +1510,12 @@ export default function ScribbleImageStudio({
 
               <div className="mt-10 text-center">
                 <div className="text-5xl font-semibold tracking-wide">
-                  涂鸦生图
+                  涂鸦生视频
                 </div>
                 <div className="mx-auto mt-6 h-px w-[min(720px,100%)] bg-border/70" />
                 <div className="mt-5 text-sm text-muted-foreground">
-                  简单涂鸦，快速生成精美图片                </div>
+                  通过简单的笔画实现视频创意
+                </div>
               </div>
 
               <div className="mt-10 flex items-center justify-center gap-6">
@@ -1603,30 +1967,33 @@ export default function ScribbleImageStudio({
           </div>
 
           {/* Left: generated results rail */}
-          <div className="absolute left-8 top-1/2 z-20 -translate-y-1/2">
-            <ScribbleStudioRail
-              side="left"
-              title="生成结果"
-              items={generated.map((g) => ({
-                id: g.id,
-                thumbnailSrc: g.src,
-                label: g.label,
-              }))}
-              selectedId={selectedGeneratedId}
-              onSelect={setSelectedGeneratedId}
-              contextActions={[
-                {
-                  key: "insert",
-                  label: "插入画布",
-                  disabled: !selectedGenerated,
-                  onClick: (_id) => {
-                    if (!selectedGenerated) return;
-                    insertGeneratedToCanvas(selectedGenerated.rawPayloadSingle);
+          {generated.length > 0 && (
+            <div className="absolute left-8 top-1/2 z-20 -translate-y-1/2">
+              <ScribbleStudioRail
+                side="left"
+                title="视频结果"
+                items={generated.map((g) => ({
+                  id: g.id,
+                  thumbnailSrc: g.thumbnailSrc,
+                  label: g.label,
+                }))}
+                selectedId={selectedGeneratedId}
+                onSelect={setSelectedGeneratedId}
+                contextActions={[
+                  {
+                    key: "insert",
+                    label: "插入节点",
+                    disabled: !selectedGenerated,
+                    onClick: (id) => {
+                      const target = generated.find((g) => g.id === id);
+                      if (!target) return;
+                      insertGeneratedToNode(target.rawPayload);
+                    },
                   },
-                },
-              ]}
-            />
-          </div>
+                ]}
+              />
+            </div>
+          )}
 
           {/* Right: layer rail */}
           <div className="absolute right-8 top-1/2 z-20 -translate-y-1/2">
@@ -1646,25 +2013,101 @@ export default function ScribbleImageStudio({
 
           {/* Bottom prompt bar */}
           <div className="absolute bottom-5 left-1/2 z-30 w-[min(1240px,calc(100%-120px))] -translate-x-1/2">
-            <div className="flex items-center gap-3 rounded-2xl bg-muted/40 p-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-border bg-muted/40 p-3 backdrop-blur">
               <input
                 className="h-12 flex-1 rounded-xl bg-background/50 px-4 text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                placeholder="输入提示词..."
+                placeholder="请输入视频生成的提示词"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 disabled={isBusy}
               />
 
-              <div className="flex h-12 items-center rounded-xl bg-background/50 px-2 text-foreground">
+              <select
+                className="h-12 max-w-[220px] rounded-xl bg-background/50 px-3 text-sm text-foreground outline-none"
+                value={videoModelName}
+                onChange={(e) => setVideoModelName(e.target.value)}
+                disabled={isBusy || videoModelOptions.length === 0}
+              >
+                {videoModelOptions.length === 0 ? (
+                  <option value="">暂无模型</option>
+                ) : null}
+                {videoModelOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+
+              <div className="flex h-12 items-center gap-2 rounded-xl bg-background/50 px-3 text-sm text-foreground">
+                <ForwardedIconComponent name="Timer" className="h-4 w-4 opacity-80" />
+                <button
+                  type="button"
+                  className="h-8 w-8 rounded-md text-lg leading-none hover:bg-muted"
+                  disabled={!canDecreaseDuration}
+                  onClick={() =>
+                    setVideoDurationSec((v) =>
+                      stepDurationValue(
+                        v,
+                        -1,
+                        durationRange.min,
+                        durationRange.max,
+                        durationRange.available,
+                      ),
+                    )
+                  }
+                >
+                  -
+                </button>
+                <span className="min-w-[36px] text-center">{videoDurationSec}s</span>
+                <button
+                  type="button"
+                  className="h-8 w-8 rounded-md text-lg leading-none hover:bg-muted"
+                  disabled={!canIncreaseDuration}
+                  onClick={() =>
+                    setVideoDurationSec((v) =>
+                      stepDurationValue(
+                        v,
+                        1,
+                        durationRange.min,
+                        durationRange.max,
+                        durationRange.available,
+                      ),
+                    )
+                  }
+                >
+                  +
+                </button>
+              </div>
+
+              <select
+                className="h-12 rounded-xl bg-background/50 px-3 text-sm text-foreground outline-none"
+                value={videoResolution}
+                onChange={(e) => setVideoResolution(e.target.value)}
+                disabled={isBusy || resolutionOptionsWithDisabled.length === 0}
+              >
+                {resolutionOptionsWithDisabled.length === 0 ? (
+                  <option value={videoResolution}>{videoResolution}</option>
+                ) : null}
+                {resolutionOptionsWithDisabled.map((opt) => (
+                  <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+                    {opt.value}
+                  </option>
+                ))}
+              </select>
+
+              <div className="flex h-12 items-center rounded-xl bg-background/50 px-2 text-foreground/80">
                 <button
                   type="button"
                   className={cn(
                     "h-9 w-9 rounded-lg hover:bg-muted",
-                    (isBusy || imageCount <= 1) &&
-                      "cursor-not-allowed opacity-50",
+                    !canDecreaseCount && "cursor-not-allowed opacity-50",
                   )}
-                  disabled={isBusy || imageCount <= 1}
-                  onClick={() => setImageCount((v) => clampInt(v - 1, 1, 6))}
+                  disabled={!canDecreaseCount}
+                  onClick={() =>
+                    setVideoCount((v) =>
+                      clampInt(v - 1, videoCountRange.min, videoCountRange.max),
+                    )
+                  }
                 >
                   <ForwardedIconComponent
                     name="Minus"
@@ -1672,17 +2115,20 @@ export default function ScribbleImageStudio({
                   />
                 </button>
                 <div className="w-8 text-center text-sm font-medium">
-                  {imageCount}
+                  {videoCount}
                 </div>
                 <button
                   type="button"
                   className={cn(
                     "h-9 w-9 rounded-lg hover:bg-muted",
-                    (isBusy || imageCount >= 6) &&
-                      "cursor-not-allowed opacity-50",
+                    !canIncreaseCount && "cursor-not-allowed opacity-50",
                   )}
-                  disabled={isBusy || imageCount >= 6}
-                  onClick={() => setImageCount((v) => clampInt(v + 1, 1, 6))}
+                  disabled={!canIncreaseCount}
+                  onClick={() =>
+                    setVideoCount((v) =>
+                      clampInt(v + 1, videoCountRange.min, videoCountRange.max),
+                    )
+                  }
                 >
                   <ForwardedIconComponent
                     name="Plus"
@@ -1714,7 +2160,7 @@ export default function ScribbleImageStudio({
 
           {/* Bottom toolbar */}
           <div className="absolute bottom-[132px] left-1/2 z-30 -translate-x-1/2">
-            <div className="flex items-center gap-1 rounded-2xl bg-muted/40 p-2 text-foreground">
+            <div className="flex items-center gap-1 rounded-2xl border border-border bg-muted/40 p-2 text-foreground">
               <button
                 type="button"
                 className={cn(

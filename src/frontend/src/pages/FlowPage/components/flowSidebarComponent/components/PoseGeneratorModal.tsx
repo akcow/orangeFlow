@@ -1,5 +1,5 @@
 import { cloneDeep } from "lodash";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/utils";
@@ -20,6 +20,7 @@ type Props = {
 type PanelProps = Props & {
   embedded?: boolean;
   hideTitle?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type JointId =
@@ -203,6 +204,7 @@ export function PoseGeneratorPanel({
   onOpenChange,
   embedded = false,
   hideTitle = false,
+  onDirtyChange,
 }: PanelProps) {
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
@@ -226,6 +228,26 @@ export function PoseGeneratorPanel({
 
   const [actionPrompt, setActionPrompt] = useState<string>("");
   const [isBusy, setBusy] = useState(false);
+
+  const jointsChanged = useMemo(() => {
+    if (joints.length !== DEFAULT_JOINTS.length) return true;
+    return joints.some((joint, idx) => {
+      const base = DEFAULT_JOINTS[idx];
+      if (!base || base.id !== joint.id) return true;
+      return Math.abs(base.x - joint.x) > 1e-4 || Math.abs(base.y - joint.y) > 1e-4;
+    });
+  }, [joints]);
+
+  const isDirty = useMemo(() => {
+    if (!open) return false;
+    const hasReference = Boolean(String(referenceServerPath || referenceLocalUrl || "").trim());
+    const hasPrompt = Boolean(String(actionPrompt || "").trim());
+    return hasReference || hasPrompt || jointsChanged;
+  }, [actionPrompt, jointsChanged, open, referenceLocalUrl, referenceServerPath]);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   const editorRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<
