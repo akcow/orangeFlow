@@ -49,6 +49,8 @@ python start_service.py
 
 启动后访问：`http://localhost:7860`
 
+- 默认数据库：`data/runtime/langflow_shared.db`
+
 脚本会自动执行以下步骤：
 1. 清理缓存与组件索引缓存
 2. 执行 `uv sync`（若可用）
@@ -63,6 +65,8 @@ python start_service_admin.py --admin-username admin
 ```
 
 首次会提示输入管理员密码（如果没有通过参数或环境变量传入）。
+
+- 默认数据库：`data/runtime/langflow_shared.db`（与 `start_service.py` 一致）
 
 常用参数：
 
@@ -85,7 +89,7 @@ python start_service_admin.py --skip-frontend
 |---|---|---|
 | 登录行为 | 自动登录（`LANGFLOW_AUTO_LOGIN=true`） | 需要管理员账号登录（`LANGFLOW_AUTO_LOGIN=false`） |
 | 适用场景 | 日常开发联调 | 登录/权限相关验证 |
-| 默认数据库 | 使用 LangFlow 默认策略（可由环境变量覆盖） | 默认 `data/runtime/langflow_admin_<port>.db` |
+| 默认数据库 | 默认 `data/runtime/langflow_shared.db` | 默认 `data/runtime/langflow_shared.db` |
 | 可选参数 | 无 | 支持 `--port`、`--db-path`、`--reset-db` 等 |
 
 ## 4. 环境变量配置（.env）
