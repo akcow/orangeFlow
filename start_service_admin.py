@@ -31,6 +31,7 @@ from pathlib import Path
 from scripts.clear_component_cache import clear_component_index_cache
 
 REPO_ROOT = Path(__file__).resolve().parent
+RUNTIME_DATA_DIR = REPO_ROOT / "data" / "runtime"
 BACKEND_BASE = REPO_ROOT / "src" / "backend" / "base"
 FRONTEND_DIR = REPO_ROOT / "src" / "frontend"
 FRONTEND_BUILD_DIR = FRONTEND_DIR / "build"
@@ -277,7 +278,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "SQLite DB path for this dev session. "
-            "If omitted, defaults to ./langflow_admin_<port>.db to avoid collisions."
+            "If omitted, defaults to ./data/runtime/langflow_admin_<port>.db to avoid root-dir clutter."
         ),
     )
     parser.add_argument(
@@ -324,8 +325,9 @@ def main() -> None:
     db_path = (
         Path(args.db_path).expanduser().resolve()
         if args.db_path
-        else (REPO_ROOT / f"langflow_admin_{port}.db").resolve()
+        else (RUNTIME_DATA_DIR / f"langflow_admin_{port}.db").resolve()
     )
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     if args.reset_db and db_path.exists():
         db_path.unlink()
         print(f"[db] removed {db_path}")

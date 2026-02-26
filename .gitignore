@@ -278,6 +278,8 @@ src/frontend/temp
 .dspy_cache/
 *.db*
 *.mcp.json
+data/runtime/*
+!data/runtime/.gitkeep
 
 news-aggregated.json
 CLAUDE.md
