@@ -293,6 +293,16 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     ["circle", { cx: "6", cy: "18", r: "3", key: "fqmcym" }],
     ["path", { d: "M14.8 14.8 20 20", key: "ptml3r" }],
   ]),
+  // Custom icon for "抠图" (foreground cutout / background removal).
+  // Matches the product icon: a square outline with 5 diagonal slashes.
+  Cutout: createInlineLucideIcon("Cutout", [
+    ["rect", { x: "4", y: "4", width: "16", height: "16", rx: "3", key: "c0" }],
+    ["line", { x1: "7", y1: "17", x2: "11", y2: "13", key: "c1", strokeWidth: 2 }],
+    ["line", { x1: "8", y1: "16", x2: "12", y2: "12", key: "c2", strokeWidth: 2 }],
+    ["line", { x1: "9", y1: "15", x2: "13", y2: "11", key: "c3", strokeWidth: 2 }],
+    ["line", { x1: "10", y1: "14", x2: "14", y2: "10", key: "c4", strokeWidth: 2 }],
+    ["line", { x1: "11", y1: "13", x2: "15", y2: "9", key: "c5", strokeWidth: 2 }],
+  ]),
   Eraser: createInlineLucideIcon("Eraser", [
     [
       "path",

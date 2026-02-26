@@ -431,6 +431,15 @@ class DoubaoImageCreator(Component):
             required=False,
             info="仅 kling O1/O3：自定义任务 ID（可选，单用户需唯一）。",
         ),
+        BoolInput(
+            name="kling_o3_series_mode",
+            display_name="Kling O3 组图模式",
+            value=False,
+            advanced=True,
+            show=False,
+            required=False,
+            info="仅 kling O3：是否使用组图模式（result_type=series + series_amount）；该字段由前端比例下拉中的开关控制。",
+        ),
         SecretStrInput(
             name="api_key",
             display_name="API Key",
@@ -1835,7 +1844,8 @@ class DoubaoImageCreator(Component):
             }
             # Doc: single uses `n`; series uses `series_amount` (and `n` is ignored).
             # Keep O1 on single-mode to avoid relying on model-specific "series" availability.
-            if is_o3 and int(image_count) > 1:
+            series_mode = bool(getattr(self, "kling_o3_series_mode", False))
+            if is_o3 and series_mode and int(image_count) > 1:
                 kling_payload["result_type"] = "series"
                 kling_payload["series_amount"] = int(image_count)
             else:
@@ -2920,25 +2930,36 @@ class DoubaoImageCreator(Component):
                 img = Image.open(io.BytesIO(image_bytes))
                 print(f"[Gemini Image Process] Image opened: size={img.size}, mode={img.mode}, format={img.format}")
 
-                # 转换为 RGB（如果是 RGBA）
-                if img.mode in ('RGBA', 'LA', 'P'):
-                    background = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-                    img = background
-                elif img.mode not in ('RGB', 'L'):
-                    img = img.convert('RGB')
+                # Preserve transparency when present (e.g. cutout results).
+                # Converting to JPEG would drop alpha and break "抠图" layers.
+                has_alpha = False
+                try:
+                    if img.mode in ("RGBA", "LA"):
+                        has_alpha = True
+                    elif img.mode == "P":
+                        # Palette images may carry transparency info.
+                        has_alpha = "transparency" in (img.info or {})
+                except Exception:
+                    has_alpha = False
 
                 # 保存到字节流（去除所有元数据）
                 output = io.BytesIO()
-                img.save(output, format='JPEG', quality=95, optimize=True)
+                if has_alpha:
+                    if img.mode != "RGBA":
+                        img = img.convert("RGBA")
+                    img.save(output, format="PNG", optimize=True)
+                    out_mime = "image/png"
+                else:
+                    if img.mode not in ("RGB", "L"):
+                        img = img.convert("RGB")
+                    img.save(output, format="JPEG", quality=95, optimize=True)
+                    out_mime = "image/jpeg"
                 output.seek(0)
                 processed_bytes = output.getvalue()
 
                 # 重新编码为 base64
                 processed_encoded = base64.b64encode(processed_bytes).decode('utf-8')
-                processed_url = f"data:image/jpeg;base64,{processed_encoded}"
+                processed_url = f"data:{out_mime};base64,{processed_encoded}"
 
                 print(f"[Gemini Image Process] Original: {len(image_bytes)} bytes -> Processed: {len(processed_bytes)} bytes")
                 return processed_url

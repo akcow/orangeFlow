@@ -437,6 +437,11 @@ class StoreService(Service):
             raise ValueError(msg) from exc
 
     async def get_tags(self) -> list[dict[str, Any]]:
+        # The store service is optional in many deployments. When STORE_URL is unset
+        # (or misconfigured), the UI still pings `/api/v1/store/tags` and should not crash.
+        if not self.base_url or not str(self.base_url).startswith(("http://", "https://")):
+            return []
+
         url = f"{self.base_url}/items/tags"
         params = {"fields": "id,name"}
         tags, _ = await self.get(url, api_key=None, params=params)

@@ -68,6 +68,19 @@ function buildResolutionChoices(visibleOptions: Array<string | number>) {
   }));
 }
 
+function parseBool(value: unknown, fallback = false): boolean {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return fallback;
+    if (["1", "true", "yes", "y", "on"].includes(v)) return true;
+    if (["0", "false", "no", "n", "off"].includes(v)) return false;
+  }
+  return Boolean(value);
+}
+
 export default function DoubaoImageCreatorResolutionAspectButton({
   data,
   resolutionConfig,
@@ -96,16 +109,47 @@ export default function DoubaoImageCreatorResolutionAspectButton({
     nodeId: data.id,
     name: "vidu_audio",
   });
+  const { handleOnNewValue: handleMultiTurnChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "enable_multi_turn",
+  });
+  const { handleOnNewValue: handleOnlineSearchChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "enable_google_search",
+  });
+  const { handleOnNewValue: handleKlingO3SeriesModeChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "kling_o3_series_mode",
+  });
 
   const template: any = (data.node as any)?.template ?? {};
   const modelRaw = String(template?.model_name?.value ?? template?.model_name?.default ?? "")
     .trim()
     .toLowerCase();
+  const isKlingO3 = modelRaw === "kling o3";
   const isVidu = modelRaw.startsWith("vidu");
+  const isNanoBananaPro = modelRaw === "nano banana pro";
+  const klingO3SeriesField = template?.kling_o3_series_mode ?? null;
+  const klingO3SeriesEnabled = parseBool(klingO3SeriesField?.value, false);
+  const imageCountValue = (() => {
+    const raw = template?.image_count?.value;
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  })();
   const viduIsRecField = template?.vidu_is_rec ?? null;
   const viduAudioField = template?.vidu_audio ?? null;
   const viduIsRecValue = Boolean(viduIsRecField?.value ?? viduIsRecField?.default ?? false);
   const viduAudioValue = Boolean(viduAudioField?.value ?? viduAudioField?.default ?? true);
+  const multiTurnField = template?.enable_multi_turn ?? null;
+  const onlineSearchField = template?.enable_google_search ?? null;
+  const multiTurnEnabled = parseBool(multiTurnField?.value ?? multiTurnField?.default ?? false, false);
+  const onlineSearchEnabled = parseBool(
+    onlineSearchField?.value ?? onlineSearchField?.default ?? false,
+    false,
+  );
 
   const firstFrameField = template?.first_frame_image ?? null;
   const hasFirstFrame = (() => {
@@ -347,7 +391,147 @@ export default function DoubaoImageCreatorResolutionAspectButton({
                 );
               })}
             </div>
+
+            {isKlingO3 && klingO3SeriesField && (
+              <div
+                className={cn(
+                  "mt-3 flex items-center justify-between rounded-[14px] bg-[#F4F6FB] px-4 py-3 dark:bg-white/10",
+                  disabled && "opacity-70",
+                )}
+              >
+                <ShadTooltip
+                  content={
+                    <span className="whitespace-pre-wrap text-xs">
+                      {"组图模式（result_type=series）：使用 series_amount=生成张数。\n关闭则为单图模式（result_type=single）：使用 n=生成张数。"}
+                    </span>
+                  }
+                >
+                  <div className="min-w-0 pr-3">
+                    <div className="truncate text-sm font-medium text-[#2E3150] dark:text-white/90">
+                      组图模式
+                    </div>
+                    <div className="truncate text-xs text-[#7D85A8] dark:text-slate-300">
+                      {imageCountValue > 1 ? (klingO3SeriesEnabled ? "已开启" : "已关闭") : "生成张数需 ≥ 2"}
+                    </div>
+                  </div>
+                </ShadTooltip>
+                <Switch
+                  checked={klingO3SeriesEnabled}
+                  disabled={disabled || imageCountValue < 2}
+                  onCheckedChange={(next) => {
+                    if (disabled || imageCountValue < 2) return;
+                    handleKlingO3SeriesModeChange({ value: next });
+                  }}
+                />
+              </div>
+            )}
           </div>
+
+          {isNanoBananaPro && (multiTurnField || onlineSearchField) && (
+            <div className="space-y-4">
+              {multiTurnField && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
+                    多轮对话
+                    <ShadTooltip content="开启：自动带上历史；关闭：单轮生成。">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[11px] opacity-60">
+                        ?
+                      </span>
+                    </ShadTooltip>
+                  </div>
+                  <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleMultiTurnChange({ value: true });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          multiTurnEnabled
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        开启
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleMultiTurnChange({ value: false });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          !multiTurnEnabled
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {onlineSearchField && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
+                    联网搜索
+                    <ShadTooltip content="开启：允许联网搜索；关闭：不联网。">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[11px] opacity-60">
+                        ?
+                      </span>
+                    </ShadTooltip>
+                  </div>
+                  <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleOnlineSearchChange({ value: true });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          onlineSearchEnabled
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        开启
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          handleOnlineSearchChange({ value: false });
+                        }}
+                        className={cn(
+                          "flex-1 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          !onlineSearchEnabled
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {isVidu && (viduIsRecField || viduAudioField) && (
             <div className="space-y-3 border-t border-[#E6E9F4] pt-4 dark:border-white/10">

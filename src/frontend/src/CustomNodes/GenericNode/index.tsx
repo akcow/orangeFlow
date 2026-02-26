@@ -64,6 +64,8 @@ function DoubaoImageCreatorTopBar({
   canErase,
   onEnhance,
   canEnhance,
+  onCutout,
+  canCutout,
   onCrop,
   canCrop,
   onMultiAngleCamera,
@@ -87,6 +89,8 @@ function DoubaoImageCreatorTopBar({
   canErase?: boolean;
   onEnhance?: () => void;
   canEnhance?: boolean;
+  onCutout?: () => void;
+  canCutout?: boolean;
   onCrop?: () => void;
   canCrop?: boolean;
   onMultiAngleCamera?: () => void;
@@ -221,6 +225,23 @@ function DoubaoImageCreatorTopBar({
         >
           <ForwardedIconComponent name="HD" className="h-5 w-5" />
           <span>增强</span>
+        </button>
+
+        <button
+          type="button"
+          title="抠图"
+          aria-label="抠图"
+          disabled={!canCutout}
+          onClick={onCutout}
+          className={cn(
+            "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
+            canCutout
+              ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+              : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+          )}
+        >
+          <ForwardedIconComponent name="Cutout" className="h-5 w-5" />
+          <span>抠图</span>
         </button>
 
         <button
@@ -1387,6 +1408,8 @@ function GenericNode({
                   canErase={Boolean(imageCreatorPreviewActions?.canErase)}
                   onEnhance={() => imageCreatorPreviewActions?.enterEnhance()}
                   canEnhance={Boolean(imageCreatorPreviewActions?.canEnhance)}
+                  onCutout={() => imageCreatorPreviewActions?.runCutout()}
+                  canCutout={Boolean(imageCreatorPreviewActions?.canCutout)}
                   onCrop={() => imageCreatorPreviewActions?.enterCrop()}
                   canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
                   onMultiAngleCamera={() =>

@@ -76,7 +76,7 @@ import {
 
 const CONTROL_FIELDS = [
   // Requirement: model selector button width -100px.
-  { name: "model_name", icon: "Sparkles", widthClass: "basis-[170px] grow-[2]" },
+  { name: "model_name", icon: "Sparkles", widthClass: "flex-none basis-[150px]" },
   { name: "resolution", icon: "Monitor", widthClass: "basis-[150px]" },
   { name: "aspect_ratio", icon: "Square", widthClass: "basis-[110px]" },
   { name: "image_count", icon: "Layers", widthClass: "basis-[90px]" },
@@ -575,16 +575,6 @@ export default function DoubaoImageCreatorLayout({
     node: data.node!,
     nodeId: data.id,
     name: "resolution",
-  });
-  const { handleOnNewValue: handleMultiTurnChange } = useHandleOnNewValue({
-    node: data.node!,
-    nodeId: data.id,
-    name: MULTI_TURN_FIELD,
-  });
-  const { handleOnNewValue: handleOnlineSearchChange } = useHandleOnNewValue({
-    node: data.node!,
-    nodeId: data.id,
-    name: ONLINE_SEARCH_FIELD,
   });
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -1499,17 +1489,6 @@ export default function DoubaoImageCreatorLayout({
       },
     };
   }, [modelNameConfig, template]);
-
-  const multiTurnEnabled = Boolean(template?.[MULTI_TURN_FIELD]?.value);
-  const onlineSearchEnabled = Boolean(template?.[ONLINE_SEARCH_FIELD]?.value);
-
-  const toggleMultiTurn = useCallback(() => {
-    handleMultiTurnChange({ value: !multiTurnEnabled });
-  }, [handleMultiTurnChange, multiTurnEnabled]);
-
-  const toggleOnlineSearch = useCallback(() => {
-    handleOnlineSearchChange({ value: !onlineSearchEnabled });
-  }, [handleOnlineSearchChange, onlineSearchEnabled]);
 
   const maxReferenceEntries = useMemo(() => {
     const defaultLimit = isWanModel
@@ -3068,7 +3047,7 @@ export default function DoubaoImageCreatorLayout({
                   aspectRatioConfig={aspectRatioConfig}
                   isNanoBanana={isNanoBanana}
                   disabled={isBusy}
-                  widthClass="basis-[210px]"
+                  widthClass="basis-[125px]"
                 />
               ) : (
                 <>
@@ -3082,45 +3061,6 @@ export default function DoubaoImageCreatorLayout({
               )}
 
               {/* image_count moved next to the Run button as a circular toggle (with dropdown fallback). */}
-
-              {supportsGeminiFeatureButtons && (
-                <>
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={toggleMultiTurn}
-                    className={cn(
-                      "flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-medium transition",
-                      multiTurnEnabled
-                        ? "border-[#2E7BFF] bg-[#2E7BFF] text-white"
-                        : "border-[#E0E5F6] bg-[#F4F6FB] text-[#2E3150] hover:bg-[#E9EEFF] dark:border-white/15 dark:bg-white/10 dark:text-white",
-                      isBusy && "cursor-not-allowed opacity-60",
-                    )}
-                  >
-                    多轮对话
-                    <span className={cn("text-xs", multiTurnEnabled ? "text-white/90" : "text-[#7D85A8] dark:text-slate-300")}>
-                      {multiTurnEnabled ? "开启" : "关闭"}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={toggleOnlineSearch}
-                    className={cn(
-                      "flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-medium transition",
-                      onlineSearchEnabled
-                        ? "border-[#2E7BFF] bg-[#2E7BFF] text-white"
-                        : "border-[#E0E5F6] bg-[#F4F6FB] text-[#2E3150] hover:bg-[#E9EEFF] dark:border-white/15 dark:bg-white/10 dark:text-white",
-                      isBusy && "cursor-not-allowed opacity-60",
-                    )}
-                  >
-                    联网搜索
-                    <span className={cn("text-xs", onlineSearchEnabled ? "text-white/90" : "text-[#7D85A8] dark:text-slate-300")}>
-                      {onlineSearchEnabled ? "开启" : "关闭"}
-                    </span>
-                  </button>
-                </>
-              )}
 
               <div className="ml-auto flex items-center gap-3">
                 {isKlingImageModel && (

@@ -261,6 +261,8 @@ export type DoubaoPreviewPanelActions = {
   runErase: () => void;
   canErase: boolean;
   isEraseOpen: boolean;
+  runCutout: () => void;
+  canCutout: boolean;
   enterCrop: () => void;
   canCrop: boolean;
   enterEnhance: () => void;
@@ -1736,6 +1738,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         currentImage?.imageSource &&
         !isPreviewOnlyNode,
     );
+    const canCutout = Boolean(
+      appearance === "imageCreator" &&
+        kind === "image" &&
+        currentImage?.imageSource &&
+        !isPreviewOnlyNode,
+    );
     const canAnnotate = Boolean(
       appearance === "imageCreator" && kind === "image" && currentImage?.imageSource,
     );
@@ -2051,6 +2059,225 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       if (!isEraseOpen) return;
       eraseOverlayRef.current?.confirm?.();
     }, [isEraseOpen]);
+
+    const isCutoutRunningRef = useRef(false);
+    const runCutout = useCallback(async () => {
+      if (!canCutout) return;
+      if (isCutoutRunningRef.current) return;
+      isCutoutRunningRef.current = true;
+
+      try {
+        if (!currentFlowId) {
+          showTransientBadge("请先保存画布后再生成");
+          return;
+        }
+        const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+        if (!currentFlowNode) return;
+        const template = templates?.["DoubaoImageCreator"];
+        if (!template) return;
+
+        takeSnapshot?.();
+
+        const REFERENCE_FIELD = "reference_images";
+        const IMAGE_OUTPUT_NAME = "image";
+        const NODE_OFFSET_X = 1300;
+        const DEFAULT_PROMPT = [
+          "请对参考图进行抠图：仅保留主体，移除背景，并将背景设为透明。",
+          "输出要求：输出带 alpha 通道的 PNG；不要添加任何新背景或新物体；不要改变主体细节与颜色；边缘尽量干净自然。",
+        ].join("\n");
+
+        const baseSource = currentImage?.imageSource;
+        if (!baseSource) {
+          showTransientBadge("未找到原图");
+          return;
+        }
+
+        const newImageNodeId = getNodeId("DoubaoImageCreator");
+        const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+        const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+        const newNodeX = abs.x + NODE_OFFSET_X;
+        const newNodeY = computeAlignedNodeTopY({
+          anchorNodeId: nodeId,
+          anchorNodeType: currentFlowNode.data?.type,
+          targetNodeType: "DoubaoImageCreator",
+          targetX: newNodeX,
+          fallbackTopY: abs.y,
+          avoidOverlap: false,
+        });
+
+        const newTemplate = cloneDeep(template);
+        (newTemplate as any).display_name = "抠图结果";
+        (newTemplate as any).icon = "Cutout";
+
+        // Force "Nano Banana Pro" model for background removal.
+        const tpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        if (tpl?.model_name) {
+          tpl.model_name.value = "Nano Banana Pro";
+        }
+        if (tpl?.image_count) {
+          tpl.image_count.value = 1;
+        }
+        if (tpl?.prompt) {
+          tpl.prompt.value = DEFAULT_PROMPT;
+        }
+        if (tpl?.draft_output) {
+          delete tpl.draft_output;
+        }
+
+        const refField = tpl?.[REFERENCE_FIELD];
+        if (refField) {
+          const safeBaseName = "cutout-base.png";
+          try {
+            const baseBlob = await fetch(baseSource).then((r) => r.blob());
+            const baseFile = new File([baseBlob], safeBaseName, {
+              type: baseBlob.type || "image/png",
+            });
+            const baseResp = await uploadReferenceFile({ file: baseFile, id: currentFlowId });
+            const basePath = baseResp?.file_path ? String(baseResp.file_path) : "";
+            if (!basePath.trim()) {
+              showTransientBadge("上传失败");
+              return;
+            }
+
+            refField.value = [safeBaseName];
+            refField.file_path = [basePath.trim()];
+          } catch (error) {
+            console.error("Failed to upload cutout base image:", error);
+            showTransientBadge("上传失败");
+            return;
+          }
+        }
+
+        const newImageNode: GenericNodeType = {
+          id: newImageNodeId,
+          type: "genericNode",
+          position: { x: newNodeX, y: newNodeY },
+          data: {
+            node: newTemplate as any,
+            showNode: !(newTemplate as any).minimized,
+            type: "DoubaoImageCreator",
+            id: newImageNodeId,
+            cropPreviewOnly: true,
+          },
+          selected: false,
+        };
+
+        const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+        const outputDefinition =
+          sourceTemplate?.outputs?.find((output: any) => output.name === IMAGE_OUTPUT_NAME) ??
+          sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+          sourceTemplate?.outputs?.[0];
+        const sourceOutputTypes =
+          outputDefinition?.types && outputDefinition.types.length === 1
+            ? outputDefinition.types
+            : outputDefinition?.selected
+              ? [outputDefinition.selected]
+              : ["Data"];
+        const sourceHandle = {
+          outputTypes: sourceOutputTypes,
+          type: outputDefinition?.type,
+          id: nodeId,
+          name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+        };
+
+        const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
+        const targetHandle = {
+          inputTypes: referenceTemplateField?.input_types ?? ["Data"],
+          type: referenceTemplateField?.type,
+          id: newImageNodeId,
+          fieldName: REFERENCE_FIELD,
+          ...(referenceTemplateField?.proxy ? { proxy: referenceTemplateField.proxy } : {}),
+        };
+
+        const edge: EdgeType = {
+          id: `xy-edge__${nodeId}-${sourceHandle.name}-${newImageNodeId}-${REFERENCE_FIELD}-cutout`,
+          source: nodeId,
+          sourceHandle: scapedJSONStringfy(sourceHandle as any),
+          target: newImageNodeId,
+          targetHandle: scapedJSONStringfy(targetHandle as any),
+          type: "default",
+          className: "doubao-tool-edge",
+          data: {
+            sourceHandle,
+            targetHandle,
+            cropLink: true,
+          },
+        } as any;
+
+        unstable_batchedUpdates(() => {
+          setNodes((currentNodes) => [...currentNodes, newImageNode]);
+          setEdges((currentEdges) => [...currentEdges, edge]);
+        });
+
+        window.requestAnimationFrame(() => {
+          try {
+            void buildFlow({ stopNodeId: newImageNodeId });
+          } catch (e) {
+            console.warn("Failed to start cutout build:", e);
+          }
+        });
+
+        // After creating the downstream node, zoom out to 48% and center it (match other tool behaviors).
+        try {
+          const instance: any = reactFlowInstance as any;
+          if (!instance || typeof instance.setViewport !== "function") return;
+
+          const container =
+            (typeof document !== "undefined" &&
+              (document.getElementById("react-flow-id") as HTMLElement | null)) ||
+            null;
+          const rect = container?.getBoundingClientRect();
+          const viewW = rect?.width ?? window.innerWidth;
+          const viewH = rect?.height ?? window.innerHeight;
+          const targetZoom = 0.48;
+
+          const anchorPreviewCenter = getPreviewCenterFlow(nodeId);
+          const anchorDim = getNodeDimensions(currentFlowNode);
+          const anchorCenterFallback = {
+            x: abs.x + anchorDim.width / 2,
+            y: abs.y + anchorDim.height / 2,
+          };
+          const anchorCenter = anchorPreviewCenter ?? anchorCenterFallback;
+
+          const offsetX = anchorCenter.x - abs.x;
+          const offsetY = anchorCenter.y - abs.y;
+          const targetFlowCenter = { x: newNodeX + offsetX, y: newNodeY + offsetY };
+
+          const viewportTo = {
+            x: viewW / 2 - targetFlowCenter.x * targetZoom,
+            y: viewH / 2 - targetFlowCenter.y * targetZoom,
+            zoom: targetZoom,
+          };
+
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              animateViewportTo(viewportTo, 800);
+            });
+          });
+        } catch (e) {
+          console.warn("Failed to animate viewport to cutout result node:", e);
+        }
+      } finally {
+        isCutoutRunningRef.current = false;
+      }
+    }, [
+      animateViewportTo,
+      buildFlow,
+      canCutout,
+      currentFlowId,
+      currentImage?.imageSource,
+      getPreviewCenterFlow,
+      node,
+      nodeId,
+      nodes,
+      reactFlowInstance,
+      setEdges,
+      setNodes,
+      showTransientBadge,
+      takeSnapshot,
+      templates,
+      uploadReferenceFile,
+    ]);
 
     const enterCrop = useCallback(() => {
       if (!canCrop) return;
@@ -2448,6 +2675,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         runErase,
         canErase,
         isEraseOpen,
+        runCutout,
+        canCutout,
         enterCrop,
         canCrop,
         enterEnhance,
@@ -2467,6 +2696,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       canAnnotate,
       canRepaint,
       canErase,
+      canCutout,
       canCrop,
       canEnhance,
       canOutpaint,
@@ -2478,6 +2708,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       runRepaint,
       enterErase,
       runErase,
+      runCutout,
       enterCrop,
       enterEnhance,
       enterOutpaint,
@@ -3925,8 +4156,11 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         const REFERENCE_FIELD = "reference_images";
         const IMAGE_OUTPUT_NAME = "image";
         const NODE_OFFSET_X = 1300;
-        const DEFAULT_PROMPT = "\u79fb\u9664\u6d82\u62b9\u533a\u57df\u5185\u5bb9\u5e76\u81ea\u7136\u8865\u5168\u80cc\u666f";
+        const DEFAULT_PROMPT = "移除涂抹区域内容并自然补全背景";
         const safePrompt = String(prompt ?? "").trim() || DEFAULT_PROMPT;
+        const MASK_GUIDE_PROMPT =
+          "参考图包含两张：第1张为原图，第2张为遮罩图（黑底白色区域）。请仅在遮罩白色区域内进行擦除/修复，其他区域保持不变；尽量保持原有透视、光照与细节一致。";
+        const finalPrompt = `${MASK_GUIDE_PROMPT}\n${safePrompt}`.trim();
         const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
 
         const newImageNodeId = getNodeId("DoubaoImageCreator");
@@ -3998,14 +4232,19 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           }
         }
 
+        // Force Nano Banana Pro (Gemini) for erase tool runs.
+        if ((newTemplate as any)?.template?.model_name) {
+          (newTemplate as any).template.model_name.value = "Nano Banana Pro";
+        }
+
+        // Clear any tool override so we use the model dropdown/provider path (gemini).
         const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
-        toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
-        toolTpl.tool_model_override.value = "wanx2.1-imageedit";
-        toolTpl.tool_wan_imageedit_function = toolTpl.tool_wan_imageedit_function ?? { value: "" };
-        toolTpl.tool_wan_imageedit_function.value = "description_edit_with_mask";
+        if (toolTpl.tool_model_override) {
+          toolTpl.tool_model_override.value = "";
+        }
 
         if ((newTemplate as any)?.template?.prompt) {
-          (newTemplate as any).template.prompt.value = safePrompt;
+          (newTemplate as any).template.prompt.value = finalPrompt;
         }
 
         if ((newTemplate as any)?.template?.draft_output) {

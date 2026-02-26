@@ -27,7 +27,9 @@ import SidebarDraggableComponent from "./components/sidebarDraggableComponent";
 import GenerationHistoryPanel from "./components/generationHistoryPanel";
 import WorkflowsPanel from "./components/workflowsPanel";
 import AssetsPanel from "./components/AssetsPanel";
-import PoseGeneratorModal from "./components/PoseGeneratorModal";
+import AdvancedEditorStudioModal, {
+  type AdvancedEditorStudioTab,
+} from "./components/AdvancedEditorStudioModal";
 import { SidebarFilterComponent } from "./components/sidebarFilterComponent";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
@@ -167,7 +169,9 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [advancedEditorOpen, setAdvancedEditorOpen] = useState(false);
-  const [poseGeneratorOpen, setPoseGeneratorOpen] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [studioInitialTab, setStudioInitialTab] =
+    useState<AdvancedEditorStudioTab>("scribble-image");
   const [pendingCreateGroupId, setPendingCreateGroupId] = useState<string | null>(null);
   const nodes = useFlowStore((state) => state.nodes);
   const setNodes = useFlowStore((state) => state.setNodes);
@@ -401,8 +405,15 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
       });
   }, [addComponent, setAdvancedEditorOpen, setErrorData, setTypes, templates]);
 
+  const handleOpenScribbleImage = useCallback(() => {
+    setStudioInitialTab("scribble-image");
+    setStudioOpen(true);
+    setAdvancedEditorOpen(false);
+  }, []);
+
   const handleOpenPoseGenerator = useCallback(() => {
-    setPoseGeneratorOpen(true);
+    setStudioInitialTab("pose-generator");
+    setStudioOpen(true);
     setAdvancedEditorOpen(false);
   }, []);
 
@@ -415,20 +426,27 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
         onClick: handleAddProCamera,
       },
       {
+        key: "scribble-image",
+        label: "涂鸦生图",
+        icon: "Paintbrush",
+        onClick: handleOpenScribbleImage,
+      },
+      {
         key: "pose-generator",
         label: "姿势生成器",
         icon: "PersonStanding",
         onClick: handleOpenPoseGenerator,
       },
     ],
-    [handleAddProCamera, handleOpenPoseGenerator],
+    [handleAddProCamera, handleOpenPoseGenerator, handleOpenScribbleImage],
   );
 
   return (
     <div className="noflow select-none pointer-events-none">
-      <PoseGeneratorModal
-        open={poseGeneratorOpen}
-        onOpenChange={setPoseGeneratorOpen}
+      <AdvancedEditorStudioModal
+        open={studioOpen}
+        onOpenChange={setStudioOpen}
+        initialTab={studioInitialTab}
       />
       <div className="fixed left-4 top-1/2 z-50 -translate-y-1/2 pointer-events-auto">
         <div className="flex flex-col items-center gap-2 rounded-3xl border border-border bg-background/80 p-2 shadow-lg backdrop-blur">

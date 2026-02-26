@@ -17,6 +17,11 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
+type PanelProps = Props & {
+  embedded?: boolean;
+  hideTitle?: boolean;
+};
+
 type JointId =
   | "head"
   | "neck"
@@ -193,7 +198,12 @@ function resolveQwenSizeFromReference(natural: { w: number; h: number } | null):
   return `${w}*${h}`;
 }
 
-export default function PoseGeneratorModal({ open, onOpenChange }: Props) {
+export function PoseGeneratorPanel({
+  open,
+  onOpenChange,
+  embedded = false,
+  hideTitle = false,
+}: PanelProps) {
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -661,14 +671,19 @@ export default function PoseGeneratorModal({ open, onOpenChange }: Props) {
     return "";
   }, [referenceLocalUrl, referenceServerPath]);
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[86vh] w-[96vw] max-w-6xl overflow-hidden p-0">
-        <div className="flex h-full flex-col">
-          <DialogHeader className="border-b px-6 py-4">
-            <DialogTitle className="text-base">姿势生成器</DialogTitle>
-          </DialogHeader>
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6 pt-4 lg:flex-row">
+  const body = (
+    <div className="flex h-full flex-col">
+      {!hideTitle && (
+        <DialogHeader className="border-b border-white/10 px-6 py-4">
+          <DialogTitle className="text-base text-white">姿势生成器</DialogTitle>
+        </DialogHeader>
+      )}
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6 pt-4 lg:flex-row",
+          hideTitle && "pt-6",
+        )}
+      >
             {/* Left: reference */}
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-muted/40 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -765,9 +780,21 @@ export default function PoseGeneratorModal({ open, onOpenChange }: Props) {
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
+      </div>
+    </div>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="h-[86vh] w-[96vw] max-w-6xl overflow-hidden p-0">
+        {body}
       </DialogContent>
     </Dialog>
   );
+}
+
+export default function PoseGeneratorModal({ open, onOpenChange }: Props) {
+  return <PoseGeneratorPanel open={open} onOpenChange={onOpenChange} />;
 }
