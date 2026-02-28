@@ -433,6 +433,7 @@ export type UserInputType = {
   password: string;
   is_active?: boolean;
   is_superuser?: boolean;
+  is_reviewer?: boolean;
   id?: string;
   create_at?: string;
   updated_at?: string;

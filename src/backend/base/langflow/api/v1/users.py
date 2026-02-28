@@ -85,6 +85,8 @@ async def patch_user(
 
     if not user.is_superuser and user_update.is_superuser:
         raise HTTPException(status_code=403, detail="Permission denied")
+    if not user.is_superuser and user_update.is_reviewer is not None:
+        raise HTTPException(status_code=403, detail="Permission denied")
 
     if not user.is_superuser and user.id != user_id:
         raise HTTPException(status_code=403, detail="Permission denied")

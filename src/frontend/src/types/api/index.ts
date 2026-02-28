@@ -159,6 +159,7 @@ export type changeUser = {
   username?: string;
   is_active?: boolean;
   is_superuser?: boolean;
+  is_reviewer?: boolean;
   password?: string;
   profile_image?: string;
   optins?: {
@@ -179,6 +180,7 @@ export type Users = {
   username: string;
   is_active: boolean;
   is_superuser: boolean;
+  is_reviewer?: boolean;
   profile_image: string;
   create_at: Date;
   updated_at: Date;

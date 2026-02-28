@@ -213,6 +213,29 @@ export default function AdminPage() {
     );
   }
 
+  function handleReviewerEdit(check, userId, user) {
+    const userEdit = cloneDeep(user);
+    userEdit.is_reviewer = !check;
+
+    mutateUpdateUser(
+      { user_id: userId, user: userEdit },
+      {
+        onSuccess: () => {
+          resetFilter();
+          setSuccessData({
+            title: USER_EDIT_SUCCESS_ALERT,
+          });
+        },
+        onError: (error) => {
+          setErrorData({
+            title: USER_EDIT_ERROR_ALERT,
+            list: [error["response"]["data"]["detail"]],
+          });
+        },
+      },
+    );
+  }
+
   function handleNewUser(user: UserInputType) {
     mutateAddUser(user, {
       onSuccess: (res) => {
@@ -222,6 +245,7 @@ export default function AdminPage() {
             user: {
               is_active: user.is_active,
               is_superuser: user.is_superuser,
+              is_reviewer: user.is_reviewer,
             },
           },
           {
@@ -303,7 +327,10 @@ export default function AdminPage() {
                 <Button variant="primary">{t("New User")}</Button>
               </UserManagementModal>
 
-              <Button variant="secondary" onClick={() => navigate("/admin/community")}>
+              <Button
+                variant="secondary"
+                onClick={() => navigate("/admin/community")}
+              >
                 投稿审核
               </Button>
             </div>
@@ -336,6 +363,7 @@ export default function AdminPage() {
                       <TableHead className="h-10">{t("ID")}</TableHead>
                       <TableHead className="h-10">{t("Username")}</TableHead>
                       <TableHead className="h-10">{t("Active")}</TableHead>
+                      <TableHead className="h-10">审核员</TableHead>
                       <TableHead className="h-10">{t("Superuser")}</TableHead>
                       <TableHead className="h-10">{t("Created At")}</TableHead>
                       <TableHead className="h-10">{t("Updated At")}</TableHead>
@@ -387,6 +415,39 @@ export default function AdminPage() {
                               <ConfirmationModal.Trigger>
                                 <div className="flex w-fit">
                                   <CheckBoxDiv checked={user.is_active} />
+                                </div>
+                              </ConfirmationModal.Trigger>
+                            </ConfirmationModal>
+                          </TableCell>
+                          <TableCell className="relative left-1 truncate py-2 text-align-last-left">
+                            <ConfirmationModal
+                              size="x-small"
+                              title={t("Edit")}
+                              titleHeader={`${user.username}`}
+                              modalContentTitle={t("Attention!")}
+                              cancelText={t("Cancel")}
+                              confirmationText={t("Confirm")}
+                              icon={"UserCog2"}
+                              data={user}
+                              index={index}
+                              onConfirm={(index, user) => {
+                                handleReviewerEdit(
+                                  user.is_reviewer,
+                                  user.id,
+                                  user,
+                                );
+                              }}
+                            >
+                              <ConfirmationModal.Content>
+                                <span>
+                                  {t(
+                                    "Are you completely confident about the changes you are making to this user?",
+                                  )}
+                                </span>
+                              </ConfirmationModal.Content>
+                              <ConfirmationModal.Trigger>
+                                <div className="flex w-fit">
+                                  <CheckBoxDiv checked={user.is_reviewer} />
                                 </div>
                               </ConfirmationModal.Trigger>
                             </ConfirmationModal>

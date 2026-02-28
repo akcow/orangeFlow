@@ -1120,6 +1120,7 @@ export default function Page({
 
   const MIN_ZOOM = 0.1;
   const MAX_ZOOM = 2;
+  const VIEW_MODE_DEFAULT_ZOOM = 0.4;
   const fitViewOptions = {
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
@@ -1129,6 +1130,15 @@ export default function Page({
   useEffect(() => {
     useCanvasUiStore.getState().setMiniMapOpen(false);
   }, [id, view]);
+
+  useEffect(() => {
+    if (!view || !reactFlowInstance || nodes.length === 0) return;
+    const frameId = window.requestAnimationFrame(() => {
+      reactFlowInstance.fitView({ padding: 0.16, duration: 0 });
+      void reactFlowInstance.zoomTo(VIEW_MODE_DEFAULT_ZOOM, { duration: 180 });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [view, reactFlowInstance, currentFlowId, nodes.length]);
 
   return (
     <div className="h-full w-full bg-canvas" ref={reactFlowWrapper}>
@@ -1223,36 +1233,44 @@ export default function Page({
             <ReactFlow<AllNodeType, EdgeType>
               nodes={nodes}
               edges={edges}
-              onNodesChange={onNodesChangeWithHelperLines}
-              onEdgesChange={onEdgesChange}
-              onConnect={isLocked ? undefined : onConnectMod}
+              onNodesChange={view ? undefined : onNodesChangeWithHelperLines}
+              onEdgesChange={view ? undefined : onEdgesChange}
+              onConnect={view || isLocked ? undefined : onConnectMod}
               // Requirement: dragging an unselected node must NOT change the selection set.
               // (Keep click-to-select behavior unchanged.)
               selectNodesOnDrag={false}
               // Disable click-to-connect globally; our "+" handles use click for menus.
               connectOnClick={false}
               disableKeyboardA11y={true}
-              nodesFocusable={!isLocked}
-              edgesFocusable={!isLocked}
+              nodesFocusable={!isLocked && !view}
+              edgesFocusable={!isLocked && !view}
+              nodesDraggable={!view && !isLocked}
+              nodesConnectable={!view && !isLocked}
+              elementsSelectable={!view && !isLocked}
               onInit={setReactFlowInstance}
               nodeTypes={nodeTypes}
-              onReconnect={isLocked ? undefined : onEdgeUpdate}
-              onReconnectStart={isLocked ? undefined : onEdgeUpdateStart}
-              onReconnectEnd={isLocked ? undefined : onEdgeUpdateEnd}
-              onNodeDrag={onNodeDrag}
-              onNodeDragStart={onNodeDragStart}
-              onSelectionDragStart={onSelectionDragStart}
+              defaultViewport={{
+                x: 0,
+                y: 0,
+                zoom: view ? VIEW_MODE_DEFAULT_ZOOM : 1,
+              }}
+              onReconnect={view || isLocked ? undefined : onEdgeUpdate}
+              onReconnectStart={view || isLocked ? undefined : onEdgeUpdateStart}
+              onReconnectEnd={view || isLocked ? undefined : onEdgeUpdateEnd}
+              onNodeDrag={view ? undefined : onNodeDrag}
+              onNodeDragStart={view ? undefined : onNodeDragStart}
+              onSelectionDragStart={view ? undefined : onSelectionDragStart}
               elevateEdgesOnSelect={false}
-              onSelectionEnd={onSelectionEnd}
-              onSelectionStart={onSelectionStart}
+              onSelectionEnd={view ? undefined : onSelectionEnd}
+              onSelectionStart={view ? undefined : onSelectionStart}
               selectionMode={SelectionMode.Partial}
               connectionRadius={30}
               edgeTypes={edgeTypes}
               connectionLineComponent={ConnectionLineComponent}
-              onDragOver={onDragOver}
-              onNodeDragStop={onNodeDragStop}
-              onDrop={onDrop}
-              onSelectionChange={onSelectionChange}
+              onDragOver={view ? undefined : onDragOver}
+              onNodeDragStop={view ? undefined : onNodeDragStop}
+              onDrop={view ? undefined : onDrop}
+              onSelectionChange={view ? undefined : onSelectionChange}
               deleteKeyCode={[]}
               nodeOrigin={[0, 0]}
               fitView={isEmptyFlow.current ? false : true}
@@ -1261,9 +1279,9 @@ export default function Page({
               tabIndex={isLocked ? -1 : undefined}
               minZoom={MIN_ZOOM}
               maxZoom={MAX_ZOOM}
-              zoomOnScroll={!view}
-              zoomOnPinch={!view}
-              panOnDrag={!view}
+              zoomOnScroll
+              zoomOnPinch
+              panOnDrag
               panActivationKeyCode={""}
               proOptions={{ hideAttribution: true }}
               onPaneClick={onPaneClick}
@@ -1275,8 +1293,8 @@ export default function Page({
               <MemoizedBackground />
               {helperLineEnabled && <HelperLines helperLines={helperLines} />}
               <CanvasMiniMap />
-              <CanvasAssistantLauncher />
-              <CanvasAssistantDrawer />
+              {!view && <CanvasAssistantLauncher />}
+              {!view && <CanvasAssistantDrawer />}
             </ReactFlow>
           </div>
           <div

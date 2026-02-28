@@ -35,6 +35,7 @@ from langflow.services.database.models.flow.model import (
 from langflow.services.database.models.flow.utils import get_webhook_component_in_flow
 from langflow.services.database.models.folder.constants import DEFAULT_FOLDER_NAME
 from langflow.services.database.models.folder.model import Folder
+from langflow.services.database.models.community_item.model import CommunityItem, CommunityItemStatusEnum
 from langflow.services.deps import get_settings_service
 from langflow.utils.compression import compress_response
 
@@ -306,9 +307,41 @@ async def read_public_flow(
     flow_id: UUID,
 ):
     """Read a public flow."""
-    access_type = (await session.exec(select(Flow.access_type).where(Flow.id == flow_id))).first()
-    if access_type is not AccessTypeEnum.PUBLIC:
-        raise HTTPException(status_code=403, detail="Flow is not public")
+    flow = await session.get(Flow, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow not found")
+
+    if flow.access_type is not AccessTypeEnum.PUBLIC:
+        public_canvas_item = (
+            await session.exec(
+                select(CommunityItem.id)
+                .where(CommunityItem.flow_id == flow_id)
+                .where(CommunityItem.status == CommunityItemStatusEnum.PUBLIC)
+                .where(CommunityItem.public_canvas.is_(True))
+            )
+        ).first()
+        if not public_canvas_item:
+            raise HTTPException(status_code=403, detail="Flow is not public")
+
+        # Backfill legacy records: if the work is publicly approved with public canvas,
+        # promote the flow to public so future preview requests don't fail.
+        flow.access_type = AccessTypeEnum.PUBLIC
+        flow.updated_at = datetime.now(timezone.utc)
+        session.add(flow)
+        await session.commit()
+
+    if not flow.data or not flow.data.get("nodes"):
+        latest_snapshot = (
+            await session.exec(
+                select(CommunityItem.flow_snapshot)
+                .where(CommunityItem.flow_id == flow_id)
+                .where(CommunityItem.status == CommunityItemStatusEnum.PUBLIC)
+                .where(CommunityItem.public_canvas.is_(True))
+                .order_by(CommunityItem.created_at.desc())
+            )
+        ).first()
+        if isinstance(latest_snapshot, dict) and latest_snapshot.get("nodes"):
+            flow.data = latest_snapshot
 
     current_user = await get_user_by_flow_id_or_endpoint_name(str(flow_id))
     return await read_flow(session=session, flow_id=flow_id, current_user=current_user)

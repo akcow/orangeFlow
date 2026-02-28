@@ -184,8 +184,7 @@ export const CHAT_CANNOT_OPEN_DESCRIPTION = "该流程不是聊天流程。";
 
 export const FLOW_NOT_BUILT_TITLE = "流程尚未构建";
 
-export const FLOW_NOT_BUILT_DESCRIPTION =
-  "请先构建流程，再开始聊天。";
+export const FLOW_NOT_BUILT_DESCRIPTION = "请先构建流程，再开始聊天。";
 
 /**
  * The base text for subtitle of Text Dialog
@@ -224,8 +223,7 @@ export const PDFLoadError = "运行流程以查看 PDF";
 
 export const IMGViewConstant = "展开视图以查看图片";
 
-export const IMGViewErrorMSG =
-  "运行流程或提供一个有效的 URL 以查看图片";
+export const IMGViewErrorMSG = "运行流程或提供一个有效的 URL 以查看图片";
 
 export const IMGViewErrorTitle = "图片输出";
 
@@ -648,16 +646,15 @@ export const CONTROL_NEW_USER = {
   password: "",
   is_active: false,
   is_superuser: false,
+  is_reviewer: false,
 };
 
 export const tabsCode = [];
 
 export const FETCH_ERROR_MESSAGE = "无法建立连接。";
-export const FETCH_ERROR_DESCRIPION =
-  "请检查服务是否正常运行，然后重试。";
+export const FETCH_ERROR_DESCRIPION = "请检查服务是否正常运行，然后重试。";
 
-export const TIMEOUT_ERROR_MESSAGE =
-  "服务器正在处理你的请求，请稍等片刻。";
+export const TIMEOUT_ERROR_MESSAGE = "服务器正在处理你的请求，请稍等片刻。";
 export const TIMEOUT_ERROR_DESCRIPION = "服务器繁忙。";
 
 export const SIGN_UP_SUCCESS = "账号已创建！请等待管理员激活。";
@@ -665,13 +662,11 @@ export const SIGN_UP_SUCCESS = "账号已创建！请等待管理员激活。";
 export const API_PAGE_PARAGRAPH =
   "你的 Langflow API Key 列表如下。请勿与他人分享，也不要在浏览器或其他客户端代码中暴露。";
 
-export const API_PAGE_USER_KEYS =
-  "该用户当前没有分配任何密钥。";
+export const API_PAGE_USER_KEYS = "该用户当前没有分配任何密钥。";
 
 export const LAST_USED_SPAN_1 = "该密钥的最近使用时间。";
 
-export const LAST_USED_SPAN_2 =
-  "精确到最近一次使用的小时级别。";
+export const LAST_USED_SPAN_2 = "精确到最近一次使用的小时级别。";
 
 export const LANGFLOW_SUPPORTED_TYPES = new Set([
   "str",
@@ -719,11 +714,9 @@ export const OUTPUT_TYPES = new Set([
   // "TableOutput",
 ]);
 
-export const CHAT_FIRST_INITIAL_TEXT =
-  "开始对话并点击智能体的记忆";
+export const CHAT_FIRST_INITIAL_TEXT = "开始对话并点击智能体的记忆";
 
-export const TOOLTIP_OUTDATED_NODE =
-  "该组件已过期，点击更新（可能会丢失数据）";
+export const TOOLTIP_OUTDATED_NODE = "该组件已过期，点击更新（可能会丢失数据）";
 
 export const CHAT_SECOND_INITIAL_TEXT = "用于查看历史消息。";
 
@@ -745,12 +738,10 @@ export const OUTPUT_HANDLER_HOVER = "可用输出组件：";
 export const TEXT_INPUT_MODAL_TITLE = "输入";
 export const OUTPUTS_MODAL_TITLE = "输出";
 export const LANGFLOW_CHAT_TITLE = "Langflow 聊天";
-export const CHAT_INPUT_PLACEHOLDER =
-  "未找到聊天输入变量。点击运行你的流程。";
+export const CHAT_INPUT_PLACEHOLDER = "未找到聊天输入变量。点击运行你的流程。";
 export const CHAT_INPUT_PLACEHOLDER_SEND = "发送消息…";
 export const EDIT_CODE_TITLE = "编辑代码";
-export const MY_COLLECTION_DESC =
-  "管理你的项目：下载或上传整个合集。";
+export const MY_COLLECTION_DESC = "管理你的项目：下载或上传整个合集。";
 export const STORE_DESC = "浏览社区分享的流程与组件。";
 export const STORE_TITLE = "Langflow 商店";
 export const NO_API_KEY = "你还没有 API Key。";
@@ -758,8 +749,7 @@ export const INSERT_API_KEY = "请输入你的 Langflow API Key。";
 export const INVALID_API_KEY = "你的 API Key 无效。";
 export const CREATE_API_KEY = "还没有 API Key？前往注册：";
 export const STATUS_BUILD = "构建以验证状态。";
-export const STATUS_MISSING_FIELDS_ERROR =
-  "请填写所有必填字段。";
+export const STATUS_MISSING_FIELDS_ERROR = "请填写所有必填字段。";
 export const STATUS_INACTIVE = "执行已阻止";
 export const STATUS_BUILDING = "构建中…";
 export const SAVED_HOVER = "上次保存：";
@@ -813,8 +803,7 @@ export const AUTHORIZED_DUPLICATE_REQUESTS = [
   "/auto_login",
 ];
 
-export const BROKEN_EDGES_WARNING =
-  "由于连接无效，已移除部分连接：";
+export const BROKEN_EDGES_WARNING = "由于连接无效，已移除部分连接：";
 
 export const SAVE_DEBOUNCE_TIME = 300;
 
@@ -844,14 +833,11 @@ export const ALLOWED_IMAGE_INPUT_EXTENSIONS = ["png", "jpg", "jpeg"];
 
 export const componentsToIgnoreUpdate = ["CustomComponent"];
 
-export const FS_ERROR_TEXT =
-  "请确保你的文件扩展名为以下之一：";
+export const FS_ERROR_TEXT = "请确保你的文件扩展名为以下之一：";
 export const SN_ERROR_TEXT = ALLOWED_IMAGE_INPUT_EXTENSIONS.join(", ");
 
-export const ERROR_UPDATING_COMPONENT =
-  "更新组件时发生意外错误，请重试。";
-export const TITLE_ERROR_UPDATING_COMPONENT =
-  "更新组件失败";
+export const ERROR_UPDATING_COMPONENT = "更新组件时发生意外错误，请重试。";
+export const TITLE_ERROR_UPDATING_COMPONENT = "更新组件失败";
 
 export const EMPTY_INPUT_SEND_MESSAGE = "未提供输入消息。";
 
@@ -963,9 +949,7 @@ export const IS_AUTO_LOGIN =
 export const AUTO_LOGIN_RETRY_DELAY = 2000;
 export const AUTO_LOGIN_MAX_RETRY_DELAY = 60000;
 
-export const ALL_LANGUAGES = [
-  { value: "zh-CN", name: "简体中文" },
-];
+export const ALL_LANGUAGES = [{ value: "zh-CN", name: "简体中文" }];
 
 export const DEBOUNCE_FIELD_LIST = [
   "SecretStrInput",
