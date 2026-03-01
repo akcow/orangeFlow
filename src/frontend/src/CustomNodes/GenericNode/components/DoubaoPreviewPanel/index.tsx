@@ -393,6 +393,39 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         : preview && (preview.available || preview.error)
           ? preview
           : draftPreview ?? preview;
+    const failureMessages = useMemo(() => {
+      const merged = [
+        ...(typeof resolvedPreview?.error === "string" ? [resolvedPreview.error] : []),
+        ...extractFailureMessagesFromRawMessage(rawMessage),
+      ];
+      const normalized = merged
+        .map((item) => decodeEscapedUnicodeText(String(item ?? "").trim()))
+        .filter(Boolean);
+      return Array.from(new Set(normalized));
+    }, [rawMessage, resolvedPreview?.error]);
+    const primaryFailureReason = failureMessages[0] ?? "";
+    const lastFailureAlertKeyRef = useRef<string>("");
+    useEffect(() => {
+      if (!primaryFailureReason) return;
+      const fingerprint = [
+        nodeId,
+        resolvedPreview?.token ?? "",
+        resolvedPreview?.generated_at ?? "",
+        primaryFailureReason,
+      ].join("|");
+      if (fingerprint === lastFailureAlertKeyRef.current) return;
+      lastFailureAlertKeyRef.current = fingerprint;
+      setErrorData({
+        title: "创作失败，请重试；若多次失败请联系客服",
+        list: [primaryFailureReason],
+      });
+    }, [
+      nodeId,
+      primaryFailureReason,
+      resolvedPreview?.generated_at,
+      resolvedPreview?.token,
+      setErrorData,
+    ]);
 
     // Persist latest output payload into a hidden field so the component can act as a bridge
     // (prompt empty -> passthrough cached preview to downstream) and survive reloads.
@@ -1261,6 +1294,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const hasVideoPreview = kind === "video" && Boolean(videoPreview);
     const hasAudioPreview =
       kind === "audio" && Boolean(resolvedPreview?.available && audioPreview);
+    const hasSuccessfulGeneratedPreview =
+      hasGeneratedImagePreview || hasVideoPreview || hasAudioPreview;
+    const shouldShowFailurePreview =
+      Boolean(primaryFailureReason) && !hasSuccessfulGeneratedPreview;
 
     const hasHoverAutoplayVideo = Boolean(
       isPersistentPreview &&
@@ -1282,6 +1319,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       hasAudioPreview;
     const shouldShowWaveLoading = isMinimal && isBuilding;
     const emptyPreviewBuildingState = isBuilding && !shouldShowWaveLoading;
+    const handleRetryFailedBuild = useCallback(() => {
+      void buildFlow({ stopNodeId: nodeId });
+      showTransientBadge("已发起重试");
+    }, [buildFlow, nodeId, showTransientBadge]);
+    const handleContactSupport = useCallback(() => {
+      setErrorData({
+        title: "请联系客服并附上失败原因",
+        list: [primaryFailureReason || "创作失败，请稍后重试。"],
+      });
+    }, [primaryFailureReason, setErrorData]);
 
     const isCapturingFrameRef = useRef(false);
     const handleCaptureHoverVideoFrame = useCallback(
@@ -4380,7 +4427,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       ],
     );
 
-    const hasError = resolvedPreview?.error;
+    const hasError = Boolean(primaryFailureReason);
     const shouldShowImageUploadOverlay =
       appearance === "imageCreator" &&
       kind === "image" &&
@@ -4396,7 +4443,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const uploadButtonLabel = "上传";
     const showReferenceSelectionBadge = false;
 
-    const inlinePreview = hasRenderablePreview ? (
+    const inlinePreview = shouldShowFailurePreview && !shouldShowWaveLoading ? (
+      <FailedPreview
+        reason={primaryFailureReason}
+        onRetryClick={handleRetryFailedBuild}
+        onContactClick={handleContactSupport}
+      />
+    ) : hasRenderablePreview ? (
       <Suspense
         fallback={
           <EmptyPreview
@@ -4473,6 +4526,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       if (hasRenderablePreview && resolvedPreview?.generated_at) {
         return `最近更新：${formatTimestamp(resolvedPreview.generated_at)}`;
       }
+      if (primaryFailureReason) {
+        return "最近一次生成失败，请重试";
+      }
       if (isBuilding) {
         return "生成中……完成后将自动刷新";
       }
@@ -4539,9 +4595,14 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const modalMedia = (() => {
       if (!hasRenderablePreview) {
         return (
-          <p className="text-center text-sm text-muted-foreground">
-            暂无可预览内容
-          </p>
+          <div className="space-y-2 text-center">
+            <p className="text-sm text-muted-foreground">暂无可预览内容</p>
+            {primaryFailureReason ? (
+              <p className="whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-300">
+                失败原因：{primaryFailureReason}
+              </p>
+            ) : null}
+          </div>
         );
       }
       switch (kind) {
@@ -4718,8 +4779,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         push("采样率", payload?.sample_rate);
       }
 
-      if (resolvedPreview?.error) {
-        push("错误", resolvedPreview.error);
+      if (primaryFailureReason) {
+        push("错误", primaryFailureReason);
       }
 
       return rows;
@@ -4733,8 +4794,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       kind,
       referenceGallery.length,
       referenceImages.length,
+      primaryFailureReason,
       resolvedPreview?.available,
-      resolvedPreview?.error,
       resolvedPreview?.generated_at,
       resolvedPreview?.payload,
       resolvedPreview?.token,
@@ -5429,6 +5490,63 @@ function formatModelNameForInfo(value: unknown): string {
   return raw;
 }
 
+function extractFailureMessagesFromRawMessage(rawMessage: unknown): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const normalized = decodeEscapedUnicodeText(String(value ?? "").trim());
+    if (!normalized) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    found.push(normalized);
+  };
+  const collectFromMessagePayload = (payload: unknown) => {
+    if (!payload) return;
+    if (typeof payload === "string") {
+      add(payload);
+      return;
+    }
+    if (typeof payload !== "object") return;
+    const candidate = payload as any;
+    add(candidate.errorMessage);
+    add(candidate.error);
+    add(candidate.detail);
+    if (typeof candidate.message === "string") {
+      add(candidate.message);
+    }
+    const previewError = candidate?.doubao_preview?.error;
+    add(previewError);
+  };
+
+  if (!rawMessage || typeof rawMessage !== "object") return found;
+  const root = rawMessage as any;
+
+  if ("message" in root) {
+    collectFromMessagePayload(root.message);
+  }
+  collectFromMessagePayload(root.error);
+
+  const outputs = root?.data?.outputs;
+  if (outputs && typeof outputs === "object") {
+    for (const output of Object.values(outputs as Record<string, any>)) {
+      if (Array.isArray(output)) {
+        output.forEach((item) => collectFromMessagePayload(item?.message));
+      } else {
+        collectFromMessagePayload((output as any)?.message);
+      }
+    }
+  }
+
+  const logs = root?.data?.logs;
+  if (logs && typeof logs === "object") {
+    for (const item of Object.values(logs as Record<string, any>)) {
+      collectFromMessagePayload((item as any)?.message);
+    }
+  }
+
+  return found;
+}
+
 function decodeEscapedUnicodeText(input: string): string {
   const raw = String(input ?? "");
   if (!raw) return raw;
@@ -5905,6 +6023,66 @@ function EmptyPreview({
       ) : (
         <span>暂无生成结果</span>
       )}
+    </div>
+  );
+}
+
+function FailedPreview({
+  reason,
+  onRetryClick,
+  onContactClick,
+}: {
+  reason: string;
+  onRetryClick?: () => void;
+  onContactClick?: () => void;
+}) {
+  const parsedReason = decodeEscapedUnicodeText(String(reason ?? "").trim());
+  const fallbackReason = "未返回详细失败原因，请稍后重试。";
+  const detail = parsedReason || fallbackReason;
+
+  return (
+    <div className="flex h-full w-full items-center justify-center p-5">
+      <div className="flex w-full max-w-[560px] items-start gap-2 text-left">
+        <ForwardedIconComponent
+          name="AlertTriangle"
+          className="mt-0.5 h-5 w-5 text-red-600 dark:text-red-300"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-semibold text-red-700 dark:text-red-200">
+            生成失败
+          </p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-red-700/90 dark:text-red-100/90">
+            {detail}
+          </p>
+          <p className="mt-2 text-sm text-red-700/90 dark:text-red-100/90">
+            请先
+            <button
+              type="button"
+              className="mx-1 inline cursor-pointer border-none bg-transparent p-0 align-baseline text-sm text-[#1B66FF] underline underline-offset-2 transition-colors duration-200 ease-out hover:text-[#1757d8] dark:text-[#8ab4ff] dark:hover:text-[#b0ccff]"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onRetryClick?.();
+              }}
+            >
+              重试
+            </button>
+            ；若多次失败，请
+            <button
+              type="button"
+              className="mx-1 inline cursor-pointer border-none bg-transparent p-0 align-baseline text-sm text-[#1B66FF] underline underline-offset-2 transition-colors duration-200 ease-out hover:text-[#1757d8] dark:text-[#8ab4ff] dark:hover:text-[#b0ccff]"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onContactClick?.();
+              }}
+            >
+              联系客服
+            </button>
+            并附上失败原因。
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

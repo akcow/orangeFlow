@@ -211,7 +211,7 @@ describe("DoubaoPreviewPanel", () => {
     expect(container.querySelector('input[type=\"range\"]')).toBeNull();
   });
 
-  test("renders error state when preview has error", () => {
+  test("renders failure reason and retry hints when preview has error", () => {
     (useDoubaoPreview as jest.Mock).mockReturnValue({
       preview: {
         kind: "image",
@@ -231,9 +231,70 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    // Error badge in the preview header was intentionally removed (no red warning in the corner).
     expect(screen.getByText("实时预览")).toBeInTheDocument();
-    expect(screen.queryByText("预览失败")).not.toBeInTheDocument();
+    expect(screen.getByText("生成失败")).toBeInTheDocument();
+    expect(screen.getByText("API Error: Failed to generate image")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "联系客服" })).toBeInTheDocument();
+  });
+
+  test("does not fall back to upload empty state when image creator build fails", () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: {
+        kind: "image",
+        available: false,
+        error: "生成失败：请求超时",
+        token: "image-error-token",
+      },
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={mockComponentName}
+        appearance="imageCreator"
+      />,
+    );
+
+    expect(screen.getByText("生成失败")).toBeInTheDocument();
+    expect(screen.getByText("生成失败：请求超时")).toBeInTheDocument();
+    expect(screen.queryByText("暂无结果，请上传图片")).not.toBeInTheDocument();
+  });
+
+  test("reads failure reason from logs when preview payload is unavailable", () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: false,
+      rawMessage: {
+        data: {
+          outputs: {
+            image: [
+              {
+                type: "error",
+                message: {
+                  errorMessage: "日志错误：模型网关超时",
+                },
+              },
+            ],
+          },
+        },
+      },
+      lastUpdated: undefined,
+    });
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={mockComponentName}
+        appearance="imageCreator"
+      />,
+    );
+
+    expect(screen.getByText("生成失败")).toBeInTheDocument();
+    expect(screen.getByText("日志错误：模型网关超时")).toBeInTheDocument();
   });
 
   test("renders image preview when image data is available", async () => {
