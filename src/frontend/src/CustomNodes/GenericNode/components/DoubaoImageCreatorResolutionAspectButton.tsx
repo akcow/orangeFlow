@@ -15,12 +15,11 @@ type ResolutionAspectButtonProps = {
   data: NodeDataType;
   resolutionConfig: DoubaoControlConfig;
   aspectRatioConfig: DoubaoControlConfig;
-  isNanoBanana?: boolean;
   disabled?: boolean;
   widthClass?: string;
 };
 
-const RESOLUTION_LABEL_ORDER = ["1K", "2K", "4K", "Auto"] as const;
+const RESOLUTION_LABEL_ORDER = ["512px", "1K", "2K", "4K", "Auto"] as const;
 const RESOLUTION_ALLOWED = new Set<string>(RESOLUTION_LABEL_ORDER);
 
 function parseAspectRatio(value: string): { w: number; h: number } | null {
@@ -85,7 +84,6 @@ export default function DoubaoImageCreatorResolutionAspectButton({
   data,
   resolutionConfig,
   aspectRatioConfig,
-  isNanoBanana = false,
   disabled = false,
   widthClass,
 }: ResolutionAspectButtonProps) {
@@ -131,7 +129,10 @@ export default function DoubaoImageCreatorResolutionAspectButton({
     .toLowerCase();
   const isKlingO3 = modelRaw === "kling o3";
   const isVidu = modelRaw.startsWith("vidu");
+  const isNanoBanana2 = modelRaw === "nano banana 2";
   const isNanoBananaPro = modelRaw === "nano banana pro";
+  const isLegacyNanoBanana = modelRaw === "nano banana";
+  const supportsGeminiFeatureButtons = isNanoBanana2 || isNanoBananaPro || isLegacyNanoBanana;
   const klingO3SeriesField = template?.kling_o3_series_mode ?? null;
   const klingO3SeriesEnabled = parseBool(klingO3SeriesField?.value, false);
   const imageCountValue = (() => {
@@ -145,6 +146,8 @@ export default function DoubaoImageCreatorResolutionAspectButton({
   const viduAudioValue = Boolean(viduAudioField?.value ?? viduAudioField?.default ?? true);
   const multiTurnField = template?.enable_multi_turn ?? null;
   const onlineSearchField = template?.enable_google_search ?? null;
+  const multiTurnFieldVisible = Boolean(multiTurnField && multiTurnField.show !== false);
+  const onlineSearchFieldVisible = Boolean(onlineSearchField && onlineSearchField.show !== false);
   const multiTurnEnabled = parseBool(multiTurnField?.value ?? multiTurnField?.default ?? false, false);
   const onlineSearchEnabled = parseBool(
     onlineSearchField?.value ?? onlineSearchField?.default ?? false,
@@ -219,8 +222,7 @@ export default function DoubaoImageCreatorResolutionAspectButton({
   );
 
   const resolutionLabelRaw = formatControlValue("resolution", effectiveResolutionValue);
-  const resolutionLabel =
-    isNanoBanana && resolutionLabelRaw === "Auto" ? "Auto(1K)" : resolutionLabelRaw;
+  const resolutionLabel = resolutionLabelRaw;
   const aspectRatioLabel = formatControlValue("aspect_ratio", effectiveAspectRatioValue);
   const triggerLabel =
     aspectRatioLabel && resolutionLabel
@@ -330,7 +332,7 @@ export default function DoubaoImageCreatorResolutionAspectButton({
                         disabled && "cursor-not-allowed opacity-60",
                       )}
                     >
-                      {isNanoBanana && label === "Auto" ? "Auto(1K)" : label}
+                      {label}
                     </button>
                   );
                 })}
@@ -427,9 +429,9 @@ export default function DoubaoImageCreatorResolutionAspectButton({
             )}
           </div>
 
-          {isNanoBananaPro && (multiTurnField || onlineSearchField) && (
+          {supportsGeminiFeatureButtons && (multiTurnFieldVisible || onlineSearchFieldVisible) && (
             <div className="space-y-4">
-              {multiTurnField && (
+              {multiTurnFieldVisible && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
                     多轮对话
@@ -480,7 +482,7 @@ export default function DoubaoImageCreatorResolutionAspectButton({
                 </div>
               )}
 
-              {onlineSearchField && (
+              {onlineSearchFieldVisible && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
                     联网搜索

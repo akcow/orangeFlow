@@ -96,6 +96,168 @@ function formatImageCountValue(value: unknown): string {
   return Number.isFinite(n) ? `${n}X` : `${value}X`;
 }
 
+const ASPECT_RATIO_DISPLAY_ORDER = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+  "1:4",
+  "4:1",
+  "1:8",
+  "8:1",
+] as const;
+const ASPECT_RATIO_DISPLAY_ORDER_INDEX = new Map(
+  ASPECT_RATIO_DISPLAY_ORDER.map((ratio, index) => [ratio, index]),
+);
+
+function normalizeAspectRatioPart(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  return String(Number(value.toFixed(4)));
+}
+
+function normalizeAspectRatioOption(value: unknown): string | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "adaptive" || raw === "auto") return raw;
+
+  const match = raw.match(/(\d+(?:\.\d+)?)\s*[:：xX]\s*(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+
+  const w = Number(match[1]);
+  const h = Number(match[2]);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  return `${normalizeAspectRatioPart(w)}:${normalizeAspectRatioPart(h)}`;
+}
+
+function sortAspectRatioOptions(options: Array<string | number>): Array<string | number> {
+  if (!options.length) return options;
+
+  const uniqueOptions: Array<string | number> = [];
+  const seenRaw = new Set<string>();
+  for (const option of options) {
+    const raw = String(option).trim();
+    if (!raw || seenRaw.has(raw)) continue;
+    seenRaw.add(raw);
+    uniqueOptions.push(option);
+  }
+
+  const adaptiveOptions: Array<string | number> = [];
+  const ratioOptions: Array<{
+    option: string | number;
+    raw: string;
+    normalized: string;
+    pairScale: number;
+    orientationOrder: number;
+  }> = [];
+  const passthroughOptions: Array<string | number> = [];
+
+  for (const option of uniqueOptions) {
+    const raw = String(option).trim();
+    const normalized = normalizeAspectRatioOption(raw);
+    if (!normalized) {
+      passthroughOptions.push(option);
+      continue;
+    }
+    if (normalized === "adaptive" || normalized === "auto") {
+      adaptiveOptions.push(option);
+      continue;
+    }
+
+    const [wToken, hToken] = normalized.split(":");
+    const w = Number(wToken);
+    const h = Number(hToken);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+      passthroughOptions.push(option);
+      continue;
+    }
+
+    ratioOptions.push({
+      option,
+      raw,
+      normalized,
+      pairScale: Math.max(w, h) / Math.min(w, h),
+      // Put portrait first (e.g. 2:3 before 3:2) so "paired ratios" stay adjacent.
+      orientationOrder: w <= h ? 0 : 1,
+    });
+  }
+
+  ratioOptions.sort((a, b) => {
+    const knownA = ASPECT_RATIO_DISPLAY_ORDER_INDEX.get(a.normalized);
+    const knownB = ASPECT_RATIO_DISPLAY_ORDER_INDEX.get(b.normalized);
+    if (knownA !== undefined || knownB !== undefined) {
+      if (knownA === undefined) return 1;
+      if (knownB === undefined) return -1;
+      return knownA - knownB;
+    }
+    if (Math.abs(a.pairScale - b.pairScale) > 1e-9) {
+      return a.pairScale - b.pairScale;
+    }
+    if (a.orientationOrder !== b.orientationOrder) {
+      return a.orientationOrder - b.orientationOrder;
+    }
+    return a.raw.localeCompare(b.raw, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+
+  return [
+    ...adaptiveOptions,
+    ...ratioOptions.map((entry) => entry.option),
+    ...passthroughOptions,
+  ];
+}
+
+const PREVIEW_ROW_WIDE_EXPAND_START_RATIO = 16 / 9;
+const PREVIEW_ROW_ULTRA_WIDE_RATIO = 4;
+const PREVIEW_ROW_ULTRA_WIDE_TARGET_HEIGHT_FACTOR = 0.5;
+const PREVIEW_ROW_WIDE_TO_ULTRA_CURVE = 1.2;
+
+function parseAspectRatioForPreviewRow(value: unknown): { width: number; height: number } | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw || raw === "adaptive" || raw === "auto") return null;
+
+  const match = raw.match(/(\d+(?:\.\d+)?)\s*[:：xX]\s*(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function resolvePreviewRowWidthBoost(value: unknown): number {
+  const ratio = parseAspectRatioForPreviewRow(value);
+  if (!ratio) return 1;
+
+  const wOverH = ratio.width / ratio.height;
+  if (!Number.isFinite(wOverH)) {
+    return 1;
+  }
+  // Keep non-wide ratios exactly the same size as before.
+  if (wOverH <= PREVIEW_ROW_WIDE_EXPAND_START_RATIO) return 1;
+  // For ultra-wide ratios (>= 4:1), target preview height = 50% of 1:1 preview height.
+  // height = (boostedWidth / ratio); set heightTarget=0.5 => boostedWidth=0.5*ratio.
+  if (wOverH >= PREVIEW_ROW_ULTRA_WIDE_RATIO) {
+    return wOverH * PREVIEW_ROW_ULTRA_WIDE_TARGET_HEIGHT_FACTOR;
+  }
+
+  // Smoothly interpolate from 1x (at 16:9) to 2x (at 4:1) to avoid abrupt jumps.
+  const span =
+    PREVIEW_ROW_ULTRA_WIDE_RATIO - PREVIEW_ROW_WIDE_EXPAND_START_RATIO;
+  const progress = (wOverH - PREVIEW_ROW_WIDE_EXPAND_START_RATIO) / span;
+  const eased = Math.pow(Math.max(0, Math.min(1, progress)), PREVIEW_ROW_WIDE_TO_ULTRA_CURVE);
+  return 1 + eased;
+}
+
 const SLASH_QUICK_FEATURES = [
   {
     id: "multi_cam_grid",
@@ -111,8 +273,8 @@ const SLASH_QUICK_FEATURES = [
   },
   {
     id: "character_turnaround",
-    title: "角色三视图生成",
-    description: "一键生成角色三视图(正面/侧面/背面)。",
+    title: "角色四视图生成",
+    description: "一键生成角色四视图(正面/侧面/背面/面部特写)。",
     icon: "User",
   },
   {
@@ -135,7 +297,16 @@ type SlashQuickFeatureId = (typeof SLASH_QUICK_FEATURES)[number]["id"];
 const SLASH_QUICK_FEATURE_ALIASES: Record<SlashQuickFeatureId, string[]> = {
   multi_cam_grid: ["multi_cam_grid", "多机位九宫格", "九宫格", "分镜"],
   cinematic_lighting: ["cinematic_lighting", "电影级光影校正", "光影校正", "电影级光影"],
-  character_turnaround: ["character_turnaround", "角色三视图生成", "角色三视图", "三视图"],
+  character_turnaround: [
+    "character_turnaround",
+    "角色四视图生成",
+    "角色四视图",
+    "四视图",
+    "面部特写图",
+    "角色三视图生成",
+    "角色三视图",
+    "三视图",
+  ],
   simulate_3s_after: ["simulate_3s_after", "画面推演 - 3秒后", "画面推演3秒后", "3秒后"],
   simulate_5s_before: ["simulate_5s_before", "画面推演 - 5秒前", "画面推演5秒前", "5秒前"],
 };
@@ -228,9 +399,9 @@ function buildSlashQuickFeaturePrompt(
       ].join("\n");
     case "character_turnaround":
       return [
-        "请基于参考图生成“角色三视图”。",
+        "请基于参考图生成“角色四视图”。",
         subjectLine,
-        "要求：输出正面/侧面/背面三视图，角色服装与关键细节保持一致，中性背景、均匀光照、比例准确，便于设计与建模参考。",
+        "要求：输出正面/侧面/背面/面部特写四视图，角色服装与关键细节保持一致；面部特写需清晰呈现五官与妆容细节。中性背景、均匀光照、比例准确，便于设计与建模参考。",
       ].join("\n");
     case "simulate_3s_after":
       return [
@@ -403,9 +574,10 @@ export default function DoubaoImageCreatorLayout({
   }, [template]);
   const selectedModelName = String(template.model_name?.value ?? "");
   const isWanModel = selectedModelName.startsWith("wan2.");
-  const isNanoBanana = selectedModelName === "Nano Banana";
+  const isLegacyNanoBanana = selectedModelName === "Nano Banana";
+  const isNanoBanana2 = selectedModelName === "Nano Banana 2" || isLegacyNanoBanana;
   const isNanoBananaPro = selectedModelName === "Nano Banana Pro";
-  const isGeminiImageModel = isNanoBanana || isNanoBananaPro;
+  const isGeminiImageModel = isNanoBanana2 || isNanoBananaPro;
   const isSeedreamImageModel = selectedModelName.toLowerCase().includes("seedream");
   const isKlingImageModel = selectedModelName.toLowerCase().includes("kling");
   const klingElementIdsValue = String(template.kling_element_ids?.value ?? "").trim();
@@ -418,7 +590,13 @@ export default function DoubaoImageCreatorLayout({
     return Array.from(new Set(ids));
   }, [klingElementIdsValue]);
   const klingElementApplied = isKlingImageModel && selectedKlingElementIds.length > 0;
-  const supportsGeminiFeatureButtons = isNanoBananaPro;
+  const supportsGeminiFeatureButtons = isGeminiImageModel;
+  const geminiHighFidelityWarningLimit = isNanoBananaPro ? 5 : isNanoBanana2 ? 10 : null;
+  const geminiHighFidelityWarningName = isNanoBananaPro
+    ? "Nano Banana Pro"
+    : isNanoBanana2
+      ? "Nano Banana 2"
+      : "";
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
   const setEdges = useFlowStore((state) => state.setEdges);
@@ -1120,16 +1298,8 @@ export default function DoubaoImageCreatorLayout({
       : [];
     const supportsAuto = options.some((opt) => String(opt) === "Auto");
 
-    // Nano Banana doesn't support image_size; keep it at Auto (if Auto is available in options).
-    if (isNanoBanana && supportsAuto) {
-      if (current !== "Auto") {
-        handleResolutionChange({ value: "Auto" }, { skipSnapshot: true });
-      }
-      return;
-    }
-
     // If Auto is currently selected but the model doesn't offer it, move to a non-Auto fallback.
-    if (!isNanoBanana && current === "Auto" && !supportsAuto) {
+    if (current === "Auto" && !supportsAuto) {
       const fallback =
         template.resolution?.default ??
         options.find((opt) => String(opt) !== "Auto") ??
@@ -1139,7 +1309,6 @@ export default function DoubaoImageCreatorLayout({
       }
     }
   }, [
-    isNanoBanana,
     template.resolution?.default,
     template.resolution?.options,
     template.resolution?.value,
@@ -1265,6 +1434,9 @@ export default function DoubaoImageCreatorLayout({
         if (isGeminiImageModel) {
           extraRatios.push("21:9", "4:5", "5:4");
         }
+        if (isNanoBanana2) {
+          extraRatios.push("1:4", "4:1", "1:8", "8:1");
+        }
         if (isWanModel || isSeedreamImageModel || isKlingImageModel) {
           extraRatios.push("21:9");
         }
@@ -1272,17 +1444,23 @@ export default function DoubaoImageCreatorLayout({
           options = Array.from(new Set([...options, ...extraRatios]));
         }
 
-        // Nano Banana supports 4:5, 5:4.
-        // Wan, Nano Banana, Seedream, Kling support 21:9.
-        const bananaExclusiveRatios = new Set(["4:5", "5:4"]);
+        // Gemini supports 4:5, 5:4.
+        // Nano Banana 2 additionally supports 1:4/4:1/1:8/8:1.
+        // Wan, Gemini, Seedream, Kling support 21:9.
+        const geminiExclusiveRatios = new Set(["4:5", "5:4"]);
+        const banana2ExclusiveRatios = new Set(["1:4", "4:1", "1:8", "8:1"]);
         const wideRatios = new Set(["21:9"]);
 
         options = options.filter((opt) => {
           const optStr = String(opt);
 
-          // 4:5, 5:4 -> Only for Gemini (Nano Banana)
-          if (bananaExclusiveRatios.has(optStr)) {
+          // 4:5, 5:4 -> Only for Gemini
+          if (geminiExclusiveRatios.has(optStr)) {
             return isGeminiImageModel;
+          }
+          // 1:4, 4:1, 1:8, 8:1 -> Only for Nano Banana 2
+          if (banana2ExclusiveRatios.has(optStr)) {
+            return isNanoBanana2;
           }
 
           // 21:9 -> Wan OR Gemini OR Seedream
@@ -1301,14 +1479,9 @@ export default function DoubaoImageCreatorLayout({
           }
           return true;
         });
-      }
-      if (field.name === "resolution" && isNanoBanana) {
-        // Nano Banana doesn't support image_size; we expose a single "Auto" toggle as UI affordance.
-        if (!options.some((opt) => String(opt) === "Auto")) {
-          options = ["Auto", ...options];
-        }
-      }
 
+        options = sortAspectRatioOptions(options);
+      }
       const tooltipText =
         DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
 
@@ -1348,11 +1521,7 @@ export default function DoubaoImageCreatorLayout({
           return options.filter((opt) => Number(opt) > 1);
         }
 
-        if (field.name === "resolution") {
-          // Nano Banana 不支持 image_size 参数，禁用所有分辨率选项
-          // Nano Banana Pro 支持 image_size 参数，不禁用任何选项
-          return isNanoBanana ? options.filter((opt) => String(opt) !== "Auto") : undefined;
-        }
+        if (field.name === "resolution") return undefined;
 
         return undefined;
       })();
@@ -1384,7 +1553,7 @@ export default function DoubaoImageCreatorLayout({
     isWanModel,
     hasAnyReferenceSelected,
     isGeminiImageModel,
-    isNanoBanana,
+    isNanoBanana2,
     isSeedreamImageModel,
     isKlingImageModel,
     edgeImageCountLimit,
@@ -1493,9 +1662,7 @@ export default function DoubaoImageCreatorLayout({
   const maxReferenceEntries = useMemo(() => {
     const defaultLimit = isWanModel
       ? 4
-      : isNanoBanana
-        ? 3
-        : isKlingImageModel
+      : isKlingImageModel
           ? 10
           : MAX_REFERENCE_IMAGES;
     const explicitLimit =
@@ -1506,7 +1673,7 @@ export default function DoubaoImageCreatorLayout({
       return edgeImageCountLimit ? Math.min(explicitLimit, edgeImageCountLimit) : explicitLimit;
     }
     return edgeImageCountLimit ? Math.min(defaultLimit, edgeImageCountLimit) : defaultLimit;
-  }, [referenceField, isWanModel, isNanoBanana, isKlingImageModel, edgeImageCountLimit]);
+  }, [referenceField, isWanModel, isKlingImageModel, edgeImageCountLimit]);
   const maxLocalEntries = Math.max(
     maxReferenceEntries - upstreamReferencePreviews.length,
     0,
@@ -2652,6 +2819,27 @@ export default function DoubaoImageCreatorLayout({
     };
   }, [setNodes, data.id]);
 
+  const previewAspectRatioRaw = String(
+    template.aspect_ratio?.value ?? template.aspect_ratio?.default ?? "adaptive",
+  ).trim();
+  const previewRowWidthBoost = useMemo(
+    () => resolvePreviewRowWidthBoost(previewAspectRatioRaw),
+    [previewAspectRatioRaw],
+  );
+  const previewRowClassName = "relative flex flex-col gap-4 lg:flex-row";
+  const previewRowStyle = useMemo<CSSProperties | undefined>(() => {
+    if (previewRowWidthBoost <= 1.001) return undefined;
+
+    const widthPercent = Number((previewRowWidthBoost * 100).toFixed(2));
+    const marginLeftPercent = Number(
+      (((previewRowWidthBoost - 1) * 100) / 2).toFixed(2),
+    );
+    return {
+      width: `${widthPercent}%`,
+      marginLeft: `-${marginLeftPercent}%`,
+    };
+  }, [previewRowWidthBoost]);
+
   return (
     <div
       ref={componentRef}
@@ -2676,7 +2864,7 @@ export default function DoubaoImageCreatorLayout({
 
       {/* Preview */}
 
-      <div className="relative flex flex-col gap-4 lg:flex-row">
+      <div className={previewRowClassName} style={previewRowStyle}>
         {referenceHandleMeta && (
           <div className="absolute left-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:block">
             <div ref={leftHandleMotionRef}>
@@ -3045,7 +3233,6 @@ export default function DoubaoImageCreatorLayout({
                   data={data}
                   resolutionConfig={resolutionConfig}
                   aspectRatioConfig={aspectRatioConfig}
-                  isNanoBanana={isNanoBanana}
                   disabled={isBusy}
                   widthClass="basis-[125px]"
                 />
@@ -3220,9 +3407,11 @@ export default function DoubaoImageCreatorLayout({
                 <p className="text-xs text-muted-foreground">
                   已选择 {selectedReferenceCount} / {maxReferenceEntries} 张参考图
                 </p>
-                {isNanoBananaPro && selectedReferenceCount > 5 && (
+                {geminiHighFidelityWarningLimit !== null &&
+                  selectedReferenceCount > geminiHighFidelityWarningLimit && (
                   <p className="text-xs text-amber-600">
-                    Nano Banana Pro 建议高保真输入不超过 5 张，超过后可能影响细节质量。
+                    {geminiHighFidelityWarningName} 建议高保真输入不超过{" "}
+                    {geminiHighFidelityWarningLimit} 张，超过后可能影响细节质量。
                   </p>
                 )}
                 {!canAddMoreReferences && (

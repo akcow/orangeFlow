@@ -90,10 +90,41 @@ type DoubaoPreviewAppearance =
 const DEFAULT_IMAGE_PADDING_PERCENT = 100; // 1:1
 // Keep the same fallback geometry as the existing `aspect-[170/100]` class used for video.
 const DEFAULT_VIDEO_PADDING_PERCENT = (100 / 170) * 100; // ~58.82%
+const PREVIEW_RATIO_FLIP_MIN_SCALE_Y = 0.2;
+const PREVIEW_RATIO_FLIP_MAX_SCALE_Y = 5;
 
 // Some node/template updates can remount this component. Cache the last rendered ratio per node so we
 // can still animate from the previous value to the new one after mount.
 const lastPersistentPreviewPaddingByKey = new Map<string, number>();
+
+function roundPaddingPercent(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.round(value * 100) / 100;
+}
+
+function parseAspectRatioValue(
+  rawAspectRatio: string | undefined,
+): { width: number; height: number } | null {
+  const raw = String(rawAspectRatio ?? "").trim();
+  if (!raw) return null;
+
+  // Supports "W:H" (e.g. "16:9") and "WxH" (e.g. "1024x768"), including labels with suffixes.
+  const match = raw.match(/(\d+(?:\.\d+)?)\s*[:xX：]\s*(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function shouldBypassRatioFlip(fromPaddingPercent: number, toPaddingPercent: number): boolean {
+  const scaleY = toPaddingPercent / fromPaddingPercent;
+  if (!Number.isFinite(scaleY) || scaleY <= 0) return true;
+  return scaleY < PREVIEW_RATIO_FLIP_MIN_SCALE_Y || scaleY > PREVIEW_RATIO_FLIP_MAX_SCALE_Y;
+}
 
 function resolvePersistentPreviewPaddingPercent(
   rawAspectRatio: string | undefined,
@@ -108,26 +139,19 @@ function resolvePersistentPreviewPaddingPercent(
   const raw = String(rawAspectRatio ?? "").trim();
   // Treat empty as "adaptive" for the persistent preview frame.
   if (!raw) {
-    return adaptivePaddingPercent ?? fallback;
+    return roundPaddingPercent(adaptivePaddingPercent ?? fallback);
   }
 
   const lowered = raw.toLowerCase();
   if (lowered === "adaptive" || lowered === "auto") {
-    return adaptivePaddingPercent ?? fallback;
+    return roundPaddingPercent(adaptivePaddingPercent ?? fallback);
   }
 
-  // Supports "W:H" (e.g. "16:9") and "WxH" (e.g. "1024x768"), including labels like "16:9 横屏".
-  const match = raw.match(/(\d+(?:\.\d+)?)\s*[:xX]\s*(\d+(?:\.\d+)?)/);
-  if (!match) return fallback;
+  const ratio = parseAspectRatioValue(raw);
+  if (!ratio) return fallback;
 
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return fallback;
-  }
-
-  const percent = (height / width) * 100;
-  return Math.max(0, Math.round(percent * 100) / 100);
+  const percent = (ratio.height / ratio.width) * 100;
+  return roundPaddingPercent(percent);
 }
 
 function normalizePublicFilePreviewUrl(
@@ -595,6 +619,36 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       // This avoids the "instant resize then animate" jump, while keeping XYFlow work minimal.
       const current = layoutPaddingPercent;
       const next = targetPaddingPercent;
+      // Extreme jumps (e.g. 1:8 <-> 8:1) can cause visual artifacts with FLIP scale/shield.
+      // Fall back to an immediate layout commit for those cases to keep the preview stable.
+      if (shouldBypassRatioFlip(current, next)) {
+        pendingRatioAnimationRef.current = null;
+        shouldResetTransformsOnNextLayoutRef.current = false;
+        const frameEl = persistentPreviewFrameRef.current;
+        const shieldEl = persistentPreviewScaleShieldRef.current;
+        const translateEl = persistentPreviewTranslateLayerRef.current;
+        if (frameEl) {
+          frameEl.style.transform = "";
+          frameEl.style.transition = "";
+          frameEl.style.transformOrigin = "";
+          frameEl.style.willChange = "";
+        }
+        if (shieldEl) {
+          shieldEl.style.transform = "";
+          shieldEl.style.transition = "";
+          shieldEl.style.transformOrigin = "";
+          shieldEl.style.willChange = "";
+        }
+        if (translateEl) {
+          translateEl.style.transform = "";
+          translateEl.style.transition = "";
+          translateEl.style.willChange = "";
+        }
+        setIsRatioTransitioning(false);
+        setLayoutPaddingPercent(next);
+        onPersistentPreviewMotionCommit?.();
+        return;
+      }
       pendingRatioAnimationRef.current = {
         fromScaleY: 1,
         toScaleY: next / current,
@@ -603,7 +657,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
       ratioAnimSeqRef.current += 1;
       setRatioAnimSeq(ratioAnimSeqRef.current);
-    }, [isPersistentPreview, layoutPaddingPercent, targetPaddingPercent]);
+    }, [
+      isPersistentPreview,
+      layoutPaddingPercent,
+      onPersistentPreviewMotionCommit,
+      targetPaddingPercent,
+    ]);
 
     useEffect(() => {
       if (!isPersistentPreview) return;
@@ -612,11 +671,19 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const containerStyle = useMemo(() => {
       if (!isPersistentPreview || targetPaddingPercent === null) return undefined;
+      // For extreme ratio jumps we bypass FLIP and render target geometry immediately
+      // to avoid a one-frame stale layout flash (e.g. 1:1 briefly shown before 8:1).
+      const shouldUseTargetImmediately =
+        layoutPaddingPercent !== targetPaddingPercent &&
+        shouldBypassRatioFlip(layoutPaddingPercent, targetPaddingPercent);
+      const displayPaddingPercent = shouldUseTargetImmediately
+        ? targetPaddingPercent
+        : layoutPaddingPercent;
       return {
         position: "relative" as const,
         width: "100%",
         height: 0,
-        paddingBottom: `${layoutPaddingPercent}%`,
+        paddingBottom: `${displayPaddingPercent}%`,
       };
     }, [isPersistentPreview, layoutPaddingPercent, targetPaddingPercent]);
 
@@ -863,9 +930,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         : "mt-3 rounded-3xl border border-muted-foreground/20 bg-white/80 p-4 shadow-sm transition-colors transition-shadow duration-200 ease-out hover:shadow-md dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
     );
 
-    const isUltraWide21x9 =
-      appearance === "imageCreator" && String(aspectRatio ?? "").trim() === "21:9";
-
     const previewFrameClassName = cn(
       "relative flex",
       isMinimal
@@ -873,8 +937,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           ? cn(
              "w-full max-w-full",
              minimalAspectClass,
-             // 21:9 looks too short in the persistent preview; increase minimum visible area only for this ratio.
-             isUltraWide21x9 && "min-h-[320px]",
              // Fallback to aspect-square if no style is applied and no specific ratio class? 
              // Actually, if we remove aspect-square, it might collapse if empty. 
              // We should ensure a default aspect ratio exists if the computed one is missing.
