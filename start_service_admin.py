@@ -155,11 +155,49 @@ def _ensure_uv_environment() -> None:
         raise SystemExit(0)
 
 
+def _ensure_uv_installed() -> None:
+    """Ensure uv is installed, auto-install if missing."""
+    if shutil.which("uv"):
+        return
+
+    print("\n[uv] uv not found, attempting to install...")
+
+    if os.name == "nt":
+        install_cmd = [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-c",
+            "irm https://astral.sh/uv/install.ps1 | iex",
+        ]
+    else:
+        install_cmd = ["curl", "-LsSf", "https://astral.sh/uv/install.sh", "|", "sh"]
+        subprocess.run(" ".join(install_cmd), shell=True, cwd=REPO_ROOT, check=True)
+        return
+
+    try:
+        subprocess.run(_resolve_command(install_cmd), cwd=REPO_ROOT, check=True)
+        print("[uv] uv installed successfully.")
+    except subprocess.CalledProcessError as exc:
+        print(f"\n[error] Failed to install uv automatically: {exc}")
+        print("\nPlease install uv manually:")
+        if os.name == "nt":
+            print("  powershell -ExecutionPolicy Bypass -c 'irm https://astral.sh/uv/install.ps1 | iex'")
+        else:
+            print("  curl -LsSf https://astral.sh/uv/install.sh | sh")
+        print("\nOr visit: https://docs.astral.sh/uv/getting-started/installation/")
+        raise SystemExit(1) from exc
+
+    if not shutil.which("uv"):
+        print("\n[error] uv installation appeared to succeed but 'uv' command not found.")
+        print("You may need to restart your terminal or add uv to your PATH.")
+        raise SystemExit(1)
+
+
 def _ensure_python_dependencies() -> None:
     if os.environ.get("LANGFLOW_SKIP_UV_SYNC") == "1":
         return
-    if not shutil.which("uv"):
-        return
+    _ensure_uv_installed()
     run(["uv", "sync"], cwd=REPO_ROOT)
 
 

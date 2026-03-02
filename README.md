@@ -33,11 +33,14 @@
 - Python：`3.10 ~ 3.13`（来自 `pyproject.toml` 的 `>=3.10,<3.14`）
 - Node.js：建议 `20 LTS` 或 `22 LTS`
 - npm：用于前端构建
-- uv：建议安装（启动脚本会优先使用 `uv sync`）
+- uv：**必需**（启动脚本会自动检测并安装）
 - 操作系统：Windows / macOS / Linux
 
 说明：
 - 在 Windows 上，若使用 Node.js 23+，构建可能出现原生依赖崩溃；推荐回退到 20/22 LTS。
+- uv 是本项目的依赖管理工具，首次运行 `python start_service.py` 时，如果检测到 uv 未安装，脚本会**自动安装**。你也可以手动安装：
+  - Windows：`powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+  - macOS/Linux：`curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ## 3. 快速启动
 
@@ -53,10 +56,11 @@ python start_service.py
 
 脚本会自动执行以下步骤：
 1. 清理缓存与组件索引缓存
-2. 执行 `uv sync`（若可用）
-3. 前端依赖安装与构建（按需）
-4. 同步 `src/frontend/build` 到后端静态目录
-5. 设置开发环境变量并启动 LangFlow
+2. **自动检测并安装 uv**（如果未安装）
+3. 执行 `uv sync` 安装 Python 依赖
+4. 前端依赖安装与构建（按需）
+5. 同步 `src/frontend/build` 到后端静态目录
+6. 设置开发环境变量并启动 LangFlow
 
 ### 3.2 管理员登录模式（需要真实登录流程时使用）
 
@@ -165,9 +169,14 @@ python start_service_admin.py --reset-db
 
 ### Q1：到底怎么启动？
 
-A：就两条命令，按场景选一个：
+A：就一条命令，首次运行会自动安装 uv 和所有依赖：
+```bash
+python start_service.py
+```
 - 日常开发：`python start_service.py`
 - 登录/权限联调：`python start_service_admin.py`
+
+首次运行时，脚本会自动检测并安装 uv（Python 依赖管理工具），然后执行 `uv sync` 安装所有依赖。你不需要手动安装 uv 或执行 `uv sync`。
 
 ### Q2：端口 7860 被占用怎么办？
 
