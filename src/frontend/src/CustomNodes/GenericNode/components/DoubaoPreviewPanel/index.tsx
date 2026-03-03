@@ -428,7 +428,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       return Array.from(new Set(normalized));
     }, [rawMessage, resolvedPreview?.error]);
     const primaryFailureReason = failureMessages[0] ?? "";
-    const lastFailureAlertKeyRef = useRef<string>("");
+    const lastFailureAlertKeyRef = useRef<string | null>(null);
     useEffect(() => {
       if (!primaryFailureReason) return;
       const fingerprint = [
@@ -437,8 +437,16 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         resolvedPreview?.generated_at ?? "",
         primaryFailureReason,
       ].join("|");
+
+      const isInitial = lastFailureAlertKeyRef.current === null;
+
       if (fingerprint === lastFailureAlertKeyRef.current) return;
       lastFailureAlertKeyRef.current = fingerprint;
+
+      if (isInitial) {
+        return;
+      }
+
       setErrorData({
         title: "创作失败，请重试；若多次失败请联系客服",
         list: [primaryFailureReason],
@@ -935,31 +943,31 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       isMinimal
         ? appearance === "imageCreator" || appearance === "videoGenerator"
           ? cn(
-             "w-full max-w-full",
-             minimalAspectClass,
-             // Fallback to aspect-square if no style is applied and no specific ratio class? 
-             // Actually, if we remove aspect-square, it might collapse if empty. 
-             // We should ensure a default aspect ratio exists if the computed one is missing.
-             !containerStyle && "aspect-square",
-             // Single preview container for image creator (avoid nested frames inside the renderer).
-               cn(
-                "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-colors transition-shadow duration-200 ease-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
+            "w-full max-w-full",
+            minimalAspectClass,
+            // Fallback to aspect-square if no style is applied and no specific ratio class? 
+            // Actually, if we remove aspect-square, it might collapse if empty. 
+            // We should ensure a default aspect ratio exists if the computed one is missing.
+            !containerStyle && "aspect-square",
+            // Single preview container for image creator (avoid nested frames inside the renderer).
+            cn(
+              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-colors transition-shadow duration-200 ease-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
               // backdrop-filter can force repaints during transform/layout changes; disable it only while animating.
               isRatioTransitioning && "dark:backdrop-blur-none",
               // Keep selected shadow/ring visible during the ratio animation so the selection
               // styling tracks the frame as it scales, instead of popping at the end.
               isNodeSelected &&
-                "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
-             ),
-            )
-           : cn(
-             "w-full max-w-full",
-             minimalAspectClass,
-              cn(
-                "rounded-[20px] border border-[#E6E9F4] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_15px_40px_rgba(0,0,0,0.30)]",
-               isNodeSelected && "ring-2 ring-node-selected/25",
-              ),
-            )
+              "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
+            ),
+          )
+          : cn(
+            "w-full max-w-full",
+            minimalAspectClass,
+            cn(
+              "rounded-[20px] border border-[#E6E9F4] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_15px_40px_rgba(0,0,0,0.30)]",
+              isNodeSelected && "ring-2 ring-node-selected/25",
+            ),
+          )
         : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10",
       panelClass,
       !isMinimal && isNodeSelected && "ring-2 ring-node-selected/25",
@@ -969,9 +977,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       "flex items-center justify-center",
       isMinimal
         ? appearance === "imageCreator" || appearance === "videoGenerator"
-           // Use absolute positioning to fill the padding-bottom created space
-           ? "absolute inset-0 bg-transparent"
-           : "h-full w-full rounded-[16px] bg-[#F9FAFE] dark:bg-neutral-800/80 dark:backdrop-blur-xl"
+          // Use absolute positioning to fill the padding-bottom created space
+          ? "absolute inset-0 bg-transparent"
+          : "h-full w-full rounded-[16px] bg-[#F9FAFE] dark:bg-neutral-800/80 dark:backdrop-blur-xl"
         : "h-full w-full min-h-[320px]",
     );
 
@@ -1363,9 +1371,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const hasHoverAutoplayVideo = Boolean(
       isPersistentPreview &&
-        enableHoverAutoplay &&
-        kind === "video" &&
-        videoPreview?.videoUrl,
+      enableHoverAutoplay &&
+      kind === "video" &&
+      videoPreview?.videoUrl,
     );
 
     const galleryForRenderer = hasGeneratedImagePreview
@@ -1487,23 +1495,23 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           // Preload the uploaded image so the new node appears with the frame already rendered.
           const previewUrl = toStableInternalFileUrl(uploadedPath, "image");
           if (previewUrl) {
-              try {
-                const preload = new Promise<void>((resolve, reject) => {
-                  const img = new Image();
-                  img.onload = () => {
-                    // Best-effort decode to reduce the "new node appears then stutters" effect.
-                    const decode = (img as any).decode;
-                    if (typeof decode === "function") {
-                      (decode.call(img) as Promise<void>).then(resolve).catch(resolve);
-                      return;
-                    }
-                    resolve();
-                  };
-                  img.onerror = () => reject(new Error("image load failed"));
-                  img.src = previewUrl;
-                });
-                await Promise.race([
-                  preload,
+            try {
+              const preload = new Promise<void>((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                  // Best-effort decode to reduce the "new node appears then stutters" effect.
+                  const decode = (img as any).decode;
+                  if (typeof decode === "function") {
+                    (decode.call(img) as Promise<void>).then(resolve).catch(resolve);
+                    return;
+                  }
+                  resolve();
+                };
+                img.onerror = () => reject(new Error("image load failed"));
+                img.src = previewUrl;
+              });
+              await Promise.race([
+                preload,
                 new Promise<void>((resolve) => window.setTimeout(resolve, 8000)),
               ]);
             } catch {
@@ -1837,48 +1845,48 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const canRepaint = Boolean(
       appearance === "imageCreator" &&
-        kind === "image" &&
-        currentImage?.imageSource &&
-        !isPreviewOnlyNode,
+      kind === "image" &&
+      currentImage?.imageSource &&
+      !isPreviewOnlyNode,
     );
     const canErase = Boolean(
       appearance === "imageCreator" &&
-        kind === "image" &&
-        currentImage?.imageSource &&
-        !isPreviewOnlyNode,
+      kind === "image" &&
+      currentImage?.imageSource &&
+      !isPreviewOnlyNode,
     );
     const canCutout = Boolean(
       appearance === "imageCreator" &&
-        kind === "image" &&
-        currentImage?.imageSource &&
-        !isPreviewOnlyNode,
+      kind === "image" &&
+      currentImage?.imageSource &&
+      !isPreviewOnlyNode,
     );
     const canAnnotate = Boolean(
       appearance === "imageCreator" && kind === "image" && currentImage?.imageSource,
     );
     const canCrop = Boolean(
       appearance === "imageCreator" &&
-        kind === "image" &&
-        currentImage?.imageSource &&
-        !isPreviewOnlyNode,
+      kind === "image" &&
+      currentImage?.imageSource &&
+      !isPreviewOnlyNode,
     );
     const canEnhance = Boolean(
       appearance === "imageCreator" &&
-        kind === "image" &&
-        currentImage?.imageSource &&
-        !isPreviewOnlyNode,
+      kind === "image" &&
+      currentImage?.imageSource &&
+      !isPreviewOnlyNode,
     );
     const canOutpaint = Boolean(
       appearance === "imageCreator" &&
-        kind === "image" &&
-        currentImage?.imageSource &&
-        !isPreviewOnlyNode,
+      kind === "image" &&
+      currentImage?.imageSource &&
+      !isPreviewOnlyNode,
     );
     const canMultiAngleCamera = Boolean(
       appearance === "imageCreator" &&
-        kind === "image" &&
-        currentImage?.imageSource &&
-        !isPreviewOnlyNode,
+      kind === "image" &&
+      currentImage?.imageSource &&
+      !isPreviewOnlyNode,
     );
 
     const clipFilePath = useMemo(() => {
@@ -1918,21 +1926,21 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       const nodeTemplate = (node as any)?.template ?? {};
       const initialModelName = String(
         nodeTemplate?.model_name?.value ??
-          baseTemplate?.model_name?.value ??
-          modelOptions[0] ??
-          "",
+        baseTemplate?.model_name?.value ??
+        modelOptions[0] ??
+        "",
       ).trim();
       const initialResolution = String(
         nodeTemplate?.resolution?.value ??
-          baseTemplate?.resolution?.value ??
-          resolutionOptions[0] ??
-          "",
+        baseTemplate?.resolution?.value ??
+        resolutionOptions[0] ??
+        "",
       ).trim();
       const initialAspectRatio = String(
         nodeTemplate?.aspect_ratio?.value ??
-          baseTemplate?.aspect_ratio?.value ??
-          aspectRatioOptions[0] ??
-          "1:1",
+        baseTemplate?.aspect_ratio?.value ??
+        aspectRatioOptions[0] ??
+        "1:1",
       ).trim();
 
       return {
@@ -2127,8 +2135,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         setEraseOpen(true);
       });
 
-        // Crop-style zoom + center, but reserve bottom space so toolbar + drawer are fully visible.
-        try {
+      // Crop-style zoom + center, but reserve bottom space so toolbar + drawer are fully visible.
+      try {
         const container =
           (typeof document !== "undefined" &&
             (document.getElementById("react-flow-id") as HTMLElement | null)) ||
@@ -2943,9 +2951,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         const inputHeight = Number((currentImage as any)?.height);
         let sizeOverride =
           Number.isFinite(inputWidth) &&
-          Number.isFinite(inputHeight) &&
-          inputWidth > 0 &&
-          inputHeight > 0
+            Number.isFinite(inputHeight) &&
+            inputWidth > 0 &&
+            inputHeight > 0
             ? `${Math.round(inputWidth)}*${Math.round(inputHeight)}`
             : "";
 
@@ -3735,8 +3743,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             title: "\u526A\u8F91\u5931\u8D25",
             list: [
               e?.response?.data?.detail ??
-                e?.message ??
-                "\u7F51\u7EDC\u5F02\u5E38\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5",
+              e?.message ??
+              "\u7F51\u7EDC\u5F02\u5E38\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5",
             ],
           });
         } finally {
@@ -4819,9 +4827,9 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         push(
           "尺寸",
           currentImage.size ??
-            (currentImage.width && currentImage.height
-              ? `${currentImage.width}x${currentImage.height}`
-              : ""),
+          (currentImage.width && currentImage.height
+            ? `${currentImage.width}x${currentImage.height}`
+            : ""),
         );
         push("\u5bbd", currentImage.width);
         push("\u9ad8", currentImage.height);
@@ -4924,313 +4932,313 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                   : undefined
               }
             >
-            {isPersistentPreview ? (
-              <div className="absolute inset-0">
-                <div ref={persistentPreviewScaleShieldRef} className="absolute inset-0">
-                  <div
-                    ref={persistentPreviewTranslateLayerRef}
-                    className="absolute inset-0"
-                  >
-                <div className={previewSurfaceClassName}>
-                  <div className="relative h-full w-full">
+              {isPersistentPreview ? (
+                <div className="absolute inset-0">
+                  <div ref={persistentPreviewScaleShieldRef} className="absolute inset-0">
                     <div
-                      className={cn(
-                        "h-full w-full",
-                        shouldShowWaveLoading && "pointer-events-none select-none",
-                      )}
+                      ref={persistentPreviewTranslateLayerRef}
+                      className="absolute inset-0"
                     >
-                      {inlinePreview}
+                      <div className={previewSurfaceClassName}>
+                        <div className="relative h-full w-full">
+                          <div
+                            className={cn(
+                              "h-full w-full",
+                              shouldShowWaveLoading && "pointer-events-none select-none",
+                            )}
+                          >
+                            {inlinePreview}
+                          </div>
+                          <BuildingWaveOverlay
+                            tonedByPreview={Boolean(hasRenderablePreview)}
+                            active={Boolean(shouldShowWaveLoading)}
+                          />
+                          {hasHoverAutoplayVideo && !shouldShowWaveLoading && (
+                            <button
+                              type="button"
+                              aria-label={isHoverAutoplayMuted ? "开启声音" : "关闭声音"}
+                              title={isHoverAutoplayMuted ? "开启声音" : "静音"}
+                              onClick={handleToggleHoverAutoplaySound}
+                              className={cn(
+                                "absolute left-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white shadow transition hover:bg-black/60",
+                                showReferenceSelectionBadge ? "top-14" : "top-4",
+                              )}
+                            >
+                              {isHoverAutoplayMuted ? (
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  className="h-5 w-5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                  <line x1="22" y1="9" x2="16" y2="15" />
+                                  <line x1="16" y1="9" x2="22" y2="15" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  className="h-5 w-5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                                </svg>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {showReferenceSelectionBadge && (
+                        <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
+                          已选择 {referenceSelectionCount}
+                        </div>
+                      )}
+
+                      {isMinimal ? (
+                        !shouldShowWaveLoading &&
+                        (showUploadOverlayInFrame ||
+                          hasRenderablePreview ||
+                          (isAudioMinimal && downloadInfo)) && (
+                          <div className="absolute top-4 right-4 flex items-center gap-2">
+                            {showUploadOverlayInFrame && (
+                              <button
+                                type="button"
+                                className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  onRequestUpload?.();
+                                }}
+                              >
+                                {uploadButtonLabel}
+                              </button>
+                            )}
+                            {isAudioMinimal && hasAudioPreview && (
+                              <button
+                                type="button"
+                                className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  handlePickLocalAudio();
+                                }}
+                              >
+                                上传
+                              </button>
+                            )}
+                            {isAudioMinimal && downloadInfo && (
+                              <button
+                                type="button"
+                                onClick={handleDownload}
+                                className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
+                              >
+                                <ForwardedIconComponent
+                                  name="Download"
+                                  className="h-4 w-4 text-current"
+                                />
+                                <span>保存</span>
+                              </button>
+                            )}
+                          </div>
+                        )
+                      ) : (
+                        (appearance === "default" || appearance === "audioCreator") &&
+                        hasRenderablePreview && (
+                          <button
+                            type="button"
+                            aria-label="放大预览"
+                            onClick={openModal}
+                            className="group absolute -top-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-muted-foreground/40 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-md transition-colors duration-200 hover:border-muted-foreground/60 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800"
+                          >
+                            <ForwardedIconComponent
+                              name="Maximize2"
+                              className="h-4 w-4 text-current"
+                            />
+                            <span>放大预览</span>
+                          </button>
+                        )
+                      )}
+
+                      {!shouldShowWaveLoading &&
+                        appearance !== "imageCreator" &&
+                        hasHoverAutoplayVideo &&
+                        !isAudioMinimal && (
+                          <button
+                            type="button"
+                            aria-label="截帧"
+                            title="截帧"
+                            onClick={handleCaptureHoverVideoFrame}
+                            className={cn(
+                              "absolute bottom-4 right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full shadow transition",
+                              isMinimal
+                                ? "bg-black/55 text-white hover:bg-black/70"
+                                : "bg-white/90 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                            )}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-4 w-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />
+                              <circle cx="12" cy="13" r="3" />
+                            </svg>
+                          </button>
+                        )}
+
+                      {!shouldShowWaveLoading &&
+                        appearance !== "imageCreator" &&
+                        false &&
+                        !isAudioMinimal && (
+                          <button
+                            onClick={handleDownload}
+                            className={cn(
+                              "absolute flex items-center gap-1 text-xs font-medium transition",
+                              isMinimal
+                                ? cn(
+                                  "bottom-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow",
+                                  hasHoverAutoplayVideo ? "right-16" : "right-4",
+                                )
+                                : cn(
+                                  "bottom-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                                  hasHoverAutoplayVideo ? "right-16" : "right-4",
+                                ),
+                            )}
+                          >
+                            <ForwardedIconComponent name="Download" className="h-4 w-4" />
+                            <span>下载结果</span>
+                          </button>
+                        )}
                     </div>
-                    <BuildingWaveOverlay
-                      tonedByPreview={Boolean(hasRenderablePreview)}
-                      active={Boolean(shouldShowWaveLoading)}
-                    />
-                    {hasHoverAutoplayVideo && !shouldShowWaveLoading && (
-                      <button
-                        type="button"
-                        aria-label={isHoverAutoplayMuted ? "开启声音" : "关闭声音"}
-                        title={isHoverAutoplayMuted ? "开启声音" : "静音"}
-                        onClick={handleToggleHoverAutoplaySound}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {appearance === "default" && (
+                    <div className="absolute bottom-4 left-4 z-10">
+                      <OutputModal
+                        open={isLogsOpen}
+                        setOpen={setLogsOpen}
+                        disabled={false}
+                        nodeId={nodeId}
+                        outputName={outputName}
+                      >
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-7 rounded-full px-2 text-[11px]"
+                        >
+                          <ForwardedIconComponent
+                            name="FileText"
+                            className="mr-1 h-3 w-3"
+                          />
+                          日志
+                        </Button>
+                      </OutputModal>
+                    </div>
+                  )}
+
+                  <div className={previewSurfaceClassName}>
+                    <div className="relative h-full w-full">
+                      <div
                         className={cn(
-                          "absolute left-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white shadow transition hover:bg-black/60",
-                          showReferenceSelectionBadge ? "top-14" : "top-4",
+                          "h-full w-full",
+                          shouldShowWaveLoading && "pointer-events-none select-none",
                         )}
                       >
-                        {isHoverAutoplayMuted ? (
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-5 w-5"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
+                        {inlinePreview}
+                      </div>
+                      <BuildingWaveOverlay
+                        tonedByPreview={Boolean(hasRenderablePreview)}
+                        active={Boolean(shouldShowWaveLoading)}
+                      />
+                    </div>
+                  </div>
+                  {showReferenceSelectionBadge && (
+                    <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
+                      已选择 {referenceSelectionCount}
+                    </div>
+                  )}
+
+                  {isMinimal ? (
+                    !shouldShowWaveLoading &&
+                    (showUploadOverlayInFrame ||
+                      hasRenderablePreview ||
+                      (isAudioMinimal && downloadInfo)) && (
+                      <div className="absolute top-4 right-4 flex items-center gap-2">
+                        {showUploadOverlayInFrame && (
+                          <button
+                            type="button"
+                            className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onRequestUpload?.();
+                            }}
                           >
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                            <line x1="22" y1="9" x2="16" y2="15" />
-                            <line x1="16" y1="9" x2="22" y2="15" />
-                          </svg>
-                        ) : (
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-5 w-5"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                          </svg>
+                            {uploadButtonLabel}
+                          </button>
                         )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {showReferenceSelectionBadge && (
-                  <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
-                    已选择 {referenceSelectionCount}
-                  </div>
-                )}
-
-                {isMinimal ? (
-                  !shouldShowWaveLoading &&
-                  (showUploadOverlayInFrame ||
-                    hasRenderablePreview ||
-                    (isAudioMinimal && downloadInfo)) && (
-                    <div className="absolute top-4 right-4 flex items-center gap-2">
-                      {showUploadOverlayInFrame && (
-                        <button
-                          type="button"
-                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onRequestUpload?.();
-                          }}
-                        >
-                          {uploadButtonLabel}
-                        </button>
-                      )}
-                      {isAudioMinimal && hasAudioPreview && (
-                        <button
-                          type="button"
-                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            handlePickLocalAudio();
-                          }}
-                        >
-                          上传
-                        </button>
-                      )}
-                      {isAudioMinimal && downloadInfo && (
-                        <button
-                          type="button"
-                          onClick={handleDownload}
-                          className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
-                        >
-                          <ForwardedIconComponent
-                            name="Download"
-                            className="h-4 w-4 text-current"
-                          />
-                          <span>保存</span>
-                        </button>
-                      )}
-                    </div>
-                  )
-                ) : (
-                  (appearance === "default" || appearance === "audioCreator") &&
-                    hasRenderablePreview && (
-                      <button
-                        type="button"
-                        aria-label="放大预览"
-                        onClick={openModal}
-                        className="group absolute -top-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-muted-foreground/40 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-md transition-colors duration-200 hover:border-muted-foreground/60 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800"
-                      >
-                        <ForwardedIconComponent
-                          name="Maximize2"
-                          className="h-4 w-4 text-current"
-                        />
-                        <span>放大预览</span>
-                      </button>
-                    )
-                )}
-
-                {!shouldShowWaveLoading &&
-                  appearance !== "imageCreator" &&
-                  hasHoverAutoplayVideo &&
-                  !isAudioMinimal && (
-                  <button
-                    type="button"
-                    aria-label="截帧"
-                    title="截帧"
-                    onClick={handleCaptureHoverVideoFrame}
-                    className={cn(
-                      "absolute bottom-4 right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full shadow transition",
-                      isMinimal
-                        ? "bg-black/55 text-white hover:bg-black/70"
-                        : "bg-white/90 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
-                    )}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />
-                      <circle cx="12" cy="13" r="3" />
-                    </svg>
-                  </button>
-                )}
-
-                {!shouldShowWaveLoading &&
-                  appearance !== "imageCreator" &&
-                  false &&
-                  !isAudioMinimal && (
-                  <button
-                    onClick={handleDownload}
-                    className={cn(
-                      "absolute flex items-center gap-1 text-xs font-medium transition",
-                      isMinimal
-                        ? cn(
-                            "bottom-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow",
-                            hasHoverAutoplayVideo ? "right-16" : "right-4",
-                          )
-                        : cn(
-                            "bottom-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
-                            hasHoverAutoplayVideo ? "right-16" : "right-4",
-                          ),
-                    )}
-                  >
-                    <ForwardedIconComponent name="Download" className="h-4 w-4" />
-                    <span>下载结果</span>
-                  </button>
-                )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <>
-                {appearance === "default" && (
-                  <div className="absolute bottom-4 left-4 z-10">
-                    <OutputModal
-                      open={isLogsOpen}
-                      setOpen={setLogsOpen}
-                      disabled={false}
-                      nodeId={nodeId}
-                      outputName={outputName}
-                    >
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 rounded-full px-2 text-[11px]"
-                      >
-                         <ForwardedIconComponent
-                           name="FileText"
-                           className="mr-1 h-3 w-3"
-                         />
-                         日志
-                       </Button>
-                     </OutputModal>
-                   </div>
-                 )}
-
-                <div className={previewSurfaceClassName}>
-                  <div className="relative h-full w-full">
-                    <div
-                      className={cn(
-                        "h-full w-full",
-                        shouldShowWaveLoading && "pointer-events-none select-none",
-                      )}
-                    >
-                      {inlinePreview}
-                    </div>
-                    <BuildingWaveOverlay
-                      tonedByPreview={Boolean(hasRenderablePreview)}
-                      active={Boolean(shouldShowWaveLoading)}
-                    />
-                  </div>
-                </div>
-                {showReferenceSelectionBadge && (
-                  <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white shadow">
-                    已选择 {referenceSelectionCount}
-                  </div>
-                )}
-
-                {isMinimal ? (
-                  !shouldShowWaveLoading &&
-                  (showUploadOverlayInFrame ||
-                    hasRenderablePreview ||
-                    (isAudioMinimal && downloadInfo)) && (
-                    <div className="absolute top-4 right-4 flex items-center gap-2">
-                      {showUploadOverlayInFrame && (
-                        <button
-                          type="button"
-                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onRequestUpload?.();
-                          }}
-                        >
-                          {uploadButtonLabel}
-                        </button>
-                      )}
-                      {isAudioMinimal && hasAudioPreview && (
-                        <button
-                          type="button"
-                          className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            handlePickLocalAudio();
-                          }}
-                        >
-                          上传
-                        </button>
-                      )}
-                      {isAudioMinimal && downloadInfo && (
-                        <button
-                          type="button"
-                          onClick={handleDownload}
-                          className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
-                        >
-                          <ForwardedIconComponent
-                            name="Download"
-                            className="h-4 w-4 text-current"
-                          />
-                          <span>保存</span>
-                        </button>
-                      )}
-                      {!shouldShowWaveLoading && !isAudioMinimal && downloadInfo && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void handleDownload();
-                          }}
-                          className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
-                        >
-                          <ForwardedIconComponent
-                            name="Download"
-                            className="h-4 w-4 text-current"
-                          />
-                          <span>下载</span>
-                        </button>
-                      )}
-                      {hasRenderablePreview && (
+                        {isAudioMinimal && hasAudioPreview && (
+                          <button
+                            type="button"
+                            className="h-8 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#1B66FF] shadow transition hover:border-[#C7D2F4] hover:bg-white"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              handlePickLocalAudio();
+                            }}
+                          >
+                            上传
+                          </button>
+                        )}
+                        {isAudioMinimal && downloadInfo && (
+                          <button
+                            type="button"
+                            onClick={handleDownload}
+                            className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
+                          >
+                            <ForwardedIconComponent
+                              name="Download"
+                              className="h-4 w-4 text-current"
+                            />
+                            <span>保存</span>
+                          </button>
+                        )}
+                        {!shouldShowWaveLoading && !isAudioMinimal && downloadInfo && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void handleDownload();
+                            }}
+                            className="flex h-8 items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-3 text-xs font-medium text-[#3B4154] shadow"
+                          >
+                            <ForwardedIconComponent
+                              name="Download"
+                              className="h-4 w-4 text-current"
+                            />
+                            <span>下载</span>
+                          </button>
+                        )}
+                        {hasRenderablePreview && (
                           <button
                             type="button"
                             aria-label="放大预览"
@@ -5243,10 +5251,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                             />
                           </button>
                         )}
-                    </div>
-                  )
-                ) : (
-                  (appearance === "default" || appearance === "audioCreator") &&
+                      </div>
+                    )
+                  ) : (
+                    (appearance === "default" || appearance === "audioCreator") &&
                     hasRenderablePreview && (
                       <button
                         type="button"
@@ -5261,25 +5269,25 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                         <span>放大预览</span>
                       </button>
                     )
-                )}
+                  )}
 
-                {!shouldShowWaveLoading && downloadInfo && !isAudioMinimal && !isMinimal && (
-                  <button
-                    onClick={handleDownload}
-                    className={cn(
-                      "absolute flex items-center gap-1 text-xs font-medium transition",
-                      isMinimal
-                        ? "bottom-4 right-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow"
-                        : "bottom-4 right-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
-                    )}
-                  >
-                    <ForwardedIconComponent name="Download" className="h-4 w-4" />
-                    <span>下载结果</span>
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+                  {!shouldShowWaveLoading && downloadInfo && !isAudioMinimal && !isMinimal && (
+                    <button
+                      onClick={handleDownload}
+                      className={cn(
+                        "absolute flex items-center gap-1 text-xs font-medium transition",
+                        isMinimal
+                          ? "bottom-4 right-4 rounded-full bg-white px-3 py-1.5 text-[#3B4154] shadow"
+                          : "bottom-4 right-4 rounded-full bg-white/90 px-3 py-1.5 text-gray-800 shadow-lg transition-colors duration-200 hover:bg-white dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800",
+                      )}
+                    >
+                      <ForwardedIconComponent name="Download" className="h-4 w-4" />
+                      <span>下载结果</span>
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
             {appearance === "imageCreator" && canAnnotate && currentImage?.imageSource && (
               <AnnotateOverlay
                 open={isAnnotateOpen}
@@ -5366,8 +5374,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
                 durationS={Math.max(
                   0,
                   clipVideoDurationS ||
-                    Number((resolvedPreview as any)?.payload?.duration) ||
-                    0,
+                  Number((resolvedPreview as any)?.payload?.duration) ||
+                  0,
                 )}
                 currentTimeS={0}
                 videoSource={videoPreview.videoUrl}
@@ -5965,8 +5973,8 @@ function EmptyPreview({
         : "暂无结果，上传图片作为视频封面"
       : "暂无结果，请上传图片";
 
-    if (isMinimal) {
-      if (appearance === "videoGenerator") {
+  if (isMinimal) {
+    if (appearance === "videoGenerator") {
       const normalizedModel = String(modelName ?? "").trim().toLowerCase();
       const isViduModel = normalizedModel.startsWith("vidu");
       const hideStartEndSuggestion = normalizedModel === "viduq3-pro";
@@ -5979,12 +5987,12 @@ function EmptyPreview({
         // Vidu q3-pro does not support start-end2video; hide the action entirely (q2-pro supports it).
         ...(!isViduModel || !hideStartEndSuggestion
           ? [
-              {
-                label: "首尾帧生成视频",
-                icon: "Clapperboard",
-                disabled: disabledSuggestions?.includes("首尾帧生成视频"),
-              },
-            ]
+            {
+              label: "首尾帧生成视频",
+              icon: "Clapperboard",
+              disabled: disabledSuggestions?.includes("首尾帧生成视频"),
+            },
+          ]
           : []),
       ];
       return (
