@@ -18,3 +18,19 @@ export const ProtectedAdminRoute = ({ children }) => {
     return children;
   }
 };
+
+export const ProtectedReviewRoute = ({ children }) => {
+  const { userData } = useContext(AuthContext);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const autoLogin = useAuthStore((state) => state.autoLogin);
+
+  const canReview = !!(userData?.is_superuser || userData?.is_reviewer);
+
+  if (!isAuthenticated) {
+    return <LoadingPage />;
+  } else if ((userData && !canReview) || autoLogin) {
+    return <CustomNavigate to="/" replace />;
+  } else {
+    return children;
+  }
+};

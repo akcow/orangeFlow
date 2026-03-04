@@ -72,13 +72,16 @@ class DoubaoImageCreator(Component):
             "min_area": 921_600,
             "max_area": 16_777_216,
         },
-        "Nano Banana": {
+        "Nano Banana 2": {
             "provider": "gemini",
-            "model_id": "gemini-2.5-flash-image",
-            "max_reference_images": 3,
-            "supports_image_size": False,
-            "supports_multi_turn": False,
-            "supports_google_search": False,
+            "model_id": "gemini-3.1-flash-image-preview",
+            # Official doc: up to 10 object refs + 4 character refs.
+            "max_reference_images": 14,
+            "max_high_fidelity_reference_images": 10,
+            "supports_image_size": True,
+            "supports_512px_image_size": True,
+            "supports_multi_turn": True,
+            "supports_google_search": True,
         },
         "Nano Banana Pro": {
             "provider": "gemini",
@@ -86,8 +89,21 @@ class DoubaoImageCreator(Component):
             "max_reference_images": 14,
             "max_high_fidelity_reference_images": 5,
             "supports_image_size": True,
+            "supports_512px_image_size": False,
             "supports_multi_turn": True,
             "supports_google_search": True,
+        },
+        # Legacy alias (hidden in UI): keep old flows runnable while model is removed from dropdown.
+        "Nano Banana": {
+            "provider": "gemini",
+            "model_id": "gemini-3.1-flash-image-preview",
+            "max_reference_images": 14,
+            "max_high_fidelity_reference_images": 10,
+            "supports_image_size": True,
+            "supports_512px_image_size": True,
+            "supports_multi_turn": True,
+            "supports_google_search": True,
+            "deprecated": True,
         },
         "wan2.6": {
             "t2i_model": "wan2.6-t2i",
@@ -143,22 +159,35 @@ class DoubaoImageCreator(Component):
     }
 
     # Hide tool-only models from the user-facing dropdown.
-    MODEL_OPTIONS = [k for k, meta in MODEL_CATALOG.items() if not (meta or {}).get("tool_only")]
+    MODEL_OPTIONS = [
+        k
+        for k, meta in MODEL_CATALOG.items()
+        if not (meta or {}).get("tool_only") and not (meta or {}).get("deprecated")
+    ]
 
     RESOLUTION_PRESETS = {
+        "512px（预览）": 512,
         "1K（草稿）": 1280,
         "2K（推荐）": 2048,
         "4K（超清）": 4096,
     }
+    DEFAULT_RESOLUTION_OPTIONS = ["1K（草稿）", "2K（推荐）", "4K（超清）"]
 
     ASPECT_RATIOS = {
         "1:1": (1, 1),
+        "1:4": (1, 4),
+        "1:8": (1, 8),
         "4:3": (4, 3),
+        "4:1": (4, 1),
         "3:4": (3, 4),
         "16:9": (16, 9),
         "9:16": (9, 16),
         "3:2": (3, 2),
         "2:3": (2, 3),
+        "4:5": (4, 5),
+        "5:4": (5, 4),
+        "8:1": (8, 1),
+        "21:9": (21, 9),
         "adaptive": (1, 1),
     }
 
@@ -357,7 +386,7 @@ class DoubaoImageCreator(Component):
             value=False,
             advanced=True,
             info=(
-                "仅 Nano Banana Pro 支持。启用后会把上一轮的 user/model content 保存为 history，"
+                "仅 Nano Banana 2 / Nano Banana Pro 支持。启用后会把上一轮的 user/model content 保存为 history，"
                 "下一轮请求会携带这些历史。默认只保留最近 4 轮（可用环境变量 GEMINI_MULTI_TURN_MAX_TURNS 修改）。"
             ),
         ),
@@ -367,14 +396,14 @@ class DoubaoImageCreator(Component):
             value=False,
             advanced=True,
             info=(
-                "仅 Nano Banana Pro 支持。启用后会在 generateContent payload 中添加 tools=[{google_search:{}}]。"
+                "仅 Nano Banana 2 / Nano Banana Pro 支持。启用后会在 generateContent payload 中添加 tools=[{google_search:{}}]。"
                 "注意：一些代理/网关可能不支持；启用后会自动设置 responseModalities=[\"TEXT\",\"IMAGE\"]。"
             ),
         ),
         DropdownInput(
             name="resolution",
             display_name="图像分辨率",
-            options=list(RESOLUTION_PRESETS.keys()),
+            options=DEFAULT_RESOLUTION_OPTIONS,
             value="2K（推荐）",
             info="决定输出的清晰度，4K 耗时/费用更高；1K 适合快速草稿。",
         ),
@@ -472,6 +501,7 @@ class DoubaoImageCreator(Component):
             model_value = str((build_config.get("model_name") or {}).get("value") or "").strip()
         except Exception:
             model_value = ""
+        model_meta = self.MODEL_CATALOG.get(model_value) or {}
 
         is_kling_o1 = model_value == "kling O1"
         is_kling_o3 = model_value == "kling O3"
@@ -620,6 +650,26 @@ class DoubaoImageCreator(Component):
             ):
                 if f in build_config:
                     build_config[f]["show"] = True
+
+            # Gemini-only dynamic options/visibility.
+            provider = str(model_meta.get("provider") or "").strip().lower()
+            if provider == "gemini":
+                if "enable_multi_turn" in build_config:
+                    build_config["enable_multi_turn"]["show"] = bool(model_meta.get("supports_multi_turn"))
+                if "enable_google_search" in build_config:
+                    build_config["enable_google_search"]["show"] = bool(model_meta.get("supports_google_search"))
+
+                if "resolution" in build_config:
+                    resolution_options = list(self.DEFAULT_RESOLUTION_OPTIONS)
+                    if bool(model_meta.get("supports_512px_image_size")):
+                        resolution_options = ["512px（预览）", *resolution_options]
+                    build_config["resolution"]["options"] = resolution_options
+                    current_value = str(build_config["resolution"].get("value") or "").strip()
+                    if current_value not in set(resolution_options):
+                        default_resolution = (
+                            "2K（推荐）" if "2K（推荐）" in resolution_options else resolution_options[0]
+                        )
+                        build_config["resolution"]["value"] = default_resolution
 
         return build_config
 
@@ -2371,10 +2421,17 @@ class DoubaoImageCreator(Component):
             user_content = {"role": "user", "parts": parts}
             contents = [*history, user_content] if history else [user_content]
 
+            supports_image_size = bool(model_meta.get("supports_image_size"))
+            image_config: dict[str, Any] = {"aspectRatio": aspect_ratio}
+            if supports_image_size:
+                image_size = self._gemini_image_size_from_resolution(resolution)
+                if image_size:
+                    image_config["imageSize"] = image_size
+
             gemini_payload: dict[str, Any] = {
                 "contents": contents,
                 "generationConfig": {
-                    "imageConfig": {"aspectRatio": aspect_ratio},
+                    "imageConfig": image_config,
                     "responseModalities": ["TEXT", "IMAGE"] if enable_google_search else ["IMAGE"],
                 },
             }
@@ -2430,6 +2487,7 @@ class DoubaoImageCreator(Component):
                     "prompt": prompt,
                     "model": {"name": self.model_name, "model_id": model_meta["model_id"]},
                     "resolution": resolution,
+                    "image_size": image_config.get("imageSize"),
                     "aspect_ratio": aspect_ratio,
                     "count": image_count,
                     "reference_images": reference_meta,
@@ -2468,6 +2526,7 @@ class DoubaoImageCreator(Component):
                     "prompt": prompt,
                     "model": {"name": self.model_name, "model_id": model_meta["model_id"]},
                     "resolution": resolution,
+                    "image_size": image_config.get("imageSize"),
                     "aspect_ratio": aspect_ratio,
                     "count": image_count,
                     "reference_images": reference_meta,
@@ -2633,7 +2692,9 @@ class DoubaoImageCreator(Component):
             return Data(data=result_payload, type="image")
 
         if high_fidelity_limit and len(input_images) > high_fidelity_limit:
-            warnings.append(f"Nano Banana Pro 建议高保真输入不超过 {high_fidelity_limit} 张，超过后可能影响细节质量。")
+            warnings.append(
+                f"{self.model_name} 建议高保真输入不超过 {high_fidelity_limit} 张，超过后可能影响细节质量。"
+            )
 
         try:
             parts: list[dict[str, Any]] = [{"text": prompt}]
@@ -2645,7 +2706,7 @@ class DoubaoImageCreator(Component):
             return self._error(str(exc))
 
         generation_config: dict[str, Any] = {}
-        # 添加 imageConfig（根据官方文档）
+        # Gemini 3 系列支持 imageSize（3.1 还支持 512px）。
         if supports_image_size:
             image_size = self._gemini_image_size_from_resolution(resolution)
             if image_size:
@@ -2658,7 +2719,7 @@ class DoubaoImageCreator(Component):
                     "aspectRatio": aspect_ratio,
                 }
         else:
-            # Nano Banana 不支持 imageSize，只设置 aspectRatio
+            # 不支持 imageSize 的模型仅传 aspectRatio
             generation_config["imageConfig"] = {
                 "aspectRatio": aspect_ratio,
             }
@@ -2874,6 +2935,8 @@ class DoubaoImageCreator(Component):
         if not resolution:
             return None
         label = str(resolution)
+        if "512" in label:
+            return "512px"
         if "4K" in label:
             return "4K"
         if "2K" in label:

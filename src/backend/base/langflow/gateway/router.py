@@ -302,6 +302,8 @@ async def list_models(
         {"id": "deepseek-chat", "object": "model", "owned_by": "deepseek"},
         {"id": "deepseek-reasoner", "object": "model", "owned_by": "deepseek"},
         {"id": "gemini-3-pro-preview", "object": "model", "owned_by": "google"},
+        {"id": "gemini-3.1-flash-image-preview", "object": "model", "owned_by": "google"},
+        {"id": "gemini-3-pro-image-preview", "object": "model", "owned_by": "google"},
         {"id": "doubao-seedream-4-5-251128", "object": "model", "owned_by": "doubao"},
         {"id": "sora-2", "object": "model", "owned_by": "sora"},
         {"id": "kling-video-o1", "object": "model", "owned_by": "kling"},
@@ -332,6 +334,8 @@ async def list_model_page(
         {"id": "gemini-3-pro-preview", "fullName": "Gemini 3 Pro", "type": "chat"},
         
         {"id": "doubao-seedream-4-5-251128", "fullName": "Doubao Seedream 4.5", "type": "image"},
+        {"id": "gemini-3.1-flash-image-preview", "fullName": "Nano Banana 2", "type": "image"},
+        {"id": "gemini-3-pro-image-preview", "fullName": "Nano Banana Pro", "type": "image"},
         {"id": "wan2.6-image", "fullName": "Wan 2.6 Image", "type": "image"},
         {"id": "kling-image-o1", "fullName": "kling O1", "type": "image"},
         {"id": "kling-v3", "fullName": "kling V3", "type": "image"},
@@ -374,7 +378,7 @@ async def get_model_by_full_name(
 
         {"id": "doubao-seedream-4-5-251128", "fullName": "Doubao Seedream 4.5", "type": "image"},
         {"id": "doubao-seedream-4-0-250828", "fullName": "Doubao Seedream 4.0", "type": "image"},
-        {"id": "gemini-2.5-flash-image", "fullName": "Nano Banana", "type": "image"},
+        {"id": "gemini-3.1-flash-image-preview", "fullName": "Nano Banana 2", "type": "image"},
         {"id": "gemini-3-pro-image-preview", "fullName": "Nano Banana Pro", "type": "image"},
         {"id": "wan2.6-t2i", "fullName": "Wan 2.6 T2I", "type": "image"},
         {"id": "wan2.6-image", "fullName": "Wan 2.6 I2I", "type": "image"},

@@ -34,6 +34,7 @@ export default function UserManagementModal({
   const [confirmPassword, setConfirmPassword] = useState(data?.password ?? "");
   const [isActive, setIsActive] = useState(data?.is_active ?? false);
   const [isSuperUser, setIsSuperUser] = useState(data?.is_superuser ?? false);
+  const [isReviewer, setIsReviewer] = useState(data?.is_reviewer ?? false);
   const [inputState, setInputState] = useState<UserInputType>(CONTROL_NEW_USER);
   const { userData } = useContext(AuthContext);
 
@@ -47,14 +48,22 @@ export default function UserManagementModal({
     if (open) {
       if (!data) {
         resetForm();
+        setInputState(CONTROL_NEW_USER);
       } else {
         setUserName(data.username);
         setIsActive(data.is_active);
         setIsSuperUser(data.is_superuser);
-
-        handleInput({ target: { name: "username", value: username } });
-        handleInput({ target: { name: "is_active", value: isActive } });
-        handleInput({ target: { name: "is_superuser", value: isSuperUser } });
+        setIsReviewer(data.is_reviewer ?? false);
+        setInputState({
+          username: data.username,
+          password: "",
+          is_active: data.is_active,
+          is_superuser: data.is_superuser,
+          is_reviewer: data.is_reviewer ?? false,
+          id: data.id,
+          create_at: data.create_at,
+          updated_at: data.updated_at,
+        });
       }
     }
   }, [open]);
@@ -65,6 +74,8 @@ export default function UserManagementModal({
     setConfirmPassword("");
     setIsActive(false);
     setIsSuperUser(false);
+    setIsReviewer(false);
+    setInputState(CONTROL_NEW_USER);
   }
 
   return (
@@ -272,6 +283,29 @@ export default function UserManagementModal({
                             target: { name: "is_superuser", value },
                           });
                           setIsSuperUser(value);
+                        }}
+                      />
+                    </Form.Control>
+                  </div>
+                </Form.Field>
+              )}
+              {userData?.is_superuser && (
+                <Form.Field name="is_reviewer">
+                  <div>
+                    <Form.Label className="data-[invalid]:label-invalid mr-3">
+                      审核员
+                    </Form.Label>
+                    <Form.Control asChild>
+                      <Checkbox
+                        checked={isReviewer}
+                        value={isReviewer}
+                        id="is_reviewer"
+                        className="relative top-0.5"
+                        onCheckedChange={(value) => {
+                          handleInput({
+                            target: { name: "is_reviewer", value },
+                          });
+                          setIsReviewer(value);
                         }}
                       />
                     </Form.Control>

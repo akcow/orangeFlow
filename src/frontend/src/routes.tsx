@@ -5,7 +5,10 @@ import {
   Outlet,
   Route,
 } from "react-router-dom";
-import { ProtectedAdminRoute } from "./components/authorization/authAdminGuard";
+import {
+  ProtectedAdminRoute,
+  ProtectedReviewRoute,
+} from "./components/authorization/authAdminGuard";
 import { ProtectedRoute } from "./components/authorization/authGuard";
 import { ProtectedLoginRoute } from "./components/authorization/authLoginGuard";
 import { AuthSettingsGuard } from "./components/authorization/authSettingsGuard";
@@ -43,7 +46,9 @@ import ViewPage from "./pages/ViewPage";
 
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const LoginAdminPage = lazy(() => import("./pages/AdminPage/LoginPage"));
-const AdminCommunityPage = lazy(() => import("./pages/AdminPage/CommunityPage"));
+const AdminCommunityPage = lazy(
+  () => import("./pages/AdminPage/CommunityPage"),
+);
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
 
 const PlaygroundPage = lazy(() => import("./pages/Playground"));
@@ -58,6 +63,16 @@ const router = createBrowserRouter(
         element={
           <ContextWrapper key={1}>
             <PlaygroundPage />
+          </ContextWrapper>
+        }
+      />
+    </Route>,
+    <Route path="/flow-view/:id/">
+      <Route
+        path=""
+        element={
+          <ContextWrapper key={3}>
+            <ViewPage publicPreview />
           </ContextWrapper>
         }
       />
@@ -136,10 +151,7 @@ const router = createBrowserRouter(
                     index
                     element={<CustomNavigate replace to={"general"} />}
                   />
-                  <Route
-                    path="model-config"
-                    element={<ModelConfigPage />}
-                  />
+                  <Route path="model-config" element={<ModelConfigPage />} />
                   <Route
                     path="provider-credentials"
                     element={<ProviderCredentialsPage />}
@@ -172,9 +184,9 @@ const router = createBrowserRouter(
                 <Route
                   path="admin/community"
                   element={
-                    <ProtectedAdminRoute>
+                    <ProtectedReviewRoute>
                       <AdminCommunityPage />
-                    </ProtectedAdminRoute>
+                    </ProtectedReviewRoute>
                   }
                 />
               </Route>

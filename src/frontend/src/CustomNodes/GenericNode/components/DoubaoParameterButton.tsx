@@ -268,9 +268,12 @@ export function formatControlValue(name: string, value: any): string {
     if (!raw) return "";
     if (raw.toLowerCase().startsWith("auto")) return "Auto";
 
-    // Keep only the leading "1K/2K/4K" label (strip any suffix like "（推荐）").
-    const match = raw.match(/^(1K|2K|4K)/i);
-    if (match) return match[1]!.toUpperCase();
+    // Keep only the leading "512px/1K/2K/4K" label (strip any suffix like "（推荐）").
+    const match = raw.match(/^(512px|1K|2K|4K)/i);
+    if (match) {
+      const normalized = match[1]!;
+      return normalized.toLowerCase() === "512px" ? "512px" : normalized.toUpperCase();
+    }
 
     // Video resolutions typically use "720p/1080p" labels; normalize to "720P/1080P".
     if (/^\d+p$/i.test(raw)) return raw.toUpperCase();

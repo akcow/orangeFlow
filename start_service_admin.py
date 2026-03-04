@@ -32,6 +32,10 @@ from scripts.clear_component_cache import clear_component_index_cache
 
 REPO_ROOT = Path(__file__).resolve().parent
 RUNTIME_DATA_DIR = REPO_ROOT / "data" / "runtime"
+SHARED_DEV_DB_PATH = RUNTIME_DATA_DIR / "langflow_shared.db"
+LEGACY_DB_CANDIDATES = [
+    REPO_ROOT / "src" / "lfx" / "src" / "lfx" / "langflow.db",
+]
 BACKEND_BASE = REPO_ROOT / "src" / "backend" / "base"
 FRONTEND_DIR = REPO_ROOT / "src" / "frontend"
 FRONTEND_BUILD_DIR = FRONTEND_DIR / "build"
@@ -90,6 +94,35 @@ def copy_frontend_build() -> None:
     print(f"[copy] synced build to {BACKEND_FRONTEND_DIR.relative_to(REPO_ROOT)}")
 
 
+def _ensure_shared_default_db() -> Path:
+    """Return the shared dev DB path and seed it from legacy locations when needed."""
+    RUNTIME_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if SHARED_DEV_DB_PATH.exists():
+        return SHARED_DEV_DB_PATH
+
+    for legacy_path in LEGACY_DB_CANDIDATES:
+        if not legacy_path.exists():
+            continue
+        try:
+            shutil.copy2(legacy_path, SHARED_DEV_DB_PATH)
+            for suffix in ("-shm", "-wal"):
+                legacy_sidecar = legacy_path.with_name(legacy_path.name + suffix)
+                new_sidecar = SHARED_DEV_DB_PATH.with_name(SHARED_DEV_DB_PATH.name + suffix)
+                if legacy_sidecar.exists():
+                    shutil.copy2(legacy_sidecar, new_sidecar)
+            print(
+                "[db] initialized shared dev database from legacy path: "
+                f"{legacy_path.relative_to(REPO_ROOT)} -> {SHARED_DEV_DB_PATH.relative_to(REPO_ROOT)}"
+            )
+            break
+        except OSError as exc:
+            print(
+                "[db] warning: failed to seed shared DB from "
+                f"{legacy_path.relative_to(REPO_ROOT)}: {exc}"
+            )
+    return SHARED_DEV_DB_PATH
+
+
 def _local_venv_python() -> Path | None:
     venv_root = REPO_ROOT / ".venv"
     candidate = venv_root / ("Scripts" if os.name == "nt" else "bin") / (
@@ -122,11 +155,49 @@ def _ensure_uv_environment() -> None:
         raise SystemExit(0)
 
 
+def _ensure_uv_installed() -> None:
+    """Ensure uv is installed, auto-install if missing."""
+    if shutil.which("uv"):
+        return
+
+    print("\n[uv] uv not found, attempting to install...")
+
+    if os.name == "nt":
+        install_cmd = [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-c",
+            "irm https://astral.sh/uv/install.ps1 | iex",
+        ]
+    else:
+        install_cmd = ["curl", "-LsSf", "https://astral.sh/uv/install.sh", "|", "sh"]
+        subprocess.run(" ".join(install_cmd), shell=True, cwd=REPO_ROOT, check=True)
+        return
+
+    try:
+        subprocess.run(_resolve_command(install_cmd), cwd=REPO_ROOT, check=True)
+        print("[uv] uv installed successfully.")
+    except subprocess.CalledProcessError as exc:
+        print(f"\n[error] Failed to install uv automatically: {exc}")
+        print("\nPlease install uv manually:")
+        if os.name == "nt":
+            print("  powershell -ExecutionPolicy Bypass -c 'irm https://astral.sh/uv/install.ps1 | iex'")
+        else:
+            print("  curl -LsSf https://astral.sh/uv/install.sh | sh")
+        print("\nOr visit: https://docs.astral.sh/uv/getting-started/installation/")
+        raise SystemExit(1) from exc
+
+    if not shutil.which("uv"):
+        print("\n[error] uv installation appeared to succeed but 'uv' command not found.")
+        print("You may need to restart your terminal or add uv to your PATH.")
+        raise SystemExit(1)
+
+
 def _ensure_python_dependencies() -> None:
     if os.environ.get("LANGFLOW_SKIP_UV_SYNC") == "1":
         return
-    if not shutil.which("uv"):
-        return
+    _ensure_uv_installed()
     run(["uv", "sync"], cwd=REPO_ROOT)
 
 
@@ -278,7 +349,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "SQLite DB path for this dev session. "
-            "If omitted, defaults to ./data/runtime/langflow_admin_<port>.db to avoid root-dir clutter."
+            "If omitted, defaults to ./data/runtime/langflow_shared.db."
         ),
     )
     parser.add_argument(
@@ -325,7 +396,7 @@ def main() -> None:
     db_path = (
         Path(args.db_path).expanduser().resolve()
         if args.db_path
-        else (RUNTIME_DATA_DIR / f"langflow_admin_{port}.db").resolve()
+        else _ensure_shared_default_db().resolve()
     )
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if args.reset_db and db_path.exists():

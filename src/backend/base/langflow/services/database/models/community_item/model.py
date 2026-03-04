@@ -7,8 +7,8 @@ from uuid import UUID, uuid4
 
 from pydantic import field_serializer
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Text, text
-from sqlmodel import Column, Field, SQLModel
+from sqlalchemy import Text, UniqueConstraint, text
+from sqlmodel import JSON, Column, Field, SQLModel
 
 if TYPE_CHECKING:
     from langflow.services.database.models.flow.model import Flow
@@ -24,6 +24,12 @@ class CommunityItemStatusEnum(str, Enum):
     PRIVATE = "PRIVATE"
     PUBLIC = "PUBLIC"
     UNREVIEWED = "UNREVIEWED"
+
+
+class CommunityReviewActionEnum(str, Enum):
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    HIDE = "HIDE"
 
 
 class CommunityItemBase(SQLModel):
@@ -63,6 +69,9 @@ class CommunityItemBase(SQLModel):
 
     # If true, approval will also make the referenced flow publicly readable via /flows/public_flow/{id}.
     public_canvas: bool = Field(default=False, nullable=False)
+    # Ranking metrics used by TV public sorting.
+    view_count: int = Field(default=0, nullable=False)
+    like_count: int = Field(default=0, nullable=False)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     # Keep this unindexed to avoid model/db drift across existing deployments.
@@ -79,6 +88,25 @@ class CommunityItemBase(SQLModel):
 class CommunityItem(CommunityItemBase, table=True):  # type: ignore[call-arg]
     __tablename__ = "community_item"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
+    # Snapshot of flow.data at submission time, used for stable moderation preview.
+    flow_snapshot: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+
+
+class CommunityItemLike(SQLModel, table=True):  # type: ignore[call-arg]
+    __tablename__ = "community_item_like"
+    __table_args__ = (UniqueConstraint("item_id", "user_id", name="uq_community_item_like_item_user"),)
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    item_id: UUID = Field(foreign_key="community_item.id", index=True)
+    user_id: UUID = Field(foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+
+    @field_serializer("created_at")
+    def _serialize_created_at(self, value: datetime):
+        value = value.replace(microsecond=0)
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
 
 
 class CommunityItemCreate(SQLModel):
@@ -104,3 +132,56 @@ class CommunityItemUpdate(SQLModel):
     media_path: str | None = None
     public_canvas: bool | None = None
     status: CommunityItemStatusEnum | None = None
+
+
+class CommunityItemReviewLogBase(SQLModel):
+    item_id: UUID = Field(foreign_key="community_item.id", index=True)
+    reviewer_id: UUID = Field(foreign_key="user.id", index=True)
+    action: CommunityReviewActionEnum = Field(
+        sa_column=Column(
+            SQLEnum(
+                CommunityReviewActionEnum,
+                name="community_review_action_enum",
+                values_callable=lambda enum: [m.value for m in enum],
+            ),
+            nullable=False,
+        ),
+    )
+    from_status: CommunityItemStatusEnum = Field(
+        sa_column=Column(
+            SQLEnum(
+                CommunityItemStatusEnum,
+                name="community_item_status_enum",
+                values_callable=lambda enum: [m.value for m in enum],
+            ),
+            nullable=False,
+        ),
+    )
+    to_status: CommunityItemStatusEnum = Field(
+        sa_column=Column(
+            SQLEnum(
+                CommunityItemStatusEnum,
+                name="community_item_status_enum",
+                values_callable=lambda enum: [m.value for m in enum],
+            ),
+            nullable=False,
+        ),
+    )
+    comment: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+
+    @field_serializer("created_at")
+    def _serialize_log_dt(self, value: datetime):
+        value = value.replace(microsecond=0)
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+
+
+class CommunityItemReviewLog(CommunityItemReviewLogBase, table=True):  # type: ignore[call-arg]
+    __tablename__ = "community_item_review_log"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+
+
+class CommunityItemReviewLogRead(CommunityItemReviewLogBase):
+    id: UUID

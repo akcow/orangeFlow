@@ -29,6 +29,7 @@ class User(SQLModel, table=True):  # type: ignore[call-arg]
     profile_image: str | None = Field(default=None, nullable=True)
     is_active: bool = Field(default=False)
     is_superuser: bool = Field(default=False)
+    is_reviewer: bool = Field(default=False)
     create_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login_at: datetime | None = Field(default=None, nullable=True)
@@ -66,6 +67,7 @@ class UserRead(SQLModel):
     store_api_key: str | None = Field(nullable=True)
     is_active: bool = Field()
     is_superuser: bool = Field()
+    is_reviewer: bool = Field(default=False)
     create_at: datetime = Field()
     updated_at: datetime = Field()
     last_login_at: datetime | None = Field(nullable=True)
@@ -78,5 +80,6 @@ class UserUpdate(SQLModel):
     password: str | None = None
     is_active: bool | None = None
     is_superuser: bool | None = None
+    is_reviewer: bool | None = None
     last_login_at: datetime | None = None
     optins: dict[str, Any] | None = None
