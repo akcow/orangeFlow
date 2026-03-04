@@ -2,7 +2,7 @@ import { type FC, useEffect, useMemo, useState } from "react";
 import { FaDiscord, FaGithub } from "react-icons/fa";
 import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
-import { DISCORD_URL, GITHUB_URL } from "@/constants/constants";
+import { DISCORD_URL } from "@/constants/constants";
 import { useGetUserData, useUpdateUser } from "@/controllers/API/queries/auth";
 import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { t } from "@/i18n/t";
@@ -16,6 +16,7 @@ export const GetStartedProgress: FC<{
   isDiscordJoined: boolean;
   handleDismissDialog: () => void;
 }> = ({ userData, isGithubStarred, isDiscordJoined, handleDismissDialog }) => {
+  const STAR_REPO_URL = "https://github.com/akcow/langflow-final";
   const [isGithubStarredChild, setIsGithubStarredChild] =
     useState(isGithubStarred);
   const [isDiscordJoinedChild, setIsDiscordJoinedChild] =
@@ -73,7 +74,7 @@ export const GetStartedProgress: FC<{
           mutateLoggedUser({});
           if (key === "github_starred") {
             setIsGithubStarredChild(true);
-            window.open(GITHUB_URL, "_blank", "noopener,noreferrer");
+            window.open(STAR_REPO_URL, "_blank", "noopener,noreferrer");
           } else if (key === "discord_clicked") {
             setIsDiscordJoinedChild(true);
             window.open(DISCORD_URL, "_blank", "noopener,noreferrer");

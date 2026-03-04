@@ -4,6 +4,7 @@ import { Outlet } from "react-router-dom";
 import SideBarFoldersButtonsComponent from "@/components/core/folderSidebarComponent/components/sideBarFolderButtons";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useDeleteFolders } from "@/controllers/API/queries/folders";
+import { useGetRefreshFlowsQuery } from "@/controllers/API/queries/flows/use-get-refresh-flows-query";
 import CustomEmptyPageCommunity from "@/customization/components/custom-empty-page";
 import CustomLoader from "@/customization/components/custom-loader";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
@@ -19,12 +20,27 @@ export default function CollectionPage(): JSX.Element {
   const setFolderToEdit = useFolderStore((state) => state.setFolderToEdit);
   const navigate = useCustomNavigate();
   const flows = useFlowsManagerStore((state) => state.flows);
+  const setFlows = useFlowsManagerStore((state) => state.setFlows);
   const examples = useFlowsManagerStore((state) => state.examples);
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const folderToEdit = useFolderStore((state) => state.folderToEdit);
   const folders = useFolderStore((state) => state.folders);
   const queryClient = useQueryClient();
+
+  const { isFetched: isFlowsFetched } = useGetRefreshFlowsQuery(
+    {
+      get_all: true,
+      header_flows: true,
+    },
+    { enabled: true },
+  );
+
+  useEffect(() => {
+    if (isFlowsFetched && flows === undefined) {
+      setFlows([]);
+    }
+  }, [isFlowsFetched, flows, setFlows]);
 
   useEffect(() => {
     return () => queryClient.removeQueries({ queryKey: ["useGetFolder"] });
@@ -74,7 +90,7 @@ export default function CollectionPage(): JSX.Element {
           />
         )}
       <main className="flex h-full w-full overflow-hidden">
-        {flows && examples && folders ? (
+        {examples && folders ? (
           <div
             className={`relative mx-auto flex h-full w-full flex-col overflow-hidden`}
           >

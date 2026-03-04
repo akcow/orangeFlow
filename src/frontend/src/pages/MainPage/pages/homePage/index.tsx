@@ -14,12 +14,12 @@ import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { t } from "@/i18n/t";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
-import { FlowType } from "@/types/flow";
-import HeaderComponent from "../../components/header";
 import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
 import useFileDrop from "../../hooks/use-on-file-drop";
 import EmptyFolder from "../emptyFolder";
+import { TapNowLanding } from "./TapNowLanding";
+import { TapNowWorkflowsHeader } from "./TapNowWorkflowsHeader";
 
 const HomePage = ({ type }: { type: "flows" | "components" }) => {
   const [view, setView] = useState<"grid" | "list">(() => {
@@ -96,7 +96,6 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   }, []);
 
   const handleToggleSortOrder = useCallback(() => {
-    // Keep UX simple: toggles between newest-first and oldest-first, and resets pagination.
     setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
     setPageIndex(1);
   }, []);
@@ -153,8 +152,6 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only track these keys when we're in list/selection mode and not when a modal is open
-      // or when an input field is focused
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -186,26 +183,22 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
       }
     };
 
-    // Reset key states when window loses focus
     const handleBlur = () => {
       setIsShiftPressed(false);
       setIsCtrlPressed(false);
     };
 
-    // Only add listeners if we're in flows or components mode, not MCP mode
     if (flowType === "flows" || flowType === "components") {
       document.addEventListener("keydown", handleKeyDown);
       document.addEventListener("keyup", handleKeyUp);
       window.addEventListener("blur", handleBlur);
     }
 
-    // Clean up event listeners when component unmounts
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleBlur);
 
-      // Reset key states on unmount
       setIsShiftPressed(false);
       setIsCtrlPressed(false);
     };
@@ -215,18 +208,13 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
     (selected: boolean, flowId: string, index: number) => {
       setLastSelectedIndex(index);
       if (isShiftPressed && lastSelectedIndex !== null) {
-        // Find the indices of the last selected and current flow
         const flows = data.flows;
-
-        // Determine the range to select
         const start = Math.min(lastSelectedIndex, index);
         const end = Math.max(lastSelectedIndex, index);
-        // Get all flow IDs in the range
         const flowsToSelect = flows
           .slice(start, end + 1)
           .map((flow) => flow.id);
 
-        // Update selection
         if (selected) {
           setSelectedFlows((prev) =>
             Array.from(new Set([...prev, ...flowsToSelect])),
@@ -253,7 +241,6 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
     );
   }, [folderData?.flows?.items]);
 
-  // Reset key states when navigating away
   useEffect(() => {
     return () => {
       setIsShiftPressed(false);
@@ -272,106 +259,101 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
             : t("components"),
       })}
     >
-      <div
-        className="flex h-full w-full flex-col overflow-y-auto"
-        data-testid="cards-wrapper"
-      >
-        <div className="flex h-full w-full flex-col 3xl:container">
+      <TapNowLanding onCreateNew={handleCreateNewFlow}>
+        <div className="flex flex-col h-full">
           {ENABLE_DATASTAX_LANGFLOW && <CustomBanner />}
-          <div className="flex flex-1 flex-col justify-start p-4">
-            <div className="flex h-full flex-col justify-start">
-              <HeaderComponent
-                folderName={folderName}
-                flowType={flowType}
-                setFlowType={setFlowType}
-                view={view}
-                setView={setView}
-                setSearch={onSearch}
-                isEmptyFolder={isEmptyFolder}
-                selectedFlows={selectedFlows}
-                sortOrder={sortOrder}
-                onToggleSortOrder={handleToggleSortOrder}
-              />
-              {isEmptyFolder ? (
-                <EmptyFolder onCreateFlow={handleCreateNewFlow} />
+          
+          <TapNowWorkflowsHeader
+            flowType={flowType}
+            setFlowType={setFlowType}
+            view={view}
+            setView={setView}
+            setSearch={onSearch}
+            selectedFlows={selectedFlows}
+            sortOrder={sortOrder}
+            onToggleSortOrder={handleToggleSortOrder}
+            isEmptyFolder={isEmptyFolder}
+          />
+
+          {isEmptyFolder ? (
+            <EmptyFolder onCreateFlow={handleCreateNewFlow} />
+          ) : (
+            <div className="flex h-full flex-col">
+              {isLoading ? (
+                view === "grid" ? (
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    <ListSkeleton />
+                    <ListSkeleton />
+                  </div>
+                ) : (
+                  <div className="mt-4 flex flex-col gap-1">
+                    <ListSkeleton />
+                    <ListSkeleton />
+                  </div>
+                )
+              ) : (flowType === "flows" || flowType === "components") &&
+                data &&
+                data.pagination.total > 0 ? (
+                view === "grid" ? (
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {data.flows.map((flow, index) => (
+                      <ListComponent
+                        key={flow.id}
+                        flowData={flow}
+                        selected={selectedFlows.includes(flow.id)}
+                        setSelected={(selected) =>
+                          setSelectedFlow(selected, flow.id, index)
+                        }
+                        shiftPressed={isShiftPressed || isCtrlPressed}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 flex flex-col gap-1">
+                    {data.flows.map((flow, index) => (
+                      <ListComponent
+                        key={flow.id}
+                        flowData={flow}
+                        selected={selectedFlows.includes(flow.id)}
+                        setSelected={(selected) =>
+                          setSelectedFlow(selected, flow.id, index)
+                        }
+                        shiftPressed={isShiftPressed || isCtrlPressed}
+                      />
+                    ))}
+                  </div>
+                )
+              ) : flowType === "flows" ? (
+                <div className="pt-24 text-center text-sm text-secondary-foreground">
+                  {t("No flows in this project.")}{" "}
+                  <a
+                    onClick={() => {
+                      void handleCreateNewFlow();
+                    }}
+                    className="cursor-pointer underline"
+                  >
+                    {t("Create a new flow")}
+                  </a>
+                  {t(", or browse the store.")}
+                </div>
               ) : (
-                <div className="flex h-full flex-col">
-                  {isLoading ? (
-                    view === "grid" ? (
-                      <div className="mt-4 grid grid-cols-1 gap-1 md:grid-cols-2 lg:grid-cols-3">
-                        <ListSkeleton />
-                        <ListSkeleton />
-                      </div>
-                    ) : (
-                      <div className="mt-4 flex flex-col gap-1">
-                        <ListSkeleton />
-                        <ListSkeleton />
-                      </div>
-                    )
-                  ) : (flowType === "flows" || flowType === "components") &&
-                    data &&
-                    data.pagination.total > 0 ? (
-                    view === "grid" ? (
-                      <div className="mt-4 grid grid-cols-1 gap-1 md:grid-cols-2 lg:grid-cols-3">
-                        {data.flows.map((flow, index) => (
-                          <ListComponent
-                            key={flow.id}
-                            flowData={flow}
-                            selected={selectedFlows.includes(flow.id)}
-                            setSelected={(selected) =>
-                              setSelectedFlow(selected, flow.id, index)
-                            }
-                            shiftPressed={isShiftPressed || isCtrlPressed}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-4 flex flex-col gap-1">
-                        {data.flows.map((flow, index) => (
-                          <ListComponent
-                            key={flow.id}
-                            flowData={flow}
-                            selected={selectedFlows.includes(flow.id)}
-                            setSelected={(selected) =>
-                              setSelectedFlow(selected, flow.id, index)
-                            }
-                            shiftPressed={isShiftPressed || isCtrlPressed}
-                          />
-                        ))}
-                      </div>
-                    )
-                  ) : flowType === "flows" ? (
-                    <div className="pt-24 text-center text-sm text-secondary-foreground">
-                      {t("No flows in this project.")}{" "}
-                      <a
-                        onClick={() => {
-                          void handleCreateNewFlow();
-                        }}
-                        className="cursor-pointer underline"
-                      >
-                        {t("Create a new flow")}
-                      </a>
-                      {t(", or browse the store.")}
-                    </div>
-                  ) : (
-                    <div className="pt-24 text-center text-sm text-secondary-foreground">
-                      {t("No saved or custom components.")}{" "}
-                      {t("Learn more about")}{" "}
-                      <a
-                        href="https://docs.langflow.org/components-custom-components"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                      >
-                        {t("creating custom components")}
-                      </a>
-                      {t(", or browse the store.")}
-                    </div>
-                  )}
+                <div className="pt-24 text-center text-sm text-secondary-foreground">
+                  {t("No saved or custom components.")}{" "}
+                  {t("Learn more about")}{" "}
+                  <a
+                    href="https://docs.langflow.org/components-custom-components"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    {t("creating custom components")}
+                  </a>
+                  {t(", or browse the store.")}
                 </div>
               )}
             </div>
-          </div>
+          )}
+
           {(flowType === "flows" || flowType === "components") &&
             !isLoading &&
             !isEmptyFolder &&
@@ -389,7 +371,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
               </div>
             )}
         </div>
-       </div>
+      </TapNowLanding>
     </CardsWrapComponent>
   );
 };
