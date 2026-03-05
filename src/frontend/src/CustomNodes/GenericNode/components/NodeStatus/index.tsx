@@ -328,7 +328,6 @@ export default function NodeStatus({
       stopLatestChainForNode(nodeId_);
       return;
     }
-    if (buildStatus === BuildStatus.BUILDING) return;
     buildFlow({
       stopNodeId: nodeId,
       eventDelivery: eventDeliveryConfig,

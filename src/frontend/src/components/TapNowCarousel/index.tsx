@@ -1,43 +1,53 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Zap, Play, Layers, Star, Video, Image as ImageIcon } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, Image as ImageIcon, Layers, Play, Star, Video } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
-const slides = [
+interface CarouselSlide {
+  id: number;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  gradient: string;
+  bgImage: string;
+}
+
+const slides: CarouselSlide[] = [
   {
     id: 1,
-    title: "Vidu Q3视频模型 上线",
-    description: "直出16s多分镜叙事长视频，精通四语，创意无国界",
+    title: "Vidu Q3 Video Model Is Live",
+    description: "Generate 16s multi-shot narrative videos with multilingual support.",
     icon: <Video className="w-12 h-12 text-white" />,
     gradient: "from-blue-600 to-purple-600",
     bgImage: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop"
   },
   {
     id: 2,
-    title: "Cinema Lab系列功能 全新上线",
-    description: "小白也能创作专业影视",
+    title: "Cinema Lab Features Are Here",
+    description: "Create professional film-style content with ease.",
     icon: <Play className="w-12 h-12 text-white" />,
     gradient: "from-orange-600 to-red-600",
     bgImage: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=2525&auto=format&fit=crop"
   },
   {
     id: 3,
-    title: "一起来创造！",
-    description: "创作者计划启动，邀你同享创作之乐",
+    title: "Create Together",
+    description: "The creator program is open. Build and share with the community.",
     icon: <Star className="w-12 h-12 text-white" />,
     gradient: "from-green-600 to-teal-600",
     bgImage: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=2671&auto=format&fit=crop"
   },
   {
     id: 4,
-    title: "AI 图像生成",
-    description: "释放你的想象力，一键生成",
+    title: "AI Image Generation",
+    description: "Unleash your imagination with one-click image creation.",
     icon: <ImageIcon className="w-12 h-12 text-white" />,
     gradient: "from-pink-600 to-rose-600",
     bgImage: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2670&auto=format&fit=crop"
   },
   {
     id: 5,
-    title: "智能工作流",
-    description: "自动化你的日常任务",
+    title: "Smart Workflows",
+    description: "Automate your daily tasks with AI workflows.",
     icon: <Layers className="w-12 h-12 text-white" />,
     gradient: "from-indigo-600 to-blue-600",
     bgImage: "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=2670&auto=format&fit=crop"
@@ -45,6 +55,7 @@ const slides = [
 ];
 
 export default function TapNowCarousel() {
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
   const visibleCount = 3;
   const totalSlides = slides.length;
@@ -65,8 +76,8 @@ export default function TapNowCarousel() {
   };
 
   // Create a circular list of slides for rendering
-  const getVisibleSlides = () => {
-    const items = [];
+  const getVisibleSlides = (): CarouselSlide[] => {
+    const items: CarouselSlide[] = [];
     for (let i = 0; i < visibleCount; i++) {
       const index = (currentIndex + i) % totalSlides;
       items.push(slides[index]);
@@ -106,8 +117,8 @@ export default function TapNowCarousel() {
               </div>
               
               <div>
-                <h3 className="text-xl font-bold mb-2 leading-tight line-clamp-2">{slide.title}</h3>
-                <p className="text-white/80 text-xs md:text-sm line-clamp-2">{slide.description}</p>
+                <h3 className="text-xl font-bold mb-2 leading-tight line-clamp-2">{t(slide.title)}</h3>
+                <p className="text-white/80 text-xs md:text-sm line-clamp-2">{t(slide.description)}</p>
               </div>
             </div>
           </div>

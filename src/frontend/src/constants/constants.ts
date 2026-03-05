@@ -13,7 +13,7 @@ const getEnvVar = (key: string, defaultValue: any = undefined) => {
   if (
     typeof process !== "undefined" &&
     process.env &&
-    Object.prototype.hasOwnProperty.call(process.env, key)
+    Object.hasOwn(process.env, key)
   ) {
     return process.env[key] ?? defaultValue;
   }

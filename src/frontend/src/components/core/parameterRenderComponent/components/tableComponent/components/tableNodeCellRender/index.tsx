@@ -69,7 +69,7 @@ export default function TableNodeCellRender({
           templateValue={parameter.value}
           editNode={true}
           handleNodeClass={handleNodeClass}
-          nodeClass={node?.data.node}
+          nodeClass={node?.data.node as APIClassType}
           disabled={disabled}
           nodeInformationMetadata={nodeInformationMetadata}
         />

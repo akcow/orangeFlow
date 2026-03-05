@@ -107,7 +107,7 @@ export default function ChatView({
 
     if (messages.length === 0 && !isBuilding && chatInputNode && isTabHidden) {
       setChatValueStore(
-        chatInputNode.data.node.template["input_value"].value ?? "",
+        chatInputNode.data.node?.template?.["input_value"]?.value ?? "",
       );
     }
 

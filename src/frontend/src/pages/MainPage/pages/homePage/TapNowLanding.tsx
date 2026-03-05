@@ -26,17 +26,17 @@ export const TapNowLanding = ({
   onOpenTemplates,
   children,
 }: TapNowLandingProps) => {
-  useTranslation();
+  const { t } = useTranslation();
 
   const features = [
-    { icon: Video, label: "涂鸦生视频", color: "text-green-400" },
-    { icon: ImageIcon, label: "涂鸦生图", color: "text-yellow-400" },
-    { icon: User, label: "姿势控制", color: "text-pink-400" },
-    { icon: Sparkles, label: "美肤与超清，一键呈现", color: "text-blue-400" },
-    { icon: Film, label: "一键拉片", color: "text-cyan-400" },
-    { icon: LayoutTemplate, label: "分镜策划", color: "text-purple-400" },
-    { icon: Search, label: "找灵感", color: "text-red-400" },
-    { icon: Palette, label: "情绪板策划", color: "text-green-400" },
+    { icon: Video, label: t("Scribble to video"), color: "text-green-400" },
+    { icon: ImageIcon, label: t("Scribble to image"), color: "text-yellow-400" },
+    { icon: User, label: t("Pose control"), color: "text-pink-400" },
+    { icon: Sparkles, label: t("Beauty and super-resolution in one click"), color: "text-blue-400" },
+    { icon: Film, label: t("One-click scene pull"), color: "text-cyan-400" },
+    { icon: LayoutTemplate, label: t("Storyboard planning"), color: "text-purple-400" },
+    { icon: Search, label: t("Find inspiration"), color: "text-red-400" },
+    { icon: Palette, label: t("Moodboard planning"), color: "text-green-400" },
   ];
 
   return (
@@ -48,7 +48,7 @@ export const TapNowLanding = ({
 
       {/* Featured Functions Section - Compact Layout (p3) */}
       <div className="px-8 pb-8">
-        <h2 className="text-xl font-semibold mb-4 text-white">特色功能</h2>
+        <h2 className="text-xl font-semibold mb-4 text-white">{t("Featured capabilities")}</h2>
         
         <div className="flex gap-4 h-[160px]">
           {/* Create New Project Card - Wide, Custom Gradient */}
@@ -61,10 +61,10 @@ export const TapNowLanding = ({
             
             <div className="z-10 flex flex-col h-full justify-between">
               <div className="flex items-center gap-3">
-                 <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
                   <Plus className="h-5 w-5 text-white" />
                 </div>
-                <h3 className="text-xl font-bold text-white tracking-wide">创建新项目</h3>
+                <h3 className="text-xl font-bold text-white tracking-wide">{t("Create new project")}</h3>
               </div>
             
               <Button 
@@ -74,7 +74,7 @@ export const TapNowLanding = ({
                   onCreateNew();
                 }}
               >
-                立即尝试
+                {t("Try now")}
               </Button>
             </div>
           </div>
@@ -104,11 +104,11 @@ export const TapNowLanding = ({
           className="mb-6 flex w-fit cursor-pointer items-center gap-2 hover:opacity-80"
           onClick={onOpenTemplates}
         >
-          <h2 className="text-xl font-semibold text-white">模板库</h2>
+          <h2 className="text-xl font-semibold text-white">{t("Templates")}</h2>
           <ArrowRight className="h-5 w-5 text-gray-400" />
         </div>
 
-        <p className="text-sm text-gray-400 mb-4">为你推荐</p>
+        <p className="text-sm text-gray-400 mb-4">{t("Recommended for you")}</p>
         
         {/* Render the existing list of workflows here */}
         <div className="w-full">

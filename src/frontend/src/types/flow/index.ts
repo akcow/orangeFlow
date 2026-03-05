@@ -41,9 +41,17 @@ export type NoteNodeType = Node<NoteDataType, "noteNode">;
 
 export type GroupContainerDataType = {
   id: string;
-  type: "GroupContainer";
-  label: string;
+  type: string;
+  label?: string;
   backgroundColor?: string;
+  // Compatibility fields so shared node handlers can safely access common data shape.
+  showNode?: boolean;
+  node?: APIClassType;
+  output_types?: string[];
+  selected_output_type?: string;
+  buildStatus?: BuildStatus;
+  selected_output?: string;
+  cropPreviewOnly?: boolean;
 };
 export type GroupContainerNodeType = Node<GroupContainerDataType, "groupNode">;
 

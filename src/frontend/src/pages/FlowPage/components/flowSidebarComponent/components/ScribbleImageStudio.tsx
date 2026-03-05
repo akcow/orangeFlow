@@ -608,7 +608,8 @@ export default function ScribbleImageStudio({
       const seeded = cloneDeep(tpl);
       seeded.display_name = "涂鸦生图";
       seeded.icon = "Paintbrush";
-      const seededTpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const seededTpl = seeded.template;
 
       if (seededTpl.model_name) seededTpl.model_name.value = "Nano Banana Pro";
       if (seededTpl.aspect_ratio)
@@ -751,7 +752,8 @@ export default function ScribbleImageStudio({
       const seeded = cloneDeep(tpl);
       seeded.display_name = "抠图结果";
       seeded.icon = "Cutout";
-      const seededTpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const seededTpl = seeded.template;
 
       const CUTOUT_PROMPT = [
         "请对参考图进行抠图：仅保留主体，移除背景，并将背景设为透明。",
@@ -865,7 +867,8 @@ export default function ScribbleImageStudio({
       const seeded = cloneDeep(tpl);
       seeded.display_name = "生成结果";
       seeded.icon = "Layers";
-      const seededTpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const seededTpl = seeded.template;
       seededTpl.draft_output = seededTpl.draft_output ?? { value: null };
       seededTpl.draft_output.value = rawPayloadSingle;
 

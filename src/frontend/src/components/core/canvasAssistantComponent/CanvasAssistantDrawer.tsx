@@ -446,8 +446,8 @@ function normalizeModelLabel(opt: string): { value: string; label: string; group
   const raw = String(opt ?? "").trim();
   const lower = raw.toLowerCase();
   if (lower.includes("seedream")) {
-    if (/4[\._-]?5/.test(lower)) return { value: raw, label: "Seedream 4.5", groupKey: "seedream_45" };
-    if (/4[\._-]?0/.test(lower) || /\bseedream\b.*\b4\b/.test(lower)) {
+    if (/4[._-]?5/.test(lower)) return { value: raw, label: "Seedream 4.5", groupKey: "seedream_45" };
+    if (/4[._-]?0/.test(lower) || /\bseedream\b.*\b4\b/.test(lower)) {
       return { value: raw, label: "Seedream 4.0", groupKey: "seedream_40" };
     }
     // Default to 4.0 naming if the source string is ambiguous.
@@ -1508,12 +1508,14 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
         // Some deployments/proxies may normalize SSE newlines to CRLF. We normalize to LF so that
         // frame splitting by "\n\n" works reliably.
         buffer += decoder.decode(value, { stream: true }).replace(/\r/g, "");
-        let idx;
-        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        let idx = buffer.indexOf("\n\n");
+        while (idx !== -1) {
           const block = buffer.slice(0, idx);
           buffer = buffer.slice(idx + 2);
-          if (!block.trim()) continue;
-          flushEventBlock(block);
+          if (block.trim()) {
+            flushEventBlock(block);
+          }
+          idx = buffer.indexOf("\n\n");
         }
       }
       if (buffer.trim()) flushEventBlock(buffer);

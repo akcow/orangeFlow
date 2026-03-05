@@ -19,11 +19,9 @@ import FlowSettingsModal from "@/modals/flowSettingsModal";
 import useAlertStore from "@/stores/alertStore";
 import type { FlowType } from "@/types/flow";
 import { downloadFlow } from "@/utils/reactflowUtils";
-import { swatchColors } from "@/utils/styleUtils";
-import { cn, getNumberFromString } from "@/utils/utils";
-import { extractLatestImageFromFlow } from "@/utils/workflowUtils";
+import { cn } from "@/utils/utils";
+import { extractFirstImageFromFlow } from "@/utils/workflowUtils";
 import useDescriptionModal from "../../hooks/use-description-modal";
-import { useGetTemplateStyle } from "../../utils/get-template-style";
 import DropdownComponent from "../dropdown";
 
 const formatCreatedAt = (dateString?: string): string => {
@@ -79,8 +77,6 @@ const ListComponent = ({
   const [openExportModal, setOpenExportModal] = useState(false);
   const isComponent = flowData.is_component ?? false;
 
-  const { getIcon } = useGetTemplateStyle(flowData);
-
   const editFlowLink = `/flow/${flowData.id}${folderId ? `/folder/${folderId}` : ""}`;
 
   const handleClick = async () => {
@@ -115,12 +111,6 @@ const ListComponent = ({
     flowData.is_component ? "component" : "flow",
   );
 
-  const swatchIndex =
-    (flowData.gradient && !isNaN(parseInt(flowData.gradient))
-      ? parseInt(flowData.gradient)
-      : getNumberFromString(flowData.gradient ?? flowData.id)) %
-    swatchColors.length;
-
   const handleExport = () => {
     if (flowData.is_component) {
       downloadFlow(flowData, flowData.name, flowData.description);
@@ -132,16 +122,15 @@ const ListComponent = ({
     }
   };
 
-  const [icon, setIcon] = useState<string>("");
-
-  useEffect(() => {
-    getIcon().then(setIcon);
-  }, [getIcon]);
-
   const coverImage = useMemo(
-    () => extractLatestImageFromFlow(flowData),
+    () => extractFirstImageFromFlow(flowData),
     [flowData],
   );
+  const [coverImageLoadFailed, setCoverImageLoadFailed] = useState(false);
+  useEffect(() => {
+    setCoverImageLoadFailed(false);
+  }, [coverImage]);
+  const showCoverImage = Boolean(coverImage) && !coverImageLoadFailed;
   const createdAtLabel = useMemo(
     () => formatCreatedAt(flowData.date_created ?? flowData.updated_at),
     [flowData.date_created, flowData.updated_at],
@@ -169,25 +158,15 @@ const ListComponent = ({
           <div className="grid min-h-[90px] grid-cols-[72px,minmax(200px,2fr),120px,minmax(240px,2fr),180px,180px,56px] items-center gap-3 px-4 py-3">
             <div className="relative">
               <div className="h-12 w-16 overflow-hidden rounded-md border border-border/70 bg-muted">
-                {coverImage ? (
+                {showCoverImage ? (
                   <img
-                    src={coverImage}
+                    src={coverImage!}
                     alt={flowData.name}
                     className="h-full w-full object-cover transition-transform duration-300 group-hover/list:scale-105"
+                    onError={() => setCoverImageLoadFailed(true)}
                   />
                 ) : (
-                  <div
-                    className={cn(
-                      "flex h-full w-full items-center justify-center",
-                      swatchColors[swatchIndex],
-                    )}
-                  >
-                    <ForwardedIconComponent
-                      name={flowData?.icon || icon}
-                      aria-hidden="true"
-                      className="h-4 w-4"
-                    />
-                  </div>
+                  <div className="h-full w-full bg-muted-foreground/20" />
                 )}
               </div>
               <Checkbox
@@ -288,25 +267,15 @@ const ListComponent = ({
           data-testid="list-card"
         >
           <div className="relative aspect-[16/10] overflow-hidden border-b border-border/60 bg-muted/40">
-            {coverImage ? (
+            {showCoverImage ? (
               <img
-                src={coverImage}
+                src={coverImage!}
                 alt={flowData.name}
                 className="h-full w-full object-cover transition-transform duration-500 group-hover/grid:scale-105"
+                onError={() => setCoverImageLoadFailed(true)}
               />
             ) : (
-              <div
-                className={cn(
-                  "flex h-full w-full items-center justify-center",
-                  swatchColors[swatchIndex],
-                )}
-              >
-                <ForwardedIconComponent
-                  name={flowData?.icon || icon}
-                  aria-hidden="true"
-                  className="h-8 w-8"
-                />
-              </div>
+              <div className="h-full w-full bg-muted-foreground/20" />
             )}
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/55 via-background/5 to-transparent opacity-0 transition-opacity duration-300 group-hover/grid:opacity-100" />
 

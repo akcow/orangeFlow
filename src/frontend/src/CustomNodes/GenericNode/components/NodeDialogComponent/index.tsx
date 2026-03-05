@@ -57,8 +57,10 @@ export const NodeDialog: React.FC<NodeDialogProps> = ({
   const setNodeClass = (newNode: APIClassType) => {
     const targetNode = nodes.find((node) => node.id === nodeId);
     if (!targetNode) return;
+    const targetData = targetNode.data as any;
+    if (!targetData?.node) return;
 
-    targetNode.data.node = newNode;
+    targetData.node = newNode;
     setNode(nodeId, targetNode);
   };
 
@@ -80,17 +82,18 @@ export const NodeDialog: React.FC<NodeDialogProps> = ({
 
     const targetNode = nodes.find((node) => node.id === nodeId);
     if (!targetNode || !name) return;
+    const targetData = targetNode.data as any;
+    const nodeTemplate = targetData?.node?.template;
+    if (!nodeTemplate?.[name]?.dialog_inputs?.fields?.data?.node?.template) return;
 
     // Update the main field value
-    targetNode.data.node.template[name].dialog_inputs.fields.data.node.template[
-      fieldKey
-    ].value = newValue;
+    nodeTemplate[name].dialog_inputs.fields.data.node.template[fieldKey].value =
+      newValue;
 
     // Handle additional properties like load_from_db for InputGlobalComponent
     if (typeof changes === "object" && changes !== null) {
       const fieldTemplate =
-        targetNode.data.node.template[name].dialog_inputs.fields.data.node
-          .template[fieldKey];
+        nodeTemplate[name].dialog_inputs.fields.data.node.template[fieldKey];
 
       // Update load_from_db if present (for InputGlobalComponent)
       if ("load_from_db" in changes) {
@@ -125,7 +128,13 @@ export const NodeDialog: React.FC<NodeDialogProps> = ({
     setFieldValues({});
     const targetNode = nodes.find((node) => node.id === nodeId);
     if (targetNode && name) {
-      const nodeTemplate = targetNode.data.node.template;
+      const targetData = targetNode.data as any;
+      const nodeTemplate = targetData?.node?.template;
+      if (!nodeTemplate?.[name]?.dialog_inputs?.fields?.data?.node?.template) {
+        setIsLoading(false);
+        onClose();
+        return;
+      }
       Object.keys(dialogTemplate).forEach((key) => {
         nodeTemplate[name].dialog_inputs.fields.data.node.template[key].value =
           "";

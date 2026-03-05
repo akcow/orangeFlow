@@ -17,6 +17,7 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import { useWorkflowsStore } from "@/stores/workflowsStore";
 import { cn } from "@/utils/utils";
+import { guessWorkflowCoverFromSelection } from "@/utils/workflowUtils";
 
 const DEFAULT_COVER_URL = new URL(
   "../../../../../assets/default-workflow-cover.svg",
@@ -31,6 +32,16 @@ function coverToUrl(cover: any, resolveAsset: (assetId: string) => string | null
     return url ?? DEFAULT_COVER_URL;
   }
   return DEFAULT_COVER_URL;
+}
+
+function coverToUrlOrNull(cover: any, resolveAsset: (assetId: string) => string | null): string | null {
+  if (!cover || typeof cover !== "object") return null;
+  if (cover.kind === "url" && cover.url) return cover.url;
+  if (cover.kind === "asset" && cover.assetId) {
+    const url = resolveAsset(cover.assetId);
+    return url ?? null;
+  }
+  return null;
 }
 
 function normalizeTags(raw: string[]): string[] {
@@ -110,6 +121,7 @@ export default function WorkflowsPanel({
   const [tagInput, setTagInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [coverLoadFailedById, setCoverLoadFailedById] = useState<Record<string, boolean>>({});
 
   // Prime object URLs for cover assets (best-effort).
   useEffect(() => {
@@ -663,7 +675,10 @@ export default function WorkflowsPanel({
         ) : (
           <div className="grid flex-1 grid-cols-4 gap-4 overflow-auto pr-1">
             {filtered.map((wf) => {
-              const coverUrl = coverToUrl(wf.cover, resolveCoverAsset);
+              const guessedCoverUrl = guessWorkflowCoverFromSelection(wf.selection?.nodes ?? []);
+              const explicitCoverUrl = coverToUrlOrNull(wf.cover, resolveCoverAsset);
+              const previewUrl = guessedCoverUrl ?? explicitCoverUrl;
+              const showPreview = Boolean(previewUrl) && !coverLoadFailedById[wf.id];
               return (
                 <div
                   key={wf.id}
@@ -671,7 +686,18 @@ export default function WorkflowsPanel({
                 >
                   <div className="relative group/cover">
                     <div className="aspect-square w-full overflow-hidden rounded-t-xl bg-muted/10">
-                      <img src={coverUrl} alt={wf.name} className="h-full w-full object-cover" />
+                      {showPreview ? (
+                        <img
+                          src={previewUrl!}
+                          alt={wf.name}
+                          className="h-full w-full object-cover"
+                          onError={() =>
+                            setCoverLoadFailedById((prev) => ({ ...prev, [wf.id]: true }))
+                          }
+                        />
+                      ) : (
+                        <div className="h-full w-full bg-muted-foreground/20" />
+                      )}
                     </div>
 
                     {/* Hover overlay/actions should only be triggered on the cover area. */}

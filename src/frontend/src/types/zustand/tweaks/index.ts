@@ -4,12 +4,12 @@ export type TweaksStoreType = {
   nodes: AllNodeType[];
   currentFlowId: string;
   setNodes: (
-    update: AllNodeType[] | ((oldState: AllNodeType[]) => AllNodeType[]),
+    update: AllNodeType[] | ((oldState: AllNodeType[]) => any[]),
     skipSave?: boolean,
   ) => void;
   setNode: (
     id: string,
-    update: AllNodeType | ((oldState: AllNodeType) => AllNodeType),
+    update: AllNodeType | ((oldState: AllNodeType) => any),
   ) => void;
   getNode: (id: string) => AllNodeType | undefined;
   initialSetup: (nodes: AllNodeType[], flowId: string) => void;

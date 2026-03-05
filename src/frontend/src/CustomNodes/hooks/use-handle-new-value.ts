@@ -33,7 +33,9 @@ const useHandleOnNewValue = ({
   name: string;
   setNode?: (
     id: string,
-    update: AllNodeType | ((oldState: AllNodeType) => AllNodeType),
+    update: AllNodeType | ((oldState: AllNodeType) => any),
+    isUserChange?: boolean,
+    callback?: () => void,
   ) => void;
 }) => {
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
@@ -84,20 +86,14 @@ const useHandleOnNewValue = ({
     async (changes, options?) => {
       // Avoid cloneDeep(node): model switching + parameter edits happen frequently and the node
       // templates can be large. Use copy-on-write for the specific template field being edited.
-      const templateRaw = node.template;
-      const template = templateRaw ? { ...templateRaw } : null;
-      const newNode: APIClassType = { ...node, template: template ?? undefined };
+      const template = { ...(node.template ?? {}) };
+      const newNode: APIClassType = { ...node, template };
 
       // Debounced tracking
       track("Component Edited", { nodeId });
 
       if (nodeId.toLowerCase().includes("astra") && name === "database_name") {
         track("Database Selected", { nodeId, databaseName: changes.value });
-      }
-
-      if (!template) {
-        setErrorData({ title: t("Template not found in the component") });
-        return;
       }
 
       const parameterRaw = template[name];

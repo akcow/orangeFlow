@@ -310,7 +310,8 @@ export default function ScribbleImageModal({ open, onOpenChange }: Props) {
       const seeded = cloneDeep(tpl);
       seeded.display_name = "涂鸦生图";
       seeded.icon = "Paintbrush";
-      const seededTpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const seededTpl = seeded.template;
 
       // Force Nano Banana Pro (Gemini pro image model).
       if (seededTpl.model_name) {
@@ -402,7 +403,8 @@ export default function ScribbleImageModal({ open, onOpenChange }: Props) {
     if (!canInsert) return;
     if (!lastSeededRef.current) return;
     const seeded = cloneDeep(lastSeededRef.current);
-    const seededTpl = (seeded.template ??= {});
+    seeded.template = seeded.template ?? {};
+    const seededTpl = seeded.template;
     seededTpl.draft_output = seededTpl.draft_output ?? { value: null };
     seededTpl.draft_output.value = lastPreviewRawRef.current;
 

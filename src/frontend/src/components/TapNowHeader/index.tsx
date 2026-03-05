@@ -16,6 +16,10 @@ import useAuthStore from "@/stores/authStore";
 import { cn } from "@/utils/utils";
 
 type NavKey = "tv" | "templates" | "workspace" | "home";
+interface TapNowHeaderProps {
+  centerContent?: React.ReactNode;
+  dataTestId?: string;
+}
 
 const getActiveNav = (pathname: string): NavKey => {
   if (pathname.startsWith("/home")) return "home";
@@ -24,7 +28,10 @@ const getActiveNav = (pathname: string): NavKey => {
   return "workspace";
 };
 
-export const TapNowHeader = () => {
+export const TapNowHeader = ({
+  centerContent,
+  dataTestId,
+}: TapNowHeaderProps = {}) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { i18n } = useTranslation();
@@ -67,8 +74,11 @@ export const TapNowHeader = () => {
   };
 
   return (
-    <header className="sticky top-0 z-50 flex h-[72px] w-full items-center justify-between border-b border-white/10 bg-black px-4 text-white md:px-8">
-      <div className="flex min-w-0 items-center gap-4 md:gap-8">
+    <header
+      data-testid={dataTestId}
+      className="sticky top-0 z-50 flex h-[72px] w-full items-center justify-between border-b border-white/10 bg-black px-4 text-white md:px-8"
+    >
+      <div className="relative z-20 flex min-w-0 items-center gap-4 md:gap-8">
         <Link
           to="/home"
           className="flex items-center gap-3 transition-opacity hover:opacity-85"
@@ -77,8 +87,8 @@ export const TapNowHeader = () => {
             <div className="h-9 w-9 rounded-2xl bg-[radial-gradient(circle_at_20%_20%,#FDE68A_0%,#60A5FA_35%,#A78BFA_65%,#F472B6_100%)] shadow-[0_0_16px_rgba(192,132,252,0.35)]" />
           ) : (
             <img
-              src="/branding/tapnow-icon.png?v=20260305"
-              alt="TapNow icon"
+              src="/branding/orangeflow-icon-512.png?v=20260305"
+              alt="OrangeFlow icon"
               className="h-9 w-9 rounded-2xl object-cover"
               onError={() => setIconLoadFailed(true)}
             />
@@ -113,7 +123,13 @@ export const TapNowHeader = () => {
         </nav>
       </div>
 
-      <div className="flex items-center gap-2 md:gap-3">
+      {centerContent ? (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden -translate-x-1/2 -translate-y-1/2 md:block">
+          <div className="pointer-events-auto">{centerContent}</div>
+        </div>
+      ) : null}
+
+      <div className="relative z-20 flex items-center gap-2 md:gap-3">
         <Button
           variant="ghost"
           className="hidden h-10 rounded-xl px-4 text-sm font-medium text-white/75 hover:bg-white/[0.08] hover:text-white md:inline-flex"

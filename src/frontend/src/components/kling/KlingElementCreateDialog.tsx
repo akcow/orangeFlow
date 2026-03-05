@@ -504,10 +504,10 @@ export default function KlingElementCreateDialog({
       if (uploadedByIdx.size > 0) {
         setReferSlots((prev) => {
           const next = [...prev];
-          for (const [idx, up] of uploadedByIdx.entries()) {
-            if (!next[idx]) continue;
+          uploadedByIdx.forEach((up, idx) => {
+            if (!next[idx]) return;
             next[idx] = { local: next[idx]!.local, uploaded: up };
-          }
+          });
           return next;
         });
       }

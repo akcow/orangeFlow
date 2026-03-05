@@ -582,7 +582,11 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     const onlyDimensions = changes.length > 0 && changes.every((c) => c.type === "dimensions");
     if (onlyDimensions) {
       // Ensure group containers stay behind other nodes/edges (rarely needed, but cheap for only changed ids).
-      const changedIds = new Set(changes.map((c) => c.id as string));
+      const changedIds = new Set(
+        changes
+          .filter((c: any) => "id" in c)
+          .map((c: any) => String(c.id)),
+      );
       let needsZFix = false;
       const byId = new Map(updated.map((n) => [n.id, n]));
       for (const id of changedIds) {
@@ -610,8 +614,11 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     // Clamp "workflow locked" nodes to remain within their parent group bounds.
     // Do this only for position-changed nodes to keep drag smooth on large graphs.
     const positionChangeIds = changes
-      .filter((c) => c.type === "position")
-      .map((c) => c.id as string);
+      .filter(
+        (c): c is NodeChange<AllNodeType> & { id: string } =>
+          c.type === "position" && "id" in c,
+      )
+      .map((c) => String(c.id));
 
     let clamped = updated;
     if (positionChangeIds.length > 0) {
@@ -622,7 +629,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       for (const id of positionChangeIds) {
         const n: any = byId.get(id);
         if (!n?.parentId) continue;
-        if (!Boolean(n?.data?.workflowLocked)) continue;
+        if (!n?.data?.workflowLocked) continue;
         const parent: any = byId.get(n.parentId);
         if (!parent || parent.type !== "groupNode") continue;
 
@@ -665,8 +672,8 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         return { ...(n as any), zIndex: -100, style };
       }
 
-      const hasExtent = Object.prototype.hasOwnProperty.call(n as any, "extent");
-      const hasExpand = Object.prototype.hasOwnProperty.call(n as any, "expandParent");
+      const hasExtent = Object.hasOwn(n as any, "extent");
+      const hasExpand = Object.hasOwn(n as any, "expandParent");
       if (!hasExtent && !hasExpand && !shouldFixZ) return n;
 
       const nn: any = { ...n };
@@ -705,8 +712,13 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     const nodeById = new Map(normalized.map((n) => [n.id, n]));
     const movedGroupIds = new Set(
       changes
-        .filter((c) => c.type === "position" && !!(nodeById.get(c.id as string) as any))
-        .map((c) => c.id as string)
+        .filter(
+          (c): c is NodeChange<AllNodeType> & { id: string } =>
+            c.type === "position" &&
+            "id" in c &&
+            !!(nodeById.get(String(c.id)) as any),
+        )
+        .map((c) => String(c.id))
         .filter((id) => nodeById.get(id)?.type === "groupNode"),
     );
 
@@ -1088,13 +1100,15 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     const storeEdges = get().edges;
     const nodeById = new Map(storeNodes.map((n) => [n.id, n]));
 
-    const initialIds = new Set(newSelection.nodes.map((n) => n.id));
+    const initialIds = new Set<string>(
+      newSelection.nodes.map((n) => String((n as any).id)),
+    );
     const expandedIds = new Set(initialIds);
     const queue = Array.from(initialIds);
 
     while (queue.length) {
       const currentId = queue.pop()!;
-      const current = nodeById.get(currentId);
+      const current = nodeById.get(String(currentId));
       if (!current || !isGroupContainerNode(current)) continue;
       for (const child of storeNodes) {
         if (child.parentId !== currentId) continue;
@@ -1105,7 +1119,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     }
 
     const expandedNodes = Array.from(expandedIds)
-      .map((id) => nodeById.get(id))
+      .map((id) => nodeById.get(String(id)))
       .filter(Boolean)
       .map((n) => {
         const abs = getAbsolutePosition(n!, nodeById);
@@ -1660,12 +1674,12 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       throw new Error(t("Invalid components"));
     }
 
-    function validateSubgraph() {}
-    function handleBuildUpdate(
+    const validateSubgraph = () => {};
+    const handleBuildUpdate = (
       vertexBuildData: VertexBuildTypeAPI,
       status: BuildStatus,
       runId: string,
-    ) {
+    ) => {
       const effectiveRunId = runId || vertexBuildData?.run_id || "";
 
       const inactivated = vertexBuildData?.inactivated_vertices ?? [];
@@ -1680,7 +1694,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         vertexBuildData.id,
       );
       get().markChainNodeFinished(chainId, vertexBuildData.id, status);
-    }
+    };
 
     // When sending a graph payload to the backend build endpoint, only include buildable nodes.
     // Some canvas-only nodes (e.g. notes/annotations) don't have `data.node` and will crash

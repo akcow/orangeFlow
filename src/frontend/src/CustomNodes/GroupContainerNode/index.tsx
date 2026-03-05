@@ -84,7 +84,7 @@ export default function GroupContainerNode({
   }, [editing]);
 
   const bgKeyRaw = (data as any)?.backgroundColor ?? "blue";
-  const bgKey = Object.prototype.hasOwnProperty.call(GROUP_COLOR_OPTIONS, bgKeyRaw)
+  const bgKey = Object.hasOwn(GROUP_COLOR_OPTIONS, bgKeyRaw)
     ? bgKeyRaw
     : "blue";
   const bgVar = (GROUP_COLOR_OPTIONS as any)[bgKey] as string | undefined;

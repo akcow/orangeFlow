@@ -78,14 +78,17 @@ function findFirstImageLikeString(value: unknown): string | null {
   return null;
 }
 
-export function extractGroupSelectionForWorkflow(
-  groupId: string,
-  nodes: AllNodeType[],
-  edges: EdgeType[],
-): WorkflowSelection | null {
+export function extractGroupSelectionForWorkflow(params: {
+  groupId: string;
+  nodes: AllNodeType[];
+  edges: EdgeType[];
+}): WorkflowSelection {
+  const { groupId, nodes, edges } = params;
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const root = nodeById.get(groupId);
-  if (!root || !isGroupContainerNode(root)) return null;
+  if (!root || !isGroupContainerNode(root)) {
+    return { nodes: [], edges: [] };
+  }
 
   const expandedIds = new Set<string>([groupId]);
   const queue = [groupId];
@@ -220,9 +223,9 @@ function collectImageCandidates(value: unknown, out: string[]): void {
   Object.values(record).forEach((entry) => collectImageCandidates(entry, out));
 }
 
-export function extractLatestImageFromFlow(flow: {
+function collectFlowImageCandidatesFromFlow(flow: {
   data?: { nodes?: AllNodeType[] } | null;
-}): string | null {
+}): string[] {
   const nodes = flow?.data?.nodes ?? [];
   const candidates: string[] = [];
 
@@ -240,9 +243,21 @@ export function extractLatestImageFromFlow(flow: {
     });
   });
 
-  return candidates.length > 0
-    ? (candidates[candidates.length - 1] ?? null)
-    : null;
+  return candidates;
+}
+
+export function extractFirstImageFromFlow(flow: {
+  data?: { nodes?: AllNodeType[] } | null;
+}): string | null {
+  const candidates = collectFlowImageCandidatesFromFlow(flow);
+  return candidates.length > 0 ? (candidates[0] ?? null) : null;
+}
+
+export function extractLatestImageFromFlow(flow: {
+  data?: { nodes?: AllNodeType[] } | null;
+}): string | null {
+  const candidates = collectFlowImageCandidatesFromFlow(flow);
+  return candidates.length > 0 ? (candidates[candidates.length - 1] ?? null) : null;
 }
 
 export function getFilesDownloadUrl(filePath: string): string {

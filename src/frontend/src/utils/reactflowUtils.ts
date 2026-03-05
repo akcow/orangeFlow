@@ -1432,7 +1432,7 @@ export function updateEdgesHandleIds({
       // Preserve any custom metadata (e.g. videoReferType) across migrations.
       ...previousData,
       ...newData,
-      imageRole: previousData?.imageRole,
+      imageRole: (previousData as any)?.imageRole,
     };
   });
   return newEdges;

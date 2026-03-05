@@ -536,7 +536,8 @@ export function PoseGeneratorPanel({
       seeded.icon = "PersonStanding";
 
       // Force qwen-image-edit-max (docs/model/千问-图像编辑Qwen-Image-Edit.md).
-      const tpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const tpl = seeded.template;
       tpl.tool_model_override = tpl.tool_model_override ?? { value: "" };
       tpl.tool_model_override.value = "qwen-image-edit-max";
 

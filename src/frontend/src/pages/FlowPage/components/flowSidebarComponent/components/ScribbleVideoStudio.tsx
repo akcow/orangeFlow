@@ -993,7 +993,8 @@ export default function ScribbleVideoStudio({
       const seeded = cloneDeep(tpl);
       seeded.display_name = "涂鸦生视频";
       seeded.icon = "Clapperboard";
-      const seededTpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const seededTpl = seeded.template;
       const normalizedDuration = normalizeDurationValue(
         videoDurationSec,
         durationRange.min,
@@ -1161,7 +1162,8 @@ export default function ScribbleVideoStudio({
       const seeded = cloneDeep(tpl);
       seeded.display_name = "抠图结果";
       seeded.icon = "Cutout";
-      const seededTpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const seededTpl = seeded.template;
 
       const CUTOUT_PROMPT = [
         "请对参考图进行抠图：仅保留主体，移除背景，并将背景设为透明。",
@@ -1246,7 +1248,8 @@ export default function ScribbleVideoStudio({
       const seeded = cloneDeep(tpl);
       seeded.display_name = "涂鸦生视频结果";
       seeded.icon = "Clapperboard";
-      const seededTpl = (seeded.template ??= {});
+      seeded.template = seeded.template ?? {};
+      const seededTpl = seeded.template;
       seededTpl.draft_output = seededTpl.draft_output ?? { value: null };
       seededTpl.draft_output.value = rawPayload;
 

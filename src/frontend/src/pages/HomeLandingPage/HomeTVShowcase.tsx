@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -17,29 +18,49 @@ import {
 } from "@/utils/communityFiles";
 import { cn } from "@/utils/utils";
 
-const SECTION_RECOMMEND = "\u4e3a\u4f60\u63a8\u8350";
-const SECTION_FEATURED = "\u7cbe\u9009\u753b\u5e03";
+const SECTION_RECOMMEND = "recommend";
+const SECTION_FEATURED = "featured";
+const SECTION_TV_AD = "tv_ad";
+const SECTION_ANIMATION = "animation";
+const SECTION_NARRATIVE = "narrative";
+const SECTION_MV = "mv";
+const SECTION_CREATIVE = "creative";
+const SECTION_TUTORIAL = "tutorial";
+const SECTION_OTHER = "other";
+
 const SECTIONS = [
   SECTION_RECOMMEND,
   SECTION_FEATURED,
-  "\u7535\u89c6\u5e7f\u544a",
-  "\u52a8\u753b",
-  "\u53d9\u4e8b\u77ed\u7247",
-  "MV",
-  "\u521b\u610f",
-  "\u6559\u7a0b",
-  "\u5176\u4ed6",
+  SECTION_TV_AD,
+  SECTION_ANIMATION,
+  SECTION_NARRATIVE,
+  SECTION_MV,
+  SECTION_CREATIVE,
+  SECTION_TUTORIAL,
+  SECTION_OTHER,
 ] as const;
 
+const SECTION_LABEL_KEYS: Record<(typeof SECTIONS)[number], string> = {
+  [SECTION_RECOMMEND]: "Recommended for you",
+  [SECTION_FEATURED]: "Featured canvases",
+  [SECTION_TV_AD]: "TV Ads",
+  [SECTION_ANIMATION]: "Animation",
+  [SECTION_NARRATIVE]: "Narrative Shorts",
+  [SECTION_MV]: "MV",
+  [SECTION_CREATIVE]: "Creative",
+  [SECTION_TUTORIAL]: "Tutorials",
+  [SECTION_OTHER]: "Other",
+};
+
 const CATEGORY_ALIASES: Record<string, string[]> = {
-  [SECTION_FEATURED]: [SECTION_FEATURED, "\u7cbe\u9009\u753b\u9762"],
-  "\u7535\u89c6\u5e7f\u544a": ["\u7535\u89c6\u5e7f\u544a", "\u5e7f\u544a"],
-  "\u52a8\u753b": ["\u52a8\u753b"],
-  "\u53d9\u4e8b\u77ed\u7247": ["\u53d9\u4e8b\u77ed\u7247"],
-  MV: ["MV"],
-  "\u521b\u610f": ["\u521b\u610f"],
-  "\u6559\u7a0b": ["\u6559\u7a0b"],
-  "\u5176\u4ed6": ["\u5176\u4ed6"],
+  [SECTION_FEATURED]: ["精选画布", "精选画面"],
+  [SECTION_TV_AD]: ["电视广告", "广告"],
+  [SECTION_ANIMATION]: ["动画"],
+  [SECTION_NARRATIVE]: ["叙事短片"],
+  [SECTION_MV]: ["MV"],
+  [SECTION_CREATIVE]: ["创意"],
+  [SECTION_TUTORIAL]: ["教程"],
+  [SECTION_OTHER]: ["其他"],
 };
 
 function getFlowViewPath(flowId: string): string {
@@ -59,6 +80,7 @@ function formatCount(value?: number): string {
 }
 
 export default function HomeTVShowcase() {
+  const { t } = useTranslation();
   const navigate = useCustomNavigate();
   const addFlow = useAddFlow();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -115,7 +137,7 @@ export default function HomeTVShowcase() {
         next = byCategory(CATEGORY_ALIASES[section] ?? [section]);
       }
       if (!next.length) {
-        // 历史作品无 category 时，给分区回填推荐作品，避免只显示一个分区。
+        // Backfill with recommended items when historical data has no category.
         next = recommended.slice(idx * 10, idx * 10 + 24);
       }
       map.set(section, next);
@@ -145,8 +167,20 @@ export default function HomeTVShowcase() {
     setSelected(item);
   };
 
-  if (listPublic.isLoading) return <div className="py-8 text-sm text-muted-foreground">加载 TapTV 中...</div>;
-  if (!items.length) return <div className="py-8 text-sm text-muted-foreground">暂无 TapTV 内容</div>;
+  if (listPublic.isLoading) {
+    return (
+      <div className="py-8 text-sm text-muted-foreground">
+        {t("Loading TapTV...")}
+      </div>
+    );
+  }
+  if (!items.length) {
+    return (
+      <div className="py-8 text-sm text-muted-foreground">
+        {t("No TapTV content yet")}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full space-y-8">
@@ -156,9 +190,11 @@ export default function HomeTVShowcase() {
         return (
           <section key={section}>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-white">{section}</h3>
+              <h3 className="text-2xl font-bold text-white">
+                {t(SECTION_LABEL_KEYS[section] ?? section)}
+              </h3>
               <button type="button" className="inline-flex items-center text-sm text-white/70 hover:text-white" onClick={() => navigate("/community/tv")}>
-                查看全部
+                {t("View all")}
                 <IconComponent name="ArrowRight" className="ml-1 h-4 w-4" />
               </button>
             </div>
@@ -173,16 +209,16 @@ export default function HomeTVShowcase() {
                   <article key={item.id}>
                     <button type="button" className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-black/30 text-left" onClick={() => openDetail(item, sectionItems)} onMouseEnter={() => isVideo && mediaUrl && setHoverPlayingId(item.id)} onMouseLeave={() => hoverPlayingId === item.id && setHoverPlayingId(null)}>
                       <div className="relative aspect-video w-full">
-                        {coverUrl ? <img src={coverUrl} alt={item.title} className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-200", isVideo && isPlaying ? "opacity-0" : "opacity-100")} /> : <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">无封面</div>}
-                        {isVideo && mediaUrl ? <video ref={(el) => (cardVideoRefs.current[item.id] = el)} className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-200", isPlaying ? "opacity-100" : "opacity-0")} src={mediaUrl} muted loop playsInline preload="metadata" /> : null}
+                        {coverUrl ? <img src={coverUrl} alt={item.title} className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-200", isVideo && isPlaying ? "opacity-0" : "opacity-100")} /> : <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">{t("No cover")}</div>}
+                        {isVideo && mediaUrl ? <video ref={(el) => { cardVideoRefs.current[item.id] = el; }} className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-200", isPlaying ? "opacity-100" : "opacity-0")} src={mediaUrl} muted loop playsInline preload="metadata" /> : null}
                       </div>
                     </button>
                     <div className="mt-2 min-w-0">
-                      <div className="truncate text-xs text-white/55">@{item.user_name ?? "匿名"}</div>
+                      <div className="truncate text-xs text-white/55">@{item.user_name ?? t("Anonymous")}</div>
                       <div className="truncate text-lg font-semibold text-white">{item.title}</div>
                       <div className="mt-1 flex items-center gap-3 text-xs text-white/55">
-                        <span>播放 {formatCount(item.view_count)}</span>
-                        <span>点赞 {formatCount(item.like_count)}</span>
+                        <span>{t("Plays")} {formatCount(item.view_count)}</span>
+                        <span>{t("Likes")} {formatCount(item.like_count)}</span>
                       </div>
                     </div>
                   </article>
@@ -202,7 +238,7 @@ export default function HomeTVShowcase() {
               <div className="absolute left-8 top-8 z-20">
                 <button type="button" className="inline-flex items-center gap-2 rounded-full bg-black/45 px-6 py-3 text-xl font-semibold text-white/95" onClick={() => setSelected(null)}>
                   <IconComponent name="ArrowLeft" className="h-6 w-6" />
-                  返回
+                  {t("Back")}
                 </button>
               </div>
             </div>
@@ -226,15 +262,18 @@ export default function HomeTVShowcase() {
                       const flow = r.data as any;
                       const newId = await addFlow({ flow });
                       if (typeof newId === "string" && newId) {
-                        setSuccessData({ title: "已克隆到工作空间" });
+                        setSuccessData({ title: t("Cloned to workspace") });
                         navigate(`/flow/${newId}/`);
                       }
                     } catch (error: any) {
-                      setErrorData({ title: "克隆失败", list: [error?.message ?? "未知错误"] });
+                      setErrorData({
+                        title: t("Clone failed"),
+                        list: [error?.message ?? t("Unknown error")],
+                      });
                     }
                   }}
                 >
-                  克隆项目
+                  {t("Clone project")}
                   <IconComponent name="ArrowUpRight" className="ml-1 h-4 w-4" />
                 </Button>
               </div>

@@ -2248,7 +2248,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         (newTemplate as any).icon = "Cutout";
 
         // Force "Nano Banana Pro" model for background removal.
-        const tpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        (newTemplate as any).template = (newTemplate as any).template ?? {};
+        const tpl = (newTemplate as any).template;
         if (tpl?.model_name) {
           tpl.model_name.value = "Nano Banana Pro";
         }
@@ -2500,7 +2501,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       });
 
       const newTemplate = cloneDeep(template);
-      const nextTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+      (newTemplate as any).template = (newTemplate as any).template ?? {};
+      const nextTpl = (newTemplate as any).template;
       (newTemplate as any).display_name = "视频增强";
       (newTemplate as any).icon = "HD";
 
@@ -3144,7 +3146,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
         // Force qwen-image-edit-max in the backend via hidden tool override fields.
         // Always set them (create if missing) so the backend reliably receives camera params/size.
-        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        (newTemplate as any).template = (newTemplate as any).template ?? {};
+        const toolTpl = (newTemplate as any).template;
         toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
         toolTpl.tool_model_override.value = "qwen-image-edit-max";
         toolTpl.tool_multi_angle_views = toolTpl.tool_multi_angle_views ?? { value: "" };
@@ -3335,7 +3338,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           }
         }
 
-        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        (newTemplate as any).template = (newTemplate as any).template ?? {};
+        const toolTpl = (newTemplate as any).template;
         toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
         toolTpl.tool_model_override.value = String(modelId || "").trim();
         toolTpl.tool_enhance_resolution = toolTpl.tool_enhance_resolution ?? { value: "4k" };
@@ -4250,7 +4254,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
             // Extra safety: store explicit base/mask paths for wanx tool runs so the backend
             // can always pick them up even if reference_images is merged/overridden.
-            const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+            (newTemplate as any).template = (newTemplate as any).template ?? {};
+            const toolTpl = (newTemplate as any).template;
             toolTpl.tool_wan_base_image_path = toolTpl.tool_wan_base_image_path ?? { value: "" };
             toolTpl.tool_wan_mask_image_path = toolTpl.tool_wan_mask_image_path ?? { value: "" };
             toolTpl.tool_wan_base_image_path.value = basePath.trim();
@@ -4262,7 +4267,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           }
         }
 
-        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        (newTemplate as any).template = (newTemplate as any).template ?? {};
+        const toolTpl = (newTemplate as any).template;
         toolTpl.tool_model_override = toolTpl.tool_model_override ?? { value: "" };
         toolTpl.tool_model_override.value = "wanx2.1-imageedit";
         toolTpl.tool_wan_imageedit_function = toolTpl.tool_wan_imageedit_function ?? { value: "" };
@@ -4494,7 +4500,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
             // Extra safety: store explicit base/mask paths for wanx tool runs so the backend
             // can always pick them up even if reference_images is merged/overridden.
-            const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+            (newTemplate as any).template = (newTemplate as any).template ?? {};
+            const toolTpl = (newTemplate as any).template;
             toolTpl.tool_wan_base_image_path = toolTpl.tool_wan_base_image_path ?? { value: "" };
             toolTpl.tool_wan_mask_image_path = toolTpl.tool_wan_mask_image_path ?? { value: "" };
             toolTpl.tool_wan_base_image_path.value = basePath.trim();
@@ -4512,7 +4519,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         }
 
         // Clear any tool override so we use the model dropdown/provider path (gemini).
-        const toolTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+        (newTemplate as any).template = (newTemplate as any).template ?? {};
+        const toolTpl = (newTemplate as any).template;
         if (toolTpl.tool_model_override) {
           toolTpl.tool_model_override.value = "";
         }
@@ -5888,7 +5896,7 @@ function inferExtensionFromSource(source: string, fallback: string): string {
       return normalizeExt(pathExt);
     }
   } catch {
-    const match = /\.([a-z0-9]+)(?:[\?#]|$)/i.exec(source);
+    const match = /\.([a-z0-9]+)(?:[?#]|$)/i.exec(source);
     if (match?.[1]) {
       return normalizeExt(match[1]);
     }

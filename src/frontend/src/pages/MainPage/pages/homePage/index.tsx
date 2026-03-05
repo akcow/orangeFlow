@@ -51,7 +51,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
       const folderExists = folders.find((folder) => folder.id === folderId);
       if (!folderExists) {
         // Folder doesn't exist for this user, redirect to /all
-        console.error("无效的 folderId，正在重定向到 /all");
+        console.error("Invalid folderId. Redirecting to /all.");
         navigate("/all");
       }
     }
@@ -298,6 +298,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                     <ListComponent
                       key={flow.id}
                       flowData={flow}
+                      view={view}
                       selected={selectedFlows.includes(flow.id)}
                       setSelected={(selected) =>
                         setSelectedFlow(selected, flow.id, index)
@@ -312,6 +313,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                     <ListComponent
                       key={flow.id}
                       flowData={flow}
+                      view={view}
                       selected={selectedFlows.includes(flow.id)}
                       setSelected={(selected) =>
                         setSelectedFlow(selected, flow.id, index)

@@ -588,7 +588,6 @@ async function onEvent(
     default:
       return true;
   }
-  return true;
 }
 
 export async function buildVertices({

@@ -112,7 +112,7 @@ export const TapNowWorkflowsHeader = ({
                 : "border-transparent text-gray-400"
             )}
           >
-            {type === "flows" ? "流程" : "组件"}
+            {type === "flows" ? t("Flows") : t("Components")}
           </Button>
         ))}
       </div>
@@ -126,8 +126,8 @@ export const TapNowWorkflowsHeader = ({
             type="text"
             placeholder={
               flowType === "flows"
-                ? "搜索流程..."
-                : "搜索组件..."
+                ? t("Search flows...")
+                : t("Search components...")
             }
             className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus-visible:ring-white/20"
             value={debouncedSearch}
@@ -191,7 +191,7 @@ export const TapNowWorkflowsHeader = ({
             {selectedFlows.length === 0 && (
                 <>
                 <ShadTooltip
-                    content={`${"按时间排序"} (${sortOrder === "desc" ? "最新优先" : "最早优先"})`}
+                    content={`${t("Sort by time")} (${sortOrder === "desc" ? t("Newest first") : t("Oldest first")})`}
                     side="bottom"
                 >
                     <Button
@@ -213,7 +213,7 @@ export const TapNowWorkflowsHeader = ({
                     loading={isCreatingFlow}
                 >
                     <ForwardedIconComponent name="Plus" className="mr-2 h-4 w-4" />
-                    新建流程
+                    {t("New Flow")}
                 </Button>
                 </>
             )}

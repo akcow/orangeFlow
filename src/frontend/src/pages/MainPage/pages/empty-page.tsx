@@ -1,6 +1,5 @@
 import { useState } from "react";
-import logoDarkPng from "@/assets/logo_dark.png";
-import logoLightPng from "@/assets/logo_light.png";
+import { useTranslation } from "react-i18next";
 import { ForwardedIconComponent } from "@/components/common/genericIconComponent";
 import CardsWrapComponent from "@/components/core/cardsWrapComponent";
 import { Button } from "@/components/ui/button";
@@ -9,13 +8,10 @@ import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { useFolderStore } from "@/stores/foldersStore";
 import useFileDrop from "../hooks/use-on-file-drop";
 
-const EMPTY_PAGE_TITLE = "欢迎使用 Langflow";
-const EMPTY_PAGE_DESCRIPTION = "更高效地构建与发布智能体工作流";
-const EMPTY_PAGE_DRAG_AND_DROP_TEXT = "已有流程？拖拽文件到此处即可上传。";
-const EMPTY_PAGE_FOLDER_DESCRIPTION = "空文件夹";
-const EMPTY_PAGE_CREATE_FIRST_FLOW_BUTTON_TEXT = "创建第一个流程";
+const ORANGE_FLOW_ICON = "/branding/orangeflow-icon-512.png?v=20260305";
 
 export const EmptyPageCommunity = () => {
+  const { t } = useTranslation();
   const handleFileDrop = useFileDrop(undefined);
   const folders = useFolderStore((state) => state.folders);
   const createBlankFlow = useCreateBlankFlow();
@@ -24,33 +20,23 @@ export const EmptyPageCommunity = () => {
   return (
     <DotBackgroundDemo>
       <CardsWrapComponent
-        dragMessage="将流程或组件拖拽到此处"
+        dragMessage={t("Drop flows or components here")}
         onFileDrop={handleFileDrop}
       >
         <div className="m-0 h-full w-full bg-background p-0">
           <div className="z-50 flex h-full w-full flex-col items-center justify-center gap-5">
             <div className="z-50 flex flex-col items-center gap-2">
-              <div className="z-50 dark:hidden">
-                <img
-                  src={logoLightPng}
-                  alt="Langflow Logo Light"
-                  data-testid="empty_page_logo_light"
-                  className="relative top-8 h-40 pointer-events-none select-none"
-                />
-              </div>
-              <div className="z-50 hidden dark:block">
-                <img
-                  src={logoDarkPng}
-                  alt="Langflow Logo Dark"
-                  data-testid="empty_page_logo_dark"
-                  className="relative top-8 h-40 pointer-events-none select-none"
-                />
-              </div>
+              <img
+                src={ORANGE_FLOW_ICON}
+                alt={t("OrangeFlow logo")}
+                data-testid="empty_page_logo_orangeflow"
+                className="h-36 w-36 rounded-full object-cover pointer-events-none select-none"
+              />
               <span
                 data-testid="mainpage_title"
                 className="z-50 text-center font-chivo text-2xl font-medium text-foreground"
               >
-                {EMPTY_PAGE_TITLE}
+                {t("Welcome to OrangeFlow")}
               </span>
 
               <span
@@ -58,8 +44,8 @@ export const EmptyPageCommunity = () => {
                 className="z-50 text-center text-base text-secondary-foreground"
               >
                 {folders?.length > 1
-                  ? EMPTY_PAGE_FOLDER_DESCRIPTION
-                  : EMPTY_PAGE_DESCRIPTION}
+                  ? t("Empty folder")
+                  : t("Build and publish AI workflows more efficiently")}
               </span>
             </div>
 
@@ -86,7 +72,7 @@ export const EmptyPageCommunity = () => {
                   aria-hidden="true"
                   className="h-4 w-4"
                 />
-                <span>{EMPTY_PAGE_CREATE_FIRST_FLOW_BUTTON_TEXT}</span>
+                <span>{t("Create your first flow")}</span>
               </Button>
             </div>
           </div>
@@ -95,7 +81,7 @@ export const EmptyPageCommunity = () => {
           data-testid="empty_page_drag_and_drop_text"
           className="absolute bottom-5 left-0 right-0 mt-4 cursor-default text-center text-xxs text-muted-foreground"
         >
-          {EMPTY_PAGE_DRAG_AND_DROP_TEXT}
+          {t("Already have a flow? Drag and drop files here to upload.")}
         </p>
       </CardsWrapComponent>
     </DotBackgroundDemo>

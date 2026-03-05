@@ -10,6 +10,7 @@ import useAddFlow from "@/hooks/flows/use-add-flow";
 import useAlertStore from "@/stores/alertStore";
 import useAuthStore from "@/stores/authStore";
 import type { CommunityItem } from "@/types/community";
+import type { FlowType } from "@/types/flow";
 import { getCommunityImageUrl } from "@/utils/communityFiles";
 import { cn } from "@/utils/utils";
 
@@ -93,7 +94,7 @@ export default function WorkflowsPage() {
       const r = await api.get<Record<string, unknown>>(
         getURL("PUBLIC_FLOW", { flowId }),
       );
-      const flow = r.data;
+      const flow = r.data as FlowType;
       const newId = await addFlow({ flow });
       if (typeof newId === "string" && newId) {
         setSuccessData({ title: "已克隆到工作空间" });

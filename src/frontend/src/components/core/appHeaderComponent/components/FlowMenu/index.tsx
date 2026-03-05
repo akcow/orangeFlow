@@ -26,7 +26,7 @@ import { swatchColors } from "@/utils/styleUtils";
 import { cn, getNumberFromString } from "@/utils/utils";
 
 export const MenuBar = memo((): JSX.Element => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const saveLoading = useFlowsManagerStore((state) => state.saveLoading);
   const [openSettings, setOpenSettings] = useState(false);
@@ -83,6 +83,9 @@ export const MenuBar = memo((): JSX.Element => {
 
   const changes = useShortcutsStore((state) => state.changesSave);
   useHotkeys(changes, handleSave, { preventDefault: true });
+  const dateLocale = i18n.resolvedLanguage?.toLowerCase().startsWith("zh")
+    ? "zh-CN"
+    : "en-US";
 
   const swatchIndex =
     (currentFlowGradient && !isNaN(parseInt(currentFlowGradient))
@@ -162,9 +165,9 @@ export const MenuBar = memo((): JSX.Element => {
                     ? saveLoading
                       ? t("Saving...")
                       : t("Save Changes")
-                    : SAVED_HOVER +
+                      : SAVED_HOVER +
                       (updatedAt
-                        ? new Date(updatedAt).toLocaleString("zh-CN", {
+                        ? new Date(updatedAt).toLocaleString(dateLocale, {
                             hour: "numeric",
                             minute: "numeric",
                           })

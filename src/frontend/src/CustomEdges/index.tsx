@@ -378,12 +378,16 @@ export function DefaultEdge({
         nodes.map((node) => {
           if (node.id !== target) return node;
           if (node.data?.type !== IMAGE_ROLE_TARGET) return node;
-          const template = node.data.node?.template ?? {};
+          const nodeData = node.data as any;
+          const template = nodeData?.node?.template ?? {};
           const field = template.kling_video_refer_type;
           if (!field) return node;
-          const nextNode = { ...node };
-          nextNode.data = { ...node.data, node: { ...node.data.node } };
-          nextNode.data.node.template = { ...template, kling_video_refer_type: { ...field, value: nextValue } };
+          const nextNode = { ...(node as any) };
+          nextNode.data = { ...nodeData, node: { ...(nodeData?.node ?? {}) } };
+          nextNode.data.node.template = {
+            ...template,
+            kling_video_refer_type: { ...field, value: nextValue },
+          };
           return nextNode;
         }),
       );

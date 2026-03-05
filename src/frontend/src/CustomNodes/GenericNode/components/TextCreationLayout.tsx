@@ -1426,6 +1426,9 @@ export default function TextCreationLayout({
       openPreview,
       download: noopDownload,
       canDownload: false,
+      enterAnnotate: noopEnter,
+      canAnnotate: false,
+      isAnnotateOpen: false,
       enterRepaint: noopEnter,
       runRepaint: noopEnter,
       canRepaint: false,
@@ -1434,6 +1437,8 @@ export default function TextCreationLayout({
       runErase: noopEnter,
       canErase: false,
       isEraseOpen: false,
+      runCutout: noopEnter,
+      canCutout: false,
       enterCrop: noopEnterCrop,
       canCrop: false,
       enterEnhance: noopEnter,
@@ -1448,6 +1453,8 @@ export default function TextCreationLayout({
       enterClip: noopEnter,
       canClip: false,
       isClipOpen: false,
+      runVideoUpscale: noopEnter,
+      canVideoUpscale: false,
     });
   }, [
     noopDownload,

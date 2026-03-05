@@ -1,6 +1,7 @@
 import type React from "react";
 import useFlowStore from "@/stores/flowStore";
 import type { APIClassType } from "@/types/api";
+import type { AllNodeType } from "@/types/flow";
 import JsonEditor from "../jsonEditor";
 
 interface JsonOutputViewComponentProps {
@@ -31,6 +32,7 @@ const JsonOutputViewComponent: React.FC<JsonOutputViewComponentProps> = ({
         className="flex-1 rounded border border-border"
         setFilter={(filter) => {
           setNode(nodeId, (old) => {
+            if (!("node" in old.data) || !old.data.node) return old;
             const outputs = (old.data.node as APIClassType).outputs;
             const output = outputs?.find((o) => o.name === outputName);
             if (output) {
@@ -48,7 +50,7 @@ const JsonOutputViewComponent: React.FC<JsonOutputViewComponentProps> = ({
                   outputs: outputs,
                 },
               },
-            };
+            } as AllNodeType;
           });
         }}
         allowFilter={true}

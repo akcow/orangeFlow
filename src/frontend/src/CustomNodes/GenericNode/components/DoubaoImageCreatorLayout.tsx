@@ -188,8 +188,8 @@ function sortAspectRatioOptions(options: Array<string | number>): Array<string |
   }
 
   ratioOptions.sort((a, b) => {
-    const knownA = ASPECT_RATIO_DISPLAY_ORDER_INDEX.get(a.normalized);
-    const knownB = ASPECT_RATIO_DISPLAY_ORDER_INDEX.get(b.normalized);
+    const knownA = ASPECT_RATIO_DISPLAY_ORDER_INDEX.get(a.normalized as any);
+    const knownB = ASPECT_RATIO_DISPLAY_ORDER_INDEX.get(b.normalized as any);
     if (knownA !== undefined || knownB !== undefined) {
       if (knownA === undefined) return 1;
       if (knownB === undefined) return -1;
@@ -482,7 +482,7 @@ export default function DoubaoImageCreatorLayout({
   // Avoid resizing the node while the user is box-selecting; resizing can cause the
   // selection set to oscillate and look like "twitching".
   const userSelectionActive = useStore((s: ReactFlowState) => s.userSelectionActive);
-  const showExpanded = Boolean(selected) && !userSelectionActive && !Boolean(data.cropPreviewOnly);
+  const showExpanded = Boolean(selected) && !userSelectionActive && !data.cropPreviewOnly;
   const customFields = new Set<string>([
     PROMPT_NAME,
     REFERENCE_FIELD,
