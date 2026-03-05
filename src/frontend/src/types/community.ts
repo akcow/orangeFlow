@@ -7,6 +7,7 @@ export type CommunityItem = {
   status: CommunityItemStatus;
   title: string;
   description: string | null;
+  category?: string | null;
   flow_id: string;
   user_id: string;
   cover_path: string | null;

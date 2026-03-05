@@ -69,7 +69,7 @@ export default function TVPage() {
 
   const [scope, setScope] = useState<Scope>("public");
   const [topTab, setTopTab] = useState<TopTab>("works");
-  const [category, setCategory] = useState("全部");
+  const [category, setCategory] = useState("为你推荐");
   const [search, setSearch] = useState("");
 
   const [selected, setSelected] = useState<CommunityItem | null>(null);
@@ -89,13 +89,23 @@ export default function TVPage() {
   const detailRailRef = useRef<HTMLDivElement | null>(null);
   const detailCardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
+  const categoryFilter = useMemo(() => {
+    if (category === "为你推荐" || category === "全部" || category === "精选画布") {
+      return undefined;
+    }
+    return category;
+  }, [category]);
+
   const listPublic = useQuery({
-    queryKey: ["community", "tv", "public"],
+    queryKey: ["community", "tv", "public", categoryFilter],
     queryFn: async () => {
       const r = await api.get<CommunityItem[]>(
         `${getURL("COMMUNITY")}/items/public`,
         {
-          params: { type: "TV" },
+          params: {
+            type: "TV",
+            ...(categoryFilter ? { category: categoryFilter } : {}),
+          },
         },
       );
       return r.data ?? [];
@@ -103,13 +113,16 @@ export default function TVPage() {
   });
 
   const listMine = useQuery({
-    queryKey: ["community", "tv", "mine"],
+    queryKey: ["community", "tv", "mine", categoryFilter],
     enabled: isAuthenticated,
     queryFn: async () => {
       const r = await api.get<CommunityItem[]>(
         `${getURL("COMMUNITY")}/items/mine`,
         {
-          params: { type: "TV" },
+          params: {
+            type: "TV",
+            ...(categoryFilter ? { category: categoryFilter } : {}),
+          },
         },
       );
       return r.data ?? [];
@@ -130,14 +143,28 @@ export default function TVPage() {
           return hay.includes(q);
         });
 
-    if (scope !== "public") return searched;
+    let base = searched;
+    if (category === "精选画布") {
+      base = base.filter((item) => item.public_canvas);
+    }
+
+    if (scope !== "public") return base;
+
+    if (category === "为你推荐") {
+      return [...base].sort((a, b) => {
+        const scoreA = (a.like_count ?? 0) * 2 + (a.view_count ?? 0);
+        const scoreB = (b.like_count ?? 0) * 2 + (b.view_count ?? 0);
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+    }
 
     if (publicSort === "FEATURED_EDITABLE") {
-      return searched.filter((item) => item.public_canvas);
+      return base.filter((item) => item.public_canvas);
     }
 
     if (publicSort === "POPULAR") {
-      return [...searched].sort((a, b) => {
+      return [...base].sort((a, b) => {
         const likeDiff = (b.like_count ?? 0) - (a.like_count ?? 0);
         if (likeDiff !== 0) return likeDiff;
         const viewDiff = (b.view_count ?? 0) - (a.view_count ?? 0);
@@ -148,10 +175,10 @@ export default function TVPage() {
       });
     }
 
-    return [...searched].sort(
+    return [...base].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
-  }, [items, publicSort, scope, search]);
+  }, [category, items, publicSort, scope, search]);
 
   const loading =
     listPublic.isLoading || (scope === "mine" && listMine.isLoading);
@@ -234,8 +261,8 @@ export default function TVPage() {
         like_count: number;
       }>(`${getURL("COMMUNITY")}/items/${item.id}/view`);
       const metrics = r.data;
-      queryClient.setQueryData<CommunityItem[]>(
-        ["community", "tv", "public"],
+      queryClient.setQueriesData<CommunityItem[]>(
+        { queryKey: ["community", "tv", "public"] },
         (prev) =>
           (prev ?? []).map((it) =>
             it.id === item.id
@@ -247,8 +274,8 @@ export default function TVPage() {
               : it,
           ),
       );
-      queryClient.setQueryData<CommunityItem[]>(
-        ["community", "tv", "mine"],
+      queryClient.setQueriesData<CommunityItem[]>(
+        { queryKey: ["community", "tv", "mine"] },
         (prev) =>
           (prev ?? []).map((it) =>
             it.id === item.id
@@ -284,8 +311,8 @@ export default function TVPage() {
       }>(`${getURL("COMMUNITY")}/items/${item.id}/like`);
       const metrics = r.data;
       setLikedItemIds((prev) => ({ ...prev, [item.id]: !!metrics.liked }));
-      queryClient.setQueryData<CommunityItem[]>(
-        ["community", "tv", "public"],
+      queryClient.setQueriesData<CommunityItem[]>(
+        { queryKey: ["community", "tv", "public"] },
         (prev) =>
           (prev ?? []).map((it) =>
             it.id === item.id
@@ -297,8 +324,8 @@ export default function TVPage() {
               : it,
           ),
       );
-      queryClient.setQueryData<CommunityItem[]>(
-        ["community", "tv", "mine"],
+      queryClient.setQueriesData<CommunityItem[]>(
+        { queryKey: ["community", "tv", "mine"] },
         (prev) =>
           (prev ?? []).map((it) =>
             it.id === item.id
@@ -326,8 +353,9 @@ export default function TVPage() {
 
   const categories = useMemo(
     () => [
+      "为你推荐",
       "全部",
-      "精选画面",
+      "精选画布",
       "电视广告",
       "动画",
       "叙事短片",

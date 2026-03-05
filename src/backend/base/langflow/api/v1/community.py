@@ -118,6 +118,15 @@ def _normalize_comment(comment: str | None) -> str | None:
     return normalized[:500]
 
 
+def _normalize_category(category: str | None) -> str | None:
+    if category is None:
+        return None
+    normalized = str(category).strip()
+    if not normalized:
+        return None
+    return normalized[:40]
+
+
 def _can_review(current_user: User) -> bool:
     return bool(current_user.is_superuser or getattr(current_user, "is_reviewer", False))
 
@@ -221,6 +230,7 @@ async def list_public_items(
     *,
     session: DbSession,
     type: CommunityItemTypeEnum | None = None,  # noqa: A002
+    category: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -237,6 +247,9 @@ async def list_public_items(
     )
     if type:
         stmt = stmt.where(CommunityItem.type == type)
+    normalized_category = _normalize_category(category)
+    if normalized_category:
+        stmt = stmt.where(CommunityItem.category == normalized_category)
 
     rows = (await session.exec(stmt)).all()
     item_ids = [item.id for item, _, _ in rows]
@@ -260,6 +273,7 @@ async def list_my_items(
     session: DbSession,
     current_user: CurrentActiveUser,
     type: CommunityItemTypeEnum | None = None,  # noqa: A002
+    category: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -276,6 +290,9 @@ async def list_my_items(
     )
     if type:
         stmt = stmt.where(CommunityItem.type == type)
+    normalized_category = _normalize_category(category)
+    if normalized_category:
+        stmt = stmt.where(CommunityItem.category == normalized_category)
 
     rows = (await session.exec(stmt)).all()
     item_ids = [item.id for item, _, _ in rows]
@@ -480,6 +497,7 @@ async def create_item(
         status=status,
         title=payload.title,
         description=payload.description,
+        category=_normalize_category(payload.category),
         flow_id=payload.flow_id,
         user_id=current_user.id,
         cover_path=normalized_cover_path,
@@ -520,6 +538,8 @@ async def update_item(
         update_data["cover_path"] = _normalize_storage_path(update_data["cover_path"])
     if "media_path" in update_data:
         update_data["media_path"] = _normalize_storage_path(update_data["media_path"])
+    if "category" in update_data:
+        update_data["category"] = _normalize_category(update_data["category"])
 
     for k, v in update_data.items():
         setattr(item, k, v)

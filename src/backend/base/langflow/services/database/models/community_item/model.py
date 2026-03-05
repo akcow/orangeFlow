@@ -58,6 +58,7 @@ class CommunityItemBase(SQLModel):
 
     title: str = Field(index=True, min_length=1, max_length=80)
     description: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    category: str | None = Field(default=None, index=True, min_length=1, max_length=40)
 
     flow_id: UUID = Field(foreign_key="flow.id", index=True)
     user_id: UUID = Field(foreign_key="user.id", index=True)
@@ -114,6 +115,7 @@ class CommunityItemCreate(SQLModel):
     flow_id: UUID
     title: str = Field(min_length=1, max_length=80)
     description: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, min_length=1, max_length=40)
     cover_path: str | None = None
     media_path: str | None = None
     public_canvas: bool = False
@@ -128,6 +130,7 @@ class CommunityItemRead(CommunityItemBase):
 class CommunityItemUpdate(SQLModel):
     title: str | None = Field(default=None, max_length=80)
     description: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, min_length=1, max_length=40)
     cover_path: str | None = None
     media_path: str | None = None
     public_canvas: bool | None = None

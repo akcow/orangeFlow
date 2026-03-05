@@ -30,6 +30,7 @@ import TVPage from "./pages/Community/TVPage";
 import TVPublishPage from "./pages/Community/TVPublishPage";
 import WorkflowsPage from "./pages/Community/WorkflowsPage";
 import FlowPage from "./pages/FlowPage";
+import HomeLandingPage from "./pages/HomeLandingPage";
 import LoginPage from "./pages/LoginPage";
 import FilesPage from "./pages/MainPage/pages/filesPage";
 import HomePage from "./pages/MainPage/pages/homePage";
@@ -103,10 +104,11 @@ const router = createBrowserRouter(
           >
             <Route path="" element={<AppAuthenticatedPage />}>
               <Route path="" element={<CustomDashboardWrapperPage />}>
+                <Route path="home" element={<HomeLandingPage />} />
                 <Route path="" element={<CollectionPage />}>
                   <Route
                     index
-                    element={<CustomNavigate replace to={"flows"} />}
+                    element={<CustomNavigate replace to={"/home"} />}
                   />
                   {ENABLE_FILE_MANAGEMENT && (
                     <Route path="assets">

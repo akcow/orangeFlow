@@ -13,10 +13,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import useAuthStore from "@/stores/authStore";
+import { cn } from "@/utils/utils";
 
-type NavKey = "tv" | "templates" | "workspace";
+type NavKey = "tv" | "templates" | "workspace" | "home";
 
 const getActiveNav = (pathname: string): NavKey => {
+  if (pathname.startsWith("/home")) return "home";
   if (pathname.startsWith("/community/tv")) return "tv";
   if (pathname.startsWith("/community/workflows")) return "templates";
   return "workspace";
@@ -29,6 +31,8 @@ export const TapNowHeader = () => {
   const { userData, isAuthenticated, logout } = useAuthStore();
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
   const [wordmarkLoadFailed, setWordmarkLoadFailed] = useState(false);
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   const activeNav = useMemo(() => getActiveNav(location.pathname), [location.pathname]);
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
@@ -46,7 +50,7 @@ export const TapNowHeader = () => {
     {
       key: "workspace",
       label: isZh ? "\u5DE5\u4F5C\u7A7A\u95F4" : "Workspace",
-      to: "/",
+      to: "/flows",
     },
   ];
 
@@ -65,7 +69,10 @@ export const TapNowHeader = () => {
   return (
     <header className="sticky top-0 z-50 flex h-[72px] w-full items-center justify-between border-b border-white/10 bg-black px-4 text-white md:px-8">
       <div className="flex min-w-0 items-center gap-4 md:gap-8">
-        <Link to="/" className="flex items-center gap-3 transition-opacity hover:opacity-85">
+        <Link
+          to="/home"
+          className="flex items-center gap-3 transition-opacity hover:opacity-85"
+        >
           {iconLoadFailed ? (
             <div className="h-9 w-9 rounded-2xl bg-[radial-gradient(circle_at_20%_20%,#FDE68A_0%,#60A5FA_35%,#A78BFA_65%,#F472B6_100%)] shadow-[0_0_16px_rgba(192,132,252,0.35)]" />
           ) : (
@@ -114,14 +121,21 @@ export const TapNowHeader = () => {
           {isZh ? "\u4EF7\u683C\u65B9\u6848" : "Pricing"}
         </Button>
 
-        <DropdownMenu>
+        <DropdownMenu open={isLanguageMenuOpen} onOpenChange={setIsLanguageMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="flex h-10 items-center gap-1 rounded-xl border border-white/15 px-3 text-sm font-medium text-white/90 hover:bg-white/[0.08] hover:text-white"
+              className="flex h-10 touch-manipulation select-none items-center gap-1 rounded-xl border border-white/15 px-3 text-sm font-medium text-white/90 hover:bg-white/[0.08] hover:text-white active:scale-100"
+              onContextMenu={(event) => event.preventDefault()}
+              style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
             >
               <span>{lang}</span>
-              <ChevronDown className="h-3.5 w-3.5 opacity-65" />
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 opacity-65 transition-transform duration-200",
+                  isLanguageMenuOpen && "rotate-180",
+                )}
+              />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="border-white/10 bg-[#111] text-white">
@@ -142,17 +156,24 @@ export const TapNowHeader = () => {
 
         {isAuthenticated && userData ? (
           <>
-            <DropdownMenu>
+            <DropdownMenu open={isUserMenuOpen} onOpenChange={setIsUserMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="hidden h-10 items-center gap-2 rounded-xl border border-white/15 bg-black px-3 text-white hover:bg-white/[0.08] md:inline-flex"
+                  className="hidden h-10 touch-manipulation select-none items-center gap-2 rounded-xl border border-white/15 bg-black px-3 text-white hover:bg-white/[0.08] active:scale-100 md:inline-flex"
+                  onContextMenu={(event) => event.preventDefault()}
+                  style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
                 >
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/10 text-xs font-semibold">
                     {userInitial}
                   </span>
                   <span className="max-w-[180px] truncate text-sm font-medium">{username}</span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-65" />
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0 opacity-65 transition-transform duration-200",
+                      isUserMenuOpen && "rotate-180",
+                    )}
+                  />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 border-white/10 bg-[#111] text-white">

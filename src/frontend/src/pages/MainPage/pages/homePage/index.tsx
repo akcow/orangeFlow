@@ -18,7 +18,6 @@ import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
 import useFileDrop from "../../hooks/use-on-file-drop";
 import EmptyFolder from "../emptyFolder";
-import { TapNowLanding } from "./TapNowLanding";
 import { TapNowWorkflowsHeader } from "./TapNowWorkflowsHeader";
 
 const HomePage = ({ type }: { type: "flows" | "components" }) => {
@@ -259,119 +258,116 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
             : t("components"),
       })}
     >
-      <TapNowLanding onCreateNew={handleCreateNewFlow}>
-        <div className="flex flex-col h-full">
-          {ENABLE_DATASTAX_LANGFLOW && <CustomBanner />}
-          
-          <TapNowWorkflowsHeader
-            flowType={flowType}
-            setFlowType={setFlowType}
-            view={view}
-            setView={setView}
-            setSearch={onSearch}
-            selectedFlows={selectedFlows}
-            sortOrder={sortOrder}
-            onToggleSortOrder={handleToggleSortOrder}
-            isEmptyFolder={isEmptyFolder}
-          />
+      <div className="flex h-full w-full flex-col overflow-y-auto bg-black px-8 py-6 text-white">
+        {ENABLE_DATASTAX_LANGFLOW && <CustomBanner />}
 
-          {isEmptyFolder ? (
-            <EmptyFolder onCreateFlow={handleCreateNewFlow} />
-          ) : (
-            <div className="flex h-full flex-col">
-              {isLoading ? (
-                view === "grid" ? (
-                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    <ListSkeleton />
-                    <ListSkeleton />
-                  </div>
-                ) : (
-                  <div className="mt-4 flex flex-col gap-1">
-                    <ListSkeleton />
-                    <ListSkeleton />
-                  </div>
-                )
-              ) : (flowType === "flows" || flowType === "components") &&
-                data &&
-                data.pagination.total > 0 ? (
-                view === "grid" ? (
-                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {data.flows.map((flow, index) => (
-                      <ListComponent
-                        key={flow.id}
-                        flowData={flow}
-                        selected={selectedFlows.includes(flow.id)}
-                        setSelected={(selected) =>
-                          setSelectedFlow(selected, flow.id, index)
-                        }
-                        shiftPressed={isShiftPressed || isCtrlPressed}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-4 flex flex-col gap-1">
-                    {data.flows.map((flow, index) => (
-                      <ListComponent
-                        key={flow.id}
-                        flowData={flow}
-                        selected={selectedFlows.includes(flow.id)}
-                        setSelected={(selected) =>
-                          setSelectedFlow(selected, flow.id, index)
-                        }
-                        shiftPressed={isShiftPressed || isCtrlPressed}
-                      />
-                    ))}
-                  </div>
-                )
-              ) : flowType === "flows" ? (
-                <div className="pt-24 text-center text-sm text-secondary-foreground">
-                  {t("No flows in this project.")}{" "}
-                  <a
-                    onClick={() => {
-                      void handleCreateNewFlow();
-                    }}
-                    className="cursor-pointer underline"
-                  >
-                    {t("Create a new flow")}
-                  </a>
-                  {t(", or browse the store.")}
+        <TapNowWorkflowsHeader
+          flowType={flowType}
+          setFlowType={setFlowType}
+          view={view}
+          setView={setView}
+          setSearch={onSearch}
+          selectedFlows={selectedFlows}
+          sortOrder={sortOrder}
+          onToggleSortOrder={handleToggleSortOrder}
+          isEmptyFolder={isEmptyFolder}
+        />
+
+        {isEmptyFolder ? (
+          <EmptyFolder onCreateFlow={handleCreateNewFlow} />
+        ) : (
+          <div className="flex h-full flex-col">
+            {isLoading ? (
+              view === "grid" ? (
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <ListSkeleton />
+                  <ListSkeleton />
                 </div>
               ) : (
-                <div className="pt-24 text-center text-sm text-secondary-foreground">
-                  {t("No saved or custom components.")}{" "}
-                  {t("Learn more about")}{" "}
-                  <a
-                    href="https://docs.langflow.org/components-custom-components"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                  >
-                    {t("creating custom components")}
-                  </a>
-                  {t(", or browse the store.")}
+                <div className="mt-4 flex flex-col gap-1">
+                  <ListSkeleton />
+                  <ListSkeleton />
                 </div>
-              )}
-            </div>
-          )}
-
-          {(flowType === "flows" || flowType === "components") &&
-            !isLoading &&
-            !isEmptyFolder &&
-            data.pagination.total >= 10 && (
-              <div className="flex justify-end px-3 py-4">
-                <PaginatorComponent
-                  pageIndex={data.pagination.page}
-                  pageSize={data.pagination.size}
-                  rowsCount={[12, 24, 48, 96]}
-                  totalRowsCount={data.pagination.total}
-                  paginate={handlePageChange}
-                  pages={data.pagination.pages}
-                  isComponent={flowType === "components"}
-                />
+              )
+            ) : (flowType === "flows" || flowType === "components") &&
+              data &&
+              data.pagination.total > 0 ? (
+              view === "grid" ? (
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {data.flows.map((flow, index) => (
+                    <ListComponent
+                      key={flow.id}
+                      flowData={flow}
+                      selected={selectedFlows.includes(flow.id)}
+                      setSelected={(selected) =>
+                        setSelectedFlow(selected, flow.id, index)
+                      }
+                      shiftPressed={isShiftPressed || isCtrlPressed}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 flex flex-col gap-1">
+                  {data.flows.map((flow, index) => (
+                    <ListComponent
+                      key={flow.id}
+                      flowData={flow}
+                      selected={selectedFlows.includes(flow.id)}
+                      setSelected={(selected) =>
+                        setSelectedFlow(selected, flow.id, index)
+                      }
+                      shiftPressed={isShiftPressed || isCtrlPressed}
+                    />
+                  ))}
+                </div>
+              )
+            ) : flowType === "flows" ? (
+              <div className="pt-24 text-center text-sm text-secondary-foreground">
+                {t("No flows in this project.")}{" "}
+                <a
+                  onClick={() => {
+                    void handleCreateNewFlow();
+                  }}
+                  className="cursor-pointer underline"
+                >
+                  {t("Create a new flow")}
+                </a>
+                {t(", or browse the store.")}
+              </div>
+            ) : (
+              <div className="pt-24 text-center text-sm text-secondary-foreground">
+                {t("No saved or custom components.")} {t("Learn more about")}{" "}
+                <a
+                  href="https://docs.langflow.org/components-custom-components"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  {t("creating custom components")}
+                </a>
+                {t(", or browse the store.")}
               </div>
             )}
-        </div>
-      </TapNowLanding>
+          </div>
+        )}
+
+        {(flowType === "flows" || flowType === "components") &&
+          !isLoading &&
+          !isEmptyFolder &&
+          data.pagination.total >= 10 && (
+            <div className="flex justify-end px-3 py-4">
+              <PaginatorComponent
+                pageIndex={data.pagination.page}
+                pageSize={data.pagination.size}
+                rowsCount={[12, 24, 48, 96]}
+                totalRowsCount={data.pagination.total}
+                paginate={handlePageChange}
+                pages={data.pagination.pages}
+                isComponent={flowType === "components"}
+              />
+            </div>
+          )}
+      </div>
     </CardsWrapComponent>
   );
 };

@@ -17,11 +17,16 @@ import TapNowCarousel from "../../../../components/TapNowCarousel";
 
 interface TapNowLandingProps {
   onCreateNew: () => void;
+  onOpenTemplates?: () => void;
   children?: React.ReactNode; // For the list of workflows
 }
 
-export const TapNowLanding = ({ onCreateNew, children }: TapNowLandingProps) => {
-  const { t } = useTranslation();
+export const TapNowLanding = ({
+  onCreateNew,
+  onOpenTemplates,
+  children,
+}: TapNowLandingProps) => {
+  useTranslation();
 
   const features = [
     { icon: Video, label: "涂鸦生视频", color: "text-green-400" },
@@ -81,10 +86,10 @@ export const TapNowLanding = ({ onCreateNew, children }: TapNowLandingProps) => 
                 key={index}
                 className="flex items-center gap-3 rounded-lg bg-[#111111] px-4 py-2 hover:bg-[#1a1a1a] transition-colors cursor-pointer border border-transparent hover:border-white/10"
               >
-                <div className={`p-1.5 rounded-md bg-white/5 ${feature.color}`}>
-                  <feature.icon className="h-4 w-4" />
+                <div className={`rounded-md bg-white/5 p-2 ${feature.color}`}>
+                  <feature.icon className="h-6 w-6" />
                 </div>
-                <span className="text-xs font-medium text-gray-300 truncate">
+                <span className="truncate text-sm font-semibold text-gray-200">
                   {feature.label}
                 </span>
               </div>
@@ -95,11 +100,14 @@ export const TapNowLanding = ({ onCreateNew, children }: TapNowLandingProps) => 
 
       {/* Workflows Section */}
       <div className="flex-1 px-8 pt-0">
-        <div className="flex items-center gap-2 mb-6 cursor-pointer hover:opacity-80 w-fit">
-          <h2 className="text-xl font-semibold text-white">工作流</h2>
+        <div
+          className="mb-6 flex w-fit cursor-pointer items-center gap-2 hover:opacity-80"
+          onClick={onOpenTemplates}
+        >
+          <h2 className="text-xl font-semibold text-white">模板库</h2>
           <ArrowRight className="h-5 w-5 text-gray-400" />
         </div>
-        
+
         <p className="text-sm text-gray-400 mb-4">为你推荐</p>
         
         {/* Render the existing list of workflows here */}

@@ -3,6 +3,13 @@ import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { getURL } from "@/controllers/API/helpers/constants";
@@ -155,9 +162,20 @@ export default function TVPublishForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [publicCanvas, setPublicCanvas] = useState(true);
+  const [category, setCategory] = useState("精选画布");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const categories = [
+    "精选画布",
+    "电视广告",
+    "动画",
+    "叙事短片",
+    "MV",
+    "创意",
+    "教程",
+    "其他",
+  ];
 
   const mediaUrl = useMemo(() => makeObjectUrl(mediaFile), [mediaFile]);
   const coverUrl = useMemo(() => makeObjectUrl(coverFile), [coverFile]);
@@ -204,6 +222,7 @@ export default function TVPublishForm({
         flow_id: flowId,
         title: cleanTitle,
         description: description.trim() || null,
+        category,
         media_path: mediaPath,
         cover_path: coverPath,
         public_canvas: publicCanvas,
@@ -279,6 +298,22 @@ export default function TVPublishForm({
             <div className="text-right text-xs text-muted-foreground">
               {description.length}/500
             </div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label>作品分类 *</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger>
+                <SelectValue placeholder="请选择分类" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between gap-3">

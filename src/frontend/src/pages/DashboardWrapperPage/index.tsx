@@ -9,6 +9,7 @@ export function DashboardWrapperPage() {
 
   const isTapNowHeaderRoute =
     location.pathname === "/" ||
+    location.pathname.startsWith("/home") ||
     location.pathname.startsWith("/community") ||
     location.pathname.startsWith("/flows") ||
     location.pathname.startsWith("/components") ||
