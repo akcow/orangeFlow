@@ -345,7 +345,7 @@
 }
 
 .doubao-model-desc-marquee-track--running {
-  animation: doubao-model-desc-marquee-loop 8.8s linear infinite;
+  animation: doubao-model-desc-marquee-loop var(--doubao-model-desc-marquee-duration, 8.8s) linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

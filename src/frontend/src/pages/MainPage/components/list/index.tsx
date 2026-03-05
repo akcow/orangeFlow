@@ -20,7 +20,7 @@ import useAlertStore from "@/stores/alertStore";
 import type { FlowType } from "@/types/flow";
 import { downloadFlow } from "@/utils/reactflowUtils";
 import { cn } from "@/utils/utils";
-import { extractFirstImageFromFlow } from "@/utils/workflowUtils";
+import { extractLatestImageFromFlow } from "@/utils/workflowUtils";
 import useDescriptionModal from "../../hooks/use-description-modal";
 import DropdownComponent from "../dropdown";
 
@@ -53,6 +53,31 @@ const formatElapsedZh = (dateString?: string): string => {
   if (minutes > 0) return `${minutes}分钟`;
   return "不到1分钟";
 };
+
+const FALLBACK_GRADIENT_PALETTE: Array<[string, string, string]> = [
+  ["#2B3445", "#315DC0", "#1F2735"],
+  ["#334155", "#4E7CC8", "#1E293B"],
+  ["#2F3642", "#3B82F6", "#1F2937"],
+  ["#3A4250", "#6E91C9", "#273244"],
+  ["#2A3340", "#4A72B8", "#253041"],
+];
+
+function hashString(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function buildFallbackGradient(seed: string): string {
+  const hash = hashString(seed || "flow");
+  const [from, via, to] =
+    FALLBACK_GRADIENT_PALETTE[hash % FALLBACK_GRADIENT_PALETTE.length]!;
+  const angle = 110 + (hash % 50);
+  return `linear-gradient(${angle}deg, ${from} 0%, ${via} 52%, ${to} 100%)`;
+}
 
 const ListComponent = ({
   flowData,
@@ -123,8 +148,12 @@ const ListComponent = ({
   };
 
   const coverImage = useMemo(
-    () => extractFirstImageFromFlow(flowData),
+    () => extractLatestImageFromFlow(flowData),
     [flowData],
+  );
+  const fallbackGradient = useMemo(
+    () => buildFallbackGradient(`${flowData.id}:${flowData.name}`),
+    [flowData.id, flowData.name],
   );
   const [coverImageLoadFailed, setCoverImageLoadFailed] = useState(false);
   useEffect(() => {
@@ -166,7 +195,10 @@ const ListComponent = ({
                     onError={() => setCoverImageLoadFailed(true)}
                   />
                 ) : (
-                  <div className="h-full w-full bg-muted-foreground/20" />
+                  <div
+                    className="h-full w-full"
+                    style={{ background: fallbackGradient }}
+                  />
                 )}
               </div>
               <Checkbox
@@ -275,7 +307,10 @@ const ListComponent = ({
                 onError={() => setCoverImageLoadFailed(true)}
               />
             ) : (
-              <div className="h-full w-full bg-muted-foreground/20" />
+              <div
+                className="h-full w-full"
+                style={{ background: fallbackGradient }}
+              />
             )}
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/55 via-background/5 to-transparent opacity-0 transition-opacity duration-300 group-hover/grid:opacity-100" />
 

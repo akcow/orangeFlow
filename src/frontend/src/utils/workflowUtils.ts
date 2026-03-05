@@ -223,6 +223,87 @@ function collectImageCandidates(value: unknown, out: string[]): void {
   Object.values(record).forEach((entry) => collectImageCandidates(entry, out));
 }
 
+function parseCandidateTimestamp(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    // Heuristic: treat seconds timestamps as unix seconds.
+    return value > 1e12 ? value : value * 1000;
+  }
+  if (typeof value !== "string") return null;
+  const ts = Date.parse(value);
+  return Number.isNaN(ts) ? null : ts;
+}
+
+type ImageCandidateEntry = {
+  url: string;
+  timestamp: number | null;
+  order: number;
+};
+
+function collectImageCandidatesWithMeta(
+  value: unknown,
+  out: ImageCandidateEntry[],
+  orderRef: { value: number },
+  inheritedTimestamp: number | null = null,
+): void {
+  if (value === null || value === undefined) return;
+
+  if (typeof value === "string") {
+    const hit = asImageCandidate(value);
+    if (hit) {
+      out.push({
+        url: hit,
+        timestamp: inheritedTimestamp,
+        order: orderRef.value++,
+      });
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) =>
+      collectImageCandidatesWithMeta(entry, out, orderRef, inheritedTimestamp),
+    );
+    return;
+  }
+
+  if (typeof value !== "object") return;
+
+  const record = value as Record<string, unknown>;
+  const timestamp =
+    parseCandidateTimestamp(record.generated_at) ??
+    parseCandidateTimestamp(record.generatedAt) ??
+    parseCandidateTimestamp(record.timestamp) ??
+    parseCandidateTimestamp(record.updated_at) ??
+    parseCandidateTimestamp(record.created_at) ??
+    parseCandidateTimestamp(record.date_created) ??
+    inheritedTimestamp;
+
+  const preferredKeys = [
+    "preview_data_url",
+    "preview_base64",
+    "image_data_url",
+    "image_url",
+    "edited_image_url",
+    "original_image_url",
+    "cover_preview_base64",
+    "cover_url",
+    "last_frame_url",
+    "url",
+    "file_path",
+    "path",
+  ];
+
+  preferredKeys.forEach((key) => {
+    if (key in record) {
+      collectImageCandidatesWithMeta(record[key], out, orderRef, timestamp);
+    }
+  });
+
+  Object.values(record).forEach((entry) =>
+    collectImageCandidatesWithMeta(entry, out, orderRef, timestamp),
+  );
+}
+
 function collectFlowImageCandidatesFromFlow(flow: {
   data?: { nodes?: AllNodeType[] } | null;
 }): string[] {
@@ -246,6 +327,30 @@ function collectFlowImageCandidatesFromFlow(flow: {
   return candidates;
 }
 
+function collectFlowImageCandidateEntriesFromFlow(flow: {
+  data?: { nodes?: AllNodeType[] } | null;
+}): ImageCandidateEntry[] {
+  const nodes = flow?.data?.nodes ?? [];
+  const candidates: ImageCandidateEntry[] = [];
+  const orderRef = { value: 0 };
+
+  nodes.forEach((node) => {
+    if (!("node" in node.data)) return;
+    const template = node.data.node?.template;
+    if (!template || typeof template !== "object") return;
+
+    Object.values(template as Record<string, unknown>).forEach((field) => {
+      if (!field || typeof field !== "object") return;
+      const value = field as Record<string, unknown>;
+      collectImageCandidatesWithMeta(value.value, candidates, orderRef);
+      collectImageCandidatesWithMeta(value.file_path, candidates, orderRef);
+      collectImageCandidatesWithMeta(value.path, candidates, orderRef);
+    });
+  });
+
+  return candidates;
+}
+
 export function extractFirstImageFromFlow(flow: {
   data?: { nodes?: AllNodeType[] } | null;
 }): string | null {
@@ -256,8 +361,30 @@ export function extractFirstImageFromFlow(flow: {
 export function extractLatestImageFromFlow(flow: {
   data?: { nodes?: AllNodeType[] } | null;
 }): string | null {
-  const candidates = collectFlowImageCandidatesFromFlow(flow);
-  return candidates.length > 0 ? (candidates[candidates.length - 1] ?? null) : null;
+  const candidates = collectFlowImageCandidateEntriesFromFlow(flow);
+  if (!candidates.length) return null;
+
+  const best = candidates.reduce<ImageCandidateEntry | null>((currentBest, candidate) => {
+    if (!currentBest) return candidate;
+
+    const bestHasTs = currentBest.timestamp !== null;
+    const candidateHasTs = candidate.timestamp !== null;
+
+    if (candidateHasTs && !bestHasTs) return candidate;
+    if (candidateHasTs && bestHasTs) {
+      if ((candidate.timestamp as number) > (currentBest.timestamp as number)) return candidate;
+      if (
+        candidate.timestamp === currentBest.timestamp &&
+        candidate.order > currentBest.order
+      )
+        return candidate;
+      return currentBest;
+    }
+
+    return candidate.order > currentBest.order ? candidate : currentBest;
+  }, null);
+
+  return best?.url ?? null;
 }
 
 export function getFilesDownloadUrl(filePath: string): string {

@@ -190,7 +190,7 @@ export default function HomeTVShowcase() {
         return (
           <section key={section}>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-white">
+              <h3 className="text-sm text-gray-400">
                 {t(SECTION_LABEL_KEYS[section] ?? section)}
               </h3>
               <button type="button" className="inline-flex items-center text-sm text-white/70 hover:text-white" onClick={() => navigate("/community/tv")}>

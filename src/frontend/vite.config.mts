@@ -48,15 +48,22 @@ export default defineConfig(({ mode }) => {
     return proxyObj;
   }, {});
 
-  return {
-    base: BASENAME || "",
-    build: {
-      outDir: "build",
-    },
-    define: {
-      "import.meta.env.BACKEND_URL": JSON.stringify(
-        getLangflowEnv("BACKEND_URL", "http://localhost:7860"),
-      ),
+    return {
+      base: BASENAME || "",
+      build: {
+        outDir: "build",
+      },
+      resolve: {
+        dedupe: ["react", "react-dom"],
+        alias: {
+          react: path.resolve(__dirname, "node_modules/react"),
+          "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
+        },
+      },
+      define: {
+        "import.meta.env.BACKEND_URL": JSON.stringify(
+          getLangflowEnv("BACKEND_URL", "http://localhost:7860"),
+        ),
       "import.meta.env.ACCESS_TOKEN_EXPIRE_SECONDS": JSON.stringify(
         getLangflowEnv("ACCESS_TOKEN_EXPIRE_SECONDS", 60),
       ),

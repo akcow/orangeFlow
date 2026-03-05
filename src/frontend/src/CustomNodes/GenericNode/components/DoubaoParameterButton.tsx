@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import type { NodeDataType } from "@/types/flow";
@@ -62,6 +62,10 @@ export const DOUBAO_CONTROL_HINTS: Record<string, string> = {
   duration: "\u89c6\u9891\u751f\u6210\u65f6\u957f",
   voice_type: "\u97f3\u8272\u98ce\u683c\u9009\u62e9",
 };
+
+const BANANA_BASE_MARQUEE_DURATION_SECONDS = 8.8;
+const DEFAULT_BANANA_DESCRIPTION = "更快更便宜的图片生成/编辑模型";
+const DEFAULT_BANANA_DESCRIPTION_LENGTH = DEFAULT_BANANA_DESCRIPTION.trim().length;
 
 export function DoubaoParameterButton({
   data,
@@ -144,6 +148,28 @@ export function DoubaoParameterButton({
       }))
       .filter(({ option }) => !disabledOptionSet.has(String(option)));
   }, [options, resolvedOptionsMeta, disabledOptionSet]);
+
+  const bananaDescriptionLength = useMemo(() => {
+    if (!isModelSelector) return DEFAULT_BANANA_DESCRIPTION_LENGTH;
+
+    for (const { option, meta } of visibleOptions) {
+      if (!String(option).toLowerCase().includes("banana")) continue;
+      const description = getMetaString(meta, "description").trim();
+      if (description.length > 0) return description.length;
+    }
+
+    return DEFAULT_BANANA_DESCRIPTION_LENGTH;
+  }, [isModelSelector, visibleOptions]);
+
+  const getMarqueeDurationStyle = (description: string): CSSProperties => {
+    const descriptionLength = Math.max(description.trim().length, 1);
+    const ratio = descriptionLength / Math.max(bananaDescriptionLength, 1);
+    const duration = BANANA_BASE_MARQUEE_DURATION_SECONDS * ratio;
+
+    return {
+      "--doubao-model-desc-marquee-duration": `${duration.toFixed(2)}s`,
+    } as CSSProperties;
+  };
 
   const enabledOptionStrings = useMemo(() => {
     return new Set(visibleOptions.map(({ option }) => String(option)));
@@ -364,6 +390,7 @@ export function DoubaoParameterButton({
                                   description.trim().length > 0 &&
                                   "doubao-model-desc-marquee-track--running",
                               )}
+                              style={getMarqueeDurationStyle(description)}
                             >
                               <span>{description}</span>
                               <span aria-hidden="true">{description}</span>

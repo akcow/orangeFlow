@@ -180,13 +180,11 @@ function ApiInterceptor() {
     // Request interceptor to add access token to every request
     const requestInterceptor = api.interceptors.request.use(
       async (config) => {
-        const controller = new AbortController();
-        try {
-          checkDuplicateRequestAndStoreRequest(config);
-        } catch (e) {
-          const error = e as Error;
-          controller.abort(error.message);
-          console.error(error.message);
+        const isDuplicateRequest = checkDuplicateRequestAndStoreRequest(config);
+        if (isDuplicateRequest) {
+          // Keep request flow intact: some pages intentionally fire similar GETs.
+          // We only avoid noisy hard errors from false positives.
+          console.debug("Rapid duplicate request detected:", config?.url);
         }
 
         const accessToken = customGetAccessToken();
@@ -205,10 +203,7 @@ function ApiInterceptor() {
           }
         }
 
-        return {
-          ...config,
-          signal: controller.signal,
-        };
+        return config;
       },
       (error) => {
         return Promise.reject(error);

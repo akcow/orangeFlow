@@ -200,7 +200,6 @@ export default function HomeLandingPage() {
           <h2 className="text-xl font-semibold text-white">TapTV</h2>
           <ArrowRight className="h-5 w-5 text-gray-400" />
         </div>
-        <p className="mb-4 text-sm text-gray-400">{t("Recommended for you")}</p>
         <HomeTVShowcase />
       </div>
     </TapNowLanding>

@@ -1,5 +1,8 @@
 {
   "devDependencies": {
     "@types/node": "^24.7.0"
+  },
+  "dependencies": {
+    "@radix-ui/react-avatar": "^1.1.11"
   }
 }

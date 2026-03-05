@@ -279,7 +279,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
           <div className="flex h-full flex-col">
             {isLoading ? (
               view === "grid" ? (
-                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                   <ListSkeleton />
                   <ListSkeleton />
                 </div>
@@ -293,7 +293,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
               data &&
               data.pagination.total > 0 ? (
               view === "grid" ? (
-                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                   {data.flows.map((flow, index) => (
                     <ListComponent
                       key={flow.id}
@@ -309,6 +309,15 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                 </div>
               ) : (
                 <div className="mt-4 flex flex-col gap-1">
+                  <div className="grid min-w-[1060px] grid-cols-[72px,minmax(200px,2fr),120px,minmax(240px,2fr),180px,180px,56px] items-center gap-3 px-4 py-2 text-xs font-medium text-gray-400">
+                    <div>{t("Preview")}</div>
+                    <div>{t("Name")}</div>
+                    <div>{t("Type")}</div>
+                    <div>{t("Description")}</div>
+                    <div>{t("Created at")}</div>
+                    <div>{t("Updated")}</div>
+                    <div className="text-right">{t("Actions")}</div>
+                  </div>
                   {data.flows.map((flow, index) => (
                     <ListComponent
                       key={flow.id}
