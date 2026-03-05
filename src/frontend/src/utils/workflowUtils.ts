@@ -1,7 +1,10 @@
 import { cloneDeep } from "lodash";
 import { getURL } from "@/controllers/API/helpers/constants";
 import type { AllNodeType, EdgeType } from "@/types/flow";
-import { getAbsolutePosition, isGroupContainerNode } from "@/utils/groupingUtils";
+import {
+  getAbsolutePosition,
+  isGroupContainerNode,
+} from "@/utils/groupingUtils";
 
 export type WorkflowSelection = { nodes: AllNodeType[]; edges: EdgeType[] };
 
@@ -17,17 +20,23 @@ function looksLikeImageFile(value: string): boolean {
   );
 }
 
-function findFirstImageLikeString(value: any): string | null {
+function findFirstImageLikeString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
     // Prefer data url or direct image url
     if (trimmed.toLowerCase().startsWith("data:image")) return trimmed;
-    if (trimmed.includes("/files/download/") && looksLikeImageFile(trimmed.split("?")[0] ?? trimmed)) {
+    if (
+      trimmed.includes("/files/download/") &&
+      looksLikeImageFile(trimmed.split("?")[0] ?? trimmed)
+    ) {
       return trimmed;
     }
-    if ((/^https?:\/\//i.test(trimmed) || /^\/api\//i.test(trimmed)) && looksLikeImageFile(trimmed.split("?")[0] ?? trimmed)) {
+    if (
+      (/^https?:\/\//i.test(trimmed) || /^\/api\//i.test(trimmed)) &&
+      looksLikeImageFile(trimmed.split("?")[0] ?? trimmed)
+    ) {
       return trimmed;
     }
     // Some payloads store file name only; ignore.
@@ -54,13 +63,14 @@ function findFirstImageLikeString(value: any): string | null {
       "last_frame_url",
       "cover_preview_base64",
     ];
+    const record = value as Record<string, unknown>;
     for (const key of preferredKeys) {
-      if (key in value) {
-        const hit = findFirstImageLikeString((value as any)[key]);
+      if (key in record) {
+        const hit = findFirstImageLikeString(record[key]);
         if (hit) return hit;
       }
     }
-    for (const v of Object.values(value)) {
+    for (const v of Object.values(record)) {
       const hit = findFirstImageLikeString(v);
       if (hit) return hit;
     }
@@ -108,15 +118,19 @@ export function extractGroupSelectionForWorkflow(
   return { nodes: selectionNodes, edges: selectionEdges };
 }
 
-export function guessWorkflowCoverFromSelection(nodes: AllNodeType[]): string | null {
+export function guessWorkflowCoverFromSelection(
+  nodes: AllNodeType[],
+): string | null {
   for (const node of nodes) {
-    const template = (node as any)?.data?.node?.template;
+    if (!("node" in node.data)) continue;
+    const template = node.data.node?.template;
     if (template && typeof template === "object") {
       for (const field of Object.values(template)) {
         if (!field || typeof field !== "object") continue;
-        const filePaths = (field as any).file_path;
-        const paths = (field as any).path;
-        const check = (p: any) => {
+        const fieldData = field as Record<string, unknown>;
+        const filePaths = fieldData.file_path;
+        const paths = fieldData.path;
+        const check = (p: unknown) => {
           if (typeof p !== "string") return null;
           if (!looksLikeImageFile(p)) return null;
           return getFilesDownloadUrl(p);
@@ -140,14 +154,95 @@ export function guessWorkflowCoverFromSelection(nodes: AllNodeType[]): string | 
           if (hit) return hit;
         }
         // Fallback: search value payloads for any image-like string (draft_output etc).
-        if ("value" in (field as any)) {
-          const hit = findFirstImageLikeString((field as any).value);
+        if ("value" in fieldData) {
+          const hit = findFirstImageLikeString(fieldData.value);
           if (hit) return hit;
         }
       }
     }
   }
   return null;
+}
+
+function asImageCandidate(value: string): string | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase().startsWith("data:image")) return trimmed;
+  if (
+    trimmed.includes("/files/download/") ||
+    trimmed.includes("/files/images/")
+  )
+    return trimmed;
+  if (/^https?:\/\//i.test(trimmed) || /^\/api\//i.test(trimmed)) {
+    if (looksLikeImageFile(trimmed.split("?")[0] ?? trimmed)) return trimmed;
+    if (trimmed.includes("/images/")) return trimmed;
+    return null;
+  }
+  if (looksLikeImageFile(trimmed)) return getFilesDownloadUrl(trimmed);
+  return null;
+}
+
+function collectImageCandidates(value: unknown, out: string[]): void {
+  if (value === null || value === undefined) return;
+  if (typeof value === "string") {
+    const hit = asImageCandidate(value);
+    if (hit) out.push(hit);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectImageCandidates(entry, out));
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  const record = value as Record<string, unknown>;
+  const preferredKeys = [
+    "preview_data_url",
+    "preview_base64",
+    "image_data_url",
+    "image_url",
+    "edited_image_url",
+    "original_image_url",
+    "cover_preview_base64",
+    "cover_url",
+    "last_frame_url",
+    "url",
+    "file_path",
+    "path",
+  ];
+
+  preferredKeys.forEach((key) => {
+    if (key in record) {
+      collectImageCandidates(record[key], out);
+    }
+  });
+
+  Object.values(record).forEach((entry) => collectImageCandidates(entry, out));
+}
+
+export function extractLatestImageFromFlow(flow: {
+  data?: { nodes?: AllNodeType[] } | null;
+}): string | null {
+  const nodes = flow?.data?.nodes ?? [];
+  const candidates: string[] = [];
+
+  nodes.forEach((node) => {
+    if (!("node" in node.data)) return;
+    const template = node.data.node?.template;
+    if (!template || typeof template !== "object") return;
+
+    Object.values(template as Record<string, unknown>).forEach((field) => {
+      if (!field || typeof field !== "object") return;
+      const value = field as Record<string, unknown>;
+      collectImageCandidates(value.value, candidates);
+      collectImageCandidates(value.file_path, candidates);
+      collectImageCandidates(value.path, candidates);
+    });
+  });
+
+  return candidates.length > 0
+    ? (candidates[candidates.length - 1] ?? null)
+    : null;
 }
 
 export function getFilesDownloadUrl(filePath: string): string {

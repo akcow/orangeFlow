@@ -301,6 +301,8 @@ export type DoubaoPreviewPanelActions = {
   enterClip: () => void;
   canClip: boolean;
   isClipOpen: boolean;
+  runVideoUpscale: () => void;
+  canVideoUpscale: boolean;
 };
 
 type Props = {
@@ -394,6 +396,13 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         template?.model_name?.value ?? template?.model_name?.default ?? "";
       return String(value ?? "").trim();
     }, [node]);
+    const normalizedSelectedModelName = useMemo(
+      () => selectedModelName.toLowerCase(),
+      [selectedModelName],
+    );
+    const isViduUpscaleVideoGenerator =
+      appearance === "videoGenerator" &&
+      normalizedSelectedModelName === "vidu-upscale";
 
     const disabledSuggestions = useMemo(() => {
       if (appearance !== "videoGenerator") return [];
@@ -1361,18 +1370,24 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       Boolean(resolvedPreview?.available && imageGallery?.length);
     const hasReferencePreview =
       kind === "image" && !hasGeneratedImagePreview && referenceGallery.length;
-    const hasVideoPreview = kind === "video" && Boolean(videoPreview);
+    const hasVideoPreview =
+      kind === "video" &&
+      !isViduUpscaleVideoGenerator &&
+      Boolean(videoPreview);
     const hasAudioPreview =
       kind === "audio" && Boolean(resolvedPreview?.available && audioPreview);
     const hasSuccessfulGeneratedPreview =
       hasGeneratedImagePreview || hasVideoPreview || hasAudioPreview;
     const shouldShowFailurePreview =
-      Boolean(primaryFailureReason) && !hasSuccessfulGeneratedPreview;
+      Boolean(primaryFailureReason) &&
+      !hasSuccessfulGeneratedPreview &&
+      !isViduUpscaleVideoGenerator;
 
     const hasHoverAutoplayVideo = Boolean(
       isPersistentPreview &&
       enableHoverAutoplay &&
       kind === "video" &&
+      !isViduUpscaleVideoGenerator &&
       videoPreview?.videoUrl,
     );
 
@@ -1909,6 +1924,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
 
     const canClip = Boolean(
       appearance === "videoGenerator" && kind === "video" && clipFilePath && !isPreviewOnlyNode,
+    );
+    const canVideoUpscale = Boolean(
+      appearance === "videoGenerator" &&
+      kind === "video" &&
+      videoPreview?.videoUrl &&
+      !isPreviewOnlyNode,
     );
 
     const outpaintWorkspace = useMemo(() => {
@@ -2448,6 +2469,138 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       }
     }, [animateViewportTo, canCrop, getPreviewCenterFlow, nodeId, nodes, setNodes]);
 
+    const runVideoUpscale = useCallback(() => {
+      if (!canVideoUpscale) return;
+
+      const currentFlowNode = nodes.find((candidate) => candidate.id === nodeId) as any;
+      if (!currentFlowNode) return;
+      const template = templates?.["DoubaoVideoGenerator"];
+      if (!template) {
+        showTransientBadge("未加载到视频创作模板");
+        return;
+      }
+
+      takeSnapshot?.();
+
+      const VIDEO_OUTPUT_NAME = "video";
+      const TARGET_FIELD = "first_frame_image";
+      const NODE_OFFSET_X = 1300;
+
+      const newVideoNodeId = getNodeId("DoubaoVideoGenerator");
+      const nodeById = new Map((nodes as any[]).map((n) => [n.id, n]));
+      const abs = getAbsolutePosition(currentFlowNode, nodeById as any);
+      const newNodeX = abs.x + NODE_OFFSET_X;
+      const newNodeY = computeAlignedNodeTopY({
+        anchorNodeId: nodeId,
+        anchorNodeType: currentFlowNode.data?.type,
+        targetNodeType: "DoubaoVideoGenerator",
+        targetX: newNodeX,
+        fallbackTopY: abs.y,
+        avoidOverlap: false,
+      });
+
+      const newTemplate = cloneDeep(template);
+      const nextTpl = (newTemplate as any).template ?? ((newTemplate as any).template = {});
+      (newTemplate as any).display_name = "视频增强";
+      (newTemplate as any).icon = "HD";
+
+      if (nextTpl.model_name) {
+        nextTpl.model_name.value = "vidu-upscale";
+      }
+      if (nextTpl.prompt) {
+        nextTpl.prompt.value = "";
+      }
+      if (nextTpl.first_frame_image) {
+        nextTpl.first_frame_image.is_list = false;
+        nextTpl.first_frame_image.list = false;
+        nextTpl.first_frame_image.file_types = [
+          "mp4",
+          "flv",
+          "m3u8",
+          "mxf",
+          "mov",
+          "ts",
+          "webm",
+          "mkv",
+        ];
+        nextTpl.first_frame_image.fileTypes = nextTpl.first_frame_image.file_types;
+      }
+      if (nextTpl.draft_output) {
+        delete nextTpl.draft_output;
+      }
+
+      const newVideoNode: GenericNodeType = {
+        id: newVideoNodeId,
+        type: "genericNode",
+        position: { x: newNodeX, y: newNodeY },
+        data: {
+          node: newTemplate as any,
+          showNode: !(newTemplate as any).minimized,
+          type: "DoubaoVideoGenerator",
+          id: newVideoNodeId,
+        },
+        selected: false,
+      };
+
+      const sourceTemplate = (currentFlowNode.data?.node ?? node) as any;
+      const outputDefinition =
+        sourceTemplate?.outputs?.find((output: any) => output.name === VIDEO_OUTPUT_NAME) ??
+        sourceTemplate?.outputs?.find((output: any) => !output.hidden) ??
+        sourceTemplate?.outputs?.[0];
+      const sourceOutputTypes =
+        outputDefinition?.types && outputDefinition.types.length === 1
+          ? outputDefinition.types
+          : outputDefinition?.selected
+            ? [outputDefinition.selected]
+            : ["Data"];
+      const sourceHandle = {
+        output_types: sourceOutputTypes,
+        id: nodeId,
+        dataType: currentFlowNode.data?.type,
+        name: outputDefinition?.name ?? VIDEO_OUTPUT_NAME,
+        ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
+      };
+
+      const targetTemplateField = nextTpl?.[TARGET_FIELD];
+      const targetHandle = {
+        inputTypes: targetTemplateField?.input_types ?? ["Data"],
+        type: targetTemplateField?.type,
+        id: newVideoNodeId,
+        fieldName: TARGET_FIELD,
+        ...(targetTemplateField?.proxy ? { proxy: targetTemplateField.proxy } : {}),
+      };
+
+      const edge: EdgeType = {
+        id: `xy-edge__${nodeId}-${sourceHandle.name}-${newVideoNodeId}-${TARGET_FIELD}-upscale`,
+        source: nodeId,
+        sourceHandle: scapedJSONStringfy(sourceHandle as any),
+        target: newVideoNodeId,
+        targetHandle: scapedJSONStringfy(targetHandle as any),
+        type: "default",
+        className: "doubao-tool-edge",
+        data: {
+          sourceHandle,
+          targetHandle,
+          videoReferType: "base",
+        },
+      } as any;
+
+      unstable_batchedUpdates(() => {
+        setNodes((currentNodes) => [...currentNodes, newVideoNode]);
+        setEdges((currentEdges) => [...currentEdges, edge]);
+      });
+    }, [
+      canVideoUpscale,
+      node,
+      nodeId,
+      nodes,
+      setEdges,
+      setNodes,
+      showTransientBadge,
+      takeSnapshot,
+      templates,
+    ]);
+
     const enterClip = useCallback(() => {
       if (!canClip) return;
       unstable_batchedUpdates(() => {
@@ -2808,6 +2961,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         enterClip,
         canClip,
         isClipOpen,
+        runVideoUpscale,
+        canVideoUpscale,
       });
     }, [
       canAnnotate,
@@ -2819,6 +2974,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       canOutpaint,
       canMultiAngleCamera,
       canClip,
+      canVideoUpscale,
       downloadInfo,
       enterAnnotate,
       enterRepaint,
@@ -2831,6 +2987,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       enterOutpaint,
       enterMultiAngleCamera,
       enterClip,
+      runVideoUpscale,
       handleDownload,
       isAnnotateOpen,
       isRepaintOpen,
@@ -5976,6 +6133,15 @@ function EmptyPreview({
   if (isMinimal) {
     if (appearance === "videoGenerator") {
       const normalizedModel = String(modelName ?? "").trim().toLowerCase();
+      if (normalizedModel === "vidu-upscale") {
+        return (
+          <div className="flex h-full min-h-[220px] w-full items-center justify-center p-5 text-center text-sm text-[#646B81] dark:text-slate-300">
+            <p className="text-base font-medium text-[#4B5168] dark:text-slate-100">
+              配置参数以生成高清视频
+            </p>
+          </div>
+        );
+      }
       const isViduModel = normalizedModel.startsWith("vidu");
       const hideStartEndSuggestion = normalizedModel === "viduq3-pro";
       const suggestions = [

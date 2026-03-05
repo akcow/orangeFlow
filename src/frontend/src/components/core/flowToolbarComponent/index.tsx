@@ -8,9 +8,8 @@ import FlowToolbarOptions from "./components/flow-toolbar-options";
 
 const FlowToolbar = memo(function FlowToolbar(): JSX.Element {
   const preventDefault = true;
-  const [openApiModal, setOpenApiModal] = useState<boolean>(false);
   const [openExportModal, setOpenExportModal] = useState<boolean>(false);
-  const handleShareWShortcut = (e: KeyboardEvent) => {
+  const handleShareWShortcut = (_e: KeyboardEvent) => {
     if (isThereModal() && !openExportModal) return;
     setOpenExportModal((oldState) => !oldState);
   };
@@ -27,10 +26,7 @@ const FlowToolbar = memo(function FlowToolbar(): JSX.Element {
             "hover:shadow-round-btn-shadow flex h-11 items-center justify-center gap-7 rounded-md border bg-background px-1.5 shadow transition-all",
           )}
         >
-          <FlowToolbarOptions
-            openApiModal={openApiModal}
-            setOpenApiModal={setOpenApiModal}
-          />
+          <FlowToolbarOptions />
         </div>
       </Panel>
       <ExportModal open={openExportModal} setOpen={setOpenExportModal} />

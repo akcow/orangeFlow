@@ -72,6 +72,10 @@ const CONTROL_FIELDS = [
   { name: "duration", icon: "Timer", widthClass: "basis-[110px]" },
 ] as const;
 
+const UPSCALE_CONTROL_FIELDS = [
+  { name: "vidu_upscale_resolution", icon: "Monitor", widthClass: "basis-[140px]" },
+] as const;
+
 const PROMPT_NAME = "prompt";
 const DEFAULT_DURATION_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16];
 const FIRST_FRAME_FIELD = "first_frame_image" as const;
@@ -179,6 +183,10 @@ const MODEL_LIMITS: Record<
     maxDuration: 10,
     enableLastFrame: true,
   },
+  "vidu-upscale": {
+    resolutions: ["1080p", "2K", "4K", "8K"],
+    enableLastFrame: false,
+  },
 };
 
 function hasVideoInFileInput(field: any): boolean {
@@ -196,9 +204,14 @@ function hasVideoInFileInput(field: any): boolean {
       // Some uploads are stored with a "masked" extension (e.g. ".mp_") even though the bytes are MP4.
       return (
         s.endsWith(".mp4") ||
+        s.endsWith(".flv") ||
+        s.endsWith(".m3u8") ||
+        s.endsWith(".mxf") ||
         s.endsWith(".mov") ||
         s.endsWith(".avi") ||
         s.endsWith(".webm") ||
+        s.endsWith(".mkv") ||
+        s.endsWith(".ts") ||
         s.endsWith(".mp_")
       );
     }
@@ -374,6 +387,7 @@ export default function DoubaoVideoGeneratorLayout({
     normalizedModelName.toLowerCase().includes("seedream") ||
     normalizedModelName.includes("即梦");
   const isKlingModel = normalizedModelName.toLowerCase().startsWith("kling");
+  const isViduUpscaleModel = normalizedModelName.toLowerCase() === "vidu-upscale";
   const klingModelLower = normalizedModelName.trim().toLowerCase();
   const isKlingO3 = isKlingModel && (klingModelLower === "kling o3" || klingModelLower === "kling-v3-omni");
   const isKlingV3 = isKlingModel && (klingModelLower === "kling v3" || klingModelLower === "kling-v3");
@@ -448,6 +462,8 @@ export default function DoubaoVideoGeneratorLayout({
     AUDIO_INPUT_FIELD,
     ENABLE_AUDIO_FIELD,
     ...CONTROL_FIELDS.map((item) => item.name),
+    ...UPSCALE_CONTROL_FIELDS.map((item) => item.name),
+    "vidu_upscale_max_wait_seconds",
     ...SENSITIVE_FIELDS,
   ]);
   const hasAdditionalFields = Object.keys(template).some(
@@ -476,8 +492,16 @@ export default function DoubaoVideoGeneratorLayout({
       input_types: normalizedInputTypes,
       file_types: normalizedFileTypes,
       fileTypes: normalizedCamelFileTypes,
+      ...(isViduUpscaleModel
+        ? {
+          is_list: false,
+          list: false,
+          file_types: ["mp4", "flv", "m3u8", "mxf", "mov", "ts", "webm", "mkv"],
+          fileTypes: ["mp4", "flv", "m3u8", "mxf", "mov", "ts", "webm", "mkv"],
+        }
+        : {}),
     };
-  }, [firstFrameFieldRaw]);
+  }, [firstFrameFieldRaw, isViduUpscaleModel]);
   const lastFrameFieldRaw = template[LAST_FRAME_FIELD];
   const lastFrameField = useMemo<InputFieldType>(() => {
     if (!lastFrameFieldRaw) return LAST_FRAME_FIELD_FALLBACK;
@@ -1126,11 +1150,37 @@ export default function DoubaoVideoGeneratorLayout({
   }, [klingMultiPromptItems, klingMultiShotEnabled, template.duration?.default, template.duration?.value]);
 
   const klingCustomizeShotEnabled = Boolean(klingMultiShotEnabled && !klingIntelligentShotEnabled);
+  const hasIncomingVideoBridgeForUpscale = useMemo(() => {
+    return edges.some((edge) => {
+      if (edge.target !== data.id) return false;
+      let parsedTargetHandle: any = null;
+      if (edge.data?.targetHandle) {
+        parsedTargetHandle = edge.data.targetHandle;
+      } else if (edge.targetHandle) {
+        try {
+          parsedTargetHandle = scapeJSONParse(edge.targetHandle);
+        } catch {
+          parsedTargetHandle = null;
+        }
+      }
+      const targetHandle = parsedTargetHandle;
+      const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      if (fieldName !== FIRST_FRAME_FIELD) return false;
+      const edgeVideoReferType = edge.data?.videoReferType;
+      if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      return sourceNode?.data?.type === "DoubaoVideoGenerator" || sourceNode?.data?.type === "UserUploadVideo";
+    });
+  }, [FIRST_FRAME_FIELD, data.id, edges, nodes]);
+  const canRunViduUpscale =
+    hasVideoInFileInput(firstFrameField) || hasIncomingVideoBridgeForUpscale;
   const disableRun = klingIntelligentShotEnabled
     ? isPromptEmpty
     : klingCustomizeShotEnabled
       ? (!klingMultiPromptSummary.hasContent || !klingMultiPromptSummary.valid)
-      : (!hasAnyConnection && isPromptEmpty);
+      : isViduUpscaleModel
+        ? !canRunViduUpscale
+        : (!hasAnyConnection && isPromptEmpty);
   useEffect(() => {
     if (isPromptFocused || isPromptComposing) return;
     setPromptDraftValue(promptValue);
@@ -1173,7 +1223,7 @@ export default function DoubaoVideoGeneratorLayout({
       const edgeVideoReferType = edge.data?.videoReferType;
       if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
       const sourceNode = nodes.find((node) => node.id === edge.source);
-      return sourceNode?.data?.type === "DoubaoVideoGenerator";
+      return sourceNode?.data?.type === "DoubaoVideoGenerator" || sourceNode?.data?.type === "UserUploadVideo";
     });
   }, [edges, nodes, data.id]);
 
@@ -1499,6 +1549,13 @@ export default function DoubaoVideoGeneratorLayout({
       const templateField = template[field.name];
       if (!templateField) return null;
       if (templateField.show === false) return null;
+      if (isViduUpscaleModel && field.name === "model_name") return null;
+      if (
+        isViduUpscaleModel &&
+        (field.name === "resolution" || field.name === "aspect_ratio" || field.name === "duration")
+      ) {
+        return null;
+      }
 
       // Kling: resolution is not a supported knob in the upstream API.
       if (isKlingModel && field.name === "resolution") return null;
@@ -1832,6 +1889,7 @@ export default function DoubaoVideoGeneratorLayout({
     isReferenceVideoMode,
     isKlingModel,
     isFirstLastFrameMode,
+    isViduUpscaleModel,
     isSoraModel,
     isVeoModel,
     isWanModel,
@@ -1847,6 +1905,30 @@ export default function DoubaoVideoGeneratorLayout({
   const resolutionConfig = controlConfigs.find((config) => config.name === "resolution");
   const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
   const durationConfig = controlConfigs.find((config) => config.name === "duration");
+  const upscaleControlConfigs = useMemo(() => {
+    if (!isViduUpscaleModel) return [] as Array<DoubaoControlConfig>;
+    return UPSCALE_CONTROL_FIELDS.map((field) => {
+      const templateField = template[field.name];
+      if (!templateField) return null;
+      const options: Array<string | number> = Array.isArray(templateField.options)
+        ? templateField.options
+        : [];
+      if (!options.length) return null;
+      let value = templateField.value;
+      if (!options.map(String).includes(String(value ?? ""))) {
+        [value] = options;
+      }
+      const tooltipText =
+        DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
+      return {
+        ...field,
+        template: templateField,
+        options,
+        value,
+        tooltip: tooltipText,
+      } as DoubaoControlConfig;
+    }).filter(Boolean) as Array<DoubaoControlConfig>;
+  }, [isViduUpscaleModel, template]);
   const enableAudioField = template?.[ENABLE_AUDIO_FIELD];
   const isSeedance15 = normalizedModelName === "Seedance 1.5 pro" ||
     normalizedModelName === "Doubao-Seedance-1.5-pro｜251215";
@@ -2425,6 +2507,10 @@ export default function DoubaoVideoGeneratorLayout({
   );
   const firstFrameCount = combinedFirstFramePreviews.length;
   const localFirstFrameCount = firstFramePreviews.length;
+  const upscalePreviewSource = isViduUpscaleModel ? selectedFirstFrameSource : "";
+  const upscalePreviewIsVideo =
+    Boolean(upscalePreviewSource) &&
+    isVideoCandidate(upscalePreviewSource, selectedFirstFrame?.fileName);
   const klingIncomingMediaCounts = useMemo(() => {
     if (!isKlingModel) return { imageEdges: 0, videoEdges: 0 };
     let imageEdges = 0;
@@ -2567,7 +2653,7 @@ export default function DoubaoVideoGeneratorLayout({
     return source.map((ext) => ext.replace(/^\./, "").toLowerCase());
   }, [firstFrameFileTypes]);
   const canUploadReferenceVideos =
-    (isWanModel && normalizedModelName === "wan2.6") || isKlingModel || isViduQ2Pro;
+    (isWanModel && normalizedModelName === "wan2.6") || isKlingModel || isViduQ2Pro || isViduUpscaleModel;
   const firstFrameUploadAllowedExtensions = useMemo(() => {
     if (canUploadReferenceVideos) return firstFrameAllowedExtensions;
     return firstFrameAllowedExtensions.filter((ext) => ext !== "mp4" && ext !== "mov" && ext !== "avi");
@@ -2635,7 +2721,7 @@ export default function DoubaoVideoGeneratorLayout({
   }, [lastFrameField, types, data.id]);
 
   const promptHandleMeta = useMemo(() => {
-    if (!promptField) return null;
+    if (!promptField || isViduUpscaleModel) return null;
     const inputTypes =
       promptField.input_types && promptField.input_types.length > 0
         ? promptField.input_types
@@ -2656,11 +2742,11 @@ export default function DoubaoVideoGeneratorLayout({
       colorName,
       proxy: promptField.proxy,
     };
-  }, [promptField, types, data.id]);
+  }, [promptField, types, data.id, isViduUpscaleModel]);
 
   const audioInputField = template[AUDIO_INPUT_FIELD];
   const audioHandleMeta = useMemo(() => {
-    if (!audioInputField) return null;
+    if (!audioInputField || isViduUpscaleModel) return null;
     const inputTypes =
       audioInputField.input_types && audioInputField.input_types.length > 0
         ? audioInputField.input_types
@@ -2681,7 +2767,7 @@ export default function DoubaoVideoGeneratorLayout({
       colorName,
       proxy: audioInputField.proxy,
     };
-  }, [audioInputField, types, data.id]);
+  }, [audioInputField, types, data.id, isViduUpscaleModel]);
 
   const openFirstFrameDialog = useCallback(() => {
     if (isFirstFrameUploadPending) return;
@@ -4432,14 +4518,89 @@ export default function DoubaoVideoGeneratorLayout({
         <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
           <div
             className={cn(
-              "relative mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              "relative mt-4 border border-[#E6E9F4] bg-white shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              isViduUpscaleModel
+                ? "mx-auto w-[420px] max-w-[calc(100vw-40px)] rounded-[24px] p-4"
+                : "rounded-[32px] p-6",
               "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
             )}
             style={{ ["--inv-zoom" as any]: inverseZoom } as CSSProperties}
           >
-            {(!klingMultiShotEnabled || klingIntelligentShotEnabled) && (
+            {isViduUpscaleModel ? (
+              <div className="text-sm text-[#3C4057] dark:text-slate-100">
+                <div className="flex flex-col gap-3">
+                  {upscaleControlConfigs.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {upscaleControlConfigs.map((config) => (
+                        <DoubaoParameterButton
+                          key={config.name}
+                          data={data}
+                          config={config}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="relative h-14 w-14 overflow-hidden rounded-xl border border-[#E2E7F5] bg-[#F4F6FB] dark:border-white/15 dark:bg-white/10">
+                      {upscalePreviewSource ? (
+                        upscalePreviewIsVideo ? (
+                          <video
+                            src={upscalePreviewSource}
+                            className="pointer-events-none h-full w-full select-none object-cover"
+                            muted
+                            playsInline
+                            preload="metadata"
+                            controls={false}
+                            disablePictureInPicture
+                            disableRemotePlayback
+                            draggable={false}
+                            tabIndex={-1}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                            }}
+                          />
+                        ) : (
+                          <img
+                            src={upscalePreviewSource}
+                            alt="上游视频封面"
+                            className="pointer-events-none h-full w-full select-none object-cover"
+                            draggable={false}
+                          />
+                        )
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[#7D85A8] dark:text-slate-300">
+                          <ForwardedIconComponent name="Image" className="h-4 w-4" />
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={disableRun}
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full text-white",
+                        "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                        disableRun
+                          ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                          : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                      )}
+                      onClick={handleRun}
+                      onMouseEnter={() => setRunHovering(true)}
+                      onMouseLeave={() => setRunHovering(false)}
+                    >
+                      <ForwardedIconComponent
+                        name={runIconName}
+                        className="h-4 w-4"
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+            ((!klingMultiShotEnabled || klingIntelligentShotEnabled) && (
               <PromptModal
                 id={`doubao-video-prompt-${data.id}`}
                 field_name={PROMPT_NAME}
@@ -4464,9 +4625,12 @@ export default function DoubaoVideoGeneratorLayout({
                   <ForwardedIconComponent name="Scan" className="h-4 w-4" />
                 </button>
               </PromptModal>
+            ))
             )}
 
-            <div className="text-sm text-[#3C4057] dark:text-slate-100">
+            {!isViduUpscaleModel && (
+              <>
+                <div className="text-sm text-[#3C4057] dark:text-slate-100">
               <div className="flex min-h-[168px] flex-col gap-3">
                 {promptMediaPreviews.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
@@ -4527,7 +4691,7 @@ export default function DoubaoVideoGeneratorLayout({
                     )}
                   </div>
                 )}
-              {klingMultiShotEnabled && !klingIntelligentShotEnabled ? (
+              {isViduUpscaleModel ? null : klingMultiShotEnabled && !klingIntelligentShotEnabled ? (
                 <div className="space-y-3">
                   <div className="text-xs text-[#5E6484] dark:text-slate-300">
                     Kling O3 多镜头：请配置 1-6 个分镜（每个分镜 prompt ≤ 512），且分镜时长之和必须等于总时长。
@@ -4700,7 +4864,8 @@ export default function DoubaoVideoGeneratorLayout({
                   <DoubaoParameterButton data={data} config={modelNameConfigWithPreserve} />
                 )}
 
-                {(aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingMultiShotModel) ? (
+                {(!isViduUpscaleModel &&
+                  (aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingMultiShotModel)) ? (
                   <DoubaoVideoGeneratorResolutionAspectDurationButton
                     data={data}
                     aspectRatioConfig={aspectRatioConfig}
@@ -4724,6 +4889,9 @@ export default function DoubaoVideoGeneratorLayout({
                     )}
                   </>
                 )}
+                {upscaleControlConfigs.map((config) => (
+                  <DoubaoParameterButton key={config.name} data={data} config={config} />
+                ))}
 
                 <div className="ml-auto flex items-center gap-3">
                   {isKlingModel && (
@@ -4754,11 +4922,13 @@ export default function DoubaoVideoGeneratorLayout({
                     />
                   </button>
                 </div>
+                </div>
+                </div>
               </div>
-              </div>
-            </div>
+              </>
+            )}
 
-            {hasAdditionalFields && (
+            {!isViduUpscaleModel && hasAdditionalFields && (
               <div className="mt-5">
                 <RenderInputParameters
                   data={data}
@@ -4782,9 +4952,13 @@ export default function DoubaoVideoGeneratorLayout({
       >
         <DialogContent className="w-[500px]">
           <DialogHeader>
-            <DialogTitle>{isSoraModel ? "上传参考图（Sora）" : "上传图片或视频"}</DialogTitle>
+            <DialogTitle>
+              {isSoraModel ? "上传参考图（Sora）" : isViduUpscaleModel ? "上传待高清视频" : "上传图片或视频"}
+            </DialogTitle>
             <DialogDescription>
-              {isSoraModel
+              {isViduUpscaleModel
+                ? "Vidu 智能超清仅支持视频输入：请上传 1 段视频作为高清素材。"
+                : isSoraModel
                 ? "Sora 系列仅支持参考图生视频（最多 1 张，将作为 input_reference）。不支持首尾帧插值，请上传 1 张图片并填写提示词。"
                 : isVeoModel
                   ? isVeoFast
@@ -4797,7 +4971,11 @@ export default function DoubaoVideoGeneratorLayout({
             <div className="space-y-4">
               <div className="space-y-3 rounded-2xl bg-[#F7F9FF] p-4 transition-colors duration-200 ease-out dark:border dark:border-white/20 dark:bg-neutral-800/75 dark:backdrop-blur-xl">
                 <p className="text-sm font-medium text-foreground">
-                  {isSoraModel ? "选择要上传的参考图（最多 1 张）" : "选择要上传的图片或视频（支持多选）"}
+                  {isSoraModel
+                    ? "选择要上传的参考图（最多 1 张）"
+                    : isViduUpscaleModel
+                      ? "选择要上传的视频（最多 1 段）"
+                      : "选择要上传的图片或视频（支持多选）"}
                 </p>
                 <button
                   type="button"
@@ -4821,6 +4999,8 @@ export default function DoubaoVideoGeneratorLayout({
                       ? "上传中..."
                       : isSoraModel
                         ? "上传参考图"
+                        : isViduUpscaleModel
+                          ? "上传视频"
                         : "上传图片或视频"}
                   </span>
                 </button>
@@ -4833,7 +5013,7 @@ export default function DoubaoVideoGeneratorLayout({
                   ) : (
                     <>
                       已保留 {firstFrameCount} / {firstFrameMaxUploads}{" "}
-                      {isSoraModel ? "张参考图" : "张候选素材"}
+                      {isSoraModel ? "张参考图" : isViduUpscaleModel ? "段视频" : "张候选素材"}
                     </>
                   )}
                 </p>

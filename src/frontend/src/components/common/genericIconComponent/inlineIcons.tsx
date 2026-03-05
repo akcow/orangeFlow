@@ -31,7 +31,7 @@ type IconNode = Array<
   [
     keyof JSX.IntrinsicElements,
     // Include `key` and any SVG element attributes (d, points, x1, etc).
-    Record<string, any>,
+    Record<string, string | number | boolean>,
   ]
 >;
 
@@ -378,6 +378,143 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     ["path", { d: "M22 5h-4", key: "1gvqau" }],
     ["path", { d: "M4 17v2", key: "vumght" }],
     ["path", { d: "M5 18H3", key: "zchphs" }],
+  ]),
+  // Model family icons for Doubao model selector.
+  ModelSeedSeries: createInlineLucideIcon("ModelSeedSeries", [
+    [
+      "path",
+      {
+        d: "M12 4.9c3.3 0 5.7 2.6 5.7 5.8 0 5.2-5.7 8.8-5.7 8.8s-5.7-3.6-5.7-8.8c0-3.2 2.4-5.8 5.7-5.8Z",
+        fill: "currentColor",
+        stroke: "none",
+        key: "ms1",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "M12.1 6.5c.1-1.9 1.5-3.4 3.4-3.8-.2 1.9-1.6 3.3-3.4 3.8Z",
+        fill: "currentColor",
+        stroke: "none",
+        key: "ms2",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "M12 9.1v7",
+        strokeWidth: 1.9,
+        key: "ms3",
+      },
+    ],
+  ]),
+  ModelWanSeries: createInlineLucideIcon("ModelWanSeries", [
+    [
+      "path",
+      {
+        d: "M4.3 7.1h2.5l2.1 7 2.3-7h1.8l2.3 7 2.1-7h2.5l-3.3 9.8h-2.6L12 10.6l-2.1 6.3H7.5Z",
+        fill: "currentColor",
+        stroke: "none",
+        key: "mw1",
+      },
+    ],
+  ]),
+  ModelKlingSeries: createInlineLucideIcon("ModelKlingSeries", [
+    [
+      "rect",
+      {
+        x: "6.1",
+        y: "4.7",
+        width: "2.9",
+        height: "14.6",
+        rx: "1.4",
+        fill: "currentColor",
+        stroke: "none",
+        key: "mk1",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "m10.2 12 6.9-7.3h2.8l-6 6.4 6.3 8.2h-2.9L12.6 13l-2.4 2.5",
+        fill: "currentColor",
+        stroke: "none",
+        key: "mk2",
+      },
+    ],
+  ]),
+  ModelViduSeries: createInlineLucideIcon("ModelViduSeries", [
+    [
+      "path",
+      {
+        d: "M4.6 6.8h2.6l2.9 9 2.2-5.2h1.6l2.2 5.2 2.9-9h2.6l-4.3 12.4h-2.2l-2-4.6-2 4.6h-2.2Z",
+        fill: "currentColor",
+        stroke: "none",
+        key: "mv1",
+      },
+    ],
+  ]),
+  ModelSoraSeries: createInlineLucideIcon("ModelSoraSeries", [
+    ["line", { x1: "12", y1: "6.2", x2: "8.5", y2: "9", key: "mso1" }],
+    ["line", { x1: "12", y1: "6.2", x2: "15.5", y2: "9", key: "mso2" }],
+    ["line", { x1: "8.5", y1: "9", x2: "8.8", y2: "14.1", key: "mso3" }],
+    ["line", { x1: "15.5", y1: "9", x2: "15.2", y2: "14.1", key: "mso4" }],
+    ["line", { x1: "8.8", y1: "14.1", x2: "12", y2: "17.4", key: "mso5" }],
+    ["line", { x1: "15.2", y1: "14.1", x2: "12", y2: "17.4", key: "mso6" }],
+    ["circle", { cx: "12", cy: "6.2", r: "1.7", fill: "currentColor", stroke: "none", key: "mso7" }],
+    ["circle", { cx: "8.5", cy: "9", r: "1.7", fill: "currentColor", stroke: "none", key: "mso8" }],
+    ["circle", { cx: "15.5", cy: "9", r: "1.7", fill: "currentColor", stroke: "none", key: "mso9" }],
+    ["circle", { cx: "8.8", cy: "14.1", r: "1.7", fill: "currentColor", stroke: "none", key: "mso10" }],
+    ["circle", { cx: "15.2", cy: "14.1", r: "1.7", fill: "currentColor", stroke: "none", key: "mso11" }],
+    ["circle", { cx: "12", cy: "17.4", r: "1.7", fill: "currentColor", stroke: "none", key: "mso12" }],
+  ]),
+  ModelBananaSeries: createInlineLucideIcon("ModelBananaSeries", [
+    [
+      "path",
+      {
+        d: "M4.8 13.9c1.3 4.7 6.3 7.5 11.2 6.3 1.8-.4 3.4-1.2 4.8-2.4-.8-.5-1.6-1.2-2.3-2-1 .8-2.1 1.3-3.3 1.6-3.3.7-6.5-1.2-7.6-4.3-.2-.6-.3-1.2-.3-1.8-1 .5-2.1 1-3.3 1.4.1.4.2.8.3 1.2Z",
+        fill: "currentColor",
+        stroke: "none",
+        key: "mb1",
+      },
+    ],
+    ["path", { d: "M6.2 13.1c1.2 3 4.3 4.9 7.5 4.2", key: "mb2", strokeWidth: 1.8 }],
+    ["path", { d: "m4.7 12.9-1.3-.9", key: "mb3", strokeWidth: 1.9 }],
+    ["path", { d: "m18.8 17.9 1.2 1", key: "mb4", strokeWidth: 1.9 }],
+  ]),
+  ModelDeepseekWhale: createInlineLucideIcon("ModelDeepseekWhale", [
+    [
+      "path",
+      {
+        d: "M4.1 14.3c0-3.3 2.7-5.9 5.9-5.9h2.6c5.1 0 8.8 3 9.5 7.4.1.9-.5 1.7-1.4 1.7H9.6c-3 0-5.5-1.8-5.5-3.9Z",
+        fill: "currentColor",
+        stroke: "none",
+        key: "md1",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "M4.1 14.1 1.9 12.4v3.7l2.2-1.2",
+        fill: "currentColor",
+        stroke: "none",
+        key: "md2",
+      },
+    ],
+    [
+      "circle",
+      {
+        cx: "15.7",
+        cy: "12.6",
+        r: "0.68",
+        fill: "currentColor",
+        stroke: "none",
+        key: "md3",
+      },
+    ],
+    ["path", { d: "M13.6 14.8c1 .7 2.1 1 3.2.8", key: "md4", strokeWidth: 1.8 }],
+    ["path", { d: "M13.9 8.2c.2-1 .8-1.8 1.6-2.3", key: "md5", strokeWidth: 1.8 }],
+    ["path", { d: "M15.4 8.1c.3-.9 1.1-1.6 2-1.9", key: "md6", strokeWidth: 1.8 }],
   ]),
   MessagesSquare: createInlineLucideIcon("MessagesSquare", [
     [

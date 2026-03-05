@@ -1,7 +1,5 @@
-import { type Dispatch, type SetStateAction, useState } from "react";
-import { useHref } from "react-router-dom";
+import { useState } from "react";
 import IconComponent from "@/components/common/genericIconComponent";
-import ShadTooltipComponent from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
@@ -10,81 +8,56 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
-import { usePatchUpdateFlow } from "@/controllers/API/queries/flows/use-patch-update-flow";
-import { CustomLink } from "@/customization/components/custom-link";
-import { ENABLE_PUBLISH, ENABLE_WIDGET } from "@/customization/feature-flags";
 import { t } from "@/i18n/t";
-import ApiModal from "@/modals/apiModal";
-import EmbedModal from "@/modals/EmbedModal/embed-modal";
-import ExportModal from "@/modals/exportModal";
-import useAlertStore from "@/stores/alertStore";
-import useAuthStore from "@/stores/authStore";
-import useFlowStore from "@/stores/flowStore";
+import TVPublishForm from "@/pages/Community/TVPublishForm";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { cn } from "@/utils/utils";
-import TVPublishForm from "@/pages/Community/TVPublishForm";
 
-type PublishDropdownProps = {
-  openApiModal: boolean;
-  setOpenApiModal: Dispatch<SetStateAction<boolean>>;
+type DeployMenuItem = {
+  key: "publish" | "share" | "move";
+  title: string;
+  description: string;
+  actionLabel: string;
+  iconName: string;
+  disabled?: boolean;
+  onClick: () => void;
 };
 
-export default function PublishDropdown({
-  openApiModal,
-  setOpenApiModal,
-}: PublishDropdownProps) {
-  const location = useHref("/");
-  const domain = window.location.origin + location;
-  const [openEmbedModal, setOpenEmbedModal] = useState(false);
+export default function PublishDropdown() {
   const [openTvPublish, setOpenTvPublish] = useState(false);
   const currentFlow = useFlowsManagerStore((state) => state.currentFlow);
   const flowId = currentFlow?.id;
-  const flowName = currentFlow?.name;
-  const setErrorData = useAlertStore((state) => state.setErrorData);
-  const { mutateAsync } = usePatchUpdateFlow();
-  const flows = useFlowsManagerStore((state) => state.flows);
-  const setFlows = useFlowsManagerStore((state) => state.setFlows);
-  const setCurrentFlow = useFlowStore((state) => state.setCurrentFlow);
-  const isPublished = currentFlow?.access_type === "PUBLIC";
-  const hasIO = useFlowStore((state) => state.hasIO);
-  const isAuth = useAuthStore((state) => !!state.autoLogin);
-  const [openExportModal, setOpenExportModal] = useState(false);
 
-  const handlePublishedSwitch = async (checked: boolean) => {
-    mutateAsync(
-      {
-        id: flowId ?? "",
-        access_type: checked ? "PRIVATE" : "PUBLIC",
+  const deployMenuItems: DeployMenuItem[] = [
+    {
+      key: "publish",
+      title: "在 TapTV 上发布",
+      description: "在 TapTV 上发布你的作品，让更多创作者看到。",
+      actionLabel: "发布",
+      iconName: "Globe",
+      disabled: !flowId,
+      onClick: () => {
+        if (!flowId) return;
+        setOpenTvPublish(true);
       },
-      {
-        onSuccess: (updatedFlow) => {
-          if (flows) {
-            setFlows(
-              flows.map((flow) => {
-                if (flow.id === updatedFlow.id) {
-                  return updatedFlow;
-                }
-                return flow;
-              }),
-            );
-            setCurrentFlow(updatedFlow);
-          } else {
-            setErrorData({
-              title: t("Failed to save flow"),
-              list: [t("Flows data is unavailable")],
-            });
-          }
-        },
-        onError: (e) => {
-          setErrorData({
-            title: t("Failed to save flow"),
-            list: [e.message],
-          });
-        },
-      },
-    );
-  };
+    },
+    {
+      key: "share",
+      title: "通过链接分享",
+      description: "任何拥有此链接的人都可以查看并克隆你的画布。",
+      actionLabel: "分享",
+      iconName: "Link2",
+      onClick: () => {},
+    },
+    {
+      key: "move",
+      title: "移动到团队项目",
+      description: "将此项目转移到团队进行协作。",
+      actionLabel: "移动",
+      iconName: "ScanSearch",
+      onClick: () => {},
+    },
+  ];
 
   return (
     <>
@@ -105,122 +78,40 @@ export default function PublishDropdown({
           sideOffset={7}
           alignOffset={-2}
           align="end"
-          className="w-full min-w-[275px]"
+          className="w-[400px] max-w-[calc(100vw-24px)] rounded-2xl border border-border bg-popover/95 p-3 text-popover-foreground shadow-xl backdrop-blur-md"
         >
-          <DropdownMenuItem
-            className="deploy-dropdown-item group"
-            disabled={!flowId}
-            onClick={() => {
-              if (!flowId) return;
-              setOpenTvPublish(true);
-            }}
-          >
-            <IconComponent name="Tv" className={`icon-size mr-2`} />
-            <span>在TV上发布</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="deploy-dropdown-item group"
-            onClick={() => setOpenApiModal(true)}
-            data-testid="api-access-item"
-          >
-            <IconComponent name="Code2" className={`icon-size mr-2`} />
-            <span>{t("API access")}</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="deploy-dropdown-item group"
-            onClick={() => setOpenExportModal(true)}
-          >
-            <IconComponent name="Download" className={`icon-size mr-2`} />
-            <span>{t("Export")}</span>
-          </DropdownMenuItem>
-          {ENABLE_WIDGET && (
+          {deployMenuItems.map((item, index) => (
             <DropdownMenuItem
-              onClick={() => setOpenEmbedModal(true)}
-              className="deploy-dropdown-item group"
+              key={item.key}
+              className={cn(
+                "group flex cursor-pointer items-start gap-2.5 rounded-none px-0 py-3 outline-none focus:bg-transparent data-[highlighted]:bg-transparent",
+                index !== deployMenuItems.length - 1 &&
+                  "border-b border-border",
+              )}
+              disabled={item.disabled}
+              onClick={item.onClick}
             >
-              <IconComponent name="Columns2" className={`icon-size mr-2`} />
-              <span>{t("Embed into site")}</span>
-            </DropdownMenuItem>
-          )}
-
-          {ENABLE_PUBLISH && (
-            <DropdownMenuItem
-              className="deploy-dropdown-item group"
-              disabled={!hasIO}
-              onClick={() => {}}
-              data-testid="shareable-playground"
-            >
-              <div className="flex w-full items-center justify-between">
-                <div className="flex items-center">
-                  <ShadTooltipComponent
-                    styleClasses="truncate"
-                    side="left"
-                    content={
-                      hasIO
-                        ? isPublished
-                          ? encodeURI(`${domain}/playground/${flowId}`)
-                          : t(
-                              "Enable to share a public version of this playground",
-                            )
-                        : t(
-                            "Add a Chat Input or Chat Output to access your flow",
-                          )
-                    }
-                  >
-                    <div className="flex items-center">
-                      <IconComponent
-                        name="Globe"
-                        className={cn(
-                          `icon-size mr-2`,
-                          !isPublished && "opacity-50",
-                        )}
-                      />
-
-                      {isPublished ? (
-                        <CustomLink
-                          className="flex-1"
-                          to={`/playground/${flowId}`}
-                          target="_blank"
-                        >
-                          <span>{t("Shareable Playground")}</span>
-                        </CustomLink>
-                      ) : (
-                        <span className={cn(!isPublished && "opacity-50")}>
-                          {t("Shareable Playground")}
-                        </span>
-                      )}
-                    </div>
-                  </ShadTooltipComponent>
-                </div>
-                <Switch
-                  data-testid="publish-switch"
-                  className="scale-[85%]"
-                  checked={isPublished}
-                  disabled={!hasIO}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handlePublishedSwitch(isPublished);
-                  }}
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <IconComponent
+                  name={item.iconName}
+                  className="h-[18px] w-[18px]"
                 />
               </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[17px] font-semibold leading-tight text-foreground">
+                  {item.title}
+                </div>
+                <p className="mt-1 text-[15px] leading-snug text-muted-foreground">
+                  {item.description}
+                </p>
+              </div>
+              <div className="ml-2 mt-0.5 flex h-9 min-w-[78px] items-center justify-center rounded-xl bg-muted px-3.5 text-[15px] font-semibold text-foreground transition-colors duration-150 group-hover:bg-accent">
+                {item.actionLabel}
+              </div>
             </DropdownMenuItem>
-          )}
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      <ApiModal open={openApiModal} setOpen={setOpenApiModal}>
-        <></>
-      </ApiModal>
-      <EmbedModal
-        open={openEmbedModal}
-        setOpen={setOpenEmbedModal}
-        flowId={flowId ?? ""}
-        flowName={flowName ?? ""}
-        isAuth={isAuth}
-        tweaksBuildedObject={{}}
-        activeTweaks={false}
-      ></EmbedModal>
-      <ExportModal open={openExportModal} setOpen={setOpenExportModal} />
 
       <Dialog open={openTvPublish} onOpenChange={setOpenTvPublish}>
         <DialogContent className="max-w-3xl p-0" closeButtonClassName="hidden">

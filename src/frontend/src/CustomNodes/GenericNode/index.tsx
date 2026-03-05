@@ -373,6 +373,9 @@ function DoubaoVideoGeneratorTopBar({
   nodeId,
   isOpen,
   setOpen,
+  isViduUpscaleNode,
+  onVideoUpscale,
+  canVideoUpscale,
   onClip,
   canClip,
   onOpenPreview,
@@ -384,6 +387,9 @@ function DoubaoVideoGeneratorTopBar({
   nodeId: string;
   isOpen: boolean;
   setOpen: (open: boolean) => void;
+  isViduUpscaleNode?: boolean;
+  onVideoUpscale?: () => void;
+  canVideoUpscale?: boolean;
   onClip?: () => void;
   canClip?: boolean;
   onOpenPreview: () => void;
@@ -466,6 +472,25 @@ function DoubaoVideoGeneratorTopBar({
         )}
         style={{ "--inv-zoom": inverseZoom } as CSSProperties}
       >
+        {!isViduUpscaleNode && (
+          <button
+            type="button"
+            title="高清"
+            aria-label="高清"
+            disabled={!canVideoUpscale}
+            onClick={onVideoUpscale}
+            className={cn(
+              "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
+              canVideoUpscale
+                ? "text-[#3C4258] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+                : "cursor-not-allowed text-[#A0A6BC] opacity-80 dark:text-slate-500",
+            )}
+          >
+            <ForwardedIconComponent name="HD" className="h-5 w-5" />
+            <span>高清</span>
+          </button>
+        )}
+
         <button
           type="button"
           title="剪辑"
@@ -502,15 +527,17 @@ function DoubaoVideoGeneratorTopBar({
           </button>
         </OutputModal>
 
-        <button
-          type="button"
-          title="上传"
-          aria-label="上传"
-          onClick={handleUpload}
-          className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
-        >
-          <ForwardedIconComponent name="Upload" className="h-5 w-5" />
-        </button>
+        {!isViduUpscaleNode && (
+          <button
+            type="button"
+            title="上传"
+            aria-label="上传"
+            onClick={handleUpload}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+          >
+            <ForwardedIconComponent name="Upload" className="h-5 w-5" />
+          </button>
+        )}
 
         <button
           type="button"
@@ -862,6 +889,20 @@ function GenericNode({
   const isUserUploadImage = data.type === "UserUploadImage";
   const isUserUploadVideo = data.type === "UserUploadVideo";
   const isUserUploadAudio = data.type === "UserUploadAudio";
+  const normalizedVideoModelName = String(
+    (data.node as any)?.template?.model_name?.value ??
+      (data.node as any)?.template?.model_name?.default ??
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  const isViduUpscaleVideoNode = Boolean(
+    (isDoubaoVideoGenerator || isUserUploadVideo) &&
+      normalizedVideoModelName === "vidu-upscale",
+  );
+  const effectiveNodeDisplayName = isViduUpscaleVideoNode
+    ? "视频增强"
+    : data.node?.display_name;
   const usesWideDoubaoLayout =
     isDoubaoImageCreator ||
     isDoubaoVideoGenerator ||
@@ -1428,12 +1469,21 @@ function GenericNode({
           {showNode &&
             usesWideDoubaoLayout &&
             (isDoubaoVideoGenerator || isUserUploadVideo) &&
-            selected && !videoGeneratorPreviewActions?.isClipOpen && (
+            selected &&
+            !videoGeneratorPreviewActions?.isClipOpen &&
+            (!isViduUpscaleVideoNode ||
+              Boolean(
+                videoGeneratorPreviewActions?.canClip ||
+                  videoGeneratorPreviewActions?.canDownload,
+              )) && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
               <DoubaoVideoGeneratorTopBar
                 nodeId={data.id}
                 isOpen={isVideoGeneratorLogsOpen}
                 setOpen={setVideoGeneratorLogsOpen}
+                isViduUpscaleNode={isViduUpscaleVideoNode}
+                onVideoUpscale={() => videoGeneratorPreviewActions?.runVideoUpscale()}
+                canVideoUpscale={Boolean(videoGeneratorPreviewActions?.canVideoUpscale)}
                 onClip={() => videoGeneratorPreviewActions?.enterClip()}
                 canClip={Boolean(videoGeneratorPreviewActions?.canClip)}
                 onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
@@ -1508,7 +1558,7 @@ function GenericNode({
                 )}
               >
                 <MemoizedNodeName
-                  display_name={data.node?.display_name}
+                  display_name={effectiveNodeDisplayName}
                   nodeId={data.id}
                   selected={selected}
                   showNode={showNode}
@@ -1565,7 +1615,7 @@ function GenericNode({
               data={data}
               frozen={data.node?.frozen}
               showNode={showNode}
-              display_name={data.node?.display_name!}
+              display_name={effectiveNodeDisplayName!}
               nodeId={data.id}
               selected={selected}
               setBorderColor={setBorderColor}

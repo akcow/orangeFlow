@@ -301,3 +301,55 @@
     --tooltip: 0 0% 100%;
   }
 }
+
+@keyframes doubao-model-desc-marquee-loop {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.doubao-model-desc-marquee-mask {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 7%,
+    #000 93%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 7%,
+    #000 93%,
+    transparent 100%
+  );
+}
+
+.doubao-model-desc-marquee-track {
+  display: inline-flex;
+  width: max-content;
+  min-width: 100%;
+  transform: translateX(0);
+  will-change: transform;
+}
+
+.doubao-model-desc-marquee-track > span {
+  display: inline-block;
+  padding-right: 1.35rem;
+}
+
+.doubao-model-desc-marquee-track--running {
+  animation: doubao-model-desc-marquee-loop 8.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doubao-model-desc-marquee-track--running {
+    animation: none;
+  }
+}
