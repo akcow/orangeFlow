@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import mimetypes
 import os
+import subprocess
 import time
 import wave
 
@@ -13,7 +15,7 @@ import requests
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from dotenv import load_dotenv
 
@@ -71,6 +73,7 @@ class DoubaoVideoGenerator(Component):
         # Vidu (direct API)
         "viduq2-pro": "viduq2-pro",
         "viduq3-pro": "viduq3-pro",
+        "vidu-upscale": "vidu-upscale",
     }
 
     # What the dropdown shows (keep this list clean; legacy aliases are accepted but not shown).
@@ -95,6 +98,8 @@ class DoubaoVideoGenerator(Component):
         "Doubao-Seedance-1.0-pro｜250528": "Seedance 1.0 pro",
         "kling-v3-omni": "kling O3",
         "kling-v3": "kling V3",
+        "vidu_upscale": "vidu-upscale",
+        "vidu-video-upscale": "vidu-upscale",
     }
 
     MODEL_LIMITS = {
@@ -222,11 +227,35 @@ class DoubaoVideoGenerator(Component):
             "supports_reference_videos": True,
             "supported_ratios": ["16:9", "9:16", "4:3", "3:4", "1:1"],
         },
+        "vidu-upscale": {
+            "resolutions": ["1080p", "2K", "4K", "8K"],
+            "supports_last_frame": False,
+            "supports_reference_images": False,
+            "supports_reference_videos": True,
+        },
     }
 
     SUPPORTED_RATIOS = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"]
     VIDU_SUPPORTED_RATIOS = ["16:9", "9:16", "4:3", "3:4", "1:1"]
     VIDU_SUPPORTED_RESOLUTIONS_Q3 = ["540p", "720p", "1080p"]
+    VIDU_UPSCALE_RESOLUTIONS = ["1080p", "2K", "4K", "8K"]
+    VIDU_UPSCALE_ALLOWED_CONTAINERS = {"mp4", "flv", "hls", "mxf", "mov", "ts", "webm", "mkv"}
+    VIDU_UPSCALE_ALLOWED_CODECS = {
+        "h264",
+        "h264_intra",
+        "h265",
+        "hevc",
+        "av1",
+        "h266",
+        "vvc",
+        "mv",
+        "mv-hevc",
+        "mpeg2video",
+        "vp8",
+        "vp9",
+    }
+    VIDU_UPSCALE_MAX_DURATION_SECONDS = 300.0
+    VIDU_UPSCALE_MAX_FPS = 60.0
     VEO_SUPPORTED_RATIOS = ["16:9", "9:16"]
     VEO_SUPPORTED_DURATIONS = [4, 6, 8]
     VEO_SUPPORTED_RESOLUTIONS = ["720p", "1080p"]
@@ -507,6 +536,25 @@ class DoubaoVideoGenerator(Component):
             show=False,
             advanced=True,
             info="轮询任务最大等待时间（秒）。超过后返回超时错误。",
+        ),
+        DropdownInput(
+            name="vidu_upscale_resolution",
+            display_name="视频高清分辨率",
+            options=VIDU_UPSCALE_RESOLUTIONS,
+            value="1080p",
+            required=False,
+            show=False,
+            real_time_refresh=True,
+            info="Vidu 智能超清输出分辨率。",
+        ),
+        IntInput(
+            name="vidu_upscale_max_wait_seconds",
+            display_name="Vidu 超清最大等待时间",
+            value=900,
+            required=False,
+            show=False,
+            advanced=True,
+            info="轮询超清任务最大等待时间（秒）。",
         ),
         StrInput(
             name="sora_api_base",
@@ -822,6 +870,8 @@ class DoubaoVideoGenerator(Component):
                 "vidu_meta_data",
                 "vidu_callback_url",
                 "vidu_max_wait_seconds",
+                "vidu_upscale_resolution",
+                "vidu_upscale_max_wait_seconds",
             ):
                 _restore_field_defaults(field)
 
@@ -832,6 +882,72 @@ class DoubaoVideoGenerator(Component):
             model_lower = model_value.strip().lower()
             is_vidu_q3 = model_lower == "viduq3-pro"
             is_vidu_q2_pro = model_lower == "viduq2-pro"
+            is_vidu_upscale = self._is_vidu_upscale_model(model_value)
+
+            if is_vidu_upscale:
+                if "model_name" in build_config:
+                    build_config["model_name"]["show"] = False
+                if "prompt" in build_config:
+                    build_config["prompt"]["show"] = False
+                if "resolution" in build_config:
+                    build_config["resolution"]["show"] = False
+                if "aspect_ratio" in build_config:
+                    build_config["aspect_ratio"]["show"] = False
+                if "duration" in build_config:
+                    build_config["duration"]["show"] = False
+                if "last_frame_image" in build_config:
+                    build_config["last_frame_image"]["show"] = False
+                if "enable_audio" in build_config:
+                    build_config["enable_audio"]["show"] = False
+                if "audio_input" in build_config:
+                    build_config["audio_input"]["show"] = False
+
+                if "first_frame_image" in build_config:
+                    build_config["first_frame_image"]["show"] = True
+                    build_config["first_frame_image"]["is_list"] = False
+                    build_config["first_frame_image"]["list"] = False
+                    build_config["first_frame_image"]["file_types"] = [
+                        "mp4",
+                        "flv",
+                        "m3u8",
+                        "mxf",
+                        "mov",
+                        "ts",
+                        "webm",
+                        "mkv",
+                    ]
+                    build_config["first_frame_image"]["fileTypes"] = build_config["first_frame_image"]["file_types"]
+                    build_config["first_frame_image"]["info"] = "Vidu 智能超清：仅支持输入 1 段视频。"
+
+                if "vidu_upscale_resolution" in build_config:
+                    build_config["vidu_upscale_resolution"]["show"] = True
+                    build_config["vidu_upscale_resolution"]["options"] = list(self.VIDU_UPSCALE_RESOLUTIONS)
+                    build_config["vidu_upscale_resolution"]["options_metadata"] = []
+                    current = str(build_config["vidu_upscale_resolution"].get("value") or "").strip()
+                    if current not in self.VIDU_UPSCALE_RESOLUTIONS:
+                        build_config["vidu_upscale_resolution"]["value"] = "1080p"
+
+                if "vidu_upscale_max_wait_seconds" in build_config:
+                    build_config["vidu_upscale_max_wait_seconds"]["show"] = True
+
+                for field in (
+                    "vidu_is_rec",
+                    "vidu_seed",
+                    "vidu_movement_amplitude",
+                    "vidu_bgm",
+                    "vidu_audio",
+                    "vidu_voice_id",
+                    "vidu_off_peak",
+                    "vidu_watermark",
+                    "vidu_wm_position",
+                    "vidu_wm_url",
+                    "vidu_meta_data",
+                    "vidu_max_wait_seconds",
+                ):
+                    if field in build_config:
+                        build_config[field]["show"] = False
+
+                return build_config
 
             def _has_any(v: Any) -> bool:
                 if v is None:
@@ -1017,6 +1133,8 @@ class DoubaoVideoGenerator(Component):
                 "vidu_meta_data",
                 "vidu_callback_url",
                 "vidu_max_wait_seconds",
+                "vidu_upscale_resolution",
+                "vidu_upscale_max_wait_seconds",
             ):
                 _restore_field_defaults(field)
 
@@ -1025,6 +1143,11 @@ class DoubaoVideoGenerator(Component):
     @staticmethod
     def _is_vidu_model(model_name: str) -> bool:
         return str(model_name or "").strip().lower().startswith("vidu")
+
+    @staticmethod
+    def _is_vidu_upscale_model(model_name: str) -> bool:
+        normalized = str(model_name or "").strip().lower().replace("_", "-")
+        return normalized in {"vidu-upscale", "vidu-video-upscale"}
 
     def _build_video_vidu_gateway(self, *, prompt: str, model_name: str) -> Data:
         """Generate video via Hosted Gateway for Vidu models (credentials server-side).
@@ -1035,6 +1158,9 @@ class DoubaoVideoGenerator(Component):
         - img2video: when only first image exists
         - text2video: otherwise
         """
+        if self._is_vidu_upscale_model(model_name):
+            return self._build_video_vidu_upscale(model_name=model_name)
+
         try:
             from langflow.gateway.client import videos_create
 
@@ -1264,6 +1390,439 @@ class DoubaoVideoGenerator(Component):
             )
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Gateway vidu video failed: {exc}")
+
+    @staticmethod
+    def _is_http_url(url: str) -> bool:
+        try:
+            parsed = urlparse(str(url or "").strip())
+            return parsed.scheme in {"http", "https"}
+        except Exception:
+            return False
+
+    @classmethod
+    def _find_first_string_by_keys(
+        cls, value: Any, keys: set[str], *, depth: int = 0, max_depth: int = 8
+    ) -> str | None:
+        if depth > max_depth or value is None:
+            return None
+        if isinstance(value, Data):
+            return cls._find_first_string_by_keys(value.data, keys, depth=depth + 1, max_depth=max_depth)
+        if isinstance(value, dict):
+            for key in keys:
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip()
+            for nested in value.values():
+                found = cls._find_first_string_by_keys(nested, keys, depth=depth + 1, max_depth=max_depth)
+                if found:
+                    return found
+            return None
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                found = cls._find_first_string_by_keys(item, keys, depth=depth + 1, max_depth=max_depth)
+                if found:
+                    return found
+        return None
+
+    @staticmethod
+    def _extract_flow_file_path_candidate(path_value: str) -> str | None:
+        raw = str(path_value or "").strip().replace("\\", "/")
+        if not raw:
+            return None
+
+        parsed = urlparse(raw)
+        candidate = parsed.path if (parsed.scheme and parsed.netloc) else raw
+        normalized = str(candidate or "").lstrip("/")
+        if not normalized:
+            return None
+
+        prefixes = (
+            "api/v1/files/public/",
+            "api/v1/files/media/",
+            "api/v1/files/images/",
+            "files/public/",
+            "files/media/",
+            "files/images/",
+        )
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix) :]
+                break
+
+        parts = [segment for segment in normalized.split("/") if segment]
+        if len(parts) < 2:
+            return None
+        return f"{parts[0]}/{parts[-1]}"
+
+    def _resolve_vidu_upscale_video_url(self, value: Any) -> str | None:
+        if isinstance(value, Data):
+            return self._resolve_vidu_upscale_video_url(value.data)
+
+        if isinstance(value, dict):
+            for key in ("video_url", "url", "value", "file_path", "path"):
+                resolved = self._resolve_vidu_upscale_video_url(value.get(key))
+                if resolved:
+                    return resolved
+            for nested_key in ("videos", "data", "payload", "doubao_preview"):
+                resolved = self._resolve_vidu_upscale_video_url(value.get(nested_key))
+                if resolved:
+                    return resolved
+            return None
+
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                resolved = self._resolve_vidu_upscale_video_url(item)
+                if resolved:
+                    return resolved
+            return None
+
+        if not isinstance(value, str):
+            return None
+
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.lower().startswith("data:"):
+            return None
+
+        if self._is_http_url(raw):
+            if "/api/v1/files/" in raw:
+                flow_path = self._extract_flow_file_path_candidate(raw)
+                if flow_path:
+                    public_url = self._build_public_file_url(flow_path, ttl_seconds=3600)
+                    if public_url:
+                        return public_url
+            return raw
+
+        flow_path = self._extract_flow_file_path_candidate(raw) or raw
+        public_url = self._build_public_file_url(flow_path, ttl_seconds=3600)
+        if public_url:
+            return public_url
+        return None
+
+    def _resolve_vidu_upscale_video_inputs(self) -> tuple[str | None, str | None]:
+        raw = getattr(self, "first_frame_image", None)
+
+        video_creation_id = self._find_first_string_by_keys(
+            raw,
+            {"video_creation_id", "videoCreationId", "creation_id"},
+        )
+
+        entries = self._collect_multimodal_inputs("first_frame_image")
+        for entry in entries:
+            url = str(entry.get("url") or "").strip()
+            if not url:
+                continue
+            kind = str(entry.get("kind") or "").strip().lower()
+            resolved_url = self._resolve_vidu_upscale_video_url(url)
+            if not resolved_url:
+                continue
+            if kind == "video" or self._is_video_url(url) or self._is_video_url(resolved_url):
+                return resolved_url, video_creation_id
+
+        direct_video_url = self._find_first_string_by_keys(raw, {"video_url", "url"})
+        if direct_video_url:
+            resolved = self._resolve_vidu_upscale_video_url(direct_video_url)
+            looks_like_video = (
+                self._is_video_url(direct_video_url)
+                or "/files/media/" in str(direct_video_url).replace("\\", "/").lower()
+                or "video" in str(direct_video_url).lower()
+            )
+            if resolved and looks_like_video:
+                return resolved, video_creation_id
+
+        file_path = self._extract_file_path(raw)
+        if file_path:
+            resolved = self._resolve_vidu_upscale_video_url(file_path)
+            if resolved and self._is_video_url(file_path):
+                return resolved, video_creation_id
+
+        return None, video_creation_id
+
+    @staticmethod
+    def _parse_fraction(value: Any) -> float | None:
+        raw = str(value or "").strip()
+        if not raw or raw in {"0/0", "N/A"}:
+            return None
+        try:
+            if "/" in raw:
+                num_raw, den_raw = raw.split("/", 1)
+                num = float(num_raw)
+                den = float(den_raw)
+                if den == 0:
+                    return None
+                result = num / den
+            else:
+                result = float(raw)
+        except Exception:
+            return None
+        if result <= 0:
+            return None
+        return result
+
+    @staticmethod
+    def _parse_positive_float(value: Any) -> float | None:
+        try:
+            result = float(str(value or "").strip())
+        except Exception:
+            return None
+        if result <= 0:
+            return None
+        return result
+
+    @staticmethod
+    def _vidu_upscale_container_from_url(video_url: str) -> str | None:
+        path = urlparse(str(video_url or "").strip()).path.lower()
+        ext = Path(path).suffix.lower().lstrip(".")
+        mapping = {
+            "mp4": "mp4",
+            "flv": "flv",
+            "m3u8": "hls",
+            "hls": "hls",
+            "mxf": "mxf",
+            "mov": "mov",
+            "ts": "ts",
+            "webm": "webm",
+            "mkv": "mkv",
+        }
+        return mapping.get(ext)
+
+    @staticmethod
+    def _vidu_upscale_container_from_ffprobe(format_name: str) -> str | None:
+        tokens = {token.strip().lower() for token in str(format_name or "").split(",") if token.strip()}
+        if not tokens:
+            return None
+        if "hls" in tokens:
+            return "hls"
+        if "flv" in tokens:
+            return "flv"
+        if "mxf" in tokens:
+            return "mxf"
+        if "mpegts" in tokens:
+            return "ts"
+        if "webm" in tokens:
+            return "webm"
+        if "matroska" in tokens:
+            return "mkv"
+        if "mov" in tokens:
+            return "mov"
+        if "mp4" in tokens:
+            return "mp4"
+        return None
+
+    @staticmethod
+    def _ffprobe_video_metadata(source: str) -> tuple[dict[str, Any] | None, str | None]:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            source,
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45, check=False)
+        except FileNotFoundError:
+            return None, "服务端未安装 ffprobe，无法校验视频参数。"
+        except subprocess.TimeoutExpired:
+            return None, "ffprobe 校验视频超时。"
+        except Exception as exc:  # noqa: BLE001
+            return None, f"ffprobe 调用失败：{exc}"
+
+        if proc.returncode != 0:
+            stderr = (proc.stderr or proc.stdout or "").strip()
+            if len(stderr) > 240:
+                stderr = f"{stderr[:240]}..."
+            return None, f"ffprobe 校验失败：{stderr or f'code={proc.returncode}'}"
+
+        try:
+            payload = json.loads(proc.stdout or "{}")
+        except Exception as exc:  # noqa: BLE001
+            return None, f"ffprobe 输出无法解析：{exc}"
+
+        if not isinstance(payload, dict):
+            return None, "ffprobe 输出异常，无法校验视频参数。"
+        return payload, None
+
+    @staticmethod
+    def _check_http_url_accessible(video_url: str) -> tuple[bool, str | None]:
+        headers = {"User-Agent": "Langflow-Vidu-Upscale/1.0", "Accept": "*/*"}
+        head_error: str | None = None
+        try:
+            head_resp = requests.head(
+                video_url,
+                headers=headers,
+                allow_redirects=True,
+                timeout=(10, 20),
+            )
+            if head_resp.status_code < 400:
+                return True, None
+            if head_resp.status_code not in {403, 405, 406}:
+                head_error = f"HEAD status={head_resp.status_code}"
+        except Exception as exc:  # noqa: BLE001
+            head_error = str(exc)
+
+        try:
+            probe_resp = requests.get(
+                video_url,
+                headers={**headers, "Range": "bytes=0-1023"},
+                allow_redirects=True,
+                stream=True,
+                timeout=(10, 20),
+            )
+            if probe_resp.status_code < 400 or probe_resp.status_code == 416:
+                return True, None
+            return False, f"GET status={probe_resp.status_code}"
+        except Exception as exc:  # noqa: BLE001
+            if head_error:
+                return False, f"{head_error}; GET error={exc}"
+            return False, str(exc)
+
+    def _validate_vidu_upscale_video(self, *, video_url: str | None, video_creation_id: str | None) -> str | None:
+        if video_creation_id:
+            # Official docs: creation-id comes from a Vidu-created task.
+            return None
+
+        if not video_url:
+            return "智能超清需要提供 video_url 或 video_creation_id。"
+
+        if not self._is_http_url(video_url):
+            return "智能超清仅支持可访问的 HTTP/HTTPS 视频 URL。"
+
+        url_container = self._vidu_upscale_container_from_url(video_url)
+        if url_container is None:
+            return "视频封装格式不符合要求。仅支持：MP4、FLV、HLS(m3u8)、MXF、MOV、TS、WEBM、MKV。"
+
+        accessible, access_error = self._check_http_url_accessible(video_url)
+        if not accessible:
+            return f"视频 URL 不可访问：{access_error or 'unknown error'}"
+
+        ffprobe_payload, ffprobe_error = self._ffprobe_video_metadata(video_url)
+        if not ffprobe_payload:
+            return f"无法校验视频参数：{ffprobe_error or 'unknown error'}"
+
+        format_obj = ffprobe_payload.get("format") if isinstance(ffprobe_payload.get("format"), dict) else {}
+        streams = ffprobe_payload.get("streams") if isinstance(ffprobe_payload.get("streams"), list) else []
+        video_stream = next(
+            (
+                stream
+                for stream in streams
+                if isinstance(stream, dict) and str(stream.get("codec_type") or "").lower() == "video"
+            ),
+            None,
+        )
+        if not isinstance(video_stream, dict):
+            return "输入不是可识别的视频流，禁止使用智能超清。"
+
+        format_name = str(format_obj.get("format_name") or "").strip()
+        probed_container = self._vidu_upscale_container_from_ffprobe(format_name)
+        container = probed_container or url_container
+        if container not in self.VIDU_UPSCALE_ALLOWED_CONTAINERS:
+            return (
+                f"视频封装格式不符合要求（检测值：{container or format_name or 'unknown'}）。"
+                "仅支持：MP4、FLV、HLS、MXF、MOV、TS、WEBM、MKV。"
+            )
+
+        duration = (
+            self._parse_positive_float(video_stream.get("duration"))
+            or self._parse_positive_float(format_obj.get("duration"))
+        )
+        if duration is None:
+            return "无法校验视频时长，已禁止执行智能超清。"
+        if duration > self.VIDU_UPSCALE_MAX_DURATION_SECONDS:
+            return f"视频时长超出限制（{duration:.2f}s > {self.VIDU_UPSCALE_MAX_DURATION_SECONDS:.0f}s）。"
+
+        codec_name = str(video_stream.get("codec_name") or "").strip().lower()
+        if not codec_name:
+            return "无法校验视频编码，已禁止执行智能超清。"
+        if not any(codec_name == allowed or codec_name.startswith(allowed) for allowed in self.VIDU_UPSCALE_ALLOWED_CODECS):
+            return f"视频编码不在支持范围内（检测值：{codec_name}）。"
+
+        fps = self._parse_fraction(video_stream.get("avg_frame_rate")) or self._parse_fraction(
+            video_stream.get("r_frame_rate")
+        )
+        if fps is None:
+            return "无法校验视频帧率，已禁止执行智能超清。"
+        if fps >= self.VIDU_UPSCALE_MAX_FPS:
+            return f"视频帧率不符合要求（{fps:.3f} FPS，需低于 {self.VIDU_UPSCALE_MAX_FPS:.0f} FPS）。"
+
+        return None
+
+    def _build_video_vidu_upscale(self, *, model_name: str) -> Data:
+        try:
+            from langflow.gateway.client import videos_create
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway client unavailable: {exc}")
+
+        video_url, video_creation_id = self._resolve_vidu_upscale_video_inputs()
+        if not video_url and not video_creation_id:
+            return self._error("Vidu 智能超清需要输入视频。请上传视频或连接上游视频输出。")
+
+        upscale_resolution = str(getattr(self, "vidu_upscale_resolution", "1080p") or "1080p").strip() or "1080p"
+        if upscale_resolution not in self.VIDU_UPSCALE_RESOLUTIONS:
+            upscale_resolution = "1080p"
+
+        callback_url = str(getattr(self, "vidu_callback_url", "") or "").strip()
+        payload = str(getattr(self, "vidu_payload", "") or "").strip()
+        if payload and len(payload) > 1_048_576:
+            return self._error("Vidu payload 超过 1048576 字符限制。")
+
+        # Docs: when both are provided, `video_creation_id` has priority.
+        if video_creation_id:
+            video_url = None
+
+        validation_error = self._validate_vidu_upscale_video(
+            video_url=video_url,
+            video_creation_id=video_creation_id,
+        )
+        if validation_error:
+            return self._error(validation_error)
+
+        extra_body: dict[str, Any] = {"upscale_resolution": upscale_resolution}
+        if video_url:
+            extra_body["video_url"] = video_url
+        if video_creation_id:
+            extra_body["video_creation_id"] = video_creation_id
+        if callback_url:
+            extra_body["callback_url"] = callback_url
+        if payload:
+            extra_body["payload"] = payload
+
+        try:
+            create = videos_create(
+                model=model_name,
+                prompt="",
+                extra_body=extra_body,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Gateway vidu upscale create failed: {exc}")
+
+        task_id = str((create or {}).get("id") or "").strip()
+        if not task_id:
+            return self._error(f"Gateway did not return task id: {create}")
+
+        try:
+            max_wait = int(
+                getattr(self, "vidu_upscale_max_wait_seconds", None)
+                or getattr(self, "vidu_max_wait_seconds", 900)
+                or 900
+            )
+        except Exception:
+            max_wait = 900
+
+        return self._poll_gateway_video(
+            task_id=task_id,
+            prompt="",
+            endpoint_id=model_name,
+            model_display_name=model_name,
+            resolution=upscale_resolution,
+            duration=0,
+            aspect_ratio="",
+            max_wait=max_wait,
+        )
 
     def _build_video_dashscope(self, *, prompt: str, model_name: str) -> Data:
         creds = resolve_credentials(
@@ -1526,9 +2085,15 @@ class DoubaoVideoGenerator(Component):
         # Some uploads are stored with a "masked" extension (e.g. ".mp_") even though the bytes are MP4.
         return (
             path.endswith(".mp4")
+            or path.endswith(".flv")
+            or path.endswith(".m3u8")
+            or path.endswith(".hls")
+            or path.endswith(".mxf")
             or path.endswith(".mov")
             or path.endswith(".avi")
+            or path.endswith(".ts")
             or path.endswith(".webm")
+            or path.endswith(".mkv")
             or path.endswith(".mp_")
         )
 

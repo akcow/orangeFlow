@@ -501,7 +501,7 @@ async def get_video_status(
     result = await provider.video_status(raw_id)
     # Best-effort normalized view for clients.
     if isinstance(result, dict):
-        status_value = result.get("status")
+        status_value = result.get("status") or result.get("state") or result.get("task_status")
         if not status_value and isinstance(result.get("output"), dict):
             status_value = (result["output"].get("task_status") or result["output"].get("taskStatus") or "").lower()
         if not status_value and isinstance(result.get("data"), dict):

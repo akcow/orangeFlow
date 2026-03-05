@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import PaginatorComponent from "@/components/common/paginatorComponent";
 import CardsWrapComponent from "@/components/core/cardsWrapComponent";
+import { Card } from "@/components/ui/card";
 import { IS_MAC } from "@/constants/constants";
 import { useGetFolderQuery } from "@/controllers/API/queries/folders/use-get-folder";
 import { CustomBanner } from "@/customization/components/custom-banner";
@@ -11,10 +13,8 @@ import {
 } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
-import { t } from "@/i18n/t";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
-import { FlowType } from "@/types/flow";
 import HeaderComponent from "../../components/header";
 import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
@@ -36,6 +36,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   });
   const navigate = useCustomNavigate();
   const createBlankFlow = useCreateBlankFlow();
+  const [isCreatingFlow, setIsCreatingFlow] = useState(false);
 
   const [flowType, setFlowType] = useState<"flows" | "components">(type);
   const myCollectionId = useFolderStore((state) => state.myCollectionId);
@@ -116,9 +117,13 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   const handleFileDrop = useFileDrop(isEmptyFolder ? undefined : flowType);
 
   const handleCreateNewFlow = async () => {
+    if (isCreatingFlow) return;
+    setIsCreatingFlow(true);
     try {
       await createBlankFlow();
     } catch {
+    } finally {
+      setIsCreatingFlow(false);
     }
   };
 
@@ -264,13 +269,13 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   return (
     <CardsWrapComponent
       onFileDrop={handleFileDrop}
-      dragMessage={t("Drop your {{items}} here", {
-        items: isEmptyFolder
-          ? t("flows or components")
+      dragMessage={
+        isEmptyFolder
+          ? "将流程或组件拖放到这里"
           : flowType === "flows"
-            ? t("flows")
-            : t("components"),
-      })}
+            ? "将流程拖放到这里"
+            : "将组件拖放到这里"
+      }
     >
       <div
         className="flex h-full w-full flex-col overflow-y-auto"
@@ -298,12 +303,12 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                 <div className="flex h-full flex-col">
                   {isLoading ? (
                     view === "grid" ? (
-                      <div className="mt-4 grid grid-cols-1 gap-1 md:grid-cols-2 lg:grid-cols-3">
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
                         <ListSkeleton />
                         <ListSkeleton />
                       </div>
                     ) : (
-                      <div className="mt-4 flex flex-col gap-1">
+                      <div className="mt-4 flex flex-col gap-2">
                         <ListSkeleton />
                         <ListSkeleton />
                       </div>
@@ -312,7 +317,28 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                     data &&
                     data.pagination.total > 0 ? (
                     view === "grid" ? (
-                      <div className="mt-4 grid grid-cols-1 gap-1 md:grid-cols-2 lg:grid-cols-3">
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+                        {flowType === "flows" && (
+                          <Card
+                            onClick={() => {
+                              void handleCreateNewFlow();
+                            }}
+                            className="group/new flex min-h-[240px] cursor-pointer items-center justify-center rounded-2xl border border-dashed border-border/80 bg-card/60 transition-all duration-300 hover:-translate-y-1 hover:border-border hover:bg-muted/30 hover:shadow-xl"
+                          >
+                            <div className="flex flex-col items-center gap-4">
+                              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition-transform duration-300 group-hover/new:scale-105">
+                                <ForwardedIconComponent
+                                  name="Plus"
+                                  aria-hidden="true"
+                                  className="h-8 w-8"
+                                />
+                              </div>
+                              <div className="text-base font-semibold text-foreground">
+                                新建项目
+                              </div>
+                            </div>
+                          </Card>
+                        )}
                         {data.flows.map((flow, index) => (
                           <ListComponent
                             key={flow.id}
@@ -322,50 +348,67 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                               setSelectedFlow(selected, flow.id, index)
                             }
                             shiftPressed={isShiftPressed || isCtrlPressed}
+                            view={view}
                           />
                         ))}
                       </div>
                     ) : (
-                      <div className="mt-4 flex flex-col gap-1">
-                        {data.flows.map((flow, index) => (
-                          <ListComponent
-                            key={flow.id}
-                            flowData={flow}
-                            selected={selectedFlows.includes(flow.id)}
-                            setSelected={(selected) =>
-                              setSelectedFlow(selected, flow.id, index)
-                            }
-                            shiftPressed={isShiftPressed || isCtrlPressed}
-                          />
-                        ))}
+                      <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card/35">
+                        <div className="overflow-x-auto">
+                          <div className="min-w-[1060px]">
+                            <div className="grid grid-cols-[72px,minmax(200px,2fr),120px,minmax(240px,2fr),180px,180px,56px] items-center gap-3 border-b border-border/60 bg-muted/25 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              <span>预览</span>
+                              <span>名称</span>
+                              <span>类型</span>
+                              <span>内容</span>
+                              <span>创建时间</span>
+                              <span>最近更新</span>
+                              <span />
+                            </div>
+                            <div className="flex flex-col gap-2 p-2">
+                              {data.flows.map((flow, index) => (
+                                <ListComponent
+                                  key={flow.id}
+                                  flowData={flow}
+                                  selected={selectedFlows.includes(flow.id)}
+                                  setSelected={(selected) =>
+                                    setSelectedFlow(selected, flow.id, index)
+                                  }
+                                  shiftPressed={isShiftPressed || isCtrlPressed}
+                                  view={view}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )
                   ) : flowType === "flows" ? (
                     <div className="pt-24 text-center text-sm text-secondary-foreground">
-                      {t("No flows in this project.")}{" "}
-                      <a
+                      当前项目暂无流程。{" "}
+                      <button
+                        type="button"
                         onClick={() => {
                           void handleCreateNewFlow();
                         }}
                         className="cursor-pointer underline"
                       >
-                        {t("Create a new flow")}
-                      </a>
-                      {t(", or browse the store.")}
+                        创建新流程
+                      </button>
+                      ，或前往商店浏览。
                     </div>
                   ) : (
                     <div className="pt-24 text-center text-sm text-secondary-foreground">
-                      {t("No saved or custom components.")}{" "}
-                      {t("Learn more about")}{" "}
+                      暂无已保存或自定义组件。可了解{" "}
                       <a
                         href="https://docs.langflow.org/components-custom-components"
                         target="_blank"
                         rel="noreferrer"
                         className="underline"
                       >
-                        {t("creating custom components")}
+                        如何创建自定义组件
                       </a>
-                      {t(", or browse the store.")}
+                      ，或前往商店浏览。
                     </div>
                   )}
                 </div>
@@ -389,7 +432,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
               </div>
             )}
         </div>
-       </div>
+      </div>
     </CardsWrapComponent>
   );
 };

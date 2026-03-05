@@ -26,8 +26,60 @@ class ViduProvider(ProviderAdapter):
             "Connection": "close",
         }
 
+    async def _video_upscale(self, request: VideoGenerationRequest) -> Dict[str, Any]:
+        extra = request.extra_body or {}
+        video_url = str(extra.get("video_url") or "").strip()
+        video_creation_id = str(extra.get("video_creation_id") or "").strip()
+        if not video_url and not video_creation_id:
+            raise UpstreamError(
+                "vidu-upscale requires `video_url` or `video_creation_id`.",
+                provider="vidu",
+            )
+
+        upscale_resolution = str(extra.get("upscale_resolution") or "1080p").strip() or "1080p"
+        allowed_resolutions = {"1080p", "2K", "4K", "8K"}
+        if upscale_resolution not in allowed_resolutions:
+            raise UpstreamError(
+                f"Invalid `upscale_resolution`: {upscale_resolution}",
+                provider="vidu",
+            )
+
+        payload = extra.get("payload")
+        if isinstance(payload, str) and len(payload) > 1_048_576:
+            raise UpstreamError("`payload` exceeds max length (1048576).", provider="vidu")
+
+        callback_url = str(extra.get("callback_url") or "").strip()
+
+        body: dict[str, Any] = {"upscale_resolution": upscale_resolution}
+        if video_url:
+            body["video_url"] = video_url
+        if video_creation_id:
+            body["video_creation_id"] = video_creation_id
+        if payload not in (None, ""):
+            body["payload"] = payload
+        if callback_url:
+            body["callback_url"] = callback_url
+
+        url = f"{self.base_url}/ent/v2/upscale-new"
+        try:
+            timeout = httpx.Timeout(60.0, connect=20.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, headers=self._headers(), json=body)
+                if resp.status_code != 200:
+                    raise UpstreamError(resp.text, provider="vidu", code=f"UPSTREAM_{resp.status_code}")
+                data = resp.json()
+                task_id = str((data or {}).get("task_id") or "").strip()
+                if not task_id:
+                    raise UpstreamError(f"Missing task_id in response: {data}", provider="vidu")
+                return {"id": task_id, "provider_response": data}
+        except httpx.RequestError as exc:
+            raise UpstreamError(f"Request failed: {exc}", provider="vidu")
+
     async def video_generation(self, request: VideoGenerationRequest) -> Dict[str, Any]:
         extra = request.extra_body or {}
+        model_lower = str(request.model or "").strip().lower().replace("_", "-")
+        if model_lower in {"vidu-upscale", "vidu-video-upscale"}:
+            return await self._video_upscale(request)
 
         images = extra.get("images") or []
         if isinstance(images, str):

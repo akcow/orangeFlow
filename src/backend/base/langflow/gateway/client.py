@@ -192,7 +192,7 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
     result = _run_coro_sync(provider.video_status(raw_id))
     normalized: dict[str, Any] = {"id": video_id, "provider": provider_name, "provider_response": result}
     if isinstance(result, dict):
-        status_value = result.get("status")
+        status_value = result.get("status") or result.get("state") or result.get("task_status")
         if not status_value and isinstance(result.get("output"), dict):
             status_value = (result["output"].get("task_status") or result["output"].get("taskStatus") or "").lower()
         if not status_value and isinstance(result.get("data"), dict):
