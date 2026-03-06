@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, LogOut, Settings, User } from "lucide-react";
+import { Bell, ChevronDown, HelpCircle, LogOut, Settings, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import useAuthStore from "@/stores/authStore";
+import useAlertStore from "@/stores/alertStore";
 import { cn } from "@/utils/utils";
 
 type NavKey = "tv" | "templates" | "workspace" | "home";
@@ -36,10 +37,12 @@ export const TapNowHeader = ({
   const location = useLocation();
   const { i18n } = useTranslation();
   const { userData, isAuthenticated, logout } = useAuthStore();
+  const { notificationCenter, setNotificationCenter, notificationList } = useAlertStore();
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
   const [wordmarkLoadFailed, setWordmarkLoadFailed] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
 
   const activeNav = useMemo(() => getActiveNav(location.pathname), [location.pathname]);
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
@@ -233,18 +236,99 @@ export const TapNowHeader = ({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button
-              variant="ghost"
-              onClick={() => navigate("/settings/general")}
-              className="h-10 w-10 rounded-full border border-white/15 p-0 hover:bg-white/[0.08]"
-            >
-              <Avatar className="h-9 w-9">
-                <AvatarImage src={userData.profile_image ?? ""} alt={username} />
-                <AvatarFallback className="bg-gradient-to-br from-blue-600 to-purple-600 text-xs text-white">
-                  {userInitial}
-                </AvatarFallback>
-              </Avatar>
-            </Button>
+            <DropdownMenu open={isAvatarMenuOpen} onOpenChange={setIsAvatarMenuOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="h-10 w-10 rounded-full border border-white/15 p-0 hover:bg-white/[0.08]"
+                >
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={userData.profile_image ?? ""} alt={username} />
+                    <AvatarFallback className="bg-gradient-to-br from-blue-600 to-purple-600 text-xs text-white">
+                      {userInitial}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-72 border-white/10 bg-[#1E1E20] p-0 text-white shadow-xl"
+                sideOffset={8}
+              >
+                <div className="flex items-center gap-3 px-4 py-4">
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={userData.profile_image ?? ""} alt={username} />
+                    <AvatarFallback className="bg-[#44444C] text-sm font-semibold text-white">
+                      {userInitial}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold text-white">{username}</span>
+                    <span className="text-xs text-[#A0A0A0]">
+                      {userData.is_superuser
+                        ? isZh
+                          ? "\u8D85\u7EA7\u7BA1\u7406\u5458"
+                          : "Superuser"
+                        : isZh
+                          ? "\u7528\u6237"
+                          : "User"}
+                    </span>
+                  </div>
+                </div>
+                <DropdownMenuSeparator className="mx-4 my-0 bg-[#333338]" />
+                <DropdownMenuItem
+                  onClick={() => {
+                    setIsAvatarMenuOpen(false);
+                    setNotificationCenter(!notificationCenter);
+                  }}
+                  className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
+                >
+                  <Bell className="h-4 w-4 text-[#A0A0A0]" />
+                  <span>{isZh ? "\u6211\u7684\u901A\u77E5" : "My Notifications"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setIsAvatarMenuOpen(false);
+                    navigate("/profile");
+                  }}
+                  className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
+                >
+                  <User className="h-4 w-4 text-[#A0A0A0]" />
+                  <span>{isZh ? "\u4E2A\u4EBA\u4E3B\u9875" : "Profile"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setIsAvatarMenuOpen(false);
+                    navigate("/settings/general");
+                  }}
+                  className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
+                >
+                  <Settings className="h-4 w-4 text-[#A0A0A0]" />
+                  <span>{isZh ? "\u8D26\u6237\u7BA1\u7406" : "Account Settings"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setIsAvatarMenuOpen(false);
+                    window.open("https://docs.langflow.org", "_blank");
+                  }}
+                  className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
+                >
+                  <HelpCircle className="h-4 w-4 text-[#A0A0A0]" />
+                  <span>{isZh ? "\u4F7F\u7528\u6559\u7A0B" : "Tutorial"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="mx-4 my-0 bg-[#333338]" />
+                <DropdownMenuItem
+                  onClick={() => {
+                    setIsAvatarMenuOpen(false);
+                    handleLogout();
+                  }}
+                  className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
+                >
+                  <LogOut className="h-4 w-4 text-red-400" />
+                  <span>{isZh ? "\u767B\u51FA\u8D26\u53F7" : "Log Out"}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         ) : (
           <Button

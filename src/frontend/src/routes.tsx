@@ -36,6 +36,7 @@ import FilesPage from "./pages/MainPage/pages/filesPage";
 import HomePage from "./pages/MainPage/pages/homePage";
 import KnowledgePage from "./pages/MainPage/pages/knowledgePage";
 import CollectionPage from "./pages/MainPage/pages/main-page";
+import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
 import ApiKeysPage from "./pages/SettingsPage/pages/ApiKeysPage";
 import GeneralPage from "./pages/SettingsPage/pages/GeneralPage";
@@ -148,6 +149,7 @@ const router = createBrowserRouter(
                     />
                   </Route>
                 </Route>
+                <Route path="profile" element={<ProfilePage />} />
                 <Route path="settings" element={<SettingsPage />}>
                   <Route
                     index

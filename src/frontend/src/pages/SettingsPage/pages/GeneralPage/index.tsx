@@ -1,4 +1,3 @@
-import { cloneDeep } from "lodash";
 import { useContext, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -8,13 +7,8 @@ import {
   SAVE_SUCCESS_ALERT,
 } from "@/constants/alerts_constants";
 import { usePostAddApiKey } from "@/controllers/API/queries/api-keys";
-import {
-  useResetPassword,
-  useUpdateUser,
-} from "@/controllers/API/queries/auth";
-import { useGetProfilePicturesQuery } from "@/controllers/API/queries/files";
+import { useResetPassword } from "@/controllers/API/queries/auth";
 import { CustomTermsLinks } from "@/customization/components/custom-terms-links";
-import { ENABLE_PROFILE_ICONS } from "@/customization/feature-flags";
 import useAuthStore from "@/stores/authStore";
 import { CONTROL_PATCH_USER_STATE } from "../../../../constants/constants";
 import { AuthContext } from "../../../../contexts/authContext";
@@ -27,7 +21,6 @@ import type {
 import useScrollToElement from "../hooks/use-scroll-to-element";
 import GeneralPageHeaderComponent from "./components/GeneralPageHeader";
 import PasswordFormComponent from "./components/PasswordForm";
-import ProfilePictureFormComponent from "./components/ProfilePictureForm";
 
 export const GeneralPage = () => {
   const { scrollId } = useParams();
@@ -38,8 +31,8 @@ export const GeneralPage = () => {
 
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const setErrorData = useAlertStore((state) => state.setErrorData);
-  const { userData, setUserData } = useContext(AuthContext);
-  const { password, cnfPassword, profilePicture } = inputState;
+  const { userData } = useContext(AuthContext);
+  const { password, cnfPassword } = inputState;
   const autoLogin = useAuthStore((state) => state.autoLogin);
 
   const { storeApiKey } = useContext(AuthContext);
@@ -48,7 +41,6 @@ export const GeneralPage = () => {
   const setLoadingApiKey = useStoreStore((state) => state.updateLoadingApiKey);
 
   const { mutate: mutateResetPassword } = useResetPassword();
-  const { mutate: mutatePatchUser } = useUpdateUser();
 
   const handlePatchPassword = () => {
     if (password !== cnfPassword) {
@@ -66,30 +58,6 @@ export const GeneralPage = () => {
           onSuccess: () => {
             handleInput({ target: { name: "password", value: "" } });
             handleInput({ target: { name: "cnfPassword", value: "" } });
-            setSuccessData({ title: SAVE_SUCCESS_ALERT });
-          },
-          onError: (error) => {
-            setErrorData({
-              title: SAVE_ERROR_ALERT,
-              list: [(error as any)?.response?.data?.detail],
-            });
-          },
-        },
-      );
-    }
-  };
-
-  const handleGetProfilePictures = useGetProfilePicturesQuery();
-
-  const handlePatchProfilePicture = (profile_picture) => {
-    if (profile_picture !== "") {
-      mutatePatchUser(
-        { user_id: userData!.id, user: { profile_image: profile_picture } },
-        {
-          onSuccess: () => {
-            const newUserData = cloneDeep(userData);
-            newUserData!.profile_image = profile_picture;
-            setUserData(newUserData);
             setSuccessData({ title: SAVE_SUCCESS_ALERT });
           },
           onError: (error) => {
@@ -142,16 +110,6 @@ export const GeneralPage = () => {
       <GeneralPageHeaderComponent />
 
       <div className="flex w-full flex-col gap-6">
-        {ENABLE_PROFILE_ICONS && (
-          <ProfilePictureFormComponent
-            profilePicture={profilePicture}
-            handleInput={handleInput}
-            handlePatchProfilePicture={handlePatchProfilePicture}
-            handleGetProfilePictures={handleGetProfilePictures}
-            userData={userData}
-          />
-        )}
-
         {!autoLogin && (
           <PasswordFormComponent
             password={password}
