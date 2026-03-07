@@ -349,7 +349,6 @@ export function DoubaoParameterButton({
                     className={cn(
                       "group mb-1 rounded-xl border border-transparent py-2.5 pl-3.5 pr-2 text-sm transition-all duration-200 ease-out [&>span:first-child]:hidden",
                       "hover:translate-x-[1px] hover:bg-accent/45 focus:translate-x-[1px] focus:bg-accent/45",
-                      "data-[state=checked]:border-border/90 data-[state=checked]:bg-accent/55",
                     )}
                     onMouseEnter={() => {
                       setHoveredModelOption(optionValue);

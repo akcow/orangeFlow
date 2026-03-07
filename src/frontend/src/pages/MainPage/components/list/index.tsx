@@ -178,8 +178,9 @@ const ListComponent = ({
           onDragStart={onDragStart}
           onClick={handleClick}
           className={cn(
-            "group/list min-w-[1060px] rounded-xl border border-border/60 bg-card/70 p-0 shadow-sm transition-all duration-300",
+            "group/list min-w-[1060px] rounded-xl border border-border/60 bg-card/70 p-0 shadow-sm transition-all duration-150",
             "hover:-translate-y-0.5 hover:border-border hover:bg-muted/30",
+            "will-change-transform",
             isComponent ? "cursor-default" : "cursor-pointer",
           )}
           data-testid="list-card"
@@ -191,7 +192,7 @@ const ListComponent = ({
                   <img
                     src={coverImage!}
                     alt={flowData.name}
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover/list:scale-105"
+                    className="h-full w-full object-cover transition-transform duration-150 group-hover/list:scale-105"
                     onError={() => setCoverImageLoadFailed(true)}
                   />
                 ) : (
@@ -292,8 +293,9 @@ const ListComponent = ({
           onDragStart={onDragStart}
           onClick={handleClick}
           className={cn(
-            "group/grid relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 p-0 shadow-sm transition-all duration-300",
+            "group/grid relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 p-0 shadow-sm transition-all duration-150",
             "hover:-translate-y-1 hover:border-border hover:shadow-xl",
+            "will-change-transform",
             isComponent ? "cursor-default" : "cursor-pointer",
           )}
           data-testid="list-card"
@@ -303,7 +305,7 @@ const ListComponent = ({
               <img
                 src={coverImage!}
                 alt={flowData.name}
-                className="h-full w-full object-cover transition-transform duration-500 group-hover/grid:scale-105"
+                className="h-full w-full object-cover transition-transform duration-200 group-hover/grid:scale-105"
                 onError={() => setCoverImageLoadFailed(true)}
               />
             ) : (
@@ -312,7 +314,7 @@ const ListComponent = ({
                 style={{ background: fallbackGradient }}
               />
             )}
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/55 via-background/5 to-transparent opacity-0 transition-opacity duration-300 group-hover/grid:opacity-100" />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/55 via-background/5 to-transparent opacity-0 transition-opacity duration-150 group-hover/grid:opacity-100" />
 
             <Checkbox
               checked={selected}

@@ -1905,6 +1905,54 @@ export default function DoubaoVideoGeneratorLayout({
   const resolutionConfig = controlConfigs.find((config) => config.name === "resolution");
   const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
   const durationConfig = controlConfigs.find((config) => config.name === "duration");
+
+  // Reset config params to defaults when model changes
+  const prevNormalizedModelNameRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    // Skip on initial mount (not a model change)
+    if (prevNormalizedModelNameRef.current === undefined) {
+      prevNormalizedModelNameRef.current = normalizedModelName;
+      return;
+    }
+    if (normalizedModelName === prevNormalizedModelNameRef.current) return;
+    prevNormalizedModelNameRef.current = normalizedModelName;
+
+    // Reset resolution to default
+    if (resolutionConfig && resolutionConfig.options.length > 0) {
+      const defaultResolution = template.resolution?.default ?? resolutionConfig.options[0];
+      if (defaultResolution !== undefined) {
+        handleResolutionChange({ value: defaultResolution }, { skipSnapshot: true });
+      }
+    }
+
+    // Reset aspect_ratio to default
+    if (aspectRatioConfig && aspectRatioConfig.options.length > 0) {
+      const defaultAspectRatio = template.aspect_ratio?.default ?? aspectRatioConfig.options[0];
+      if (defaultAspectRatio !== undefined) {
+        handleAspectRatioChange({ value: defaultAspectRatio }, { skipSnapshot: true });
+      }
+    }
+
+    // Reset duration to default
+    if (durationConfig && durationConfig.options.length > 0) {
+      const defaultDuration = template.duration?.default ?? durationConfig.options[0];
+      if (defaultDuration !== undefined) {
+        handleDurationChange({ value: defaultDuration }, { skipSnapshot: true });
+      }
+    }
+  }, [
+    normalizedModelName,
+    resolutionConfig,
+    aspectRatioConfig,
+    durationConfig,
+    template.resolution?.default,
+    template.aspect_ratio?.default,
+    template.duration?.default,
+    handleResolutionChange,
+    handleAspectRatioChange,
+    handleDurationChange,
+  ]);
+
   const upscaleControlConfigs = useMemo(() => {
     if (!isViduUpscaleModel) return [] as Array<DoubaoControlConfig>;
     return UPSCALE_CONTROL_FIELDS.map((field) => {

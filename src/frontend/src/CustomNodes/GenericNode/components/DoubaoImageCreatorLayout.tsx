@@ -574,6 +574,7 @@ export default function DoubaoImageCreatorLayout({
   }, [template]);
   const selectedModelName = String(template.model_name?.value ?? "");
   const isWanModel = selectedModelName.startsWith("wan2.");
+  const isWan26Model = selectedModelName === "wan2.6";
   const isLegacyNanoBanana = selectedModelName === "Nano Banana";
   const isNanoBanana2 = selectedModelName === "Nano Banana 2" || isLegacyNanoBanana;
   const isNanoBananaPro = selectedModelName === "Nano Banana Pro";
@@ -1427,6 +1428,16 @@ export default function DoubaoImageCreatorLayout({
       if (field.name === "image_count") {
         options = buildRangeOptions(templateField);
       }
+      if (field.name === "resolution") {
+        // wan2.6 的像素限制是 max_area=1440*1440=2073600，
+        // 2K(2048*2048=4194304) 和 4K 都超出限制，直接从选项中移除
+        if (isWan26Model) {
+          options = options.filter((opt) => {
+            const label = String(opt);
+            return !label.includes("2K") && !label.includes("4K");
+          });
+        }
+      }
       if (field.name === "aspect_ratio") {
         // Add commonly supported ratios based on model capabilities (per docs / upstream support),
         // but do not introduce unsupported knobs for models.
@@ -1493,9 +1504,11 @@ export default function DoubaoImageCreatorLayout({
         }
 
         if (field.name === "resolution") {
+          // wan2.6 的 2K/4K 已在上方从 options 中移除，这里只处理其他 wan 模型
           const disables: Array<string | number> = [];
           for (const opt of options) {
             const label = String(opt);
+            // 其他 wan 模型：4K 始终禁用，2K 仅在有参考图时禁用
             if (label.includes("4K")) {
               disables.push(opt);
               continue;
@@ -1551,6 +1564,7 @@ export default function DoubaoImageCreatorLayout({
   }, [
     template,
     isWanModel,
+    isWan26Model,
     hasAnyReferenceSelected,
     isGeminiImageModel,
     isNanoBanana2,
@@ -1588,6 +1602,53 @@ export default function DoubaoImageCreatorLayout({
 
   const [imageCountMenuOpen, setImageCountMenuOpen] = useState(false);
   const allowImageCountMenuOpenRef = useRef(false);
+
+  // Reset config params to defaults when model changes
+  const prevSelectedModelNameRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    // Skip on initial mount (not a model change)
+    if (prevSelectedModelNameRef.current === undefined) {
+      prevSelectedModelNameRef.current = selectedModelName;
+      return;
+    }
+    if (selectedModelName === prevSelectedModelNameRef.current) return;
+    prevSelectedModelNameRef.current = selectedModelName;
+
+    // Reset resolution to default
+    if (resolutionConfig && resolutionConfig.options.length > 0) {
+      const defaultResolution = template.resolution?.default ?? resolutionConfig.options[0];
+      if (defaultResolution !== undefined) {
+        handleResolutionChange({ value: defaultResolution }, { skipSnapshot: true });
+      }
+    }
+
+    // Reset aspect_ratio to default
+    if (aspectRatioConfig && aspectRatioConfig.options.length > 0) {
+      const defaultAspectRatio = template.aspect_ratio?.default ?? aspectRatioConfig.options[0];
+      if (defaultAspectRatio !== undefined) {
+        handleAspectRatioChange({ value: defaultAspectRatio }, { skipSnapshot: true });
+      }
+    }
+
+    // Reset image_count to default
+    if (imageCountConfig && imageCountConfig.options.length > 0) {
+      const defaultImageCount = template.image_count?.default ?? imageCountConfig.options[0];
+      if (defaultImageCount !== undefined) {
+        handleImageCountChange({ value: defaultImageCount }, { skipSnapshot: true });
+      }
+    }
+  }, [
+    selectedModelName,
+    resolutionConfig,
+    aspectRatioConfig,
+    imageCountConfig,
+    template.resolution?.default,
+    template.aspect_ratio?.default,
+    template.image_count?.default,
+    handleResolutionChange,
+    handleAspectRatioChange,
+    handleImageCountChange,
+  ]);
 
   // When references are present and the model supports "adaptive" aspect ratio,
   // default to it (avoid overriding explicit user choices).
@@ -3068,7 +3129,7 @@ export default function DoubaoImageCreatorLayout({
       <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
         <div
           className={cn(
-            "relative mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+            "relative mt-4 rounded-[32px] border border-border/50 bg-background p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
             "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
             // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
             "transform-gpu origin-top scale-[var(--inv-zoom)]",

@@ -124,6 +124,7 @@ class DoubaoImageCreator(Component):
             "i2i_min_area": 768 * 768,
             "i2i_max_area": 1280 * 1280,
             "max_reference_images": 4,
+            "deprecated": True,
         },
         "kling O1": {
             "provider": "kling",

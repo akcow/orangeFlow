@@ -1577,13 +1577,13 @@ export default function TextCreationLayout({
 
           <div
             className={cn(
-              "flex aspect-square w-full flex-col rounded-[16px] border border-[#dce7ff] bg-[#f3f7ff] p-4 text-sm text-foreground shadow-sm",
-              "transition-all duration-300 ease-in-out", // Smooth transition
+              "flex aspect-square w-full flex-col rounded-[16px] border border-border/70 bg-muted/50 p-4 text-sm text-foreground shadow-sm",
+              "transition-all duration-200 ease-in-out",
               selected
-                ? "border-indigo-500 ring-2 ring-indigo-500/20 shadow-[0_0_20px_rgba(99,102,241,0.15)] scale-[1.01]"
-                : "border-[#dce7ff] hover:border-indigo-200 hover:shadow-md",
-              "dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-xl dark:text-slate-100",
-              selected && "dark:border-indigo-500/50 dark:ring-indigo-500/30 dark:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                ? "border-violet-500 ring-2 ring-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.15)] scale-[1.01]"
+                : "border-border/70 hover:border-violet-300 hover:shadow-md",
+              "dark:border-white/15 dark:bg-slate-800/60 dark:backdrop-blur-xl dark:text-slate-100",
+              selected && "dark:border-violet-500/50 dark:ring-violet-500/30 dark:shadow-[0_0_20px_rgba(139,92,246,0.2)]"
             )}
           >
             {isBuilding && (
@@ -1667,7 +1667,7 @@ export default function TextCreationLayout({
         <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
           <div
             className={cn(
-              "relative mt-4 rounded-[32px] border border-[#E6E9F4] bg-white p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              "relative mt-4 rounded-[32px] border border-border/50 bg-background p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
               "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-2xl dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",

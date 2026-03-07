@@ -125,7 +125,7 @@ export const nodeColors: { [char: string]: string } = {
   DoubaoTTS: "#FF6B6B",
   DoubaoVideoGenerator: "#4ECDC4",
   DoubaoImageCreator: "#45B7D1",
-  TextCreation: "#4F46E5",
+  TextCreation: "#A855F7",
   
   retrievers: "#e6b25a",
   str: "#4F46E5",
@@ -184,7 +184,7 @@ export const nodeColorsName: { [char: string]: string } = {
   DoubaoTTS: "rose",
   DoubaoVideoGenerator: "teal", 
   DoubaoImageCreator: "sky",
-  TextCreation: "indigo",
+  TextCreation: "violet",
   
   retrievers: "yellow",
   str: "indigo",

@@ -171,7 +171,7 @@ const HeaderComponent = ({
               <div className="relative mr-2 flex h-fit rounded-lg border border-muted bg-muted">
                 {/* Sliding Indicator */}
                 <div
-                  className={`absolute top-[2px] h-[32px] w-8 transform rounded-md bg-background shadow-md transition-transform duration-300 ${view === "list"
+                  className={`absolute top-[2px] h-[32px] w-8 transform rounded-md bg-background shadow-md transition-transform duration-150 ${view === "list"
                       ? "left-[2px] translate-x-0"
                       : "left-[6px] translate-x-full"
                     }`}
@@ -201,7 +201,7 @@ const HeaderComponent = ({
             <div className="flex items-center">
               <div
                 className={cn(
-                  "flex w-0 items-center gap-2 overflow-hidden opacity-0 transition-all duration-300",
+                  "flex w-0 items-center gap-2 overflow-hidden opacity-0 transition-all duration-150",
                   selectedFlows.length > 0 && "w-36 opacity-100",
                 )}
               >

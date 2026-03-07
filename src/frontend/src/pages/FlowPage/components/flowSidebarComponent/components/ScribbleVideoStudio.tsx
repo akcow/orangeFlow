@@ -702,6 +702,38 @@ export default function ScribbleVideoStudio({
     setVideoCount((prev) => clampInt(prev, videoCountRange.min, videoCountRange.max));
   }, [videoCountRange.max, videoCountRange.min]);
 
+  // Reset config params to defaults when model changes
+  const prevVideoModelNameRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    // Skip on initial mount (not a model change)
+    if (prevVideoModelNameRef.current === undefined) {
+      prevVideoModelNameRef.current = videoModelName;
+      return;
+    }
+    if (videoModelName === prevVideoModelNameRef.current) return;
+    if (!videoModelName) {
+      prevVideoModelNameRef.current = videoModelName;
+      return;
+    }
+    prevVideoModelNameRef.current = videoModelName;
+
+    // Reset resolution to first available option
+    if (selectableVideoResolutions.length > 0) {
+      setVideoResolution(selectableVideoResolutions[0]);
+    }
+
+    // Reset duration to first available option or default
+    if (durationRange.available.length > 0) {
+      setVideoDurationSec(durationRange.available[0]);
+    } else {
+      const defaultDuration = clampInt(8, durationRange.min, durationRange.max);
+      setVideoDurationSec(defaultDuration);
+    }
+
+    // Reset count to min
+    setVideoCount(videoCountRange.min);
+  }, [videoModelName, selectableVideoResolutions, durationRange, videoCountRange]);
+
   useEffect(() => {
     if (!active) return;
     if (step !== "edit") {
