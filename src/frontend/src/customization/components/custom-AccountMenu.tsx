@@ -1,7 +1,7 @@
-import { AccountMenu } from "@/components/core/appHeaderComponent/components/AccountMenu";
+import TeamMenu from "@/components/core/appHeaderComponent/components/TeamMenu";
 
 export function CustomAccountMenu() {
-  return <AccountMenu />;
+  return <TeamMenu />;
 }
 
 export default CustomAccountMenu;

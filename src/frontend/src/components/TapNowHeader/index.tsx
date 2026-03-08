@@ -15,6 +15,7 @@ import {
 import useAuthStore from "@/stores/authStore";
 import useAlertStore from "@/stores/alertStore";
 import { cn } from "@/utils/utils";
+import TeamMenu from "@/components/core/appHeaderComponent/components/TeamMenu";
 
 type NavKey = "tv" | "templates" | "workspace" | "home";
 interface TapNowHeaderProps {
@@ -79,7 +80,7 @@ export const TapNowHeader = ({
   return (
     <header
       data-testid={dataTestId}
-      className="sticky top-0 z-50 flex h-[72px] w-full items-center justify-between border-b border-white/10 bg-black px-4 text-white md:px-8"
+      className="sticky top-0 z-50 flex h-[72px] w-full items-center justify-between border-b border-white/10 bg-black/75 backdrop-blur-md px-4 text-white md:px-8"
     >
       <div className="relative z-20 flex min-w-0 items-center gap-4 md:gap-8">
         <Link
@@ -114,11 +115,10 @@ export const TapNowHeader = ({
             <Link
               key={item.key}
               to={item.to}
-              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
-                activeNav === item.key
-                  ? "bg-white/[0.08] text-white"
-                  : "text-white/65 hover:bg-white/[0.06] hover:text-white"
-              }`}
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${activeNav === item.key
+                ? "bg-white/[0.08] text-white"
+                : "text-white/65 hover:bg-white/[0.06] hover:text-white"
+                }`}
             >
               {item.label}
             </Link>
@@ -175,72 +175,12 @@ export const TapNowHeader = ({
 
         {isAuthenticated && userData ? (
           <>
-            <DropdownMenu open={isUserMenuOpen} onOpenChange={setIsUserMenuOpen}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="hidden h-10 touch-manipulation select-none items-center gap-2 rounded-xl border border-white/15 bg-black px-3 text-white hover:bg-white/[0.08] active:scale-100 md:inline-flex"
-                  onContextMenu={(event) => event.preventDefault()}
-                  style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
-                >
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/10 text-xs font-semibold">
-                    {userInitial}
-                  </span>
-                  <span className="max-w-[180px] truncate text-sm font-medium">{username}</span>
-                  <ChevronDown
-                    className={cn(
-                      "h-3.5 w-3.5 shrink-0 opacity-65 transition-transform duration-200",
-                      isUserMenuOpen && "rotate-180",
-                    )}
-                  />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 border-white/10 bg-[#111] text-white">
-                <DropdownMenuLabel>
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{username}</p>
-                    <p className="text-xs leading-none text-gray-400">
-                      {userData.is_superuser
-                        ? isZh
-                          ? "\u8D85\u7EA7\u7BA1\u7406\u5458"
-                          : "Superuser"
-                        : isZh
-                          ? "\u7528\u6237"
-                          : "User"}
-                    </p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={() => navigate("/settings/general")}
-                  className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
-                >
-                  <User className="mr-2 h-4 w-4" />
-                  <span>{isZh ? "\u4E2A\u4EBA\u8D44\u6599" : "Profile"}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => navigate("/settings/general")}
-                  className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>{isZh ? "\u8BBE\u7F6E" : "Settings"}</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={handleLogout}
-                  className="cursor-pointer text-red-400 hover:bg-red-900/20 focus:bg-red-900/20"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>{isZh ? "\u9000\u51FA\u767B\u5F55" : "Logout"}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
+            <TeamMenu />
             <DropdownMenu open={isAvatarMenuOpen} onOpenChange={setIsAvatarMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="h-10 w-10 rounded-full border border-white/15 p-0 hover:bg-white/[0.08]"
+                  className="h-10 w-10 rounded-full border border-white/15 p-0 hover:bg-white/[0.08] focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 >
                   <Avatar className="h-9 w-9">
                     <AvatarImage src={userData.profile_image ?? ""} alt={username} />
@@ -267,10 +207,10 @@ export const TapNowHeader = ({
                     <span className="text-xs text-[#A0A0A0]">
                       {userData.is_superuser
                         ? isZh
-                          ? "\u8D85\u7EA7\u7BA1\u7406\u5458"
+                          ? "超级管理员"
                           : "Superuser"
                         : isZh
-                          ? "\u7528\u6237"
+                          ? "用户"
                           : "User"}
                     </span>
                   </div>
@@ -284,7 +224,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <Bell className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "\u6211\u7684\u901A\u77E5" : "My Notifications"}</span>
+                  <span>{isZh ? "我的通知" : "My Notifications"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -294,7 +234,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <User className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "\u4E2A\u4EBA\u4E3B\u9875" : "Profile"}</span>
+                  <span>{isZh ? "个人主页" : "Profile"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -304,7 +244,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <Settings className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "\u8D26\u6237\u7BA1\u7406" : "Account Settings"}</span>
+                  <span>{isZh ? "账户管理" : "Account Settings"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -314,7 +254,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <HelpCircle className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "\u4F7F\u7528\u6559\u7A0B" : "Tutorial"}</span>
+                  <span>{isZh ? "使用教程" : "Tutorial"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="mx-4 my-0 bg-[#333338]" />
                 <DropdownMenuItem
@@ -325,7 +265,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <LogOut className="h-4 w-4 text-red-400" />
-                  <span>{isZh ? "\u767B\u51FA\u8D26\u53F7" : "Log Out"}</span>
+                  <span>{isZh ? "登出账号" : "Log Out"}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

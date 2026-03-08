@@ -1,4 +1,4 @@
-import { useCallback, useContext, useState, useRef } from "react";
+import { useCallback, useContext, useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cloneDeep } from "lodash";
 import {
@@ -25,6 +25,8 @@ import type { FlowType } from "@/types/flow";
 import { getCommunityImageUrl } from "@/utils/communityFiles";
 import { customPreLoadImageUrl } from "@/customization/utils/custom-pre-load-image-url";
 import { cn } from "@/utils/utils";
+import Cropper from "react-easy-crop";
+import getCroppedImg from "@/components/core/appHeaderComponent/components/TeamMenu/cropImage";
 
 type TabKey = "works" | "favorites";
 
@@ -37,8 +39,8 @@ const DEFAULT_BIO = "I am turning imagination into reality.";
 export default function ProfilePage({ userId }: ProfilePageProps) {
   const { t, i18n } = useTranslation();
   const navigate = useCustomNavigate();
-  const { userData: currentUserData, setUserData } = useContext(AuthContext);
-  const { isAuthenticated, userData } = useAuthStore();
+  const { userData: currentUserData, setUserData: setContextUserData } = useContext(AuthContext);
+  const { isAuthenticated, userData, setUserData: setStoreUserData } = useAuthStore();
   const { mutate: mutatePatchUser } = useUpdateUser();
   const setSuccessData = useAlertStore((s) => s.setSuccessData);
   const setErrorData = useAlertStore((s) => s.setErrorData);
@@ -48,12 +50,36 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
   const [editUsername, setEditUsername] = useState("");
   const [editBio, setEditBio] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState("");
+
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && userData?.id && !backgroundImage) {
+      const bg = localStorage.getItem(`profile_background_${userData.id}`);
+      if (bg && !bg.startsWith("blob:")) {
+        setBackgroundImage(bg);
+      } else if (bg && bg.startsWith("blob:")) {
+        localStorage.removeItem(`profile_background_${userData.id}`);
+      }
+    }
+  }, [userData?.id]);
+
   const [isBackgroundHovered, setIsBackgroundHovered] = useState(false);
   const [uploadedAvatar, setUploadedAvatar] = useState<string | null>(null);
-  const [isBackgroundDialogOpen, setIsBackgroundDialogOpen] = useState(false);
+
+  // Custom Avatar Cropping States
+  const [isAvatarCropping, setIsAvatarCropping] = useState(false);
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null);
+  const [avatarCrop, setAvatarCrop] = useState({ x: 0, y: 0 });
+  const [avatarZoom, setAvatarZoom] = useState(1);
+  const [avatarCroppedAreaPixels, setAvatarCroppedAreaPixels] = useState(null);
+
+  // Custom Background Cropping States
+  const [isBackgroundCropping, setIsBackgroundCropping] = useState(false);
   const [pendingBackgroundImage, setPendingBackgroundImage] = useState<string | null>(null);
-  const [backgroundScale, setBackgroundScale] = useState(1);
+  const [backgroundCrop, setBackgroundCrop] = useState({ x: 0, y: 0 });
+  const [backgroundZoom, setBackgroundZoom] = useState(1);
+  const [backgroundCroppedAreaPixels, setBackgroundCroppedAreaPixels] = useState(null);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
@@ -91,46 +117,85 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setUploadedAvatar(reader.result as string);
-        setSelectedAvatar("");
+        setAvatarCropSource(reader.result as string);
+        setIsAvatarCropping(true);
       };
       reader.readAsDataURL(file);
     }
+    if (avatarInputRef.current) avatarInputRef.current.value = "";
+  };
+
+  const onAvatarCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
+    setAvatarCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const handleConfirmAvatarCrop = useCallback(async () => {
+    try {
+      if (!avatarCropSource || !avatarCroppedAreaPixels) return;
+      const croppedImage = await getCroppedImg(avatarCropSource, avatarCroppedAreaPixels, 0);
+      setUploadedAvatar(croppedImage);
+      setSelectedAvatar("");
+      setIsAvatarCropping(false);
+      setAvatarCropSource(null);
+      setAvatarZoom(1);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [avatarCropSource, avatarCroppedAreaPixels]);
+
+  const handleCancelAvatarCrop = () => {
+    setIsAvatarCropping(false);
+    setAvatarCropSource(null);
+    setAvatarZoom(1);
   };
 
   const handleSaveProfile = useCallback(() => {
     const avatarToSave = uploadedAvatar || selectedAvatar;
     if (avatarToSave && avatarToSave !== profileUser?.profile_image) {
-      if (uploadedAvatar) {
-        const newUserData = cloneDeep(currentUserData);
-        newUserData!.profile_image = uploadedAvatar;
-        setUserData(newUserData);
-        setSuccessData({ title: t("Profile updated") });
-        setIsEditDialogOpen(false);
-      } else {
-        mutatePatchUser(
-          { user_id: profileUser!.id, user: { profile_image: selectedAvatar } },
-          {
-            onSuccess: () => {
-              const newUserData = cloneDeep(currentUserData);
-              newUserData!.profile_image = selectedAvatar;
-              setUserData(newUserData);
-              setSuccessData({ title: t("Profile updated") });
-              setIsEditDialogOpen(false);
-            },
-            onError: (error: any) => {
-              setErrorData({
-                title: t("Failed to update profile"),
-                list: [error?.response?.data?.detail ?? t("Unknown error")],
-              });
-            },
+      mutatePatchUser(
+        { user_id: profileUser!.id, user: { profile_image: avatarToSave, username: editUsername !== profileUser?.username ? editUsername : undefined } },
+        {
+          onSuccess: () => {
+            const newUserData = cloneDeep(currentUserData);
+            newUserData!.profile_image = avatarToSave;
+            if (editUsername) newUserData!.username = editUsername;
+            setContextUserData(newUserData);
+            setStoreUserData(newUserData);
+            setSuccessData({ title: t("Profile updated") });
+            setIsEditDialogOpen(false);
           },
-        );
-      }
+          onError: (error: any) => {
+            setErrorData({
+              title: t("Failed to update profile"),
+              list: [error?.response?.data?.detail ?? t("Unknown error")],
+            });
+          },
+        },
+      );
+    } else if (editUsername !== profileUser?.username) {
+      mutatePatchUser(
+        { user_id: profileUser!.id, user: { username: editUsername } },
+        {
+          onSuccess: () => {
+            const newUserData = cloneDeep(currentUserData);
+            newUserData!.username = editUsername;
+            setContextUserData(newUserData);
+            setStoreUserData(newUserData);
+            setSuccessData({ title: t("Profile updated") });
+            setIsEditDialogOpen(false);
+          },
+        }
+      );
     } else {
       setIsEditDialogOpen(false);
     }
-  }, [uploadedAvatar, selectedAvatar, profileUser, currentUserData, setUserData, mutatePatchUser, setSuccessData, setErrorData, t]);
+  }, [uploadedAvatar, selectedAvatar, editUsername, profileUser, currentUserData, setContextUserData, setStoreUserData, mutatePatchUser, setSuccessData, setErrorData, t]);
+
+  const getValidAvatarUrl = (url: string | undefined | null) => {
+    if (!url) return undefined;
+    if (url.startsWith("data:image")) return url;
+    return customPreLoadImageUrl(url);
+  };
 
   const handleShareProfile = () => {
     const profileUrl = window.location.href;
@@ -152,26 +217,38 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setPendingBackgroundImage(reader.result as string);
-        setBackgroundScale(1);
-        setIsBackgroundDialogOpen(true);
+        setBackgroundZoom(1);
+        setIsBackgroundCropping(true);
       };
       reader.readAsDataURL(file);
     }
-    event.target.value = '';
+    if (backgroundInputRef.current) backgroundInputRef.current.value = '';
   };
 
-  const handleConfirmBackground = () => {
-    if (pendingBackgroundImage) {
-      setBackgroundImage(pendingBackgroundImage);
-      setIsBackgroundDialogOpen(false);
+  const onBackgroundCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
+    setBackgroundCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const handleConfirmBackgroundCrop = useCallback(async () => {
+    try {
+      if (!pendingBackgroundImage || !backgroundCroppedAreaPixels) return;
+      const croppedImage = await getCroppedImg(pendingBackgroundImage, backgroundCroppedAreaPixels, 0);
+      setBackgroundImage(croppedImage);
+      if (profileUser?.id) {
+        localStorage.setItem(`profile_background_${profileUser.id}`, croppedImage);
+      }
+      setIsBackgroundCropping(false);
       setPendingBackgroundImage(null);
+      setBackgroundZoom(1);
+    } catch (e) {
+      console.error(e);
     }
-  };
+  }, [pendingBackgroundImage, backgroundCroppedAreaPixels, profileUser?.id]);
 
-  const handleCancelBackground = () => {
-    setIsBackgroundDialogOpen(false);
+  const handleCancelBackgroundCrop = () => {
+    setIsBackgroundCropping(false);
     setPendingBackgroundImage(null);
-    setBackgroundScale(1);
+    setBackgroundZoom(1);
   };
 
   const handleChangeLanguage = (lang: "zh-CN" | "en") => {
@@ -182,12 +259,12 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
   };
 
   const flows = userFlowsQuery.data ?? [];
-  const currentAvatarSrc = uploadedAvatar || (selectedAvatar ? customPreLoadImageUrl(selectedAvatar) : null);
+  const currentAvatarSrc = uploadedAvatar || getValidAvatarUrl(selectedAvatar);
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0D0D0F]">
       {/* 背景横幅 - 高度185px */}
-      <div 
+      <div
         className="relative h-[185px] w-full shrink-0"
         onMouseEnter={() => setIsBackgroundHovered(true)}
         onMouseLeave={() => setIsBackgroundHovered(false)}
@@ -197,7 +274,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
           <>
             <div
               className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-              style={{ 
+              style={{
                 backgroundImage: `url(${backgroundImage})`,
               }}
             />
@@ -207,12 +284,12 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
             )}
           </>
         )}
-        
+
         {/* 默认背景渐变 */}
         {!backgroundImage && (
           <div className="absolute inset-0 bg-gradient-to-r from-[#1a1a2e] via-[#16213e] to-[#0f3460]" />
         )}
-        
+
         {/* 更换背景按钮 - hover时显示，无黑色容器 */}
         {isBackgroundHovered && (
           <button
@@ -223,7 +300,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
             <span className="text-sm">{t("Change Background")}</span>
           </button>
         )}
-        
+
         <input
           ref={backgroundInputRef}
           type="file"
@@ -249,19 +326,15 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
                 </svg>
               </button>
             )}
-            
+
             {/* 头像 */}
             <div className="relative">
-              <Avatar 
+              <Avatar
                 className="h-16 w-16 border-2 border-white/20 cursor-pointer"
                 onClick={() => isOwnProfile && avatarInputRef.current?.click()}
               >
                 <AvatarImage
-                  src={
-                    profileUser?.profile_image
-                      ? customPreLoadImageUrl(profileUser.profile_image)
-                      : undefined
-                  }
+                  src={getValidAvatarUrl(profileUser?.profile_image)}
                   alt={username}
                 />
                 <AvatarFallback className="bg-[#44444C] text-xl font-semibold text-white">
@@ -406,7 +479,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
           <div className="flex gap-6">
             {/* 左侧头像 */}
             <div className="flex flex-col items-center gap-3">
-              <div 
+              <div
                 className="relative cursor-pointer"
                 onClick={() => avatarInputRef.current?.click()}
               >
@@ -494,7 +567,8 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
             <Button
               type="button"
               onClick={handleSaveProfile}
-              className="bg-[#2196F3] text-white hover:bg-[#1976D2]"
+              className="border-0 hover:bg-[#206add]"
+              style={{ backgroundColor: "#2f88ff", color: "white" }}
             >
               {t("Save")}
             </Button>
@@ -502,64 +576,135 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* 背景图片调整弹窗 */}
-      <Dialog open={isBackgroundDialogOpen} onOpenChange={setIsBackgroundDialogOpen}>
-        <DialogContent className="max-w-3xl border-white/10 bg-[#222] text-white">
-          <DialogHeader className="flex flex-row items-center justify-between">
-            <DialogTitle>{t("Adjust Background")}</DialogTitle>
-            <button
-              onClick={handleCancelBackground}
-              className="rounded-full p-1 text-white/70 transition-colors hover:text-white"
-            >
-              <X className="h-5 w-5" />
-            </button>
+      {/* 头像裁剪弹窗 */}
+      <Dialog open={isAvatarCropping} onOpenChange={handleCancelAvatarCrop}>
+        <DialogContent className="max-w-[420px] bg-[#222222] border-[#333] text-white p-6 shadow-2xl rounded-2xl">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-lg font-semibold">{t("裁切头像")}</DialogTitle>
           </DialogHeader>
 
-          <div className="relative aspect-[3/1] w-full overflow-hidden rounded-lg bg-[#1a1a2e]">
-            {pendingBackgroundImage && (
-              <div
-                className="absolute inset-0 bg-cover bg-center"
-                style={{
-                  backgroundImage: `url(${pendingBackgroundImage})`,
-                  transform: `scale(${backgroundScale})`,
-                }}
+          <div className="relative w-full h-[320px] rounded-2xl overflow-hidden bg-black/50 mb-6">
+            {avatarCropSource && (
+              <Cropper
+                image={avatarCropSource}
+                crop={avatarCrop}
+                zoom={avatarZoom}
+                aspect={1}
+                cropShape="round"
+                showGrid={false}
+                onCropChange={setAvatarCrop}
+                onZoomChange={setAvatarZoom}
+                onCropComplete={onAvatarCropComplete}
+                style={{ containerStyle: { background: "transparent" } }}
               />
             )}
-            {/* 水平参考线 */}
-            <div className="pointer-events-none absolute left-0 right-0 top-1/3 border-t border-dashed border-white/30" />
-            <div className="pointer-events-none absolute left-0 right-0 top-2/3 border-t border-dashed border-white/30" />
           </div>
 
-          <div className="flex items-center justify-between pt-4">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-[#AAA]">{t("Scale")}</span>
-              <input
-                type="range"
-                min={100}
-                max={200}
-                value={backgroundScale * 100}
-                onChange={(e) => setBackgroundScale(Number(e.target.value) / 100)}
-                className="h-1 w-40 cursor-pointer appearance-none rounded-full bg-[#555] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#00A8C6]"
-              />
-            </div>
-            <div className="flex gap-3">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleCancelBackground}
-                className="bg-[#1E1E1E] text-white hover:bg-[#2D2D2D]"
-              >
-                {t("Cancel")}
-              </Button>
-              <Button
-                type="button"
-                onClick={handleConfirmBackground}
-                className="bg-[#0084FF] text-white hover:bg-[#0070E0]"
-              >
-                {t("Confirm")}
-              </Button>
-            </div>
+          <div className="flex items-center gap-4 mb-8 px-2">
+            <span className="text-sm text-zinc-400 whitespace-nowrap">{t("缩放")}</span>
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.1}
+              value={avatarZoom}
+              onChange={(e) => setAvatarZoom(Number(e.target.value))}
+              className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer outline-none slider-thumb-brand"
+              style={{
+                accentColor: "#2F88FF",
+                background: `linear-gradient(to right, #2F88FF 0%, #2F88FF ${(avatarZoom - 1) / 2 * 100}%, rgba(255,255,255,0.2) ${(avatarZoom - 1) / 2 * 100}%, rgba(255,255,255,0.2) 100%)`
+              }}
+            />
           </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              className="flex-1 bg-[#3A3A3D] hover:bg-[#464649] text-white rounded-xl h-12 font-medium"
+              onClick={handleCancelAvatarCrop}
+            >
+              {t("Cancel")}
+            </Button>
+            <Button
+              className="flex-1 rounded-xl h-12 font-medium border-0 hover:bg-[#206add]"
+              style={{ backgroundColor: "#2f88ff", color: "white" }}
+              onClick={handleConfirmAvatarCrop}
+            >
+              {t("Confirm")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 背景图片调整弹窗 */}
+      <Dialog open={isBackgroundCropping} onOpenChange={handleCancelBackgroundCrop}>
+        <DialogContent className="max-w-3xl border-[#333] bg-[#222] text-white p-6 shadow-2xl rounded-2xl">
+          <DialogHeader className="mb-4">
+            <DialogTitle>{t("调整背景图")}</DialogTitle>
+          </DialogHeader>
+
+          <div className="relative w-full h-[400px] overflow-hidden rounded-xl bg-black/50 mb-6">
+            {pendingBackgroundImage && (
+              <Cropper
+                image={pendingBackgroundImage}
+                crop={backgroundCrop}
+                zoom={backgroundZoom}
+                aspect={3 / 1}
+                showGrid={true}
+                onCropChange={setBackgroundCrop}
+                onZoomChange={setBackgroundZoom}
+                onCropComplete={onBackgroundCropComplete}
+                style={{ containerStyle: { background: "transparent" } }}
+              />
+            )}
+          </div>
+
+          <div className="flex items-center gap-4 mb-8 px-2">
+            <span className="text-sm text-zinc-400 whitespace-nowrap">{t("缩放")}</span>
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.1}
+              value={backgroundZoom}
+              onChange={(e) => setBackgroundZoom(Number(e.target.value))}
+              className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer outline-none slider-thumb-brand"
+              style={{
+                accentColor: "#2F88FF",
+                background: `linear-gradient(to right, #2F88FF 0%, #2F88FF ${(backgroundZoom - 1) / 2 * 100}%, rgba(255,255,255,0.2) ${(backgroundZoom - 1) / 2 * 100}%, rgba(255,255,255,0.2) 100%)`
+              }}
+            />
+          </div>
+
+          <div className="flex gap-3 mt-4">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleCancelBackgroundCrop}
+              className="flex-1 bg-[#3A3A3D] hover:bg-[#464649] text-white rounded-xl h-12 font-medium"
+            >
+              {t("Cancel")}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmBackgroundCrop}
+              className="flex-1 rounded-xl h-12 font-medium border-0 hover:bg-[#206add]"
+              style={{ backgroundColor: "#2f88ff", color: "white" }}
+            >
+              {t("Confirm")}
+            </Button>
+          </div>
+          <style>{`
+              .slider-thumb-brand::-webkit-slider-thumb {
+                  appearance: none;
+                  width: 16px;
+                  height: 16px;
+                  background: #2F88FF;
+                  border-radius: 50%;
+                  cursor: pointer;
+                  border: 2px solid #222222;
+              }
+          `}</style>
         </DialogContent>
       </Dialog>
     </div>

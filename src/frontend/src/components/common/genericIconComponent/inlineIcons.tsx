@@ -384,7 +384,7 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     [
       "path",
       {
-        d: "M12 4.9c3.3 0 5.7 2.6 5.7 5.8 0 5.2-5.7 8.8-5.7 8.8s-5.7-3.6-5.7-8.8c0-3.2 2.4-5.8 5.7-5.8Z",
+        d: "M6.5 7.5v8l2 1v-8z",
         fill: "currentColor",
         stroke: "none",
         key: "ms1",
@@ -393,7 +393,7 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     [
       "path",
       {
-        d: "M12.1 6.5c.1-1.9 1.5-3.4 3.4-3.8-.2 1.9-1.6 3.3-3.4 3.8Z",
+        d: "M9.5 12.5v4l2 1v-4z",
         fill: "currentColor",
         stroke: "none",
         key: "ms2",
@@ -402,9 +402,19 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     [
       "path",
       {
-        d: "M12 9.1v7",
-        strokeWidth: 1.9,
+        d: "M12.5 9.5v5.5l2 1v-5.5z",
+        fill: "currentColor",
+        stroke: "none",
         key: "ms3",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "M15.5 5.5v12l2 1v-12z",
+        fill: "currentColor",
+        stroke: "none",
+        key: "ms4",
       },
     ],
   ]),
@@ -412,33 +422,56 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     [
       "path",
       {
-        d: "M4.3 7.1h2.5l2.1 7 2.3-7h1.8l2.3 7 2.1-7h2.5l-3.3 9.8h-2.6L12 10.6l-2.1 6.3H7.5Z",
+        d: "M 0 -2.5 L 3.5 -4.5 L 4.5 -3 L -0.5 5.5 L -3.5 3.5 Z",
         fill: "currentColor",
+        transform: "translate(12,12)",
         stroke: "none",
         key: "mw1",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "M 0 -2.5 L 3.5 -4.5 L 4.5 -3 L -0.5 5.5 L -3.5 3.5 Z",
+        fill: "currentColor",
+        transform: "translate(12,12) rotate(120)",
+        stroke: "none",
+        key: "mw2",
+      },
+    ],
+    [
+      "path",
+      {
+        d: "M 0 -2.5 L 3.5 -4.5 L 4.5 -3 L -0.5 5.5 L -3.5 3.5 Z",
+        fill: "currentColor",
+        transform: "translate(12,12) rotate(240)",
+        stroke: "none",
+        key: "mw3",
       },
     ],
   ]),
   ModelKlingSeries: createInlineLucideIcon("ModelKlingSeries", [
     [
-      "rect",
+      "ellipse",
       {
-        x: "6.1",
-        y: "4.7",
-        width: "2.9",
-        height: "14.6",
-        rx: "1.4",
-        fill: "currentColor",
-        stroke: "none",
+        cx: "12",
+        cy: "12",
+        rx: "3",
+        ry: "7",
+        transform: "rotate(45 12 12)",
+        stroke: "currentColor",
+        strokeWidth: "1.2",
+        fill: "none",
         key: "mk1",
       },
     ],
     [
       "path",
       {
-        d: "m10.2 12 6.9-7.3h2.8l-6 6.4 6.3 8.2h-2.9L12.6 13l-2.4 2.5",
-        fill: "currentColor",
-        stroke: "none",
+        d: "M 6.5 6 C 3 9, 3 15, 6.5 18 C 10 21, 14 15, 17.5 12 C 21 9, 21 3, 17.5 6 C 14 9, 10 15, 6.5 12 Z",
+        stroke: "currentColor",
+        strokeWidth: "1.2",
+        fill: "none",
         key: "mk2",
       },
     ],
@@ -447,74 +480,81 @@ const inlineIcons: Record<string, React.ComponentType<InlineIconProps>> = {
     [
       "path",
       {
-        d: "M4.6 6.8h2.6l2.9 9 2.2-5.2h1.6l2.2 5.2 2.9-9h2.6l-4.3 12.4h-2.2l-2-4.6-2 4.6h-2.2Z",
-        fill: "currentColor",
-        stroke: "none",
+        d: "M 7 9 C 3 17, 8 21, 12 15 C 16 9, 21 9, 20 15 C 19 20, 15 20, 13 17",
+        stroke: "currentColor",
+        strokeWidth: "2",
+        fill: "none",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
         key: "mv1",
       },
     ],
   ]),
   ModelSoraSeries: createInlineLucideIcon("ModelSoraSeries", [
-    ["line", { x1: "12", y1: "6.2", x2: "8.5", y2: "9", key: "mso1" }],
-    ["line", { x1: "12", y1: "6.2", x2: "15.5", y2: "9", key: "mso2" }],
-    ["line", { x1: "8.5", y1: "9", x2: "8.8", y2: "14.1", key: "mso3" }],
-    ["line", { x1: "15.5", y1: "9", x2: "15.2", y2: "14.1", key: "mso4" }],
-    ["line", { x1: "8.8", y1: "14.1", x2: "12", y2: "17.4", key: "mso5" }],
-    ["line", { x1: "15.2", y1: "14.1", x2: "12", y2: "17.4", key: "mso6" }],
-    ["circle", { cx: "12", cy: "6.2", r: "1.7", fill: "currentColor", stroke: "none", key: "mso7" }],
-    ["circle", { cx: "8.5", cy: "9", r: "1.7", fill: "currentColor", stroke: "none", key: "mso8" }],
-    ["circle", { cx: "15.5", cy: "9", r: "1.7", fill: "currentColor", stroke: "none", key: "mso9" }],
-    ["circle", { cx: "8.8", cy: "14.1", r: "1.7", fill: "currentColor", stroke: "none", key: "mso10" }],
-    ["circle", { cx: "15.2", cy: "14.1", r: "1.7", fill: "currentColor", stroke: "none", key: "mso11" }],
-    ["circle", { cx: "12", cy: "17.4", r: "1.7", fill: "currentColor", stroke: "none", key: "mso12" }],
+    [
+      "path",
+      {
+        d: "M 7 18 C 4 18 2 15 3 12 C 4 9 5 8 7.5 8 C 8.5 4 14 3 16.5 6.5 C 19.5 7 21.5 9 21 12.5 C 20.5 16 17.5 18 15 18 Z M 10 10 C 8.5 10 8 11.5 8 13 C 8 14.5 8.5 16 10 16 C 11.5 16 12 14.5 12 13 C 12 11.5 11.5 10 10 10 Z M 16 10 C 14.5 10 14 11.5 14 13 C 14 14.5 14.5 16 16 16 C 17.5 16 18 14.5 18 13 C 18 11.5 17.5 10 16 10 Z",
+        fillRule: "evenodd",
+        fill: "currentColor",
+        stroke: "none",
+        key: "mso1",
+      },
+    ],
+    [
+      "circle",
+      { cx: "10.5", cy: "12", r: "0.7", fill: "currentColor", stroke: "none", key: "mso2" },
+    ],
+    [
+      "circle",
+      { cx: "16.5", cy: "12", r: "0.7", fill: "currentColor", stroke: "none", key: "mso3" },
+    ],
   ]),
   ModelBananaSeries: createInlineLucideIcon("ModelBananaSeries", [
     [
       "path",
       {
-        d: "M4.8 13.9c1.3 4.7 6.3 7.5 11.2 6.3 1.8-.4 3.4-1.2 4.8-2.4-.8-.5-1.6-1.2-2.3-2-1 .8-2.1 1.3-3.3 1.6-3.3.7-6.5-1.2-7.6-4.3-.2-.6-.3-1.2-.3-1.8-1 .5-2.1 1-3.3 1.4.1.4.2.8.3 1.2Z",
+        d: "M 6 20 C 13 22, 20 16, 22 10 C 23 7, 21 4, 19 3 C 18 5, 19 8, 17 10 C 14 13, 10 14, 5 12 C 4 15, 3 18, 6 20 Z",
         fill: "currentColor",
         stroke: "none",
         key: "mb1",
       },
     ],
-    ["path", { d: "M6.2 13.1c1.2 3 4.3 4.9 7.5 4.2", key: "mb2", strokeWidth: 1.8 }],
-    ["path", { d: "m4.7 12.9-1.3-.9", key: "mb3", strokeWidth: 1.9 }],
-    ["path", { d: "m18.8 17.9 1.2 1", key: "mb4", strokeWidth: 1.9 }],
+    [
+      "path",
+      {
+        d: "M 19 3 L 20 2 M 6 20 L 4 21",
+        stroke: "currentColor",
+        strokeWidth: "1.5",
+        strokeLinecap: "round",
+        fill: "none",
+        key: "mb2",
+      },
+    ],
   ]),
   ModelDeepseekWhale: createInlineLucideIcon("ModelDeepseekWhale", [
     [
       "path",
       {
-        d: "M4.1 14.3c0-3.3 2.7-5.9 5.9-5.9h2.6c5.1 0 8.8 3 9.5 7.4.1.9-.5 1.7-1.4 1.7H9.6c-3 0-5.5-1.8-5.5-3.9Z",
+        d: "M 2 14 C 2 21, 11 22, 17 18 C 20 16, 22 16, 23 18 C 22 13, 18 9, 13 9 C 9 9, 6 10, 2 14 Z M 11 12 A 1.5 1.5 0 1 0 11 15 A 1.5 1.5 0 1 0 11 12 Z",
+        fillRule: "evenodd",
         fill: "currentColor",
         stroke: "none",
         key: "md1",
       },
     ],
     [
-      "path",
-      {
-        d: "M4.1 14.1 1.9 12.4v3.7l2.2-1.2",
-        fill: "currentColor",
-        stroke: "none",
-        key: "md2",
-      },
+      "circle",
+      { cx: "11", cy: "5", r: "1", fill: "currentColor", stroke: "none", key: "md2" },
     ],
     [
       "circle",
-      {
-        cx: "15.7",
-        cy: "12.6",
-        r: "0.68",
-        fill: "currentColor",
-        stroke: "none",
-        key: "md3",
-      },
+      { cx: "14", cy: "4", r: "1", fill: "currentColor", stroke: "none", key: "md3" },
     ],
-    ["path", { d: "M13.6 14.8c1 .7 2.1 1 3.2.8", key: "md4", strokeWidth: 1.8 }],
-    ["path", { d: "M13.9 8.2c.2-1 .8-1.8 1.6-2.3", key: "md5", strokeWidth: 1.8 }],
-    ["path", { d: "M15.4 8.1c.3-.9 1.1-1.6 2-1.9", key: "md6", strokeWidth: 1.8 }],
+    [
+      "circle",
+      { cx: "8", cy: "6", r: "1", fill: "currentColor", stroke: "none", key: "md4" },
+    ],
   ]),
   MessagesSquare: createInlineLucideIcon("MessagesSquare", [
     [

@@ -83,6 +83,11 @@ function ApiInterceptor() {
             nextConfig.headers["Authorization"] = `Bearer ${accessToken}`;
           }
 
+          const teamId = localStorage.getItem("mock_current_team_id");
+          if (teamId) {
+            nextConfig.headers["Team-Id"] = teamId;
+          }
+
           for (const [key, value] of Object.entries(customHeaders)) {
             nextConfig.headers[key] = value;
           }
@@ -198,6 +203,11 @@ function ApiInterceptor() {
 
         const urlIsFromCurrentOrigin = requestUrl.origin === currentOrigin;
         if (urlIsFromCurrentOrigin) {
+          const teamId = localStorage.getItem("mock_current_team_id");
+          if (teamId) {
+            config.headers["Team-Id"] = teamId;
+          }
+
           for (const [key, value] of Object.entries(customHeaders)) {
             config.headers[key] = value;
           }

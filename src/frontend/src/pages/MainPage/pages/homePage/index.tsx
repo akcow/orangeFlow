@@ -18,6 +18,7 @@ import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
 import useFileDrop from "../../hooks/use-on-file-drop";
 import EmptyFolder from "../emptyFolder";
+import { cn } from "@/utils/utils";
 import { TapNowWorkflowsHeader } from "./TapNowWorkflowsHeader";
 
 const HomePage = ({ type }: { type: "flows" | "components" }) => {
@@ -292,23 +293,15 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
             ) : (flowType === "flows" || flowType === "components") &&
               data &&
               data.pagination.total > 0 ? (
-              view === "grid" ? (
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                  {data.flows.map((flow, index) => (
-                    <ListComponent
-                      key={flow.id}
-                      flowData={flow}
-                      view={view}
-                      selected={selectedFlows.includes(flow.id)}
-                      setSelected={(selected) =>
-                        setSelectedFlow(selected, flow.id, index)
-                      }
-                      shiftPressed={isShiftPressed || isCtrlPressed}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-4 flex flex-col gap-1">
+              <div
+                className={cn(
+                  "mt-4",
+                  view === "grid"
+                    ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+                    : "flex flex-col gap-1"
+                )}
+              >
+                {view === "list" && (
                   <div className="grid min-w-[1060px] grid-cols-[72px,minmax(200px,2fr),120px,minmax(240px,2fr),180px,180px,56px] items-center gap-3 px-4 py-2 text-xs font-medium text-gray-400">
                     <div>{t("Preview")}</div>
                     <div>{t("Name")}</div>
@@ -318,20 +311,20 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                     <div>{t("Updated")}</div>
                     <div className="text-right">{t("Actions")}</div>
                   </div>
-                  {data.flows.map((flow, index) => (
-                    <ListComponent
-                      key={flow.id}
-                      flowData={flow}
-                      view={view}
-                      selected={selectedFlows.includes(flow.id)}
-                      setSelected={(selected) =>
-                        setSelectedFlow(selected, flow.id, index)
-                      }
-                      shiftPressed={isShiftPressed || isCtrlPressed}
-                    />
-                  ))}
-                </div>
-              )
+                )}
+                {data.flows.map((flow, index) => (
+                  <ListComponent
+                    key={flow.id}
+                    flowData={flow}
+                    view={view}
+                    selected={selectedFlows.includes(flow.id)}
+                    setSelected={(selected) =>
+                      setSelectedFlow(selected, flow.id, index)
+                    }
+                    shiftPressed={isShiftPressed || isCtrlPressed}
+                  />
+                ))}
+              </div>
             ) : flowType === "flows" ? (
               <div className="pt-24 text-center text-sm text-secondary-foreground">
                 {t("No flows in this project.")}{" "}

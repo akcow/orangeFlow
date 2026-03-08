@@ -960,26 +960,26 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             !containerStyle && "aspect-square",
             // Single preview container for image creator (avoid nested frames inside the renderer).
             cn(
-              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-colors transition-shadow duration-200 ease-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
+              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-all duration-200 ease-in-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
               // backdrop-filter can force repaints during transform/layout changes; disable it only while animating.
               isRatioTransitioning && "dark:backdrop-blur-none",
               // Keep selected shadow/ring visible during the ratio animation so the selection
               // styling tracks the frame as it scales, instead of popping at the end.
               isNodeSelected &&
-              "ring-2 ring-node-selected/25 shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:shadow-[0_20px_55px_rgba(2,6,23,0.60)]",
+              "border-violet-500 ring-2 ring-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.15)] scale-[1.01] dark:border-violet-500/50 dark:ring-violet-500/30 dark:shadow-[0_0_20px_rgba(139,92,246,0.2)]",
             ),
           )
           : cn(
             "w-full max-w-full",
             minimalAspectClass,
             cn(
-              "rounded-[20px] border border-[#E6E9F4] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_15px_40px_rgba(0,0,0,0.30)]",
-              isNodeSelected && "ring-2 ring-node-selected/25",
+              "rounded-[20px] border border-[#E6E9F4] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-all duration-200 ease-in-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_15px_40px_rgba(0,0,0,0.30)]",
+              isNodeSelected && "border-violet-500 ring-2 ring-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.15)] scale-[1.01] dark:border-violet-500/50 dark:ring-violet-500/30 dark:shadow-[0_0_20px_rgba(139,92,246,0.2)]",
             ),
           )
-        : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10",
+        : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10 transition-all duration-200 ease-in-out",
       panelClass,
-      !isMinimal && isNodeSelected && "ring-2 ring-node-selected/25",
+      !isMinimal && isNodeSelected && "border-violet-500 ring-2 ring-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.15)] scale-[1.01] dark:border-violet-500/50 dark:ring-violet-500/30 dark:shadow-[0_0_20px_rgba(139,92,246,0.2)]",
     );
 
     const previewSurfaceClassName = cn(

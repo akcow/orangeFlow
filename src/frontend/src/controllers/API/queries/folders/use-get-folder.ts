@@ -55,6 +55,7 @@ export const useGetFolderQuery: useQueryFunctionType<
     [
       "useGetFolder",
       params.id,
+      localStorage.getItem("mock_current_team_id") || "",
       {
         page: params.page,
         size: params.size,

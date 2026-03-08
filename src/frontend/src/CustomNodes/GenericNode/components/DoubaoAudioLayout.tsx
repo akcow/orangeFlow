@@ -858,7 +858,7 @@ export default function DoubaoAudioLayout({
           <div
             className={cn(
               "relative mt-4 rounded-[32px] border border-border/50 bg-background p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
-              "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-slate-700/50 dark:backdrop-blur-2xl dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
+              "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
             )}
@@ -913,87 +913,87 @@ export default function DoubaoAudioLayout({
               )}
 
               <div className="flex min-h-[168px] flex-col gap-3">
-              <textarea
-                rows={3}
-                value={resolvedPromptValue}
-                disabled={isBusy}
-                readOnly={promptReadonly}
-                placeholder="描述你想要的语音内容，按需使用换行。"
-                className={cn(
-                  "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
-                  "min-h-[72px] max-h-[72px] overflow-y-auto",
-                  "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
-                  "placeholder:text-[#9CA3C0]",
-                  generationPromptInputBusyClass(isBusy),
-                  "dark:text-white dark:placeholder:text-slate-400",
-                )}
-                onFocus={() => {
-                  setPromptFocused(true);
-                  if (!promptSnapshotTakenRef.current) {
-                    takeSnapshot();
-                    promptSnapshotTakenRef.current = true;
-                  }
-                }}
-                onBlur={() => {
-                  setPromptFocused(false);
-                }}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setPromptDraftValue(next);
-                  if (isPromptComposing) {
-                    setPromptCompositionValue(next);
-                    return;
-                  }
-                  setPromptCompositionValue(null);
-                  handlePromptChange({ value: next }, { skipSnapshot: true });
-                }}
-                onCompositionStart={() => {
-                  setIsPromptComposing(true);
-                }}
-                onCompositionEnd={(e) => {
-                  setIsPromptComposing(false);
-                  const finalValue = promptCompositionValue ?? e.currentTarget.value;
-                  setPromptCompositionValue(null);
-                  setPromptDraftValue(finalValue);
-                  handlePromptChange({ value: finalValue }, { skipSnapshot: true });
-                }}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  if ((e.nativeEvent as any)?.isComposing || isPromptComposing) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!disableRun) handleRun();
-                }}
-              />
-
-              <div className="mt-auto flex flex-wrap gap-3 pt-2">
-                {controlConfigs.map((config) => (
-                  <DoubaoParameterButton
-                    key={config.name}
-                    data={data}
-                    config={config}
-                  />
-                ))}
-
-                <button
-                  type="button"
-                  disabled={disableRun}
+                <textarea
+                  rows={3}
+                  value={resolvedPromptValue}
+                  disabled={isBusy}
+                  readOnly={promptReadonly}
+                  placeholder="描述你想要的语音内容，按需使用换行。"
                   className={cn(
-                    "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
-                    disableRun
-                      ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
-                      : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                    "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
+                    "min-h-[72px] max-h-[72px] overflow-y-auto",
+                    "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
+                    "placeholder:text-[#9CA3C0]",
+                    generationPromptInputBusyClass(isBusy),
+                    "dark:text-white dark:placeholder:text-slate-400",
                   )}
-                  onClick={handleRun}
-                  onMouseEnter={() => setRunHovering(true)}
-                  onMouseLeave={() => setRunHovering(false)}
-                >
-                  <ForwardedIconComponent
-                    name={runIconName}
-                    className="h-4 w-4"
-                  />
-                </button>
-              </div>
+                  onFocus={() => {
+                    setPromptFocused(true);
+                    if (!promptSnapshotTakenRef.current) {
+                      takeSnapshot();
+                      promptSnapshotTakenRef.current = true;
+                    }
+                  }}
+                  onBlur={() => {
+                    setPromptFocused(false);
+                  }}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setPromptDraftValue(next);
+                    if (isPromptComposing) {
+                      setPromptCompositionValue(next);
+                      return;
+                    }
+                    setPromptCompositionValue(null);
+                    handlePromptChange({ value: next }, { skipSnapshot: true });
+                  }}
+                  onCompositionStart={() => {
+                    setIsPromptComposing(true);
+                  }}
+                  onCompositionEnd={(e) => {
+                    setIsPromptComposing(false);
+                    const finalValue = promptCompositionValue ?? e.currentTarget.value;
+                    setPromptCompositionValue(null);
+                    setPromptDraftValue(finalValue);
+                    handlePromptChange({ value: finalValue }, { skipSnapshot: true });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.shiftKey) return;
+                    if ((e.nativeEvent as any)?.isComposing || isPromptComposing) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!disableRun) handleRun();
+                  }}
+                />
+
+                <div className="mt-auto flex flex-wrap gap-3 pt-2">
+                  {controlConfigs.map((config) => (
+                    <DoubaoParameterButton
+                      key={config.name}
+                      data={data}
+                      config={config}
+                    />
+                  ))}
+
+                  <button
+                    type="button"
+                    disabled={disableRun}
+                    className={cn(
+                      "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                      disableRun
+                        ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                        : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                    )}
+                    onClick={handleRun}
+                    onMouseEnter={() => setRunHovering(true)}
+                    onMouseLeave={() => setRunHovering(false)}
+                  >
+                    <ForwardedIconComponent
+                      name={runIconName}
+                      className="h-4 w-4"
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
