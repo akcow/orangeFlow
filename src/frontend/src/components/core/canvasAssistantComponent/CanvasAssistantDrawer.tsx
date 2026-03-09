@@ -1382,10 +1382,10 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
     const attachmentsMeta =
       pendingFiles.length > 0
         ? pendingFiles.map((f) => ({
-            name: f.name,
-            mimeType: f.type || "application/octet-stream",
-            size: f.size,
-          }))
+          name: f.name,
+          mimeType: f.type || "application/octet-stream",
+          size: f.size,
+        }))
         : undefined;
 
     const userMsg: CanvasAssistantMessage = {
@@ -1571,399 +1571,540 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
               open ? "pointer-events-auto" : "pointer-events-none",
             )}
           >
-          <DialogPrimitive.Overlay
-            className={cn(
-              "fixed inset-0 bg-black/30",
-              "data-[state=open]:animate-in data-[state=closed]:animate-out",
-              "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-              // Make close/open transitions more noticeable.
-              "duration-300 ease-in-out",
-              "data-[state=closed]:pointer-events-none",
-            )}
-          />
-          <DialogPrimitive.Content
-            className={cn(
-              "relative h-full border-l bg-background shadow-xl",
-              "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
-              // Make close/open transitions more noticeable.
-              "duration-300 ease-in-out",
-              "data-[state=closed]:pointer-events-none",
-              "flex flex-col",
-            )}
-            style={{ width: drawerWidth, maxWidth: "92vw" }}
-          >
-            <div
-              role="separator"
-              aria-orientation="vertical"
+            <DialogPrimitive.Overlay
               className={cn(
-                "absolute left-0 top-0 h-full w-2 cursor-col-resize",
-                "bg-transparent",
+                "fixed inset-0 bg-black/30",
+                "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+                // Make close/open transitions more noticeable.
+                "duration-300 ease-in-out",
+                "data-[state=closed]:pointer-events-none",
               )}
-              onPointerDown={startResize}
-              title="拖动调整宽度"
-              data-testid="canvas-assistant-resize-handle"
+            />
+            <DialogPrimitive.Content
+              className={cn(
+                "relative h-full border-l bg-popover shadow-xl",
+                "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
+                // Make close/open transitions more noticeable.
+                "duration-300 ease-in-out",
+                "data-[state=closed]:pointer-events-none",
+                "flex flex-col",
+              )}
+              style={{ width: drawerWidth, maxWidth: "92vw" }}
             >
-              <div className="absolute left-0 top-0 h-full w-px bg-border/60 opacity-0 transition-opacity hover:opacity-100" />
-            </div>
-
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div className="flex items-center gap-2">
-                <div className="text-xl font-semibold leading-tight">
-                  {activeSession ? sessionTitle(activeSession) : "对话"}
-                </div>
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                className={cn(
+                  "absolute left-0 top-0 h-full w-2 cursor-col-resize",
+                  "bg-transparent",
+                )}
+                onPointerDown={startResize}
+                title="拖动调整宽度"
+                data-testid="canvas-assistant-resize-handle"
+              >
+                <div className="absolute left-0 top-0 h-full w-px bg-border/60 opacity-0 transition-opacity hover:opacity-100" />
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => {
-                    if (!activeFlowId) return;
-                    startNewSession(activeFlowId);
-                    setDraft("");
-                    clearPendingAttachments(activeFlowId);
-                    setErrorText(null);
-                    setTimeout(() => inputRef.current?.focus(), 0);
-                  }}
-                  title="新建对话"
-                  disabled={!activeFlowId}
-                >
-                  <IconComponent
-                    name="MessageSquarePlus"
-                    className="h-4 w-4 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                </Button>
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      title="历史记录"
-                    >
-                      <IconComponent
-                        name="History"
-                        className="h-4 w-4 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    side="bottom"
-                    align="end"
-                    className="w-[340px] max-w-[82vw] rounded-2xl p-2"
-                  >
-                    <DropdownMenuLabel className="px-2 py-1.5 text-xs text-muted-foreground">
-                      当前画布历史记录
-                    </DropdownMenuLabel>
-                    <div className="max-h-[60vh] overflow-y-auto pr-1">
-                      {isHistoryEmpty ? (
-                        <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                          暂无历史记录
-                        </div>
-                      ) : (
-                        sessions.map((s) => (
-                          <DropdownMenuItem
-                            key={s.id}
-                            className="flex items-center gap-2 rounded-xl"
-                            onClick={() => {
-                              if (!activeFlowId) return;
-                              switchSession(activeFlowId, s.id);
-                              setTimeout(() => inputRef.current?.focus(), 0);
-                            }}
-                          >
-                            <IconComponent
-                              name={s.id === activeSessionId ? "Check" : "MessageCircle"}
-                              className="h-4 w-4 text-muted-foreground"
-                              aria-hidden="true"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm">
-                                {s.titleStatus === "generating"
-                                  ? "生成标题中..."
-                                  : sessionTitle(s)}
-                              </div>
-                              <div className="mt-0.5 text-[11px] text-muted-foreground">
-                                {(s.messages ?? []).length} 条消息
-                              </div>
-                            </div>
-                          </DropdownMenuItem>
-                        ))
-                      )}
-                    </div>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="rounded-xl"
-                      onClick={() => activeFlowId && clearHistory(activeFlowId)}
-                      disabled={
-                        !activeFlowId ||
-                        isHistoryEmpty
-                      }
-                    >
-                      <IconComponent
-                        name="Trash2"
-                        className="mr-2 h-4 w-4"
-                        aria-hidden="true"
-                      />
-                      清空历史记录
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
-              {messages.length === 0 ? (
-                <div className="mt-8">
-                  <div className="text-3xl font-semibold tracking-tight">
-                    Hi, {username}
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <div className="text-xl font-semibold leading-tight">
+                    {activeSession ? sessionTitle(activeSession) : "对话"}
                   </div>
-                  <div className="mt-2 text-lg text-muted-foreground">在寻找哪方面的灵感？</div>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {messages.map((m) => {
-                    const isUser = m.role === "user";
-                    const storyboard = !isUser ? tryParseStoryboard(m.content) : null;
-                    const inspirationFilm = !isUser ? tryParseInspirationFilm(m.content) : null;
-                    const isPendingAssistant =
-                      !isUser &&
-                      !storyboard &&
-                      !inspirationFilm &&
-                      !String(m.content ?? "").trim() &&
-                      isSending &&
-                      m.id === messages[messages.length - 1]?.id;
-                    return (
-                      <div key={m.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-                        <div
-                          className={cn(
-                            "rounded-2xl text-sm break-words",
-                            storyboard || inspirationFilm
-                              ? "w-[90%] px-2 py-2"
-                              : "max-w-[90%] px-3 py-2 whitespace-pre-wrap",
-                            isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-                          )}
-                        >
-                          {storyboard ? (
-                            <div className="min-w-0">
-                              <div className="text-xs text-muted-foreground">
-                                {storyboard.status === "need_info"
-                                  ? "为了更贴合你的需求，我需要先确认几个问题。"
-                                  : "正在推敲分镜...完成啦，分镜准备就绪。"}
-                              </div>
 
-                              <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border bg-background/40 px-3 py-1 text-xs">
-                                <IconComponent name="Film" className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-                                <span className="truncate">
-                                  {String(storyboard.title || storyboard.video?.genre || "分镜策划").trim() || "分镜策划"}
-                                </span>
-                                <span className="text-muted-foreground">·</span>
-                                <span className="text-muted-foreground">
-                                  {(storyboard.shots?.length ?? 0) > 0 ? `${storyboard.shots?.length} 镜头` : "镜头待定"}
-                                </span>
-                              </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => {
+                      if (!activeFlowId) return;
+                      startNewSession(activeFlowId);
+                      setDraft("");
+                      clearPendingAttachments(activeFlowId);
+                      setErrorText(null);
+                      setTimeout(() => inputRef.current?.focus(), 0);
+                    }}
+                    title="新建对话"
+                    disabled={!activeFlowId}
+                  >
+                    <IconComponent
+                      name="MessageSquarePlus"
+                      className="h-4 w-4 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </Button>
 
-                              {(storyboard.clarifying_questions?.length ?? 0) > 0 && (
-                                <div className="mt-3 space-y-1">
-                                  {storyboard.clarifying_questions?.slice(0, 8).map((q, idx) => (
-                                    <div key={`${idx}-${q}`} className="text-xs">
-                                      {idx + 1}. {q}
-                                    </div>
-                                  ))}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="历史记录"
+                      >
+                        <IconComponent
+                          name="History"
+                          className="h-4 w-4 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      side="bottom"
+                      align="end"
+                      className="w-[340px] max-w-[82vw] rounded-2xl p-2"
+                    >
+                      <DropdownMenuLabel className="px-2 py-1.5 text-xs text-muted-foreground">
+                        当前画布历史记录
+                      </DropdownMenuLabel>
+                      <div className="max-h-[60vh] overflow-y-auto pr-1">
+                        {isHistoryEmpty ? (
+                          <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                            暂无历史记录
+                          </div>
+                        ) : (
+                          sessions.map((s) => (
+                            <DropdownMenuItem
+                              key={s.id}
+                              className="flex items-center gap-2 rounded-xl"
+                              onClick={() => {
+                                if (!activeFlowId) return;
+                                switchSession(activeFlowId, s.id);
+                                setTimeout(() => inputRef.current?.focus(), 0);
+                              }}
+                            >
+                              <IconComponent
+                                name={s.id === activeSessionId ? "Check" : "MessageCircle"}
+                                className="h-4 w-4 text-muted-foreground"
+                                aria-hidden="true"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm">
+                                  {s.titleStatus === "generating"
+                                    ? "生成标题中..."
+                                    : sessionTitle(s)}
                                 </div>
-                              )}
+                                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {(s.messages ?? []).length} 条消息
+                                </div>
+                              </div>
+                            </DropdownMenuItem>
+                          ))
+                        )}
+                      </div>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="rounded-xl"
+                        onClick={() => activeFlowId && clearHistory(activeFlowId)}
+                        disabled={
+                          !activeFlowId ||
+                          isHistoryEmpty
+                        }
+                      >
+                        <IconComponent
+                          name="Trash2"
+                          className="mr-2 h-4 w-4"
+                          aria-hidden="true"
+                        />
+                        清空历史记录
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
 
-                              {(storyboard.shots?.length ?? 0) > 0 && (
-                                <div className="mt-3 rounded-xl border bg-background/40">
-                                  <Accordion type="multiple" className="w-full">
-                                    {storyboard.shots?.map((s, idx) => {
-                                      const id = Number(s.id ?? idx + 1);
-                                      const visual = String(s.visual ?? "").trim();
-                                      const summary = String(s.summary ?? "").trim();
-                                      const triggerText = summary
-                                        ? `【画面】${summary}`
-                                        : visual
-                                          ? `【画面】${visual}`
-                                          : "【画面】（未填写）";
-                                      return (
-                                        <AccordionItem key={id} value={`shot-${id}`} className="border-b last:border-b-0">
-                                          <AccordionTrigger className="px-3 py-0">
-                                            <div className="flex min-w-0 flex-1 items-center gap-2 py-3">
-                                              <div className="shrink-0 text-xs text-muted-foreground">{id}.</div>
-                                              <div className="min-w-0 flex-1">
-                                                <div className="line-clamp-2 text-left text-sm">{triggerText}</div>
-                                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                                                  {s.time_range && <span>{s.time_range}</span>}
-                                                  {typeof s.duration_sec === "number" && s.duration_sec > 0 && (
-                                                    <span>{Math.max(1, Math.round(s.duration_sec))}s</span>
-                                                  )}
-                                                  {s.shot_size && <span>{s.shot_size}</span>}
+              <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+                {messages.length === 0 ? (
+                  <div className="mt-8">
+                    <div className="text-3xl font-semibold tracking-tight">
+                      Hi, {username}
+                    </div>
+                    <div className="mt-2 text-lg text-muted-foreground">在寻找哪方面的灵感？</div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {messages.map((m) => {
+                      const isUser = m.role === "user";
+                      const storyboard = !isUser ? tryParseStoryboard(m.content) : null;
+                      const inspirationFilm = !isUser ? tryParseInspirationFilm(m.content) : null;
+                      const isPendingAssistant =
+                        !isUser &&
+                        !storyboard &&
+                        !inspirationFilm &&
+                        !String(m.content ?? "").trim() &&
+                        isSending &&
+                        m.id === messages[messages.length - 1]?.id;
+                      return (
+                        <div key={m.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+                          <div
+                            className={cn(
+                              "rounded-2xl text-sm break-words",
+                              storyboard || inspirationFilm
+                                ? "w-[90%] px-2 py-2"
+                                : "max-w-[90%] px-3 py-2 whitespace-pre-wrap",
+                              isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                            )}
+                          >
+                            {storyboard ? (
+                              <div className="min-w-0">
+                                <div className="text-xs text-muted-foreground">
+                                  {storyboard.status === "need_info"
+                                    ? "为了更贴合你的需求，我需要先确认几个问题。"
+                                    : "正在推敲分镜...完成啦，分镜准备就绪。"}
+                                </div>
+
+                                <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border bg-background/40 px-3 py-1 text-xs">
+                                  <IconComponent name="Film" className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                                  <span className="truncate">
+                                    {String(storyboard.title || storyboard.video?.genre || "分镜策划").trim() || "分镜策划"}
+                                  </span>
+                                  <span className="text-muted-foreground">·</span>
+                                  <span className="text-muted-foreground">
+                                    {(storyboard.shots?.length ?? 0) > 0 ? `${storyboard.shots?.length} 镜头` : "镜头待定"}
+                                  </span>
+                                </div>
+
+                                {(storyboard.clarifying_questions?.length ?? 0) > 0 && (
+                                  <div className="mt-3 space-y-1">
+                                    {storyboard.clarifying_questions?.slice(0, 8).map((q, idx) => (
+                                      <div key={`${idx}-${q}`} className="text-xs">
+                                        {idx + 1}. {q}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {(storyboard.shots?.length ?? 0) > 0 && (
+                                  <div className="mt-3 rounded-xl border bg-background/40">
+                                    <Accordion type="multiple" className="w-full">
+                                      {storyboard.shots?.map((s, idx) => {
+                                        const id = Number(s.id ?? idx + 1);
+                                        const visual = String(s.visual ?? "").trim();
+                                        const summary = String(s.summary ?? "").trim();
+                                        const triggerText = summary
+                                          ? `【画面】${summary}`
+                                          : visual
+                                            ? `【画面】${visual}`
+                                            : "【画面】（未填写）";
+                                        return (
+                                          <AccordionItem key={id} value={`shot-${id}`} className="border-b last:border-b-0">
+                                            <AccordionTrigger className="px-3 py-0">
+                                              <div className="flex min-w-0 flex-1 items-center gap-2 py-3">
+                                                <div className="shrink-0 text-xs text-muted-foreground">{id}.</div>
+                                                <div className="min-w-0 flex-1">
+                                                  <div className="line-clamp-2 text-left text-sm">{triggerText}</div>
+                                                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                                                    {s.time_range && <span>{s.time_range}</span>}
+                                                    {typeof s.duration_sec === "number" && s.duration_sec > 0 && (
+                                                      <span>{Math.max(1, Math.round(s.duration_sec))}s</span>
+                                                    )}
+                                                    {s.shot_size && <span>{s.shot_size}</span>}
+                                                  </div>
                                                 </div>
                                               </div>
-                                            </div>
-                                          </AccordionTrigger>
-                                          <AccordionContent className="px-3 pb-3">
-                                            <div className="relative">
-                                              <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="absolute right-0 top-0 h-7 w-7 rounded-lg"
-                                                title="复制镜头详情"
-                                                onClick={async () => {
-                                                  const text = buildShotCopyText(s);
-                                                  if (!text) return;
-                                                  try {
-                                                    await navigator.clipboard.writeText(text);
-                                                  } catch {
-                                                    // Best-effort fallback.
+                                            </AccordionTrigger>
+                                            <AccordionContent className="px-3 pb-3">
+                                              <div className="relative">
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="absolute right-0 top-0 h-7 w-7 rounded-lg"
+                                                  title="复制镜头详情"
+                                                  onClick={async () => {
+                                                    const text = buildShotCopyText(s);
+                                                    if (!text) return;
                                                     try {
-                                                      const ta = document.createElement("textarea");
-                                                      ta.value = text;
-                                                      ta.style.position = "fixed";
-                                                      ta.style.left = "-9999px";
-                                                      ta.style.top = "0";
-                                                      document.body.appendChild(ta);
-                                                      ta.focus();
-                                                      ta.select();
-                                                      document.execCommand("copy");
-                                                      document.body.removeChild(ta);
+                                                      await navigator.clipboard.writeText(text);
                                                     } catch {
-                                                      // ignore
+                                                      // Best-effort fallback.
+                                                      try {
+                                                        const ta = document.createElement("textarea");
+                                                        ta.value = text;
+                                                        ta.style.position = "fixed";
+                                                        ta.style.left = "-9999px";
+                                                        ta.style.top = "0";
+                                                        document.body.appendChild(ta);
+                                                        ta.focus();
+                                                        ta.select();
+                                                        document.execCommand("copy");
+                                                        document.body.removeChild(ta);
+                                                      } catch {
+                                                        // ignore
+                                                      }
                                                     }
-                                                  }
-                                                }}
-                                              >
-                                                <IconComponent name="Copy" className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                                              </Button>
+                                                  }}
+                                                >
+                                                  <IconComponent name="Copy" className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                                                </Button>
 
-                                              <div className="space-y-2 pr-8">
-                                                <ShotRow label="概述" value={s.summary} />
-                                                <ShotRow label="画面" value={s.visual} />
-                                                <ShotRow
-                                                  label="相机"
-                                                  value={[
-                                                    s.camera?.angle,
-                                                    s.camera?.movement,
-                                                    s.camera?.lens_mm ? `镜头：${s.camera?.lens_mm}` : "",
-                                                    s.camera?.focus ? `对焦：${s.camera?.focus}` : "",
-                                                  ]
-                                                    .filter(Boolean)
-                                                    .join(" / ")}
-                                                />
-                                                <ShotRow
-                                                  label="场景"
-                                                  value={[
-                                                    s.scene?.location,
-                                                    s.scene?.time_of_day,
-                                                    s.scene?.lighting,
-                                                  ]
-                                                    .filter(Boolean)
-                                                    .join(" / ")}
-                                                />
-                                                <ShotRow label="对白/旁白" value={s.audio?.dialogue_or_vo} />
-                                                <ShotRow label="音效" value={s.audio?.sfx} />
-                                                <ShotRow label="音乐" value={s.audio?.music} />
-                                                <ShotRow label="屏幕文字" value={s.on_screen_text} />
-                                                <ShotRow label="入场转场" value={s.transition_in} />
-                                                <ShotRow label="出场转场" value={s.transition_out} />
-                                                <ShotRow label="特效" value={s.vfx} />
-                                                <ShotRow label="备注" value={s.notes} />
+                                                <div className="space-y-2 pr-8">
+                                                  <ShotRow label="概述" value={s.summary} />
+                                                  <ShotRow label="画面" value={s.visual} />
+                                                  <ShotRow
+                                                    label="相机"
+                                                    value={[
+                                                      s.camera?.angle,
+                                                      s.camera?.movement,
+                                                      s.camera?.lens_mm ? `镜头：${s.camera?.lens_mm}` : "",
+                                                      s.camera?.focus ? `对焦：${s.camera?.focus}` : "",
+                                                    ]
+                                                      .filter(Boolean)
+                                                      .join(" / ")}
+                                                  />
+                                                  <ShotRow
+                                                    label="场景"
+                                                    value={[
+                                                      s.scene?.location,
+                                                      s.scene?.time_of_day,
+                                                      s.scene?.lighting,
+                                                    ]
+                                                      .filter(Boolean)
+                                                      .join(" / ")}
+                                                  />
+                                                  <ShotRow label="对白/旁白" value={s.audio?.dialogue_or_vo} />
+                                                  <ShotRow label="音效" value={s.audio?.sfx} />
+                                                  <ShotRow label="音乐" value={s.audio?.music} />
+                                                  <ShotRow label="屏幕文字" value={s.on_screen_text} />
+                                                  <ShotRow label="入场转场" value={s.transition_in} />
+                                                  <ShotRow label="出场转场" value={s.transition_out} />
+                                                  <ShotRow label="特效" value={s.vfx} />
+                                                  <ShotRow label="备注" value={s.notes} />
+                                                </div>
                                               </div>
-                                            </div>
-                                          </AccordionContent>
-                                        </AccordionItem>
-                                      );
-                                    })}
-                                  </Accordion>
-                                </div>
-                              )}
+                                            </AccordionContent>
+                                          </AccordionItem>
+                                        );
+                                      })}
+                                    </Accordion>
+                                  </div>
+                                )}
 
-                              <div className="mt-3 flex items-center justify-between gap-2">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      className="group h-9 gap-2 rounded-full border border-border bg-background/40 px-3 hover:bg-muted"
-                                      title="选择图片创作模型"
-                                      disabled={storyboardModelChoices.length === 0}
-                                    >
-                                      <IconComponent name="Sparkles" className="h-4 w-4" aria-hidden="true" />
-                                      <span className="max-w-[220px] truncate text-sm">
-                                        {effectiveStoryboardModelLabel || "选择模型"}
-                                      </span>
-                                      <IconComponent
-                                        name="ChevronDown"
-                                        className={cn(
-                                          "h-4 w-4 opacity-70 transition-transform duration-200",
-                                          "group-data-[state=open]:rotate-180",
-                                        )}
-                                        aria-hidden="true"
-                                      />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent
-                                    side="top"
-                                    align="start"
-                                    className="min-w-[260px] max-h-[320px] overflow-y-auto rounded-2xl p-2"
-                                  >
-                                    <DropdownMenuLabel>图片创作模型</DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {storyboardModelChoices.map((opt) => (
-                                      <DropdownMenuItem
-                                        key={opt.value}
-                                        className="rounded-xl"
-                                        onClick={() => setStoryboardImageModel(opt.value)}
+                                <div className="mt-3 flex items-center justify-between gap-2">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        className="group h-9 gap-2 rounded-full border border-border bg-background/40 px-3 hover:bg-muted"
+                                        title="选择图片创作模型"
+                                        disabled={storyboardModelChoices.length === 0}
                                       >
-                                        <span className="truncate">{opt.label}</span>
-                                        {opt.value === effectiveStoryboardModel && (
-                                          <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                        <IconComponent name="Sparkles" className="h-4 w-4" aria-hidden="true" />
+                                        <span className="max-w-[220px] truncate text-sm">
+                                          {effectiveStoryboardModelLabel || "选择模型"}
+                                        </span>
+                                        <IconComponent
+                                          name="ChevronDown"
+                                          className={cn(
+                                            "h-4 w-4 opacity-70 transition-transform duration-200",
+                                            "group-data-[state=open]:rotate-180",
+                                          )}
+                                          aria-hidden="true"
+                                        />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      side="top"
+                                      align="start"
+                                      className="min-w-[260px] max-h-[320px] overflow-y-auto rounded-2xl p-2"
+                                    >
+                                      <DropdownMenuLabel>图片创作模型</DropdownMenuLabel>
+                                      <DropdownMenuSeparator />
+                                      {storyboardModelChoices.map((opt) => (
+                                        <DropdownMenuItem
+                                          key={opt.value}
+                                          className="rounded-xl"
+                                          onClick={() => setStoryboardImageModel(opt.value)}
+                                        >
+                                          <span className="truncate">{opt.label}</span>
+                                          {opt.value === effectiveStoryboardModel && (
+                                            <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                          )}
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+
+                                  <Button
+                                    type="button"
+                                    className="h-9 rounded-full"
+                                    onClick={() => void insertStoryboardToCanvas({ messageId: m.id, storyboard })}
+                                    disabled={
+                                      insertingStoryboardMsgIds[m.id] ||
+                                      (storyboard.shots?.length ?? 0) === 0 ||
+                                      !effectiveStoryboardModel
+                                    }
+                                    title="根据分镜生成图片创作组件到画布，并自动运行"
+                                  >
+                                    {insertingStoryboardMsgIds[m.id] ? (
+                                      <>
+                                        <IconComponent
+                                          name="LoaderCircle"
+                                          className="mr-2 h-4 w-4 animate-spin"
+                                          aria-hidden="true"
+                                        />
+                                        生成中...
+                                      </>
+                                    ) : (
+                                      "生成到画布"
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : inspirationFilm ? (
+                              <div className="min-w-0">
+                                <div className="px-1 text-xs text-muted-foreground">
+                                  已为你联网搜索 {inspirationFilm.images.length} 张图片，点击查看详情并应用到画布。
+                                </div>
+
+                                <div className="mt-2 grid grid-cols-3 gap-2 px-1">
+                                  {inspirationFilm.images.slice(0, 9).map((img, idx) => {
+                                    const cachedAnalysis =
+                                      inspirationAnalysisById[img.id] ??
+                                      (img.analysis && typeof img.analysis === "object" ? img.analysis : null);
+                                    const tags: string[] = [];
+                                    const ratio = aspectRatioTagFromDims(img.width, img.height);
+                                    if (ratio) tags.push(ratio);
+                                    const angle = String((cachedAnalysis as any)?.camera_angle ?? "").trim();
+                                    const light = String((cachedAnalysis as any)?.lighting_type ?? "").trim();
+                                    if (angle) tags.push(angle);
+                                    if (light) tags.push(light);
+
+                                    return (
+                                      <button
+                                        key={img.id}
+                                        type="button"
+                                        className={cn(
+                                          "group relative aspect-[3/2] overflow-hidden rounded-xl border bg-background/40 text-left",
+                                          "focus:outline-none focus:ring-2 focus:ring-ring",
                                         )}
-                                      </DropdownMenuItem>
-                                    ))}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
+                                        title={img.title ?? "查看图片详情"}
+                                        onClick={() => {
+                                          setActiveInspirationPayload(inspirationFilm);
+                                          openInspirationDetailAt(idx);
+                                        }}
+                                      >
+                                        <img
+                                          src={img.thumb_url}
+                                          alt={img.title ?? "inspiration"}
+                                          className="h-full w-full object-cover"
+                                          loading="lazy"
+                                        />
+                                        <div className="absolute inset-0 flex items-end justify-start p-2 opacity-0 transition-opacity group-hover:opacity-100">
+                                          <div className="flex flex-wrap gap-1">
+                                            {tags.slice(0, 3).map((t) => (
+                                              <span
+                                                key={`${img.id}-${t}`}
+                                                className="rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white"
+                                              >
+                                                {t}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
 
-                                <Button
-                                  type="button"
-                                  className="h-9 rounded-full"
-                                  onClick={() => void insertStoryboardToCanvas({ messageId: m.id, storyboard })}
-                                  disabled={
-                                    insertingStoryboardMsgIds[m.id] ||
-                                    (storyboard.shots?.length ?? 0) === 0 ||
-                                    !effectiveStoryboardModel
-                                  }
-                                  title="根据分镜生成图片创作组件到画布，并自动运行"
-                                >
-                                  {insertingStoryboardMsgIds[m.id] ? (
-                                    <>
-                                      <IconComponent
-                                        name="LoaderCircle"
-                                        className="mr-2 h-4 w-4 animate-spin"
-                                        aria-hidden="true"
-                                      />
-                                      生成中...
-                                    </>
-                                  ) : (
-                                    "生成到画布"
-                                  )}
-                                </Button>
+                                <div className="mt-3 flex items-center justify-end px-1">
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    className="h-9 rounded-full"
+                                    onClick={() => openInspirationGallery(inspirationFilm)}
+                                  >
+                                    查看全部 {Math.max(1, inspirationFilm.images.length)} 张图片
+                                  </Button>
+                                </div>
                               </div>
-                            </div>
-                          ) : inspirationFilm ? (
-                            <div className="min-w-0">
-                              <div className="px-1 text-xs text-muted-foreground">
-                                已为你联网搜索 {inspirationFilm.images.length} 张图片，点击查看详情并应用到画布。
+                            ) : (
+                              <div>
+                                {isPendingAssistant ? (
+                                  <div className="py-0.5 text-sm font-medium leading-snug text-foreground/90">
+                                    <ThinkingWaveText />
+                                  </div>
+                                ) : (
+                                  <div>{m.content}</div>
+                                )}
                               </div>
+                            )}
+                            {m.attachments && m.attachments.length > 0 && (
+                              <div className={cn("mt-2 text-xs", isUser ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                                附件：{m.attachments.map((a) => a.name).join("，")}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
-                              <div className="mt-2 grid grid-cols-3 gap-2 px-1">
-                                {inspirationFilm.images.slice(0, 9).map((img, idx) => {
+              {/* Film inspiration: gallery (all 50) */}
+              <DialogPrimitive.Root
+                open={inspirationGalleryOpen}
+                onOpenChange={(v) => {
+                  setInspirationGalleryOpen(v);
+                  if (!v) {
+                    // Keep detail open state independent; user may open detail directly from the message card.
+                  }
+                }}
+              >
+                <DialogPrimitive.Portal>
+                  <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-black/50" />
+                  <DialogPrimitive.Content
+                    className={cn(
+                      "fixed left-1/2 top-1/2 z-[61] w-[92vw] max-w-[1120px] -translate-x-1/2 -translate-y-1/2",
+                      "rounded-2xl border bg-popover shadow-xl",
+                      "max-h-[86vh] overflow-hidden",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {activeInspirationPayload?.query?.trim()
+                            ? `${activeInspirationPayload.query}（${Math.max(1, activeInspirationPayload.images.length)}）`
+                            : `电影镜头灵感（${Math.max(1, activeInspirationPayload?.images?.length ?? 50)}）`}
+                        </div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">点击图片查看详情</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
+                        onClick={() => setInspirationGalleryOpen(false)}
+                        title="关闭"
+                      >
+                        <IconComponent name="X" className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+
+                    <div className="max-h-[74vh] overflow-y-auto p-4">
+                      <div className="grid grid-cols-4 gap-3">
+                        {(activeInspirationPayload?.images ?? []).map((img, idx) => (
+                          <button
+                            key={img.id}
+                            type="button"
+                            className="group relative aspect-[3/2] overflow-hidden rounded-xl border bg-background/40 text-left"
+                            onClick={() => openInspirationDetailAt(idx)}
+                            title={img.title ?? "查看图片详情"}
+                          >
+                            <img
+                              src={img.thumb_url}
+                              alt={img.title ?? "inspiration"}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                            <div className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
+                              <div className="absolute inset-0 bg-black/25" />
+                              <div className="absolute bottom-2 left-2 right-2 flex flex-wrap gap-1">
+                                {(() => {
                                   const cachedAnalysis =
                                     inspirationAnalysisById[img.id] ??
                                     (img.analysis && typeof img.analysis === "object" ? img.analysis : null);
@@ -1974,616 +2115,475 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
                                   const light = String((cachedAnalysis as any)?.lighting_type ?? "").trim();
                                   if (angle) tags.push(angle);
                                   if (light) tags.push(light);
-
-                                  return (
-                                    <button
-                                      key={img.id}
-                                      type="button"
-                                      className={cn(
-                                        "group relative aspect-[3/2] overflow-hidden rounded-xl border bg-background/40 text-left",
-                                        "focus:outline-none focus:ring-2 focus:ring-ring",
-                                      )}
-                                      title={img.title ?? "查看图片详情"}
-                                      onClick={() => {
-                                        setActiveInspirationPayload(inspirationFilm);
-                                        openInspirationDetailAt(idx);
-                                      }}
-                                    >
-                                      <img
-                                        src={img.thumb_url}
-                                        alt={img.title ?? "inspiration"}
-                                        className="h-full w-full object-cover"
-                                        loading="lazy"
-                                      />
-                                      <div className="absolute inset-0 flex items-end justify-start p-2 opacity-0 transition-opacity group-hover:opacity-100">
-                                        <div className="flex flex-wrap gap-1">
-                                          {tags.slice(0, 3).map((t) => (
-                                            <span
-                                              key={`${img.id}-${t}`}
-                                              className="rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white"
-                                            >
-                                              {t}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    </button>
-                                  );
-                                })}
+                                  return tags.slice(0, 3).map((t) => (
+                                    <span key={`${img.id}-${t}`} className="rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white">
+                                      {t}
+                                    </span>
+                                  ));
+                                })()}
                               </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </DialogPrimitive.Content>
+                </DialogPrimitive.Portal>
+              </DialogPrimitive.Root>
 
-                              <div className="mt-3 flex items-center justify-end px-1">
+              {/* Film inspiration: image detail */}
+              <DialogPrimitive.Root
+                open={inspirationDetailOpen}
+                onOpenChange={(v) => {
+                  setInspirationDetailOpen(v);
+                }}
+              >
+                <DialogPrimitive.Portal>
+                  <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/55" />
+                  <DialogPrimitive.Content
+                    className={cn(
+                      "fixed left-1/2 top-1/2 z-[71] w-[94vw] max-w-[1180px] -translate-x-1/2 -translate-y-1/2",
+                      "rounded-2xl border bg-popover shadow-xl",
+                      "max-h-[88vh] overflow-hidden",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm hover:bg-muted"
+                          onClick={() => setInspirationDetailOpen(false)}
+                          title="返回"
+                        >
+                          <IconComponent name="ArrowLeft" className="h-4 w-4" aria-hidden="true" />
+                          返回
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
+                        onClick={() => setInspirationDetailOpen(false)}
+                        title="关闭"
+                      >
+                        <IconComponent name="X" className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+
+                    <div className="flex h-[76vh] min-h-[520px]">
+                      <div className="flex flex-1 items-center justify-center bg-black/90 p-4">
+                        {activeInspirationImage ? (
+                          <img
+                            src={activeInspirationImage.full_url}
+                            alt={activeInspirationImage.title ?? "inspiration"}
+                            className="max-h-full max-w-full rounded-xl object-contain"
+                          />
+                        ) : (
+                          <div className="text-sm text-white/70">未选择图片</div>
+                        )}
+                      </div>
+
+                      <div className="w-[360px] shrink-0 border-l bg-popover p-4">
+                        <div className="text-sm font-semibold">图片详情</div>
+
+                        {activeInspirationImage ? (
+                          (() => {
+                            const imageId = activeInspirationImage.id;
+                            const analysis =
+                              inspirationAnalysisById[imageId] ??
+                              (activeInspirationImage.analysis && typeof activeInspirationImage.analysis === "object"
+                                ? (activeInspirationImage.analysis as any)
+                                : null);
+                            const isAnalyzing = Boolean(inspirationAnalyzingById[imageId]);
+                            return (
+                              <div className="mt-3 space-y-2 text-sm">
+                                <div className="text-xs text-muted-foreground">
+                                  {isAnalyzing ? "分析中..." : analysis ? "分析完成" : "点击应用前会自动分析"}
+                                </div>
+
+                                <div className="space-y-2 text-[13px]">
+                                  {[
+                                    ["色温", analysis?.color_temp],
+                                    ["宽高比", analysis?.aspect_ratio ?? aspectRatioTagFromDims(activeInspirationImage.width, activeInspirationImage.height)],
+                                    ["画幅尺寸", analysis?.shot_size],
+                                    ["相机角度", analysis?.camera_angle],
+                                    ["镜头尺寸", analysis?.lens_size],
+                                    ["景深", analysis?.depth_of_field],
+                                    ["照明类型", analysis?.lighting_type],
+                                    ["拍摄时间", analysis?.time_of_day],
+                                    ["主体数量", analysis?.subject_count],
+                                    ["主体类型", analysis?.subject_type],
+                                  ].map(([label, value]) => {
+                                    const v = String(value ?? "").trim();
+                                    return (
+                                      <div key={label} className="flex items-center justify-between gap-3">
+                                        <div className="text-muted-foreground">{label}</div>
+                                        <div className="max-w-[220px] truncate">{v || "-"}</div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
                                 <Button
                                   type="button"
-                                  variant="secondary"
-                                  className="h-9 rounded-full"
-                                  onClick={() => openInspirationGallery(inspirationFilm)}
+                                  className="mt-2 w-full"
+                                  onClick={() => void applyInspirationImageToCanvas(activeInspirationImage)}
+                                  disabled={Boolean(inspirationApplyingById[imageId])}
                                 >
-                                  查看全部 {Math.max(1, inspirationFilm.images.length)} 张图片
+                                  {inspirationApplyingById[imageId] ? "应用中..." : "应用"}
                                 </Button>
+
+                                {(activeInspirationImage.source_page_url || activeInspirationImage.domain) && (
+                                  <div className="pt-2 text-[11px] text-muted-foreground">
+                                    来源：{activeInspirationImage.domain || "网页"}
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          ) : (
-                            <div>
-                              {isPendingAssistant ? (
-                                <div className="py-0.5 text-sm font-medium leading-snug text-foreground/90">
-                                  <ThinkingWaveText />
-                                </div>
-                              ) : (
-                                <div>{m.content}</div>
-                              )}
-                            </div>
-                          )}
-                          {m.attachments && m.attachments.length > 0 && (
-                            <div className={cn("mt-2 text-xs", isUser ? "text-primary-foreground/80" : "text-muted-foreground")}>
-                              附件：{m.attachments.map((a) => a.name).join("，")}
-                            </div>
-                          )}
-                        </div>
+                            );
+                          })()
+                        ) : null}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                    </div>
 
-            {/* Film inspiration: gallery (all 50) */}
-            <DialogPrimitive.Root
-              open={inspirationGalleryOpen}
-              onOpenChange={(v) => {
-                setInspirationGalleryOpen(v);
-                if (!v) {
-                  // Keep detail open state independent; user may open detail directly from the message card.
-                }
-              }}
-            >
-              <DialogPrimitive.Portal>
-                <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-black/50" />
-                <DialogPrimitive.Content
-                  className={cn(
-                    "fixed left-1/2 top-1/2 z-[61] w-[92vw] max-w-[1120px] -translate-x-1/2 -translate-y-1/2",
-                    "rounded-2xl border bg-background shadow-xl",
-                    "max-h-[86vh] overflow-hidden",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">
-                        {activeInspirationPayload?.query?.trim()
-                          ? `${activeInspirationPayload.query}（${Math.max(1, activeInspirationPayload.images.length)}）`
-                          : `电影镜头灵感（${Math.max(1, activeInspirationPayload?.images?.length ?? 50)}）`}
+                    <div className="border-t bg-muted/20 px-4 py-3">
+                      <div className="flex items-center gap-2 overflow-x-auto">
+                        {(activeInspirationPayload?.images ?? []).map((img, idx) => (
+                          <button
+                            key={img.id}
+                            type="button"
+                            className={cn(
+                              "relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border",
+                              idx === activeInspirationIndex ? "ring-2 ring-primary" : "opacity-80 hover:opacity-100",
+                            )}
+                            onClick={() => setActiveInspirationIndex(idx)}
+                            title={img.title ?? "切换图片"}
+                          >
+                            <img src={img.thumb_url} alt={img.title ?? "thumb"} className="h-full w-full object-cover" />
+                          </button>
+                        ))}
                       </div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">点击图片查看详情</div>
                     </div>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
-                      onClick={() => setInspirationGalleryOpen(false)}
-                      title="关闭"
-                    >
-                      <IconComponent name="X" className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </div>
+                  </DialogPrimitive.Content>
+                </DialogPrimitive.Portal>
+              </DialogPrimitive.Root>
 
-                  <div className="max-h-[74vh] overflow-y-auto p-4">
-                    <div className="grid grid-cols-4 gap-3">
-                      {(activeInspirationPayload?.images ?? []).map((img, idx) => (
-                        <button
-                          key={img.id}
-                          type="button"
-                          className="group relative aspect-[3/2] overflow-hidden rounded-xl border bg-background/40 text-left"
-                          onClick={() => openInspirationDetailAt(idx)}
-                          title={img.title ?? "查看图片详情"}
-                        >
-                          <img
-                            src={img.thumb_url}
-                            alt={img.title ?? "inspiration"}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                          />
-                          <div className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
-                            <div className="absolute inset-0 bg-black/25" />
-                            <div className="absolute bottom-2 left-2 right-2 flex flex-wrap gap-1">
-                              {(() => {
-                                const cachedAnalysis =
-                                  inspirationAnalysisById[img.id] ??
-                                  (img.analysis && typeof img.analysis === "object" ? img.analysis : null);
-                                const tags: string[] = [];
-                                const ratio = aspectRatioTagFromDims(img.width, img.height);
-                                if (ratio) tags.push(ratio);
-                                const angle = String((cachedAnalysis as any)?.camera_angle ?? "").trim();
-                                const light = String((cachedAnalysis as any)?.lighting_type ?? "").trim();
-                                if (angle) tags.push(angle);
-                                if (light) tags.push(light);
-                                return tags.slice(0, 3).map((t) => (
-                                  <span key={`${img.id}-${t}`} className="rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white">
-                                    {t}
-                                  </span>
-                                ));
-                              })()}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </DialogPrimitive.Content>
-              </DialogPrimitive.Portal>
-            </DialogPrimitive.Root>
-
-            {/* Film inspiration: image detail */}
-            <DialogPrimitive.Root
-              open={inspirationDetailOpen}
-              onOpenChange={(v) => {
-                setInspirationDetailOpen(v);
-              }}
-            >
-              <DialogPrimitive.Portal>
-                <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/55" />
-                <DialogPrimitive.Content
-                  className={cn(
-                    "fixed left-1/2 top-1/2 z-[71] w-[94vw] max-w-[1180px] -translate-x-1/2 -translate-y-1/2",
-                    "rounded-2xl border bg-background shadow-xl",
-                    "max-h-[88vh] overflow-hidden",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm hover:bg-muted"
-                        onClick={() => setInspirationDetailOpen(false)}
-                        title="返回"
-                      >
-                        <IconComponent name="ArrowLeft" className="h-4 w-4" aria-hidden="true" />
-                        返回
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
-                      onClick={() => setInspirationDetailOpen(false)}
-                      title="关闭"
-                    >
-                      <IconComponent name="X" className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </div>
-
-                  <div className="flex h-[76vh] min-h-[520px]">
-                    <div className="flex flex-1 items-center justify-center bg-black/90 p-4">
-                      {activeInspirationImage ? (
-                        <img
-                          src={activeInspirationImage.full_url}
-                          alt={activeInspirationImage.title ?? "inspiration"}
-                          className="max-h-full max-w-full rounded-xl object-contain"
-                        />
-                      ) : (
-                        <div className="text-sm text-white/70">未选择图片</div>
-                      )}
-                    </div>
-
-                    <div className="w-[360px] shrink-0 border-l bg-background p-4">
-                      <div className="text-sm font-semibold">图片详情</div>
-
-                      {activeInspirationImage ? (
-                        (() => {
-                          const imageId = activeInspirationImage.id;
-                          const analysis =
-                            inspirationAnalysisById[imageId] ??
-                            (activeInspirationImage.analysis && typeof activeInspirationImage.analysis === "object"
-                              ? (activeInspirationImage.analysis as any)
-                              : null);
-                          const isAnalyzing = Boolean(inspirationAnalyzingById[imageId]);
-                          return (
-                            <div className="mt-3 space-y-2 text-sm">
-                              <div className="text-xs text-muted-foreground">
-                                {isAnalyzing ? "分析中..." : analysis ? "分析完成" : "点击应用前会自动分析"}
-                              </div>
-
-                              <div className="space-y-2 text-[13px]">
-                                {[
-                                  ["色温", analysis?.color_temp],
-                                  ["宽高比", analysis?.aspect_ratio ?? aspectRatioTagFromDims(activeInspirationImage.width, activeInspirationImage.height)],
-                                  ["画幅尺寸", analysis?.shot_size],
-                                  ["相机角度", analysis?.camera_angle],
-                                  ["镜头尺寸", analysis?.lens_size],
-                                  ["景深", analysis?.depth_of_field],
-                                  ["照明类型", analysis?.lighting_type],
-                                  ["拍摄时间", analysis?.time_of_day],
-                                  ["主体数量", analysis?.subject_count],
-                                  ["主体类型", analysis?.subject_type],
-                                ].map(([label, value]) => {
-                                  const v = String(value ?? "").trim();
-                                  return (
-                                    <div key={label} className="flex items-center justify-between gap-3">
-                                      <div className="text-muted-foreground">{label}</div>
-                                      <div className="max-w-[220px] truncate">{v || "-"}</div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              <Button
-                                type="button"
-                                className="mt-2 w-full"
-                                onClick={() => void applyInspirationImageToCanvas(activeInspirationImage)}
-                                disabled={Boolean(inspirationApplyingById[imageId])}
-                              >
-                                {inspirationApplyingById[imageId] ? "应用中..." : "应用"}
-                              </Button>
-
-                              {(activeInspirationImage.source_page_url || activeInspirationImage.domain) && (
-                                <div className="pt-2 text-[11px] text-muted-foreground">
-                                  来源：{activeInspirationImage.domain || "网页"}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="border-t bg-muted/20 px-4 py-3">
-                    <div className="flex items-center gap-2 overflow-x-auto">
-                      {(activeInspirationPayload?.images ?? []).map((img, idx) => (
-                        <button
-                          key={img.id}
-                          type="button"
-                          className={cn(
-                            "relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border",
-                            idx === activeInspirationIndex ? "ring-2 ring-primary" : "opacity-80 hover:opacity-100",
-                          )}
-                          onClick={() => setActiveInspirationIndex(idx)}
-                          title={img.title ?? "切换图片"}
-                        >
-                          <img src={img.thumb_url} alt={img.title ?? "thumb"} className="h-full w-full object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </DialogPrimitive.Content>
-              </DialogPrimitive.Portal>
-            </DialogPrimitive.Root>
-
-            <div className="border-t px-4 py-3">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  onPickFiles(e.target.files);
-                  // allow picking the same file again
-                  e.currentTarget.value = "";
-                }}
-              />
-
-              {errorText && (
-                <div className="mb-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {errorText}
-                </div>
-              )}
-
-              <div className="rounded-2xl border bg-background p-3">
-                <div
-                  className={cn(
-                    "mb-2 overflow-hidden transition-all duration-300 ease-in-out",
-                    (conversationMode === "storyboard" || conversationMode === "inspiration_film") &&
-                    messages.length === 0 &&
-                    draft.trim().length === 0 &&
-                    pendingFiles.length === 0
-                      ? "max-h-[280px] opacity-100 translate-y-0"
-                      : "max-h-0 opacity-0 -translate-y-1 pointer-events-none",
-                  )}
-                >
-                  <div className="text-xs text-muted-foreground">您可以这样提问</div>
-                  <div className="mt-2 space-y-1">
-                    {(conversationMode === "storyboard" ? storyboardExamples : inspirationFilmExamples).map((ex, idx) => (
-                      <button
-                        key={`${idx}-${ex.slice(0, 8)}`}
-                        type="button"
-                        className="flex w-full items-start gap-2 rounded-xl p-2 text-left text-sm hover:bg-muted"
-                        onClick={() => {
-                          setDraft(ex);
-                          setTimeout(() => inputRef.current?.focus(), 0);
-                        }}
-                        title="点击填入示例"
-                      >
-                        <IconComponent
-                          name="ArrowUpRight"
-                          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                        <span className="line-clamp-2 leading-relaxed">{ex}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <Textarea
-                  ref={inputRef}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={
-                    conversationMode === "storyboard"
-                      ? "说说你的创意/故事/卖点，我来拆成看得见的线稿镜头与画面节奏（支持广告/预告片/动画/漫剧/微电影等）。"
-                      : conversationMode === "inspiration_film"
-                        ? "描述一个镜头/场景/情绪，我将联网搜索 50 张电影镜头图片供你取材。"
-                      : "开启你的灵感之旅"
-                  }
-                  className="min-h-[44px] resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void send();
-                    }
+              <div className="border-t px-4 py-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    onPickFiles(e.target.files);
+                    // allow picking the same file again
+                    e.currentTarget.value = "";
                   }}
                 />
 
-                {pendingFiles.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {pendingFiles.map((f, idx) => (
-                      <div
-                        key={`${f.name}-${idx}`}
-                        className="flex max-w-full items-center gap-2 rounded-full border bg-muted px-3 py-1 text-xs"
-                      >
-                        <span className="truncate">
-                          {f.name} ({formatBytes(f.size)})
-                        </span>
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-foreground"
-                          onClick={() => activeFlowId && removePendingAttachment(activeFlowId, idx)}
-                          title="移除附件"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                {errorText && (
+                  <div className="mb-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {errorText}
                   </div>
                 )}
 
-                <div className="mt-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="rounded-2xl border bg-popover p-3">
+                  <div
+                    className={cn(
+                      "mb-2 overflow-hidden transition-all duration-300 ease-in-out",
+                      (conversationMode === "storyboard" || conversationMode === "inspiration_film") &&
+                        messages.length === 0 &&
+                        draft.trim().length === 0 &&
+                        pendingFiles.length === 0
+                        ? "max-h-[280px] opacity-100 translate-y-0"
+                        : "max-h-0 opacity-0 -translate-y-1 pointer-events-none",
+                    )}
+                  >
+                    <div className="text-xs text-muted-foreground">您可以这样提问</div>
+                    <div className="mt-2 space-y-1">
+                      {(conversationMode === "storyboard" ? storyboardExamples : inspirationFilmExamples).map((ex, idx) => (
+                        <button
+                          key={`${idx}-${ex.slice(0, 8)}`}
+                          type="button"
+                          className="flex w-full items-start gap-2 rounded-xl p-2 text-left text-sm hover:bg-muted"
+                          onClick={() => {
+                            setDraft(ex);
+                            setTimeout(() => inputRef.current?.focus(), 0);
+                          }}
+                          title="点击填入示例"
+                        >
+                          <IconComponent
+                            name="ArrowUpRight"
+                            className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                          <span className="line-clamp-2 leading-relaxed">{ex}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <Textarea
+                    ref={inputRef}
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder={
+                      conversationMode === "storyboard"
+                        ? "说说你的创意/故事/卖点，我来拆成看得见的线稿镜头与画面节奏（支持广告/预告片/动画/漫剧/微电影等）。"
+                        : conversationMode === "inspiration_film"
+                          ? "描述一个镜头/场景/情绪，我将联网搜索 50 张电影镜头图片供你取材。"
+                          : "开启你的灵感之旅"
+                    }
+                    className="min-h-[44px] resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void send();
+                      }
+                    }}
+                  />
+
+                  {pendingFiles.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {pendingFiles.map((f, idx) => (
+                        <div
+                          key={`${f.name}-${idx}`}
+                          className="flex max-w-full items-center gap-2 rounded-full border bg-muted px-3 py-1 text-xs"
+                        >
+                          <span className="truncate">
+                            {f.name} ({formatBytes(f.size)})
+                          </span>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={() => activeFlowId && removePendingAttachment(activeFlowId, idx)}
+                            title="移除附件"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 rounded-xl border border-border bg-background hover:bg-muted"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="上传附件"
+                      >
+                        <IconComponent name="Plus" className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className={cn(
+                              "group h-9 gap-2 rounded-full border px-3",
+                              conversationMode === "chat"
+                                ? "border-border bg-background hover:bg-muted"
+                                : "border-blue-600 bg-blue-600 text-white hover:bg-blue-600/90",
+                            )}
+                            title="选择对话模式"
+                          >
+                            <IconComponent
+                              name={
+                                conversationMode === "storyboard"
+                                  ? "Film"
+                                  : conversationMode === "inspiration_film"
+                                    ? "Clapperboard"
+                                    : conversationMode === "moodboard"
+                                      ? "LayoutGrid"
+                                      : "MessageCircle"
+                              }
+                              className={cn("h-4 w-4", conversationMode === "chat" ? "" : "text-white")}
+                              aria-hidden="true"
+                            />
+                            <span className="text-sm">{modeLabel(conversationMode)}</span>
+                            <IconComponent
+                              name="ChevronDown"
+                              className={cn(
+                                "h-4 w-4 opacity-70 transition-transform duration-200",
+                                "group-data-[state=open]:rotate-180",
+                              )}
+                              aria-hidden="true"
+                            />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent side="top" align="start" className="min-w-[240px] rounded-2xl p-2">
+                          <DropdownMenuItem
+                            className="rounded-xl"
+                            onClick={() => setConversationMode("storyboard")}
+                          >
+                            <IconComponent name="Film" className="mr-2 h-4 w-4" aria-hidden="true" />
+                            分镜策划
+                            <span className="ml-auto text-xs text-muted-foreground">1min</span>
+                            {conversationMode === "storyboard" && (
+                              <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="rounded-xl"
+                            onClick={() => setConversationMode("moodboard")}
+                          >
+                            <IconComponent name="LayoutGrid" className="mr-2 h-4 w-4" aria-hidden="true" />
+                            情绪板
+                            <span className="ml-auto text-xs text-muted-foreground">30s</span>
+                            {conversationMode === "moodboard" && (
+                              <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                            )}
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger className="rounded-xl">
+                              <IconComponent name="Image" className="mr-2 h-4 w-4" aria-hidden="true" />
+                              寻找灵感
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="min-w-[240px] rounded-2xl p-2">
+                              <DropdownMenuItem
+                                className="rounded-xl"
+                                onClick={() => setConversationMode("inspiration_film")}
+                              >
+                                <IconComponent name="Clapperboard" className="mr-2 h-4 w-4" aria-hidden="true" />
+                                电影镜头灵感
+                                <span className="ml-auto text-xs text-muted-foreground">30s</span>
+                                {conversationMode === "inspiration_film" && (
+                                  <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="rounded-xl"
+                                onClick={() => setConversationMode("inspiration_mj")}
+                              >
+                                <IconComponent name="Wand2" className="mr-2 h-4 w-4" aria-hidden="true" />
+                                MJ 风格
+                                <span className="ml-auto text-xs text-muted-foreground">30s</span>
+                                {conversationMode === "inspiration_mj" && (
+                                  <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="rounded-xl"
+                                onClick={() => setConversationMode("inspiration_unsplash")}
+                              >
+                                <IconComponent name="Image" className="mr-2 h-4 w-4" aria-hidden="true" />
+                                Unsplash 图片
+                                <span className="ml-auto text-xs text-muted-foreground">30s</span>
+                                {conversationMode === "inspiration_unsplash" && (
+                                  <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="rounded-xl"
+                                onClick={() => setConversationMode("inspiration_ad")}
+                              >
+                                <IconComponent name="Megaphone" className="mr-2 h-4 w-4" aria-hidden="true" />
+                                广告视频灵感
+                                <span className="ml-auto text-xs text-muted-foreground">30s</span>
+                                {conversationMode === "inspiration_ad" && (
+                                  <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="rounded-xl"
+                                onClick={() => setConversationMode("inspiration_stream")}
+                              >
+                                <IconComponent name="PlaySquare" className="mr-2 h-4 w-4" aria-hidden="true" />
+                                流媒体视频
+                                <span className="ml-auto text-xs text-muted-foreground">30s</span>
+                                {conversationMode === "inspiration_stream" && (
+                                  <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                                )}
+                              </DropdownMenuItem>
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+
+                          <DropdownMenuSeparator />
+
+                          <DropdownMenuItem
+                            className="rounded-xl"
+                            onClick={() => setConversationMode("chat")}
+                          >
+                            <IconComponent name="MessageCircle" className="mr-2 h-4 w-4" aria-hidden="true" />
+                            对话模式
+                            <span className="ml-auto text-xs text-muted-foreground">30s</span>
+                            {conversationMode === "chat" && (
+                              <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                            )}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="group h-9 gap-2 rounded-full border border-border bg-background px-3 hover:bg-muted"
+                            title="选择模型"
+                          >
+                            <IconComponent name="Zap" className="h-4 w-4" aria-hidden="true" />
+                            <span className="text-sm">{speedLabel(selectedModel)}</span>
+                            <IconComponent
+                              name="ChevronDown"
+                              className={cn(
+                                "h-4 w-4 opacity-70 transition-transform duration-200",
+                                "group-data-[state=open]:rotate-180",
+                              )}
+                              aria-hidden="true"
+                            />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent side="top" align="start" className="min-w-[240px] rounded-2xl p-2">
+                          <DropdownMenuItem
+                            className="rounded-xl"
+                            onClick={() => setSelectedModel("gemini-3-pro-preview")}
+                          >
+                            <IconComponent name="Brain" className="mr-2 h-4 w-4" aria-hidden="true" />
+                            思考模式
+                            <span className="ml-auto text-xs text-muted-foreground">Pro</span>
+                            {selectedModel === "gemini-3-pro-preview" && (
+                              <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="rounded-xl"
+                            onClick={() => setSelectedModel("gemini-3-flash-preview")}
+                          >
+                            <IconComponent name="Zap" className="mr-2 h-4 w-4" aria-hidden="true" />
+                            极速模式
+                            {selectedModel === "gemini-3-flash-preview" && (
+                              <IconComponent name="Check" className="ml-auto h-4 w-4" aria-hidden="true" />
+                            )}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
                     <Button
                       type="button"
-                      variant="ghost"
                       size="icon"
-                      className="h-9 w-9 rounded-xl border border-border bg-background hover:bg-muted"
-                      onClick={() => fileInputRef.current?.click()}
-                      title="上传附件"
+                      className="h-10 w-10 rounded-full"
+                      onClick={() => void send()}
+                      disabled={isSending || (draft.trim().length === 0 && pendingFiles.length === 0)}
+                      title="发送"
                     >
-                      <IconComponent name="Plus" className="h-4 w-4" aria-hidden="true" />
+                      {isSending ? (
+                        <IconComponent name="LoaderCircle" className="h-5 w-5 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <IconComponent name="ArrowUp" className="h-5 w-5" aria-hidden="true" />
+                      )}
                     </Button>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className={cn(
-                            "group h-9 gap-2 rounded-full border px-3",
-                            conversationMode === "chat"
-                              ? "border-border bg-background hover:bg-muted"
-                              : "border-blue-600 bg-blue-600 text-white hover:bg-blue-600/90",
-                          )}
-                          title="选择对话模式"
-                        >
-                          <IconComponent
-                            name={
-                              conversationMode === "storyboard"
-                                ? "Film"
-                                : conversationMode === "inspiration_film"
-                                  ? "Clapperboard"
-                                  : conversationMode === "moodboard"
-                                    ? "LayoutGrid"
-                                    : "MessageCircle"
-                            }
-                            className={cn("h-4 w-4", conversationMode === "chat" ? "" : "text-white")}
-                            aria-hidden="true"
-                          />
-                          <span className="text-sm">{modeLabel(conversationMode)}</span>
-                          <IconComponent
-                            name="ChevronDown"
-                            className={cn(
-                              "h-4 w-4 opacity-70 transition-transform duration-200",
-                              "group-data-[state=open]:rotate-180",
-                            )}
-                            aria-hidden="true"
-                          />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent side="top" align="start" className="min-w-[240px] rounded-2xl p-2">
-                        <DropdownMenuItem
-                          className="rounded-xl"
-                          onClick={() => setConversationMode("storyboard")}
-                        >
-                          <IconComponent name="Film" className="mr-2 h-4 w-4" aria-hidden="true" />
-                          分镜策划
-                          <span className="ml-auto text-xs text-muted-foreground">1min</span>
-                          {conversationMode === "storyboard" && (
-                            <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="rounded-xl"
-                          onClick={() => setConversationMode("moodboard")}
-                        >
-                          <IconComponent name="LayoutGrid" className="mr-2 h-4 w-4" aria-hidden="true" />
-                          情绪板
-                          <span className="ml-auto text-xs text-muted-foreground">30s</span>
-                          {conversationMode === "moodboard" && (
-                            <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                          )}
-                        </DropdownMenuItem>
-
-                        <DropdownMenuSub>
-                          <DropdownMenuSubTrigger className="rounded-xl">
-                            <IconComponent name="Image" className="mr-2 h-4 w-4" aria-hidden="true" />
-                            寻找灵感
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent className="min-w-[240px] rounded-2xl p-2">
-                            <DropdownMenuItem
-                              className="rounded-xl"
-                              onClick={() => setConversationMode("inspiration_film")}
-                            >
-                              <IconComponent name="Clapperboard" className="mr-2 h-4 w-4" aria-hidden="true" />
-                              电影镜头灵感
-                              <span className="ml-auto text-xs text-muted-foreground">30s</span>
-                              {conversationMode === "inspiration_film" && (
-                                <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                              )}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="rounded-xl"
-                              onClick={() => setConversationMode("inspiration_mj")}
-                            >
-                              <IconComponent name="Wand2" className="mr-2 h-4 w-4" aria-hidden="true" />
-                              MJ 风格
-                              <span className="ml-auto text-xs text-muted-foreground">30s</span>
-                              {conversationMode === "inspiration_mj" && (
-                                <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                              )}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="rounded-xl"
-                              onClick={() => setConversationMode("inspiration_unsplash")}
-                            >
-                              <IconComponent name="Image" className="mr-2 h-4 w-4" aria-hidden="true" />
-                              Unsplash 图片
-                              <span className="ml-auto text-xs text-muted-foreground">30s</span>
-                              {conversationMode === "inspiration_unsplash" && (
-                                <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                              )}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="rounded-xl"
-                              onClick={() => setConversationMode("inspiration_ad")}
-                            >
-                              <IconComponent name="Megaphone" className="mr-2 h-4 w-4" aria-hidden="true" />
-                              广告视频灵感
-                              <span className="ml-auto text-xs text-muted-foreground">30s</span>
-                              {conversationMode === "inspiration_ad" && (
-                                <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                              )}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="rounded-xl"
-                              onClick={() => setConversationMode("inspiration_stream")}
-                            >
-                              <IconComponent name="PlaySquare" className="mr-2 h-4 w-4" aria-hidden="true" />
-                              流媒体视频
-                              <span className="ml-auto text-xs text-muted-foreground">30s</span>
-                              {conversationMode === "inspiration_stream" && (
-                                <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                              )}
-                            </DropdownMenuItem>
-                          </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                          className="rounded-xl"
-                          onClick={() => setConversationMode("chat")}
-                        >
-                          <IconComponent name="MessageCircle" className="mr-2 h-4 w-4" aria-hidden="true" />
-                          对话模式
-                          <span className="ml-auto text-xs text-muted-foreground">30s</span>
-                          {conversationMode === "chat" && (
-                            <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                          )}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="group h-9 gap-2 rounded-full border border-border bg-background px-3 hover:bg-muted"
-                          title="选择模型"
-                        >
-                          <IconComponent name="Zap" className="h-4 w-4" aria-hidden="true" />
-                          <span className="text-sm">{speedLabel(selectedModel)}</span>
-                          <IconComponent
-                            name="ChevronDown"
-                            className={cn(
-                              "h-4 w-4 opacity-70 transition-transform duration-200",
-                              "group-data-[state=open]:rotate-180",
-                            )}
-                            aria-hidden="true"
-                          />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent side="top" align="start" className="min-w-[240px] rounded-2xl p-2">
-                        <DropdownMenuItem
-                          className="rounded-xl"
-                          onClick={() => setSelectedModel("gemini-3-pro-preview")}
-                        >
-                          <IconComponent name="Brain" className="mr-2 h-4 w-4" aria-hidden="true" />
-                          思考模式
-                          <span className="ml-auto text-xs text-muted-foreground">Pro</span>
-                          {selectedModel === "gemini-3-pro-preview" && (
-                            <IconComponent name="Check" className="ml-2 h-4 w-4" aria-hidden="true" />
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="rounded-xl"
-                          onClick={() => setSelectedModel("gemini-3-flash-preview")}
-                        >
-                          <IconComponent name="Zap" className="mr-2 h-4 w-4" aria-hidden="true" />
-                          极速模式
-                          {selectedModel === "gemini-3-flash-preview" && (
-                            <IconComponent name="Check" className="ml-auto h-4 w-4" aria-hidden="true" />
-                          )}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                   </div>
-
-                  <Button
-                    type="button"
-                    size="icon"
-                    className="h-10 w-10 rounded-full"
-                    onClick={() => void send()}
-                    disabled={isSending || (draft.trim().length === 0 && pendingFiles.length === 0)}
-                    title="发送"
-                  >
-                    {isSending ? (
-                      <IconComponent name="LoaderCircle" className="h-5 w-5 animate-spin" aria-hidden="true" />
-                    ) : (
-                      <IconComponent name="ArrowUp" className="h-5 w-5" aria-hidden="true" />
-                    )}
-                  </Button>
                 </div>
-              </div>
 
-              {/* Intentionally no API key hint here (per product UI). */}
-            </div>
-          </DialogPrimitive.Content>
+                {/* Intentionally no API key hint here (per product UI). */}
+              </div>
+            </DialogPrimitive.Content>
           </div>
         </DialogPrimitive.Portal>
       )}

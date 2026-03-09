@@ -15,8 +15,10 @@ import { ENABLE_DATASTAX_LANGFLOW } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import useTheme from "@/customization/hooks/use-custom-theme";
 import useAlertStore from "@/stores/alertStore";
+import useFlowStore from "@/stores/flowStore";
 import { cn } from "@/utils/utils";
 import FlowMenu from "./components/FlowMenu";
+import PublishDropdown from "@/components/core/flowToolbarComponent/components/deploy-dropdown";
 
 export default function AppHeader(): JSX.Element {
   const { t } = useTranslation();
@@ -27,6 +29,8 @@ export default function AppHeader(): JSX.Element {
   const notificationRef = useRef<HTMLButtonElement | null>(null);
   const notificationContentRef = useRef<HTMLDivElement | null>(null);
   useTheme();
+
+  const onFlowPage = useFlowStore((state) => state.onFlowPage);
 
   const topNavActive = useMemo(() => {
     const path = location.pathname || "/";
@@ -88,7 +92,7 @@ export default function AppHeader(): JSX.Element {
             <CustomProductSelector />
           </>
         )}
-        {!ENABLE_DATASTAX_LANGFLOW && (
+        {!ENABLE_DATASTAX_LANGFLOW && !onFlowPage && (
           <div className="flex items-center gap-1">
             <Button
               variant={topNavActive === "tv" ? "secondary" : "ghost"}
@@ -119,65 +123,83 @@ export default function AppHeader(): JSX.Element {
             </Button>
           </div>
         )}
+        {onFlowPage && <FlowMenu />}
       </div>
 
       {/* Middle Section */}
-      <div className="absolute left-1/2 -translate-x-1/2">
-        <FlowMenu />
-      </div>
+      {!onFlowPage && (
+        <div className="absolute left-1/2 -translate-x-1/2">
+          <FlowMenu />
+        </div>
+      )}
 
       {/* Right Section */}
       <div
         className={`relative left-3 z-30 flex shrink-0 items-center gap-3`}
         data-testid="header_right_section_wrapper"
       >
-        <AlertDropdown
-          notificationRef={notificationContentRef}
-          onClose={() => setActiveState(null)}
-        >
-          <ShadTooltip
-            content={t("Notifications and errors")}
-            side="bottom"
-            styleClasses="z-10"
-          >
-            <AlertDropdown onClose={() => setActiveState(null)}>
-              <Button
-                ref={notificationRef}
-                unstyled
-                onClick={() =>
-                  setActiveState((prev) =>
-                    prev === "notifications" ? null : "notifications",
-                  )
-                }
-                data-testid="notification_button"
+        {!onFlowPage ? (
+          <>
+            <AlertDropdown
+              notificationRef={notificationContentRef}
+              onClose={() => setActiveState(null)}
+            >
+              <ShadTooltip
+                content={t("Notifications and errors")}
+                side="bottom"
+                styleClasses="z-10"
               >
-                <div className="hit-area-hover group relative items-center rounded-md px-2 py-2 text-muted-foreground">
-                  <span className={getNotificationBadge()} />
-                  <ForwardedIconComponent
-                    name="Bell"
-                    className={`side-bar-button-size h-4 w-4 ${
-                      activeState === "notifications"
-                        ? "text-primary"
-                        : "text-muted-foreground group-hover:text-primary"
-                    }`}
-                    strokeWidth={2}
-                  />
-                  <span className="hidden whitespace-nowrap">
-                    {t("Notifications")}
-                  </span>
-                </div>
-              </Button>
+                <AlertDropdown onClose={() => setActiveState(null)}>
+                  <Button
+                    ref={notificationRef}
+                    unstyled
+                    onClick={() =>
+                      setActiveState((prev) =>
+                        prev === "notifications" ? null : "notifications",
+                      )
+                    }
+                    data-testid="notification_button"
+                  >
+                    <div className="hit-area-hover group relative items-center rounded-md px-2 py-2 text-muted-foreground">
+                      <span className={getNotificationBadge()} />
+                      <ForwardedIconComponent
+                        name="Bell"
+                        className={`side-bar-button-size h-4 w-4 ${activeState === "notifications"
+                          ? "text-primary"
+                          : "text-muted-foreground group-hover:text-primary"
+                          }`}
+                        strokeWidth={2}
+                      />
+                      <span className="hidden whitespace-nowrap">
+                        {t("Notifications")}
+                      </span>
+                    </div>
+                  </Button>
+                </AlertDropdown>
+              </ShadTooltip>
             </AlertDropdown>
-          </ShadTooltip>
-        </AlertDropdown>
-        <Separator
-          orientation="vertical"
-          className="my-auto h-7 dark:border-zinc-700"
-        />
+            <Separator
+              orientation="vertical"
+              className="my-auto h-7 dark:border-zinc-700"
+            />
 
-        <div className="flex">
-          <CustomAccountMenu />
-        </div>
+            <div className="flex">
+              <CustomAccountMenu />
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center gap-3 pr-4">
+            <Button
+              variant="secondary"
+              className="h-8 rounded-full px-4 text-sm font-medium text-white shadow-none hover:bg-zinc-800"
+              style={{ backgroundColor: "#2E2E32" }}
+            >
+              <ForwardedIconComponent name="Sparkles" className="mr-1.5 h-4 w-4 text-yellow-500" />
+              社区
+            </Button>
+            <PublishDropdown />
+          </div>
+        )}
       </div>
     </div>
   );

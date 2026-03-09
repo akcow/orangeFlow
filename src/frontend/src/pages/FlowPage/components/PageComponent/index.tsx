@@ -39,6 +39,11 @@ import { useAddComponent } from "@/hooks/use-add-component";
 import { nodeColorsName } from "@/utils/styleUtils";
 import { isSupportedNodeTypes } from "@/utils/utils";
 import GenericNode from "../../../../CustomNodes/GenericNode";
+import { Link } from "react-router-dom";
+import { Button } from "../../../../components/ui/button";
+import IconComponent from "../../../../components/common/genericIconComponent";
+import FlowMenu from "../../../../components/core/appHeaderComponent/components/FlowMenu";
+import PublishDropdown from "../../../../components/core/flowToolbarComponent/components/deploy-dropdown";
 import {
   UPLOAD_ALERT_LIST,
   UPLOAD_ERROR_ALERT,
@@ -643,11 +648,11 @@ export default function Page({
       const filteredChanges =
         marqueeSelectingRef.current
           ? changes.filter((change) => {
-              if (change.type !== "select") return true;
-              const nodeId = change.id as string;
-              const node = nodes.find((n) => n.id === nodeId);
-              return !(node && shouldDeselectNodeOnMarquee(node));
-            })
+            if (change.type !== "select") return true;
+            const nodeId = change.id as string;
+            const node = nodes.find((n) => n.id === nodeId);
+            return !(node && shouldDeselectNodeOnMarquee(node));
+          })
           : changes;
 
       if (!helperLineEnabled) {
@@ -1145,13 +1150,29 @@ export default function Page({
       {showCanvas ? (
         <>
           <div id="react-flow-id" className="h-full w-full bg-canvas relative">
+            <div className="absolute left-0 top-0 z-50 flex w-full justify-between p-4 pointer-events-none">
+              <div className="flex items-center gap-4 pointer-events-auto">
+                <Link to="/home" className="flex items-center gap-3 transition-opacity hover:opacity-85">
+                  <img src="/branding/orangeflow-icon-512.png" alt="OrangeFlow icon" className="h-9 w-9 rounded-2xl object-cover" />
+                </Link>
+                <div className="flex h-10 items-center rounded-xl bg-white/5 px-2 backdrop-blur-sm shadow-sm border border-black/5 dark:border-white/10">
+                  <FlowMenu />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pointer-events-auto">
+                <Button variant="secondary" className="h-10 rounded-full px-5 text-sm font-medium text-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:bg-[#3D3D42]" style={{ backgroundColor: "#2E2E32" }}>
+                  <IconComponent name="Sparkles" className="mr-1.5 h-[18px] w-[18px] text-yellow-500" />
+                  社区
+                </Button>
+                <PublishDropdown />
+              </div>
+            </div>
             <MemoizedCanvasControls
               view={view}
               setIsAddingNote={setIsAddingNote}
               shadowBoxWidth={shadowBoxWidth}
               shadowBoxHeight={shadowBoxHeight}
             />
-            {!view && <FlowToolbar />}
             <SelectionMenu
               lastSelection={lastSelection}
               isVisible={selectionMenuVisible}

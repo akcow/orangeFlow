@@ -47,7 +47,7 @@ export default function PublishDropdown() {
       description: "任何拥有此链接的人都可以查看并克隆你的画布。",
       actionLabel: "分享",
       iconName: "Link2",
-      onClick: () => {},
+      onClick: () => { },
     },
     {
       key: "move",
@@ -55,7 +55,7 @@ export default function PublishDropdown() {
       description: "将此项目转移到团队进行协作。",
       actionLabel: "移动",
       iconName: "ScanSearch",
-      onClick: () => {},
+      onClick: () => { },
     },
   ];
 
@@ -64,13 +64,12 @@ export default function PublishDropdown() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="ghost"
-            size="md"
-            className="!px-2.5 font-normal"
+            variant="secondary"
+            size="icon"
+            className="h-10 w-10 flex cursor-pointer items-center justify-center rounded-full bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:bg-gray-100 transition-colors"
             data-testid="publish-button"
           >
-            {t("Share")}
-            <IconComponent name="ChevronDown" className="!h-5 !w-5" />
+            <IconComponent name="Forward" className="h-[22px] w-[22px] text-gray-500" strokeWidth={2.5} />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -86,7 +85,7 @@ export default function PublishDropdown() {
               className={cn(
                 "group flex cursor-pointer items-start gap-2.5 rounded-none px-0 py-3 outline-none focus:bg-transparent data-[highlighted]:bg-transparent",
                 index !== deployMenuItems.length - 1 &&
-                  "border-b border-border",
+                "border-b border-border",
               )}
               disabled={item.disabled}
               onClick={item.onClick}

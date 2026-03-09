@@ -275,7 +275,7 @@ const Sidebar = React.forwardRef<
           <div
             data-sidebar="sidebar"
             className={cn(
-              "group flex h-full w-[--sidebar-width] flex-col bg-background text-foreground group-data-[side=left]:border-r group-data-[side=right]:border-l",
+              "group flex h-full w-[--sidebar-width] flex-col bg-popover text-foreground group-data-[side=left]:border-r group-data-[side=right]:border-l",
               className,
             )}
           >
@@ -331,7 +331,7 @@ const Sidebar = React.forwardRef<
           <div
             data-sidebar="sidebar"
             className={cn(
-              "flex h-full w-full flex-col bg-background",
+              "flex h-full w-full flex-col bg-popover",
               "group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-border group-data-[variant=floating]:shadow",
               // Add shadow on mobile
               "max-sm:shadow-lg",
@@ -710,7 +710,7 @@ const SidebarMenuAction = React.forwardRef<
         "peer-data-[size=lg]/menu-button:top-2.5",
         "group-data-[collapsible=icon]:hidden",
         showOnHover &&
-          "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-accent-foreground md:opacity-0",
+        "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-accent-foreground md:opacity-0",
         className,
       )}
       {...props}

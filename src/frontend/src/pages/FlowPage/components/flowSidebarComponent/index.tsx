@@ -466,7 +466,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
         initialTab={studioInitialTab}
       />
       <div className="fixed left-4 top-1/2 z-50 -translate-y-1/2 pointer-events-auto">
-        <div className="flex flex-col items-center gap-2 rounded-3xl border border-border bg-background/80 p-2 shadow-lg backdrop-blur">
+        <div className="flex flex-col items-center gap-2 rounded-3xl border border-border bg-popover/80 p-2 shadow-lg backdrop-blur">
           <Popover
             open={componentsOpen}
             onOpenChange={(open) => {
@@ -675,14 +675,14 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                 </Button>
               </PopoverTrigger>
             </ShadTooltip>
-              <PopoverContent
-                align="center"
-                side="right"
-                sideOffset={8}
-                className="h-[75vh] w-[800px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
-              >
-                <AssetsPanel onRequestClose={() => setAssetsOpen(false)} />
-              </PopoverContent>
+            <PopoverContent
+              align="center"
+              side="right"
+              sideOffset={8}
+              className="h-[75vh] w-[800px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+            >
+              <AssetsPanel onRequestClose={() => setAssetsOpen(false)} />
+            </PopoverContent>
           </Popover>
 
           <Popover

@@ -2,10 +2,12 @@ import { Outlet, useLocation } from "react-router-dom";
 import { TapNowHeader } from "@/components/TapNowHeader";
 import FlowMenu from "@/components/core/appHeaderComponent/components/FlowMenu";
 import useTheme from "@/customization/hooks/use-custom-theme";
+import useFlowStore from "@/stores/flowStore";
 
 export function DashboardWrapperPage() {
   useTheme();
   const location = useLocation();
+  const onFlowPage = useFlowStore((state) => state.onFlowPage);
 
   const isTapNowHeaderRoute =
     location.pathname === "/" ||
@@ -18,11 +20,11 @@ export function DashboardWrapperPage() {
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden">
-      {isTapNowHeaderRoute ? (
+      {!onFlowPage && (isTapNowHeaderRoute ? (
         <TapNowHeader />
       ) : (
         <TapNowHeader centerContent={<FlowMenu />} dataTestId="app-header" />
-      )}
+      ))}
       <div className="flex w-full flex-1 flex-row overflow-hidden">
         <Outlet />
       </div>

@@ -16,6 +16,9 @@ import useAuthStore from "@/stores/authStore";
 import useAlertStore from "@/stores/alertStore";
 import { cn } from "@/utils/utils";
 import TeamMenu from "@/components/core/appHeaderComponent/components/TeamMenu";
+import useFlowStore from "@/stores/flowStore";
+import PublishDropdown from "@/components/core/flowToolbarComponent/components/deploy-dropdown";
+import IconComponent from "@/components/common/genericIconComponent";
 
 type NavKey = "tv" | "templates" | "workspace" | "home";
 interface TapNowHeaderProps {
@@ -42,10 +45,11 @@ export const TapNowHeader = ({
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
   const [wordmarkLoadFailed, setWordmarkLoadFailed] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const isUserMenuOpen = false;
   const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
 
   const activeNav = useMemo(() => getActiveNav(location.pathname), [location.pathname]);
+  const onFlowPage = useFlowStore((state) => state.onFlowPage);
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
   const lang = isZh ? "CN" : "EN";
   const username = userData?.username || (isZh ? "\u7528\u6237" : "User");
@@ -80,9 +84,14 @@ export const TapNowHeader = ({
   return (
     <header
       data-testid={dataTestId}
-      className="sticky top-0 z-50 flex h-[72px] w-full items-center justify-between border-b border-white/10 bg-black/75 backdrop-blur-md px-4 text-white md:px-8"
+      className={cn(
+        "sticky top-0 z-50 flex h-[72px] w-full items-center justify-between px-4 md:px-8",
+        onFlowPage
+          ? "absolute left-0 top-0 pointer-events-none"
+          : "border-b border-white/10 bg-black/75 backdrop-blur-md text-white"
+      )}
     >
-      <div className="relative z-20 flex min-w-0 items-center gap-4 md:gap-8">
+      <div className={cn("relative z-20 flex min-w-0 items-center gap-4 md:gap-8", onFlowPage ? "pointer-events-auto" : "")}>
         <Link
           to="/home"
           className="flex items-center gap-3 transition-opacity hover:opacity-85"
@@ -109,71 +118,82 @@ export const TapNowHeader = ({
             />
           )}
         </Link>
+        {onFlowPage && centerContent && (
+          <div className="flex items-center">
+            {centerContent}
+          </div>
+        )}
 
-        <nav className="hidden items-center gap-1 md:flex">
-          {navItems.map((item) => (
-            <Link
-              key={item.key}
-              to={item.to}
-              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${activeNav === item.key
-                ? "bg-white/[0.08] text-white"
-                : "text-white/65 hover:bg-white/[0.06] hover:text-white"
-                }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        {!onFlowPage && (
+          <nav className="hidden items-center gap-1 md:flex">
+            {navItems.map((item) => (
+              <Link
+                key={item.key}
+                to={item.to}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${activeNav === item.key
+                  ? "bg-white/[0.08] text-white"
+                  : "text-white/65 hover:bg-white/[0.06] hover:text-white"
+                  }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </div>
 
-      {centerContent ? (
+      {!onFlowPage && centerContent ? (
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden -translate-x-1/2 -translate-y-1/2 md:block">
           <div className="pointer-events-auto">{centerContent}</div>
         </div>
       ) : null}
 
       <div className="relative z-20 flex items-center gap-2 md:gap-3">
-        <Button
-          variant="ghost"
-          className="hidden h-10 rounded-xl px-4 text-sm font-medium text-white/75 hover:bg-white/[0.08] hover:text-white md:inline-flex"
-        >
-          {isZh ? "\u4EF7\u683C\u65B9\u6848" : "Pricing"}
-        </Button>
+        {!onFlowPage && (
+          <Button
+            variant="ghost"
+            className="hidden h-10 rounded-xl px-4 text-sm font-medium text-white/75 hover:bg-white/[0.08] hover:text-white md:inline-flex"
+          >
+            {isZh ? "\u4EF7\u683C\u65B9\u6848" : "Pricing"}
+          </Button>
+        )}
 
-        <DropdownMenu open={isLanguageMenuOpen} onOpenChange={setIsLanguageMenuOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="flex h-10 touch-manipulation select-none items-center gap-1 rounded-xl border border-white/15 px-3 text-sm font-medium text-white/90 hover:bg-white/[0.08] hover:text-white active:scale-100"
-              onContextMenu={(event) => event.preventDefault()}
-              style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
-            >
-              <span>{lang}</span>
-              <ChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 opacity-65 transition-transform duration-200",
-                  isLanguageMenuOpen && "rotate-180",
-                )}
-              />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="border-white/10 bg-[#111] text-white">
-            <DropdownMenuItem
-              onClick={() => changeLanguage("zh-CN")}
-              className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
-            >
-              {"\u4E2D\u6587 (CN)"}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => changeLanguage("en")}
-              className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
-            >
-              English (EN)
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!onFlowPage && (
+          <DropdownMenu open={isLanguageMenuOpen} onOpenChange={setIsLanguageMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="flex h-10 touch-manipulation select-none items-center gap-1 rounded-xl border border-white/15 px-3 text-sm font-medium text-white/90 hover:bg-white/[0.08] hover:text-white active:scale-100"
+                onContextMenu={(event) => event.preventDefault()}
+                style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+              >
+                <span>{lang}</span>
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 opacity-65 transition-transform duration-200",
+                    isLanguageMenuOpen && "rotate-180",
+                  )}
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="border-white/10 bg-[#111] text-white">
+              <DropdownMenuItem
+                onClick={() => changeLanguage("zh-CN")}
+                className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
+              >
+                {"\u4E2D\u6587 (CN)"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => changeLanguage("en")}
+                className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
+              >
+                English (EN)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
-        {isAuthenticated && userData ? (
+        {isAuthenticated && userData && !onFlowPage ? (
           <>
             <TeamMenu />
             <DropdownMenu open={isAvatarMenuOpen} onOpenChange={setIsAvatarMenuOpen}>
@@ -270,13 +290,26 @@ export const TapNowHeader = ({
               </DropdownMenuContent>
             </DropdownMenu>
           </>
-        ) : (
+        ) : !onFlowPage ? (
           <Button
             onClick={() => navigate("/login")}
             className="h-10 rounded-xl border border-white/10 bg-white px-5 text-black hover:bg-gray-200"
           >
             {isZh ? "\u767B\u5F55" : "Login"}
           </Button>
+        ) : null}
+        {onFlowPage && (
+          <div className="pointer-events-auto flex items-center gap-3">
+            <Button
+              variant="secondary"
+              className="h-8 rounded-full px-4 text-sm font-medium text-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:bg-[#3D3D42]"
+              style={{ backgroundColor: "#2E2E32" }}
+            >
+              <IconComponent name="Sparkles" className="mr-1.5 h-4 w-4 text-yellow-500" />
+              社区
+            </Button>
+            <PublishDropdown />
+          </div>
         )}
       </div>
     </header>
