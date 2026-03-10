@@ -34,6 +34,7 @@ import { useGetBuildsQuery } from "@/controllers/API/queries/_builds";
 import CustomLoader from "@/customization/components/custom-loader";
 import { track } from "@/customization/utils/analytics";
 import useAutoSaveFlow from "@/hooks/flows/use-autosave-flow";
+import useSaveFlow from "@/hooks/flows/use-save-flow";
 import useUploadFlow from "@/hooks/flows/use-upload-flow";
 import { useAddComponent } from "@/hooks/use-add-component";
 import { nodeColorsName } from "@/utils/styleUtils";
@@ -90,6 +91,8 @@ import CanvasAssistantDrawer from "@/components/core/canvasAssistantComponent/Ca
 import CanvasAssistantLauncher from "@/components/core/canvasAssistantComponent/CanvasAssistantLauncher";
 import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import { useCanvasAssistantStore } from "@/stores/canvasAssistantStore";
+import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
+import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import {
   getHelperLines,
   getSnapPosition,
@@ -117,6 +120,69 @@ const nodeTypes = {
 const edgeTypes = {
   default: DefaultEdge,
 };
+
+const CLIPBOARD_IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "bmp",
+  "gif",
+  "tiff",
+  "svg",
+  "heic",
+  "heif",
+]);
+
+const CLIPBOARD_VIDEO_EXTENSIONS = new Set([
+  "mp4",
+  "mov",
+  "webm",
+  "mkv",
+  "avi",
+  "m4v",
+]);
+
+const CLIPBOARD_AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "wav",
+  "m4a",
+  "aac",
+  "ogg",
+  "flac",
+]);
+
+type UserUploadNodeType =
+  | "UserUploadImage"
+  | "UserUploadVideo"
+  | "UserUploadAudio";
+
+function inferClipboardResourceNodeType(file: File): UserUploadNodeType | null {
+  const mime = String(file.type || "").toLowerCase();
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+
+  if (mime.startsWith("image/") || CLIPBOARD_IMAGE_EXTENSIONS.has(ext)) {
+    return "UserUploadImage";
+  }
+  if (mime.startsWith("video/") || CLIPBOARD_VIDEO_EXTENSIONS.has(ext)) {
+    return "UserUploadVideo";
+  }
+  if (mime.startsWith("audio/") || CLIPBOARD_AUDIO_EXTENSIONS.has(ext)) {
+    return "UserUploadAudio";
+  }
+  return null;
+}
+
+function getClipboardFileName(file: File, nodeType: UserUploadNodeType): string {
+  if (file.name?.trim()) return file.name;
+  const fallbackExt =
+    nodeType === "UserUploadImage"
+      ? "png"
+      : nodeType === "UserUploadVideo"
+        ? "mp4"
+        : "mp3";
+  return `${nodeType.toLowerCase()}-${Date.now()}.${fallbackExt}`;
+}
 
 export default function Page({
   view,
@@ -180,6 +246,14 @@ export default function Page({
   const [lastSelection, setLastSelection] =
     useState<OnSelectionChangeParams | null>(null);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
+  const saveFlow = useSaveFlow();
+  const { mutateAsync: uploadResourceFile } = usePostUploadFile();
+  const { validateFileSize } = useFileSizeValidator();
+  const pendingInternalPastePositionRef = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const pendingInternalPasteTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setCanvasAssistantActiveFlowId(id ?? null);
@@ -431,6 +505,284 @@ export default function Page({
     useFlowStore.setState({ autoSaveFlow });
   }, [autoSaveFlow]);
 
+  const clearPendingInternalPaste = useCallback(() => {
+    if (pendingInternalPasteTimerRef.current !== null) {
+      window.clearTimeout(pendingInternalPasteTimerRef.current);
+      pendingInternalPasteTimerRef.current = null;
+    }
+    pendingInternalPastePositionRef.current = null;
+  }, []);
+
+  const cancelPendingInternalPasteTimer = useCallback(() => {
+    if (pendingInternalPasteTimerRef.current !== null) {
+      window.clearTimeout(pendingInternalPasteTimerRef.current);
+      pendingInternalPasteTimerRef.current = null;
+    }
+  }, []);
+
+  const executeInternalPaste = useCallback(
+    (screenPosition?: { x: number; y: number }) => {
+      if (!lastCopiedSelection) return;
+      takeSnapshot();
+      paste(lastCopiedSelection, {
+        x: screenPosition?.x ?? position.current.x,
+        y: screenPosition?.y ?? position.current.y,
+      });
+    },
+    [lastCopiedSelection, paste, takeSnapshot],
+  );
+
+  const pasteClipboardResources = useCallback(
+    async (files: File[], screenPosition: { x: number; y: number }) => {
+      if (isLocked) return false;
+
+      const filesWithType = files
+        .map((file) => ({
+          file,
+          nodeType: inferClipboardResourceNodeType(file),
+        }))
+        .filter(
+          (item): item is { file: File; nodeType: UserUploadNodeType } =>
+            item.nodeType !== null,
+        );
+
+      if (!filesWithType.length) {
+        return false;
+      }
+
+      if (!currentFlowId) {
+        setErrorData({
+          title: "Unable to paste resources",
+          list: ["Please save the flow first, then paste again."],
+        });
+        return true;
+      }
+
+      const createdNodes: AllNodeType[] = [];
+      const uploadErrors: string[] = [];
+      const uploadQueue: Array<{
+        nodeId: string;
+        file: File;
+        fileName: string;
+        localPreviewPath: string;
+      }> = [];
+
+      for (let index = 0; index < filesWithType.length; index += 1) {
+        const { file, nodeType } = filesWithType[index]!;
+        const fileName = getClipboardFileName(file, nodeType);
+
+        try {
+          validateFileSize(file);
+
+          const template = (templates as any)?.[nodeType];
+          if (!template) {
+            throw new Error(`Template "${nodeType}" is not loaded.`);
+          }
+
+          const seededTemplate = cloneDeep(template);
+          const localPreviewPath = URL.createObjectURL(file);
+          if (seededTemplate.template?.file) {
+            seededTemplate.template.file.value = fileName;
+            seededTemplate.template.file.file_path = localPreviewPath;
+          }
+
+          const offset = index * 36;
+          const flowPosition = reactFlowInstance
+            ? reactFlowInstance.screenToFlowPosition({
+                x: screenPosition.x + offset,
+                y: screenPosition.y + offset,
+              })
+            : { x: 0, y: 0 };
+          const nodeId = getNodeId(nodeType);
+
+          createdNodes.push({
+            id: nodeId,
+            type: "genericNode",
+            position: flowPosition,
+            data: {
+              node: seededTemplate,
+              showNode: !seededTemplate.minimized,
+              type: nodeType,
+              id: nodeId,
+            },
+            selected: false,
+          } as AllNodeType);
+
+          uploadQueue.push({
+            nodeId,
+            file,
+            fileName,
+            localPreviewPath,
+          });
+        } catch (error: any) {
+          uploadErrors.push(
+            `${fileName}: ${String(error?.message ?? "Cannot prepare preview")}`,
+          );
+        }
+      }
+
+      if (createdNodes.length > 0) {
+        takeSnapshot();
+        setNodes((currentNodes) => {
+          const unselectedNodes = (currentNodes ?? []).map((node) => ({
+            ...node,
+            selected: false,
+          }));
+          const nextNodes = createdNodes.map((node, index) => ({
+            ...node,
+            selected: index === createdNodes.length - 1,
+          }));
+          return [...unselectedNodes, ...nextNodes];
+        });
+      }
+
+      if (!uploadQueue.length) {
+        if (uploadErrors.length > 0) {
+          setErrorData({
+            title: "Some resources failed to paste",
+            list: uploadErrors.slice(0, 5),
+          });
+        }
+        return true;
+      }
+
+      try {
+        // Ensure backend flow exists before uploading clipboard files.
+        await saveFlow();
+      } catch (error: any) {
+        setErrorData({
+          title: "Pasted resources are local-only",
+          list: [
+            String(
+              error?.message ??
+                "Failed to save flow before upload. You can retry saving manually.",
+            ),
+          ],
+        });
+        return true;
+      }
+
+      for (const item of uploadQueue) {
+        try {
+          const uploaded = await uploadResourceFile({
+            file: item.file,
+            id: currentFlowId,
+          });
+          const serverPath = String((uploaded as any)?.file_path ?? "").trim();
+          if (!serverPath) {
+            throw new Error("Missing file_path in upload response.");
+          }
+
+          setNodes((currentNodes) =>
+            (currentNodes ?? []).map((node) => {
+              if (node.id !== item.nodeId) return node;
+              const updatedNode = cloneDeep(node) as any;
+              const fileTemplate = updatedNode?.data?.node?.template?.file;
+              if (fileTemplate) {
+                fileTemplate.value = item.fileName;
+                fileTemplate.file_path = serverPath;
+              }
+              return updatedNode;
+            }),
+          );
+
+          URL.revokeObjectURL(item.localPreviewPath);
+        } catch (error: any) {
+          uploadErrors.push(
+            `${item.fileName}: ${String(error?.message ?? "Upload failed")}`,
+          );
+        }
+      }
+
+      if (uploadErrors.length > 0) {
+        setErrorData({
+          title: "Some resources failed to paste",
+          list: uploadErrors.slice(0, 5),
+        });
+      }
+
+      return true;
+    },
+    [
+      currentFlowId,
+      isLocked,
+      reactFlowInstance,
+      saveFlow,
+      setErrorData,
+      setNodes,
+      takeSnapshot,
+      templates,
+      uploadResourceFile,
+      validateFileSize,
+    ],
+  );
+
+  const handleNativePaste = useCallback(
+    async (event: ClipboardEvent) => {
+      if (isLocked) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.(".noflow")) return;
+      cancelPendingInternalPasteTimer();
+
+      const clipboardItems = Array.from(event.clipboardData?.items ?? []);
+      const clipboardFiles = clipboardItems
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file instanceof File);
+
+      if (clipboardFiles.length > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        (event as unknown as Event).stopImmediatePropagation();
+        const pendingPosition = pendingInternalPastePositionRef.current;
+        const handled = await pasteClipboardResources(
+          clipboardFiles,
+          position.current,
+        );
+        if (handled) {
+          clearPendingInternalPaste();
+          return;
+        }
+        if (pendingPosition && lastCopiedSelection) {
+          clearPendingInternalPaste();
+          executeInternalPaste(pendingPosition);
+          return;
+        }
+        clearPendingInternalPaste();
+        return;
+      }
+
+      if (pendingInternalPastePositionRef.current && lastCopiedSelection) {
+        const pendingPosition = pendingInternalPastePositionRef.current;
+        clearPendingInternalPaste();
+        event.preventDefault();
+        event.stopPropagation();
+        (event as unknown as Event).stopImmediatePropagation();
+        executeInternalPaste(pendingPosition);
+      }
+    },
+    [
+      clearPendingInternalPaste,
+      cancelPendingInternalPasteTimer,
+      executeInternalPaste,
+      isLocked,
+      lastCopiedSelection,
+      pasteClipboardResources,
+    ],
+  );
+
+  useEffect(() => {
+    const listener = (event: ClipboardEvent) => {
+      void handleNativePaste(event);
+    };
+
+    document.addEventListener("paste", listener, true);
+    return () => {
+      document.removeEventListener("paste", listener, true);
+      clearPendingInternalPaste();
+    };
+  }, [clearPendingInternalPaste, handleNativePaste]);
+
   function handleUndo(e: KeyboardEvent) {
     if (!isWrappedWithClass(e, "noflow")) {
       e.preventDefault();
@@ -502,20 +854,21 @@ export default function Page({
   }
 
   function handlePaste(e: KeyboardEvent) {
-    if (!isWrappedWithClass(e, "noflow")) {
-      e.preventDefault();
-      (e as unknown as Event).stopImmediatePropagation();
-      if (
-        window.getSelection()?.toString().length === 0 &&
-        lastCopiedSelection
-      ) {
-        takeSnapshot();
-        paste(lastCopiedSelection, {
-          x: position.current.x,
-          y: position.current.y,
-        });
-      }
-    }
+    if (isWrappedWithClass(e, "noflow")) return;
+    if ((window.getSelection()?.toString().length ?? 0) > 0) return;
+    if (!lastCopiedSelection) return;
+
+    clearPendingInternalPaste();
+    pendingInternalPastePositionRef.current = {
+      x: position.current.x,
+      y: position.current.y,
+    };
+    pendingInternalPasteTimerRef.current = window.setTimeout(() => {
+      const pendingPosition = pendingInternalPastePositionRef.current;
+      clearPendingInternalPaste();
+      if (!pendingPosition) return;
+      executeInternalPaste(pendingPosition);
+    }, 120);
   }
 
   function handleDelete(e: KeyboardEvent) {

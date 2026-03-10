@@ -55,6 +55,15 @@ export const checkCodeValidity = (
   templates: { [key: string]: any },
 ) => {
   if (!data?.node || !templates) return;
+  // Tool-generated preview/result nodes (e.g. 擦除结果) intentionally diverge from
+  // the base component template and should not participate in upgrade prompts.
+  if (data.cropPreviewOnly) {
+    return {
+      outdated: false,
+      breakingChange: false,
+      userEdited: data.node?.edited ?? false,
+    };
+  }
   const template = templates[data.type]?.template;
   const currentCode = template?.code?.value;
   const thisNodesCode = data.node!.template?.code?.value;

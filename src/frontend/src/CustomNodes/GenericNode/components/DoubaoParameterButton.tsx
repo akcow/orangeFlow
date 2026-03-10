@@ -183,9 +183,8 @@ export function DoubaoParameterButton({
       : String(displayBaseValue);
   const storedValueString =
     storedValue === undefined || storedValue === null ? "" : String(storedValue);
-  const hasDisabledOptions = Boolean(disabledOptions?.length);
   const effectiveValue =
-    hasDisabledOptions && !enabledOptionStrings.has(displayValueString)
+    displayValueString && !enabledOptionStrings.has(displayValueString)
       ? visibleOptions[0]?.option ?? displayBaseValue
       : displayBaseValue;
   const displayValue = formatControlValue(name, effectiveValue);
@@ -204,7 +203,6 @@ export function DoubaoParameterButton({
   };
 
   useEffect(() => {
-    if (!hasDisabledOptions) return;
     if (!visibleOptions.length) return;
     if (enabledOptionStrings.has(storedValueString)) return;
 
@@ -217,7 +215,6 @@ export function DoubaoParameterButton({
     storedValueString,
     enabledOptionStrings,
     handleOnNewValue,
-    hasDisabledOptions,
     visibleOptions,
   ]);
 
@@ -521,5 +518,4 @@ export function buildRangeOptions(templateField: unknown): number[] {
   }
   return options;
 }
-
 

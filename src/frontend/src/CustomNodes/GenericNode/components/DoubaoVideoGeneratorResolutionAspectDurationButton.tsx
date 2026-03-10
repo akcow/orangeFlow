@@ -48,7 +48,7 @@ function resolveEffectiveValue(
   if (!config) return undefined;
   const baseValue = config.value ?? config.template?.value;
   const baseString = baseValue === undefined || baseValue === null ? "" : String(baseValue);
-  if (!config.disabledOptions?.length) return baseValue;
+  if (!baseString) return baseValue;
   if (baseString && enabledSet?.has(baseString)) return baseValue;
   return visible[0] ?? baseValue;
 }
@@ -291,9 +291,6 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   // Keep values valid when constraints change (mirrors DoubaoParameterButton behavior).
   useEffect(() => {
     if (!aspectRatioConfig) return;
-    // For Vidu we may override the visible option-set based on mode (t2v/i2v/r2v),
-    // so keep the stored value valid even when disabledOptions is empty.
-    if (!aspectRatioConfig.disabledOptions?.length && !isVidu) return;
     if (!aspectRatio.visible.length) return;
     const stored = aspectRatioConfig.template?.value ?? aspectRatioConfig.value;
     const storedString = stored === undefined || stored === null ? "" : String(stored);
@@ -303,16 +300,13 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   }, [
     aspectRatio.enabledSet,
     aspectRatio.visible,
-    aspectRatioConfig?.disabledOptions,
     aspectRatioConfig?.template?.value,
     aspectRatioConfig?.value,
     handleAspectRatioChange,
-    isVidu,
   ]);
 
   useEffect(() => {
     if (!resolutionConfig) return;
-    if (!resolutionConfig.disabledOptions?.length) return;
     if (!resolution.visible.length) return;
     const stored = resolutionConfig.template?.value ?? resolutionConfig.value;
     const storedString = stored === undefined || stored === null ? "" : String(stored);
@@ -322,7 +316,6 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   }, [
     resolution.enabledSet,
     resolution.visible,
-    resolutionConfig?.disabledOptions,
     resolutionConfig?.template?.value,
     resolutionConfig?.value,
     handleResolutionChange,
@@ -330,20 +323,19 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
 
   useEffect(() => {
     if (!durationConfig) return;
-    if (!durationConfig.disabledOptions?.length) return;
     if (!duration.visible.length) return;
     const stored = durationConfig.template?.value ?? durationConfig.value;
-    const storedNumber =
-      stored === undefined || stored === null ? NaN : Number(stored);
-    if (Number.isNaN(storedNumber)) return;
-    if (duration.enabledSet.has(String(storedNumber))) return;
+    const storedString = stored === undefined || stored === null ? "" : String(stored);
+    if (!storedString) return;
+    const storedNumber = Number(storedString);
+    if (duration.enabledSet.has(storedString)) return;
+    if (Number.isFinite(storedNumber) && duration.enabledSet.has(String(storedNumber))) return;
     const next = duration.visible[0];
     if (next === undefined) return;
     handleDurationChange({ value: Number(next) }, { skipSnapshot: true });
   }, [
     duration.enabledSet,
     duration.visible,
-    durationConfig?.disabledOptions,
     durationConfig?.template?.value,
     durationConfig?.value,
     handleDurationChange,

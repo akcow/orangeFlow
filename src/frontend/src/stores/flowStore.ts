@@ -425,6 +425,21 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     const nodes = cloneDeep(flow?.data?.nodes ?? []);
     const edges = cloneDeep(flow?.data?.edges ?? []);
 
+    // Backward-compat: older tool-generated result nodes may miss `cropPreviewOnly`.
+    // Mark targets of tool edges so they keep "result node" behavior and skip
+    // upgrade prompts intended for regular editable components.
+    const toolEdgeTargetIds = new Set(
+      edges
+        .filter((edge) => String(edge?.className ?? "").includes("doubao-tool-edge"))
+        .map((edge) => String(edge.target)),
+    );
+    nodes.forEach((node) => {
+      if (node.type !== "genericNode") return;
+      if (!toolEdgeTargetIds.has(String(node.id))) return;
+      if (node.data?.type !== "DoubaoImageCreator") return;
+      node.data.cropPreviewOnly = true;
+    });
+
     // Backward-compat: some custom layouts (e.g., TextCreation preview input) render handles for fields that are
     // hidden in the template. If the template keeps `show=false`, edges get removed on reload by clean-up logic.
     nodes.forEach((node) => {

@@ -40,15 +40,13 @@ function buildVisibleOptions(config: DoubaoControlConfig) {
   return {
     visible,
     enabledSet: new Set(visible.map((opt) => String(opt))),
-    hasDisabledOptions: Boolean(config.disabledOptions?.length),
-    disabledSet,
   };
 }
 
 function resolveEffectiveValue(config: DoubaoControlConfig, visible: any[], enabledSet: Set<string>) {
   const baseValue = config.value ?? config.template?.value;
   const baseString = baseValue === undefined || baseValue === null ? "" : String(baseValue);
-  if (!config.disabledOptions?.length) return baseValue;
+  if (!baseString) return baseValue;
   if (baseString && enabledSet.has(baseString)) return baseValue;
   return visible[0] ?? baseValue;
 }
@@ -179,7 +177,6 @@ export default function DoubaoImageCreatorResolutionAspectButton({
 
   // Keep values valid when model or other constraints change (mirrors DoubaoParameterButton behavior).
   useEffect(() => {
-    if (!resolution.hasDisabledOptions) return;
     if (!resolution.visible.length) return;
     const stored = resolutionConfig.template?.value ?? resolutionConfig.value;
     const storedString = stored === undefined || stored === null ? "" : String(stored);
@@ -189,14 +186,12 @@ export default function DoubaoImageCreatorResolutionAspectButton({
   }, [
     handleResolutionChange,
     resolution.enabledSet,
-    resolution.hasDisabledOptions,
     resolution.visible,
     resolutionConfig.template?.value,
     resolutionConfig.value,
   ]);
 
   useEffect(() => {
-    if (!aspectRatio.hasDisabledOptions) return;
     if (!aspectRatio.visible.length) return;
     const stored = aspectRatioConfig.template?.value ?? aspectRatioConfig.value;
     const storedString = stored === undefined || stored === null ? "" : String(stored);
@@ -205,7 +200,6 @@ export default function DoubaoImageCreatorResolutionAspectButton({
     handleAspectRatioChange({ value: aspectRatio.visible[0] }, { skipSnapshot: true });
   }, [
     aspectRatio.enabledSet,
-    aspectRatio.hasDisabledOptions,
     aspectRatio.visible,
     aspectRatioConfig.template?.value,
     aspectRatioConfig.value,

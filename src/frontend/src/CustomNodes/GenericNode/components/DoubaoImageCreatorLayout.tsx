@@ -96,6 +96,27 @@ function formatImageCountValue(value: unknown): string {
   return Number.isFinite(n) ? `${n}X` : `${value}X`;
 }
 
+function resolvePreferredOrFirstEnabledOption(
+  config: DoubaoControlConfig | undefined,
+  preferred: unknown,
+): string | number | undefined {
+  if (!config) return undefined;
+  const options = Array.isArray(config.options) ? config.options : [];
+  if (!options.length) return undefined;
+
+  const disabledSet = new Set((config.disabledOptions ?? []).map((opt) => String(opt)));
+  const enabledOptions = options.filter((opt) => !disabledSet.has(String(opt)));
+  if (!enabledOptions.length) return undefined;
+
+  const preferredString =
+    preferred === undefined || preferred === null ? "" : String(preferred).trim();
+  if (preferredString) {
+    const matched = enabledOptions.find((opt) => String(opt).trim() === preferredString);
+    if (matched !== undefined) return matched;
+  }
+  return enabledOptions[0];
+}
+
 const ASPECT_RATIO_DISPLAY_ORDER = [
   "1:1",
   "2:3",
@@ -1292,30 +1313,6 @@ export default function DoubaoImageCreatorLayout({
     handleImageCountChange({ value: edgeImageCountLimit }, { skipSnapshot: true });
   }, [edgeImageCountLimit, template.image_count?.value, handleImageCountChange]);
 
-  useEffect(() => {
-    const current = String(template.resolution?.value ?? "");
-    const options = Array.isArray(template.resolution?.options)
-      ? template.resolution.options
-      : [];
-    const supportsAuto = options.some((opt) => String(opt) === "Auto");
-
-    // If Auto is currently selected but the model doesn't offer it, move to a non-Auto fallback.
-    if (current === "Auto" && !supportsAuto) {
-      const fallback =
-        template.resolution?.default ??
-        options.find((opt) => String(opt) !== "Auto") ??
-        options[0];
-      if (fallback !== undefined && fallback !== null && String(fallback) !== current) {
-        handleResolutionChange({ value: fallback }, { skipSnapshot: true });
-      }
-    }
-  }, [
-    template.resolution?.default,
-    template.resolution?.options,
-    template.resolution?.value,
-    handleResolutionChange,
-  ]);
-
   const effectiveDisableRun = disableRun && !isRepaintEditorOpen && !isEraseEditorOpen;
 
   const handleRun = () => {
@@ -1578,6 +1575,34 @@ export default function DoubaoImageCreatorLayout({
   const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
   const imageCountConfig = controlConfigs.find((config) => config.name === "image_count");
 
+  useEffect(() => {
+    const current = String(template.resolution?.value ?? "");
+    const fallback = resolvePreferredOrFirstEnabledOption(
+      resolutionConfig,
+      template.resolution?.default,
+    );
+    if (fallback === undefined) return;
+    if (current && String(fallback) === current) return;
+
+    const isCurrentValid =
+      current.length > 0 &&
+      (resolutionConfig?.options ?? []).some(
+        (opt) =>
+          String(opt).trim() === current &&
+          !(resolutionConfig?.disabledOptions ?? []).some(
+            (disabledOpt) => String(disabledOpt).trim() === current,
+          ),
+      );
+    if (isCurrentValid) return;
+
+    handleResolutionChange({ value: fallback }, { skipSnapshot: true });
+  }, [
+    resolutionConfig,
+    template.resolution?.default,
+    template.resolution?.value,
+    handleResolutionChange,
+  ]);
+
   const imageCountButton = useMemo(() => {
     if (!imageCountConfig) return null;
     const disabledSet = new Set((imageCountConfig.disabledOptions ?? []).map((opt) => String(opt)));
@@ -1615,24 +1640,33 @@ export default function DoubaoImageCreatorLayout({
     prevSelectedModelNameRef.current = selectedModelName;
 
     // Reset resolution to default
-    if (resolutionConfig && resolutionConfig.options.length > 0) {
-      const defaultResolution = template.resolution?.default ?? resolutionConfig.options[0];
+    if (resolutionConfig) {
+      const defaultResolution = resolvePreferredOrFirstEnabledOption(
+        resolutionConfig,
+        template.resolution?.default,
+      );
       if (defaultResolution !== undefined) {
         handleResolutionChange({ value: defaultResolution }, { skipSnapshot: true });
       }
     }
 
     // Reset aspect_ratio to default
-    if (aspectRatioConfig && aspectRatioConfig.options.length > 0) {
-      const defaultAspectRatio = template.aspect_ratio?.default ?? aspectRatioConfig.options[0];
+    if (aspectRatioConfig) {
+      const defaultAspectRatio = resolvePreferredOrFirstEnabledOption(
+        aspectRatioConfig,
+        template.aspect_ratio?.default,
+      );
       if (defaultAspectRatio !== undefined) {
         handleAspectRatioChange({ value: defaultAspectRatio }, { skipSnapshot: true });
       }
     }
 
     // Reset image_count to default
-    if (imageCountConfig && imageCountConfig.options.length > 0) {
-      const defaultImageCount = template.image_count?.default ?? imageCountConfig.options[0];
+    if (imageCountConfig) {
+      const defaultImageCount = resolvePreferredOrFirstEnabledOption(
+        imageCountConfig,
+        template.image_count?.default,
+      );
       if (defaultImageCount !== undefined) {
         handleImageCountChange({ value: defaultImageCount }, { skipSnapshot: true });
       }

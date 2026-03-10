@@ -1211,14 +1211,19 @@ export function validateNode(node: AllNodeType, edges: Edge[]): Array<string> {
   const displayName = node.data.node.display_name;
 
   return Object.keys(template).reduce((errors: Array<string>, t) => {
+    const field = template[t];
+    // `code` is a system-managed field. If its value is redacted/missing in a payload,
+    // we should not block the whole flow at pre-validation time.
+    const isSystemCodeField = t === "code" && field?.type === "code";
+    if (isSystemCodeField) return errors;
     if (
       node.type === "genericNode" &&
-      template[t].required &&
-      !(template[t].tool_mode && node?.data?.node?.tool_mode) &&
-      template[t].show &&
-      (template[t].value === undefined ||
-        template[t].value === null ||
-        template[t].value === "") &&
+      field.required &&
+      !(field.tool_mode && node?.data?.node?.tool_mode) &&
+      field.show &&
+      (field.value === undefined ||
+        field.value === null ||
+        field.value === "") &&
       !edges.some(
         (edge) =>
           (scapeJSONParse(edge.targetHandle!) as targetHandleType).fieldName ===
@@ -1231,21 +1236,21 @@ export function validateNode(node: AllNodeType, edges: Edge[]): Array<string> {
         `${displayName || type} 缺少 ${getFieldTitle(template, t)}。`,
       );
     } else if (
-      template[t].type === "dict" &&
-      template[t].required &&
-      template[t].show &&
-      (template[t].value !== undefined ||
-        template[t].value !== null ||
-        template[t].value !== "")
+      field.type === "dict" &&
+      field.required &&
+      field.show &&
+      (field.value !== undefined ||
+        field.value !== null ||
+        field.value !== "")
     ) {
-      if (hasDuplicateKeys(template[t].value))
+      if (hasDuplicateKeys(field.value))
         errors.push(
           `${displayName || type}（${getFieldTitle(
             template,
             t,
           )}）包含重复的键。`,
         );
-      if (hasEmptyKey(template[t].value))
+      if (hasEmptyKey(field.value))
         errors.push(
           `${displayName || type}（${getFieldTitle(template, t)}）字段不能为空。`,
         );

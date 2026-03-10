@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import inspect
+import math
 import mimetypes
 import os
 import time
@@ -792,6 +793,21 @@ class DoubaoImageCreator(Component):
             aspect_ratio = self.aspect_ratio or "1:1"
             image_count = int(self.image_count or 1)
             image_count = max(1, min(image_count, 9 if is_kling else 6))
+            max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
+            reference_payloads, reference_meta = self._prepare_reference_images(
+                max_reference_images=max_refs,
+                allowed_extensions=(
+                    {"jpg", "jpeg", "png"}
+                    if is_kling
+                    else (set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None)
+                ),
+            )
+            has_reference_images = bool(reference_payloads)
+            adaptive_ratio = str(aspect_ratio or "").strip().lower() == "adaptive"
+
+            if is_dashscope and adaptive_ratio and not has_reference_images:
+                raise ValueError("选择 adaptive 时需要至少上传 1 张参考图。")
+
             size_info = (
                 {
                     "label": "",
@@ -802,16 +818,23 @@ class DoubaoImageCreator(Component):
                     "base_resolution": resolution,
                 }
                 if is_kling
-                else self._resolve_size(model_meta, resolution, aspect_ratio)
-            )
-            max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
-            reference_payloads, reference_meta = self._prepare_reference_images(
-                max_reference_images=max_refs,
-                allowed_extensions=(
-                    {"jpg", "jpeg", "png"}
-                    if is_kling
-                    else (set(self.DASHSCOPE_ALLOWED_IMAGE_EXTENSIONS) if is_dashscope else None)
-                ),
+                else (
+                    self._resolve_adaptive_size_from_reference(
+                        model_meta=model_meta,
+                        resolution_key=resolution,
+                        reference_payloads=reference_payloads,
+                        provider="dashscope" if is_dashscope else "ark",
+                        has_reference_images=has_reference_images,
+                    )
+                    if adaptive_ratio and has_reference_images
+                    else self._resolve_size(
+                        model_meta,
+                        resolution,
+                        aspect_ratio,
+                        provider="dashscope" if is_dashscope else "ark",
+                        has_reference_images=has_reference_images,
+                    )
+                )
             )
         except ValueError as exc:
             return self._error(str(exc))
@@ -1826,6 +1849,72 @@ class DoubaoImageCreator(Component):
         }
         return min(candidates.keys(), key=lambda k: abs(candidates[k] - target))
 
+    def _nearest_supported_aspect_ratio(
+        self,
+        *,
+        width: int,
+        height: int,
+        allowed_ratios: set[str] | None = None,
+    ) -> str | None:
+        """Return nearest ratio key from ASPECT_RATIOS (excluding adaptive/auto)."""
+        try:
+            w = int(width)
+            h = int(height)
+        except Exception:
+            return None
+        if w <= 0 or h <= 0:
+            return None
+
+        target = float(w) / float(h)
+        candidates: dict[str, float] = {}
+        for key, value in self.ASPECT_RATIOS.items():
+            ratio_key = str(key).strip()
+            lowered = ratio_key.lower()
+            if lowered in {"adaptive", "auto"}:
+                continue
+            if allowed_ratios is not None and ratio_key not in allowed_ratios:
+                continue
+            if (
+                not isinstance(value, tuple)
+                or len(value) != 2
+                or int(value[0]) <= 0
+                or int(value[1]) <= 0
+            ):
+                continue
+            candidates[ratio_key] = float(value[0]) / float(value[1])
+
+        if not candidates:
+            return None
+        return min(candidates.keys(), key=lambda k: abs(candidates[k] - target))
+
+    @staticmethod
+    def _normalize_ratio_from_dimensions(width: int, height: int) -> tuple[int, int]:
+        w = max(1, int(width))
+        h = max(1, int(height))
+        divisor = math.gcd(w, h) or 1
+        return (max(1, w // divisor), max(1, h // divisor))
+
+    def _resolve_adaptive_aspect_ratio_from_reference(
+        self,
+        reference_payloads: list[str],
+        *,
+        allowed_ratios: set[str] | None = None,
+    ) -> str | None:
+        if not reference_payloads:
+            return None
+        for payload in reference_payloads:
+            if not isinstance(payload, str) or not payload.strip():
+                continue
+            width, height = self._get_image_dimensions_from_data_url(payload)
+            if width is None or height is None:
+                continue
+            return self._nearest_supported_aspect_ratio(
+                width=width,
+                height=height,
+                allowed_ratios=allowed_ratios,
+            )
+        return None
+
     def _resolve_kling_adaptive_aspect_ratio(self, reference_payloads: list[str]) -> str | None:
         """Best-effort aspect ratio inference from the first reference image (data URL)."""
         if not reference_payloads:
@@ -1837,6 +1926,111 @@ class DoubaoImageCreator(Component):
         if width is None or height is None:
             return None
         return self._nearest_kling_aspect_ratio(width=width, height=height)
+
+    @staticmethod
+    def _normalize_dashscope_ratio_from_dimensions(width: int, height: int) -> tuple[int, int]:
+        """Normalize and clamp ratio to DashScope image constraints ([1:4, 4:1])."""
+        w = max(1, int(width))
+        h = max(1, int(height))
+        ratio = float(w) / float(h)
+        if ratio > 4.0:
+            return (4, 1)
+        if ratio < 0.25:
+            return (1, 4)
+        divisor = math.gcd(w, h) or 1
+        return (max(1, w // divisor), max(1, h // divisor))
+
+    def _resolve_dashscope_adaptive_size_from_reference(
+        self,
+        *,
+        model_meta: dict[str, Any],
+        resolution_key: str,
+        reference_payloads: list[str],
+    ) -> dict[str, Any]:
+        return self._resolve_adaptive_size_from_reference(
+            model_meta=model_meta,
+            resolution_key=resolution_key,
+            reference_payloads=reference_payloads,
+            provider="dashscope",
+            has_reference_images=True,
+        )
+
+    def _resolve_adaptive_size_from_reference(
+        self,
+        *,
+        model_meta: dict[str, Any],
+        resolution_key: str,
+        reference_payloads: list[str],
+        provider: str = "ark",
+        has_reference_images: bool = False,  # noqa: FBT001,FBT002
+    ) -> dict[str, Any]:
+        """
+        Resolve explicit `size` for UI `aspect_ratio=adaptive` from the first reference image.
+
+        Providers that require explicit size should not rely on implicit 1:1 defaults.
+        """
+        base = self.RESOLUTION_PRESETS.get(resolution_key)
+        if not isinstance(base, int) or base <= 0:
+            return self._resolve_size(
+                model_meta,
+                resolution_key=resolution_key,
+                ratio_key="1:1",
+                provider=provider,
+                has_reference_images=has_reference_images,
+            )
+
+        ref_width: int | None = None
+        ref_height: int | None = None
+        for payload in reference_payloads:
+            if not isinstance(payload, str) or not payload.strip():
+                continue
+            w, h = self._get_image_dimensions_from_data_url(payload)
+            if w is None or h is None:
+                continue
+            if int(w) <= 0 or int(h) <= 0:
+                continue
+            ref_width, ref_height = int(w), int(h)
+            break
+
+        # If dimensions are not readable, keep the request valid by falling back to 1:1
+        # while still sending an explicit size.
+        if ref_width is None or ref_height is None:
+            fallback = self._resolve_size(
+                model_meta,
+                resolution_key=resolution_key,
+                ratio_key="1:1",
+                provider=provider,
+                has_reference_images=has_reference_images,
+            )
+            fallback["ratio"] = "adaptive"
+            return fallback
+
+        if provider == "dashscope":
+            ratio_w, ratio_h = self._normalize_dashscope_ratio_from_dimensions(ref_width, ref_height)
+        else:
+            ratio_w, ratio_h = self._normalize_ratio_from_dimensions(ref_width, ref_height)
+        width, height = self._calculate_dimensions(base, (ratio_w, ratio_h))
+        if provider == "dashscope":
+            width, height = self._enforce_area_constraints_dashscope(
+                model_meta,
+                width,
+                height,
+                has_reference_images,
+            )
+            size_value = f"{width}*{height}"
+            label = size_value
+        else:
+            width, height = self._enforce_area_constraints(model_meta, width, height)
+            size_value = f"{width}x{height}"
+            label = size_value
+        return {
+            "label": label,
+            "size_value": size_value,
+            "width": width,
+            "height": height,
+            "ratio": "adaptive",
+            "base_resolution": resolution_key,
+        }
 
     @staticmethod
     def _strip_data_url_to_base64(value: str) -> str:
@@ -2423,7 +2617,12 @@ class DoubaoImageCreator(Component):
             contents = [*history, user_content] if history else [user_content]
 
             supports_image_size = bool(model_meta.get("supports_image_size"))
-            image_config: dict[str, Any] = {"aspectRatio": aspect_ratio}
+            effective_aspect_ratio = (
+                self._resolve_adaptive_aspect_ratio_from_reference(reference_payloads) or "1:1"
+                if str(aspect_ratio or "").strip().lower() == "adaptive"
+                else aspect_ratio
+            )
+            image_config: dict[str, Any] = {"aspectRatio": effective_aspect_ratio}
             if supports_image_size:
                 image_size = self._gemini_image_size_from_resolution(resolution)
                 if image_size:
@@ -2474,7 +2673,14 @@ class DoubaoImageCreator(Component):
                 if image_data_url:
                     record["image_data_url"] = image_data_url
                 images.append(record)
-                preview_gallery.append({"index": index, "image_url": image_url, "image_data_url": record.get("image_data_url"), "ratio": aspect_ratio})
+                preview_gallery.append(
+                    {
+                        "index": index,
+                        "image_url": image_url,
+                        "image_data_url": record.get("image_data_url"),
+                        "ratio": effective_aspect_ratio,
+                    }
+                )
 
             generated_at = datetime.now(timezone.utc).isoformat()
             preview_token = str((response or {}).get("id") or f"{self.name}-{uuid4().hex[:6]}")
@@ -2490,6 +2696,7 @@ class DoubaoImageCreator(Component):
                     "resolution": resolution,
                     "image_size": image_config.get("imageSize"),
                     "aspect_ratio": aspect_ratio,
+                    "resolved_aspect_ratio": effective_aspect_ratio,
                     "count": image_count,
                     "reference_images": reference_meta,
                     "gemini_history": None,
@@ -2529,6 +2736,7 @@ class DoubaoImageCreator(Component):
                     "resolution": resolution,
                     "image_size": image_config.get("imageSize"),
                     "aspect_ratio": aspect_ratio,
+                    "resolved_aspect_ratio": effective_aspect_ratio,
                     "count": image_count,
                     "reference_images": reference_meta,
                     "provider_response": (response or {}).get("provider_response"),
@@ -2706,23 +2914,28 @@ class DoubaoImageCreator(Component):
         except ValueError as exc:
             return self._error(str(exc))
 
+        effective_aspect_ratio = (
+            self._resolve_adaptive_aspect_ratio_from_reference(input_images) or "1:1"
+            if str(aspect_ratio or "").strip().lower() == "adaptive"
+            else aspect_ratio
+        )
         generation_config: dict[str, Any] = {}
         # Gemini 3 系列支持 imageSize（3.1 还支持 512px）。
         if supports_image_size:
             image_size = self._gemini_image_size_from_resolution(resolution)
             if image_size:
                 generation_config["imageConfig"] = {
-                    "aspectRatio": aspect_ratio,
+                    "aspectRatio": effective_aspect_ratio,
                     "imageSize": image_size,
                 }
             else:
                 generation_config["imageConfig"] = {
-                    "aspectRatio": aspect_ratio,
+                    "aspectRatio": effective_aspect_ratio,
                 }
         else:
             # 不支持 imageSize 的模型仅传 aspectRatio
             generation_config["imageConfig"] = {
-                "aspectRatio": aspect_ratio,
+                "aspectRatio": effective_aspect_ratio,
             }
         # 默认只返回图片以减少 payload 体积；启用 tools/search 时通常需要文本输出。
         generation_config["responseModalities"] = ["TEXT", "IMAGE"] if enable_google_search else ["IMAGE"]
@@ -2866,7 +3079,7 @@ class DoubaoImageCreator(Component):
                 "width": width,
                 "height": height,
                 "size": f"{size_bytes / 1024:.1f}KB" if size_bytes > 0 else None,
-                "ratio": aspect_ratio
+                "ratio": effective_aspect_ratio
             })
 
         generated_at = datetime.now(timezone.utc).isoformat()
@@ -2904,6 +3117,7 @@ class DoubaoImageCreator(Component):
                 "text": text,
                 "model": {"name": self.model_name, "model_id": model_id},
                 "aspect_ratio": aspect_ratio,
+                "resolved_aspect_ratio": effective_aspect_ratio,
                 "image_size": resolved_image_size,
                 "input_images": input_meta,
                 "image_count": len(preview_gallery),
@@ -2918,6 +3132,7 @@ class DoubaoImageCreator(Component):
             "model": self.model_name,
             "model_id": model_id,
             "aspect_ratio": aspect_ratio,
+            "resolved_aspect_ratio": effective_aspect_ratio,
             "image_size": resolved_image_size,
             "generated_images": generated_images,
             "input_images": input_meta,
@@ -3115,15 +3330,12 @@ class DoubaoImageCreator(Component):
             size_info: dict[str, Any]
             size_value: str | None
             if adaptive_ratio and has_reference_images:
-                size_value = None
-                size_info = {
-                    "label": "adaptive",
-                    "size_value": None,
-                    "width": None,
-                    "height": None,
-                    "ratio": "adaptive",
-                    "base_resolution": resolution,
-                }
+                size_info = self._resolve_dashscope_adaptive_size_from_reference(
+                    model_meta=model_meta,
+                    resolution_key=resolution,
+                    reference_payloads=reference_payloads,
+                )
+                size_value = str(size_info["size_value"])
             else:
                 size_info = self._resolve_size(
                     model_meta,

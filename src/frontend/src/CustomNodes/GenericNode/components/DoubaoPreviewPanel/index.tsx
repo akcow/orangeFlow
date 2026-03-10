@@ -2313,10 +2313,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               ? [outputDefinition.selected]
               : ["Data"];
         const sourceHandle = {
-          outputTypes: sourceOutputTypes,
+          output_types: sourceOutputTypes,
           type: outputDefinition?.type,
           id: nodeId,
+          dataType: currentFlowNode.data?.type,
           name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+          ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
         };
 
         const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
@@ -3211,10 +3213,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               ? [outputDefinition.selected]
               : ["Data"];
         const sourceHandle = {
-          outputTypes: sourceOutputTypes,
+          output_types: sourceOutputTypes,
           type: outputDefinition?.type,
           id: nodeId,
+          dataType: currentFlowNode.data?.type,
           name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+          ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
         };
 
         const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
@@ -3381,10 +3385,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               ? [outputDefinition.selected]
               : ["Data"];
         const sourceHandle = {
-          outputTypes: sourceOutputTypes,
+          output_types: sourceOutputTypes,
           type: outputDefinition?.type,
           id: nodeId,
+          dataType: currentFlowNode.data?.type,
           name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+          ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
         };
 
         const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
@@ -3467,12 +3473,22 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         });
 
         const newTemplate = cloneDeep(template);
-        const refField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
-        if (refField) {
-          const safeName = (fileName && String(fileName).trim()) || "crop.png";
-          refField.value = [safeName];
-          refField.file_path = [dataUrl];
-        }
+        (newTemplate as any).display_name = "裁剪结果";
+        (newTemplate as any).template = (newTemplate as any).template ?? {};
+        const refField =
+          (newTemplate as any).template?.[REFERENCE_FIELD] ??
+          ((newTemplate as any).template[REFERENCE_FIELD] = {
+            name: REFERENCE_FIELD,
+            display_name: "参考图",
+            type: "str",
+            input_types: ["Data"],
+            file_types: [".jpg", ".jpeg", ".png", ".webp"],
+            file_path: [],
+            value: [],
+          });
+        const safeName = (fileName && String(fileName).trim()) || "crop.png";
+        refField.value = [safeName];
+        refField.file_path = [dataUrl];
         // Ensure the new node doesn't show any cached/generated output from template defaults.
         if ((newTemplate as any)?.template?.draft_output) {
           delete (newTemplate as any).template.draft_output;
@@ -3504,10 +3520,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               ? [outputDefinition.selected]
               : ["Data"];
         const sourceHandle = {
-          outputTypes: sourceOutputTypes,
+          output_types: sourceOutputTypes,
           type: outputDefinition?.type,
           id: nodeId,
+          dataType: currentFlowNode.data?.type,
           name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+          ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
         };
 
         const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
@@ -4060,10 +4078,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               ? [outputDefinition.selected]
               : ["Data"];
         const sourceHandle = {
-          outputTypes: sourceOutputTypes,
+          output_types: sourceOutputTypes,
           type: outputDefinition?.type,
           id: nodeId,
+          dataType: currentFlowNode.data?.type,
           name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+          ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
         };
 
         const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
@@ -4307,10 +4327,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               ? [outputDefinition.selected]
               : ["Data"];
         const sourceHandle = {
-          outputTypes: sourceOutputTypes,
+          output_types: sourceOutputTypes,
           type: outputDefinition?.type,
           id: nodeId,
+          dataType: currentFlowNode.data?.type,
           name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+          ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
         };
 
         const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];
@@ -4558,10 +4580,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               ? [outputDefinition.selected]
               : ["Data"];
         const sourceHandle = {
-          outputTypes: sourceOutputTypes,
+          output_types: sourceOutputTypes,
           type: outputDefinition?.type,
           id: nodeId,
+          dataType: currentFlowNode.data?.type,
           name: outputDefinition?.name ?? IMAGE_OUTPUT_NAME,
+          ...(outputDefinition?.proxy ? { proxy: outputDefinition.proxy } : {}),
         };
 
         const referenceTemplateField = (newTemplate as any)?.template?.[REFERENCE_FIELD];

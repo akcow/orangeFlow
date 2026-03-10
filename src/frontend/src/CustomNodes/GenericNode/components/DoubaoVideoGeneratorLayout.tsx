@@ -246,6 +246,27 @@ function pickClosestDuration(value: number, options: number[]) {
     return closest;
   }, options[0]);
 }
+
+function resolvePreferredOrFirstEnabledOption(
+  config: DoubaoControlConfig | undefined,
+  preferred: unknown,
+): string | number | undefined {
+  if (!config) return undefined;
+  const options = Array.isArray(config.options) ? config.options : [];
+  if (!options.length) return undefined;
+
+  const disabledSet = new Set((config.disabledOptions ?? []).map((opt) => String(opt)));
+  const enabledOptions = options.filter((opt) => !disabledSet.has(String(opt)));
+  if (!enabledOptions.length) return undefined;
+
+  const preferredString =
+    preferred === undefined || preferred === null ? "" : String(preferred).trim();
+  if (preferredString) {
+    const matched = enabledOptions.find((opt) => String(opt).trim() === preferredString);
+    if (matched !== undefined) return matched;
+  }
+  return enabledOptions[0];
+}
 const DEFAULT_FIRST_FRAME_EXTENSIONS = [
   "png",
   "jpg",
@@ -1918,24 +1939,33 @@ export default function DoubaoVideoGeneratorLayout({
     prevNormalizedModelNameRef.current = normalizedModelName;
 
     // Reset resolution to default
-    if (resolutionConfig && resolutionConfig.options.length > 0) {
-      const defaultResolution = template.resolution?.default ?? resolutionConfig.options[0];
+    if (resolutionConfig) {
+      const defaultResolution = resolvePreferredOrFirstEnabledOption(
+        resolutionConfig,
+        template.resolution?.default,
+      );
       if (defaultResolution !== undefined) {
         handleResolutionChange({ value: defaultResolution }, { skipSnapshot: true });
       }
     }
 
     // Reset aspect_ratio to default
-    if (aspectRatioConfig && aspectRatioConfig.options.length > 0) {
-      const defaultAspectRatio = template.aspect_ratio?.default ?? aspectRatioConfig.options[0];
+    if (aspectRatioConfig) {
+      const defaultAspectRatio = resolvePreferredOrFirstEnabledOption(
+        aspectRatioConfig,
+        template.aspect_ratio?.default,
+      );
       if (defaultAspectRatio !== undefined) {
         handleAspectRatioChange({ value: defaultAspectRatio }, { skipSnapshot: true });
       }
     }
 
     // Reset duration to default
-    if (durationConfig && durationConfig.options.length > 0) {
-      const defaultDuration = template.duration?.default ?? durationConfig.options[0];
+    if (durationConfig) {
+      const defaultDuration = resolvePreferredOrFirstEnabledOption(
+        durationConfig,
+        template.duration?.default,
+      );
       if (defaultDuration !== undefined) {
         handleDurationChange({ value: defaultDuration }, { skipSnapshot: true });
       }
