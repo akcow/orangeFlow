@@ -270,4 +270,4 @@ LANGFLOW_S3_VERIFY_SSL=false
 - 环境变量模板：`.env.example`
 - 安全策略：`SECURITY.md`
 - 发布说明：`RELEASE.md`
-- Docker 文档：`docker/README.md`
+- Docker 文档：`docker/DEPLOYMENT.md`

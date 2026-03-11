@@ -16,6 +16,7 @@ This avoids the old SQLite failure mode where history, generated assets, and mul
 - Keep generated media in MinIO/S3, not inside the app container filesystem
 - Set `LANGFLOW_PUBLIC_BASE_URL` to the public Langflow URL so signed proxy preview links work
 - Keep `LANGFLOW_AUTO_LOGIN=false` for beta/commercial use
+- Keep `LANGFLOW_SKIP_AUTH_AUTO_LOGIN=false`
 - Keep PostgreSQL and MinIO internal to Docker unless you explicitly need host access
 
 ## 2. First deployment
@@ -40,8 +41,28 @@ POSTGRES_PASSWORD=change-this-postgres-password
 SUPERUSER_PASSWORD=change-this-admin-password
 MINIO_ROOT_PASSWORD=change-this-minio-password
 SECRET_KEY=replace-with-a-random-secret
+```
+
+Pick one of these browser access modes:
+
+Direct HTTP beta on the server port:
+
+```bash
+LANGFLOW_BIND_ADDRESS=0.0.0.0
+LANGFLOW_PUBLIC_BASE_URL=http://your-server-ip-or-domain:7860
+LANGFLOW_CORS_ORIGINS=http://your-server-ip-or-domain:7860
+LANGFLOW_ACCESS_SECURE=false
+LANGFLOW_REFRESH_SECURE=false
+```
+
+HTTPS behind Nginx or Caddy:
+
+```bash
+LANGFLOW_BIND_ADDRESS=127.0.0.1
 LANGFLOW_PUBLIC_BASE_URL=https://your-app-domain.example.com
 LANGFLOW_CORS_ORIGINS=https://your-app-domain.example.com
+LANGFLOW_ACCESS_SECURE=true
+LANGFLOW_REFRESH_SECURE=true
 ```
 
 Then start the stack:
@@ -50,8 +71,8 @@ Then start the stack:
 docker compose -f production.docker-compose.yml up -d --build
 ```
 
-The app container binds to `127.0.0.1:7860` by default.
-That is intentional: put Nginx or Caddy in front of it and only expose the reverse proxy publicly.
+The production template now binds to `0.0.0.0:7860` by default so direct beta access works immediately.
+If you deploy a reverse proxy, switch the bind address back to `127.0.0.1`.
 
 Check health:
 
@@ -60,6 +81,17 @@ docker compose -f production.docker-compose.yml ps
 docker compose -f production.docker-compose.yml logs -f langflow
 curl http://127.0.0.1:7860/health_check
 ```
+
+Login check after startup:
+
+1. Open the public URL from a browser session that is not already logged in.
+2. Create a normal user from the sign-up page.
+3. Sign in with that new user and confirm the home page, file upload, and generation history all work.
+4. Sign out and sign back in with `SUPERUSER_USERNAME` and `SUPERUSER_PASSWORD`.
+5. Confirm the admin account can open `/admin`.
+
+Important: the configured `SUPERUSER_PASSWORD` is used when the superuser is first created. Changing it later in `.env`
+does not reset the password already stored in PostgreSQL.
 
 ## 3. Why this is the default now
 
@@ -131,6 +163,9 @@ MINIO_PUBLIC_BASE_URL=https://assets.example.com/langflow-assets
 If you do not set `MINIO_PUBLIC_BASE_URL`, Langflow will generate signed proxy URLs through `LANGFLOW_PUBLIC_BASE_URL`.
 That is the safer default for a private beta.
 
+Do not leave `LANGFLOW_ACCESS_SECURE=true` unless the public browser URL is really HTTPS.
+Otherwise browsers can reject the login cookies and users will appear to log in successfully but lose their session.
+
 ## 7. Backup
 
 PostgreSQL:
@@ -160,6 +195,7 @@ Before exposing to more users:
 2. Enable HTTPS
 3. Change all default passwords
 4. Set `LANGFLOW_CORS_ORIGINS` to your real public origin
-5. Keep PostgreSQL and MinIO ports closed unless you explicitly need host access
-6. Put PostgreSQL and MinIO volumes on reliable disks
-7. Add regular DB and object-storage backups
+5. Keep `LANGFLOW_SKIP_AUTH_AUTO_LOGIN=false`
+6. Keep PostgreSQL and MinIO ports closed unless you explicitly need host access
+7. Put PostgreSQL and MinIO volumes on reliable disks
+8. Add regular DB and object-storage backups
