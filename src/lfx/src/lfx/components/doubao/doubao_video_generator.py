@@ -15,7 +15,7 @@ import requests
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from dotenv import load_dotenv
 
@@ -1437,9 +1437,11 @@ class DoubaoVideoGenerator(Component):
             return None
 
         prefixes = (
+            "api/v1/files/public-inline/",
             "api/v1/files/public/",
             "api/v1/files/media/",
             "api/v1/files/images/",
+            "files/public-inline/",
             "files/public/",
             "files/media/",
             "files/images/",
@@ -1452,7 +1454,7 @@ class DoubaoVideoGenerator(Component):
         parts = [segment for segment in normalized.split("/") if segment]
         if len(parts) < 2:
             return None
-        return f"{parts[0]}/{parts[-1]}"
+        return f"{parts[0]}/{'/'.join(parts[1:])}"
 
     def _resolve_vidu_upscale_video_url(self, value: Any) -> str | None:
         if isinstance(value, Data):
@@ -2348,6 +2350,16 @@ class DoubaoVideoGenerator(Component):
             return None
         flow_id, file_name = parsed
 
+        try:  # pragma: no cover - runtime dependency
+            from langflow.services.deps import get_storage_service
+
+            storage_service = get_storage_service()
+            storage_public_url = storage_service.build_public_url(flow_id, file_name, ttl_seconds=ttl_seconds)
+            if storage_public_url:
+                return storage_public_url
+        except Exception:
+            pass
+
         secret_key = self._resolve_secret_key()
         if not secret_key:
             return None
@@ -2361,7 +2373,8 @@ class DoubaoVideoGenerator(Component):
         base = self._resolve_public_base_url().rstrip("/")
         if not base:
             return None
-        return f"{base}/api/v1/files/public/{flow_id}/{file_name}?token={token.value}"
+        safe_file_name = quote(file_name, safe="/")
+        return f"{base}/api/v1/files/public-inline/{flow_id}/{safe_file_name}?token={token.value}"
 
     def _resolve_secret_key(self) -> str:
         try:  # pragma: no cover - runtime dependency
@@ -2395,7 +2408,7 @@ class DoubaoVideoGenerator(Component):
         parts = [p for p in normalized.split("/") if p]
         if len(parts) < 2:
             return None
-        return parts[0], parts[-1]
+        return parts[0], "/".join(parts[1:])
 
     @staticmethod
     def _map_wan_resolution(*, resolution: str, model: str) -> str:

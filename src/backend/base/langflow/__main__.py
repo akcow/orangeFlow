@@ -393,7 +393,7 @@ def run(
             log_level=log_level,
             reload=False,
             workers=get_number_of_workers(workers),
-            loop="asyncio",
+            loop="langflow.windows_loop:selector_loop_factory",
         )
     else:
         with progress.step(6):

@@ -13,6 +13,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 import sqlmodel
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "9d3c6b2f1a10"
@@ -27,14 +28,22 @@ def upgrade() -> None:
     table_names = inspector.get_table_names()
 
     # Create enums if needed (mostly relevant for Postgres; SQLite ignores these).
-    community_item_type_enum = sa.Enum("TV", "WORKFLOW", name="community_item_type_enum")
-    community_item_status_enum = sa.Enum("PRIVATE", "PUBLIC", "UNREVIEWED", name="community_item_status_enum")
+    community_item_type_enum_create = sa.Enum("TV", "WORKFLOW", name="community_item_type_enum")
+    community_item_status_enum_create = sa.Enum("PRIVATE", "PUBLIC", "UNREVIEWED", name="community_item_status_enum")
     try:
-        community_item_type_enum.create(conn, checkfirst=True)
-        community_item_status_enum.create(conn, checkfirst=True)
+        community_item_type_enum_create.create(conn, checkfirst=True)
+        community_item_status_enum_create.create(conn, checkfirst=True)
     except Exception:
         # Best effort: some dialects don't support CREATE TYPE the same way.
         pass
+    community_item_type_enum = postgresql.ENUM("TV", "WORKFLOW", name="community_item_type_enum", create_type=False)
+    community_item_status_enum = postgresql.ENUM(
+        "PRIVATE",
+        "PUBLIC",
+        "UNREVIEWED",
+        name="community_item_status_enum",
+        create_type=False,
+    )
 
     if "community_item" not in table_names:
         op.create_table(

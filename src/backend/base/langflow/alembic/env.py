@@ -38,6 +38,10 @@ target_metadata.naming_convention = NAMING_CONVENTION
 # ... etc.
 
 
+def _uses_psycopg(url: str | None) -> bool:
+    return bool(url and "postgresql+psycopg" in url)
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -59,8 +63,8 @@ def run_migrations_offline() -> None:
         "render_as_batch": True,
     }
 
-    # Only add prepare_threshold for PostgreSQL
-    if url and "postgresql" in url:
+    # Only add psycopg-specific tuning when using the psycopg dialect.
+    if _uses_psycopg(url):
         configure_kwargs["prepare_threshold"] = None
 
     context.configure(**configure_kwargs)
@@ -91,8 +95,10 @@ def _do_run_migrations(connection):
         "render_as_batch": True,
     }
 
-    # Only add prepare_threshold for PostgreSQL
-    if connection.dialect.name == "postgresql":
+    drivername = str(connection.engine.url.drivername)
+
+    # Only add psycopg-specific tuning when using the psycopg dialect.
+    if drivername.startswith("postgresql+psycopg"):
         configure_kwargs["prepare_threshold"] = None
 
     context.configure(**configure_kwargs)
@@ -109,8 +115,8 @@ async def _run_async_migrations() -> None:
     url = config.get_main_option("sqlalchemy.url")
     connect_args: dict[str, Any] = {}
 
-    # Only add prepare_threshold for PostgreSQL
-    if url and "postgresql" in url:
+    # Only add psycopg-specific tuning when using the psycopg dialect.
+    if _uses_psycopg(url):
         connect_args["prepare_threshold"] = None
 
     connectable = async_engine_from_config(

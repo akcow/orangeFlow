@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from lfx.utils.public_files import generate_public_file_token
 
@@ -23,14 +24,17 @@ def parse_flow_file_path(value: str | None) -> tuple[str, str] | None:
         "api/v1/files/images/",
         "api/v1/files/media/",
         "api/v1/files/download/",
+        "api/v1/files/public-inline/",
         "api/v1/files/public/",
         "/api/v1/files/images/",
         "/api/v1/files/media/",
         "/api/v1/files/download/",
+        "/api/v1/files/public-inline/",
         "/api/v1/files/public/",
         "files/images/",
         "files/media/",
         "files/download/",
+        "files/public-inline/",
         "files/public/",
     ):
         if raw.startswith(prefix):
@@ -42,18 +46,43 @@ def parse_flow_file_path(value: str | None) -> tuple[str, str] | None:
     parts = [p for p in raw.split("/") if p]
     if len(parts) < 2:
         return None
-    return parts[0], parts[-1]
+    return parts[0], "/".join(parts[1:])
+
+
+def _resolve_storage_urls(
+    file_path: str,
+    *,
+    kind: str | None = None,
+    ttl_seconds: int = 3600,
+) -> tuple[str | None, str | None]:
+    parsed = parse_flow_file_path(file_path)
+    if not parsed:
+        return None, None
+    flow_id, file_name = parsed
+    try:  # pragma: no cover - runtime dependency
+        from langflow.services.deps import get_storage_service
+
+        storage_service = get_storage_service()
+        inline_url = storage_service.build_inline_url(flow_id, file_name, kind=kind)
+        public_url = storage_service.build_public_url(flow_id, file_name, ttl_seconds=ttl_seconds)
+        return inline_url, public_url
+    except Exception:
+        return None, None
 
 
 def stable_in_app_file_url(file_path: str, *, kind: str) -> str | None:
+    storage_inline_url, _ = _resolve_storage_urls(file_path, kind=kind)
+    if storage_inline_url:
+        return storage_inline_url
     parsed = parse_flow_file_path(file_path)
     if not parsed:
         return None
     flow_id, file_name = parsed
+    safe_file_name = quote(file_name, safe="/")
     if kind == "image":
-        return f"/api/v1/files/images/{flow_id}/{file_name}"
+        return f"/api/v1/files/images/{flow_id}/{safe_file_name}"
     if kind in ("video", "audio"):
-        return f"/api/v1/files/media/{flow_id}/{file_name}"
+        return f"/api/v1/files/media/{flow_id}/{safe_file_name}"
     return None
 
 
@@ -90,6 +119,9 @@ def resolve_public_base_url() -> str:
 
 
 def build_public_file_url(file_path: str, *, ttl_seconds: int = 3600) -> str | None:
+    _, storage_public_url = _resolve_storage_urls(file_path, ttl_seconds=ttl_seconds)
+    if storage_public_url:
+        return storage_public_url
     parsed = parse_flow_file_path(file_path)
     if not parsed:
         return None
@@ -106,7 +138,8 @@ def build_public_file_url(file_path: str, *, ttl_seconds: int = 3600) -> str | N
         file_name=file_name,
         ttl_seconds=ttl_seconds,
     )
-    return f"{base}/api/v1/files/public/{flow_id}/{file_name}?token={token.value}"
+    safe_file_name = quote(file_name, safe="/")
+    return f"{base}/api/v1/files/public-inline/{flow_id}/{safe_file_name}?token={token.value}"
 
 
 def extract_file_path(value: Any) -> str | None:

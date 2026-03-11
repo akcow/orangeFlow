@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Generator
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -11,7 +12,7 @@ from lfx.schema.data import Data
 from lfx.schema.message import Message
 
 # Database imports removed - lfx should be lightweight
-from lfx.services.deps import get_db_service, get_settings_service
+from lfx.services.deps import get_db_service, get_settings_service, session_scope
 
 if TYPE_CHECKING:
     from lfx.graph.vertex.base import Vertex
@@ -146,11 +147,26 @@ async def log_vertex_build(
     params: Any,  # noqa: ARG001
     data: dict | Any,  # noqa: ARG001
     artifacts: dict | None = None,  # noqa: ARG001
+    user_id: str | UUID | None = None,
 ) -> None:
     """Asynchronously logs a vertex build record if vertex build storage is enabled.
 
     This is a lightweight implementation that only logs if database service is available.
     """
+    def normalize(value: Any) -> Any:
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        return value
+
+    def normalize_params(value: Any) -> Any:
+        normalized = normalize(value)
+        if normalized is None or isinstance(normalized, str):
+            return normalized
+        try:
+            return json.dumps(normalized, ensure_ascii=False, default=str)
+        except TypeError:
+            return str(normalized)
+
     try:
         settings_service = get_settings_service()
         if not settings_service or not getattr(settings_service.settings, "vertex_builds_storage_enabled", False):
@@ -164,14 +180,33 @@ async def log_vertex_build(
         try:
             if isinstance(flow_id, str):
                 flow_id = UUID(flow_id)
+            if isinstance(user_id, str):
+                user_id = UUID(user_id)
         except ValueError:
-            logger.debug(f"Invalid flow_id passed to log_vertex_build: {flow_id!r}")
+            logger.debug(f"Invalid flow_id or user_id passed to log_vertex_build: flow_id={flow_id!r}, user_id={user_id!r}")
             return
 
-        # Log basic vertex build info - concrete implementation should be in langflow
+        try:
+            from langflow.services.database.models.vertex_builds.crud import log_vertex_build as persist_vertex_build
+            from langflow.services.database.models.vertex_builds.model import VertexBuildBase
+        except ImportError:
+            logger.debug("Langflow database models unavailable, skipping vertex build logging")
+            return
+
+        async with session_scope() as session:
+            build = VertexBuildBase(
+                id=vertex_id,
+                flow_id=flow_id,
+                user_id=user_id,
+                valid=valid,
+                params=normalize_params(params),
+                data=normalize(data),
+                artifacts=normalize(artifacts) or {},
+            )
+            await persist_vertex_build(session, build)
         logger.debug(f"Vertex build logged: vertex={vertex_id}, flow={flow_id}, valid={valid}")
-    except Exception:  # noqa: BLE001
-        logger.debug("Error logging vertex build")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Error logging vertex build: {exc!s}")
 
 
 def rewrite_file_path(file_path: str):

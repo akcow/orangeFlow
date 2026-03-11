@@ -9,21 +9,38 @@ services:
     ports:
       - "${LANGFLOW_PORT:-7860}:7860"
     environment:
-      - LANGFLOW_DATABASE_URL=postgresql://${POSTGRES_USER:-langflow}:${POSTGRES_PASSWORD:-langflow}@postgres:5432/${POSTGRES_DB:-langflow}
-      - LANGFLOW_CONFIG_DIR=/app/langflow_config
-      - LANGFLOW_LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LANGFLOW_SUPERUSER=${SUPERUSER_USERNAME:-admin}
-      - LANGFLOW_SUPERUSER_PASSWORD=${SUPERUSER_PASSWORD:-admin}
-      - LANGFLOW_SECRET_KEY=${SECRET_KEY:-change-this-to-a-random-secret-key}
-      - LANGFLOW_SKIP_AUTH_AUTO_LOGIN=${SKIP_AUTO_LOGIN:-false}
-      - LANGFLOW_API_KEY=${API_KEY:-}
-      - LANGFLOW_API_KEY_ENABLED=${API_KEY_ENABLED:-false}
+      LANGFLOW_DATABASE_URL: "postgresql://${POSTGRES_USER:-langflow}:${POSTGRES_PASSWORD:-change-this-password}@postgres:5432/${POSTGRES_DB:-langflow}"
+      LANGFLOW_CONFIG_DIR: /app/langflow_config
+      LANGFLOW_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      LANGFLOW_SUPERUSER: "${SUPERUSER_USERNAME:-admin}"
+      LANGFLOW_SUPERUSER_PASSWORD: "${SUPERUSER_PASSWORD:-change-this-admin-password}"
+      LANGFLOW_SECRET_KEY: "${SECRET_KEY:-change-this-to-a-random-secret-key}"
+      LANGFLOW_AUTO_LOGIN: "${LANGFLOW_AUTO_LOGIN:-false}"
+      LANGFLOW_SKIP_AUTH_AUTO_LOGIN: "${LANGFLOW_SKIP_AUTH_AUTO_LOGIN:-true}"
+      LANGFLOW_API_KEY: "${API_KEY:-}"
+      LANGFLOW_API_KEY_ENABLED: "${API_KEY_ENABLED:-false}"
+      BACKEND_URL: "${BACKEND_URL:-http://localhost:7860/}"
+      LANGFLOW_STORAGE_TYPE: "${LANGFLOW_STORAGE_TYPE:-minio}"
+      LANGFLOW_S3_BUCKET_NAME: "${MINIO_BUCKET:-langflow-assets}"
+      LANGFLOW_S3_REGION: "${MINIO_REGION:-us-east-1}"
+      LANGFLOW_S3_ENDPOINT_URL: "http://minio:9000"
+      LANGFLOW_S3_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
+      LANGFLOW_S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-change-this-minio-password}"
+      LANGFLOW_S3_ROOT_PREFIX: "${MINIO_ROOT_PREFIX:-prod}"
+      LANGFLOW_S3_PUBLIC_BASE_URL: "${MINIO_PUBLIC_BASE_URL:-}"
+      LANGFLOW_S3_PRESIGN_EXPIRATION: "${MINIO_PRESIGN_EXPIRATION:-3600}"
+      LANGFLOW_S3_ADDRESSING_STYLE: path
+      LANGFLOW_S3_USE_SSL: "false"
+      LANGFLOW_S3_VERIFY_SSL: "false"
     volumes:
       - langflow-config:/app/langflow_config
-      - langflow-data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
       interval: 30s
@@ -38,15 +55,15 @@ services:
     container_name: langflow-postgres
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-langflow}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-langflow}
-      - POSTGRES_DB=${POSTGRES_DB:-langflow}
-      - PGDATA=/var/lib/postgresql/data
-      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+      POSTGRES_USER: "${POSTGRES_USER:-langflow}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-this-password}"
+      POSTGRES_DB: "${POSTGRES_DB:-langflow}"
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_INITDB_ARGS: --encoding=UTF-8
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "${POSTGRES_PORT_EXTERNAL:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-langflow} -d ${POSTGRES_DB:-langflow}"]
       interval: 10s
@@ -56,16 +73,55 @@ services:
     networks:
       - langflow-network
 
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    container_name: langflow-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-change-this-minio-password}"
+      MINIO_REGION: "${MINIO_REGION:-us-east-1}"
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - langflow-network
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-02-21T16-00-46Z
+    container_name: langflow-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        mc alias set local http://minio:9000 "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-change-this-minio-password}" &&
+        mc mb --ignore-existing local/"${MINIO_BUCKET:-langflow-assets}" || true
+    restart: "no"
+    networks:
+      - langflow-network
+
 volumes:
   postgres-data:
     driver: local
     name: langflow-postgres-data
+  minio-data:
+    driver: local
+    name: langflow-minio-data
   langflow-config:
     driver: local
     name: langflow-config-data
-  langflow-data:
-    driver: local
-    name: langflow-app-data
 
 networks:
   langflow-network:

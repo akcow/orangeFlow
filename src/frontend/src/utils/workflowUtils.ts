@@ -8,6 +8,33 @@ import {
 
 export type WorkflowSelection = { nodes: AllNodeType[]; edges: EdgeType[] };
 
+function normalizePublicImagePreviewUrl(value: string): string {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  const markers = ["/api/v1/files/public-inline/", "/api/v1/files/public/"];
+  const marker = markers.find((candidate) => trimmed.includes(candidate));
+  if (!marker) return trimmed;
+  const idx = trimmed.indexOf(marker);
+  if (idx < 0) return trimmed;
+  const rest = trimmed.slice(idx + marker.length).split("?", 1)[0];
+  return `${trimmed.slice(0, idx)}/api/v1/files/images/${rest}`;
+}
+
+function getTemplateFieldEntries(
+  template: unknown,
+  options?: { preferDraftOutput?: boolean },
+): Array<[string, Record<string, unknown>]> {
+  if (!template || typeof template !== "object") return [];
+  const entries = Object.entries(template as Record<string, unknown>).filter(
+    ([, field]) => field && typeof field === "object",
+  ) as Array<[string, Record<string, unknown>]>;
+  const draftEntries = entries.filter(([key]) => key === "draft_output");
+  const regularEntries = entries.filter(([key]) => key !== "draft_output");
+  return options?.preferDraftOutput
+    ? [...draftEntries, ...regularEntries]
+    : [...regularEntries, ...draftEntries];
+}
+
 function looksLikeImageFile(value: string): boolean {
   const lower = value.toLowerCase();
   return (
@@ -23,7 +50,7 @@ function looksLikeImageFile(value: string): boolean {
 function findFirstImageLikeString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") {
-    const trimmed = value.trim();
+    const trimmed = normalizePublicImagePreviewUrl(value);
     if (!trimmed) return null;
     // Prefer data url or direct image url
     if (trimmed.toLowerCase().startsWith("data:image")) return trimmed;
@@ -127,40 +154,46 @@ export function guessWorkflowCoverFromSelection(
   for (const node of nodes) {
     if (!("node" in node.data)) continue;
     const template = node.data.node?.template;
-    if (template && typeof template === "object") {
-      for (const field of Object.values(template)) {
-        if (!field || typeof field !== "object") continue;
-        const fieldData = field as Record<string, unknown>;
-        const filePaths = fieldData.file_path;
-        const paths = fieldData.path;
-        const check = (p: unknown) => {
-          if (typeof p !== "string") return null;
-          if (!looksLikeImageFile(p)) return null;
-          return getFilesDownloadUrl(p);
-        };
-        if (Array.isArray(filePaths)) {
-          for (const p of filePaths) {
-            const hit = check(p);
-            if (hit) return hit;
-          }
-        } else {
-          const hit = check(filePaths);
+    for (const [, fieldData] of getTemplateFieldEntries(template, {
+      preferDraftOutput: true,
+    })) {
+      const hit = findFirstImageLikeString(fieldData.value);
+      if (hit) return hit;
+    }
+  }
+
+  for (const node of nodes) {
+    if (!("node" in node.data)) continue;
+    const template = node.data.node?.template;
+    for (const [, fieldData] of getTemplateFieldEntries(template)) {
+      const filePaths = fieldData.file_path;
+      const paths = fieldData.path;
+      const check = (p: unknown) => {
+        if (typeof p !== "string") return null;
+        if (!looksLikeImageFile(p)) return null;
+        return getFilesDownloadUrl(p);
+      };
+      if (Array.isArray(filePaths)) {
+        for (const p of filePaths) {
+          const hit = check(p);
           if (hit) return hit;
         }
-        if (Array.isArray(paths)) {
-          for (const p of paths) {
-            const hit = check(p);
-            if (hit) return hit;
-          }
-        } else {
-          const hit = check(paths);
+      } else {
+        const hit = check(filePaths);
+        if (hit) return hit;
+      }
+      if (Array.isArray(paths)) {
+        for (const p of paths) {
+          const hit = check(p);
           if (hit) return hit;
         }
-        // Fallback: search value payloads for any image-like string (draft_output etc).
-        if ("value" in fieldData) {
-          const hit = findFirstImageLikeString(fieldData.value);
-          if (hit) return hit;
-        }
+      } else {
+        const hit = check(paths);
+        if (hit) return hit;
+      }
+      if ("value" in fieldData) {
+        const hit = findFirstImageLikeString(fieldData.value);
+        if (hit) return hit;
       }
     }
   }
@@ -168,7 +201,7 @@ export function guessWorkflowCoverFromSelection(
 }
 
 function asImageCandidate(value: string): string | null {
-  const trimmed = String(value ?? "").trim();
+  const trimmed = normalizePublicImagePreviewUrl(value);
   if (!trimmed) return null;
   if (trimmed.toLowerCase().startsWith("data:image")) return trimmed;
   if (
@@ -315,7 +348,7 @@ function collectFlowImageCandidatesFromFlow(flow: {
     const template = node.data.node?.template;
     if (!template || typeof template !== "object") return;
 
-    Object.values(template as Record<string, unknown>).forEach((field) => {
+    getTemplateFieldEntries(template).forEach(([, field]) => {
       if (!field || typeof field !== "object") return;
       const value = field as Record<string, unknown>;
       collectImageCandidates(value.value, candidates);
@@ -339,7 +372,7 @@ function collectFlowImageCandidateEntriesFromFlow(flow: {
     const template = node.data.node?.template;
     if (!template || typeof template !== "object") return;
 
-    Object.values(template as Record<string, unknown>).forEach((field) => {
+    getTemplateFieldEntries(template).forEach(([, field]) => {
       if (!field || typeof field !== "object") return;
       const value = field as Record<string, unknown>;
       collectImageCandidatesWithMeta(value.value, candidates, orderRef);

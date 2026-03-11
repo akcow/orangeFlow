@@ -8,7 +8,7 @@ from langflow.services.deps import session_scope
 
 
 @pytest.fixture
-async def messages_with_flow_ids(session):  # noqa: ARG001
+async def messages_with_flow_ids(active_user, session):  # noqa: ARG001
     """Create messages with different session_ids and flow_ids for testing sessions endpoint."""
     async with session_scope() as _session:
         flow_id_1 = uuid4()
@@ -17,22 +17,52 @@ async def messages_with_flow_ids(session):  # noqa: ARG001
         # Create MessageTable objects directly since MessageCreate doesn't have flow_id field
         messagetables = [
             MessageTable(
-                text="Message 1", sender="User", sender_name="User", session_id="session_A", flow_id=flow_id_1
+                text="Message 1",
+                sender="User",
+                sender_name="User",
+                session_id="session_A",
+                flow_id=flow_id_1,
+                user_id=active_user.id,
             ),
-            MessageTable(text="Message 2", sender="AI", sender_name="AI", session_id="session_A", flow_id=flow_id_1),
             MessageTable(
-                text="Message 3", sender="User", sender_name="User", session_id="session_B", flow_id=flow_id_1
+                text="Message 2",
+                sender="AI",
+                sender_name="AI",
+                session_id="session_A",
+                flow_id=flow_id_1,
+                user_id=active_user.id,
             ),
             MessageTable(
-                text="Message 4", sender="User", sender_name="User", session_id="session_C", flow_id=flow_id_2
+                text="Message 3",
+                sender="User",
+                sender_name="User",
+                session_id="session_B",
+                flow_id=flow_id_1,
+                user_id=active_user.id,
             ),
-            MessageTable(text="Message 5", sender="AI", sender_name="AI", session_id="session_D", flow_id=flow_id_2),
+            MessageTable(
+                text="Message 4",
+                sender="User",
+                sender_name="User",
+                session_id="session_C",
+                flow_id=flow_id_2,
+                user_id=active_user.id,
+            ),
+            MessageTable(
+                text="Message 5",
+                sender="AI",
+                sender_name="AI",
+                session_id="session_D",
+                flow_id=flow_id_2,
+                user_id=active_user.id,
+            ),
             MessageTable(
                 text="Message 6",
                 sender="User",
                 sender_name="User",
                 session_id="session_E",
                 flow_id=None,  # No flow_id
+                user_id=active_user.id,
             ),
         ]
         created_messages = await aadd_messagetables(messagetables, _session)
@@ -140,3 +170,22 @@ async def test_get_sessions_invalid_flow_id_format(client: AsyncClient, logged_i
 
     assert response.status_code == 422, response.text
     assert "detail" in response.json()
+
+
+@pytest.mark.api_key_required
+async def test_get_sessions_are_scoped_to_current_user(
+    client: AsyncClient,
+    logged_in_headers,
+    messages_with_flow_ids,
+    user_two_api_key,
+):
+    response = await client.get("api/v1/monitor/messages/sessions", headers=logged_in_headers)
+    assert response.status_code == 200, response.text
+    assert set(response.json()) == messages_with_flow_ids["expected_all_sessions"]
+
+    other_user_response = await client.get(
+        "api/v1/monitor/messages/sessions",
+        headers={"x-api-key": user_two_api_key},
+    )
+    assert other_user_response.status_code == 200, other_user_response.text
+    assert other_user_response.json() == []

@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, field_serializer, field_validator
-from sqlalchemy import Text
+from sqlalchemy import Index, Text
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from langflow.serialization.serialization import get_max_items_length, get_max_text_length, serialize
@@ -13,9 +14,10 @@ class VertexBuildBase(SQLModel):
     id: str = Field(nullable=False)
     data: dict | None = Field(default=None, sa_column=Column(JSON))
     artifacts: dict | None = Field(default=None, sa_column=Column(JSON))
-    params: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    params: Any | None = Field(default=None, sa_column=Column(Text, nullable=True))
     valid: bool = Field(nullable=False)
     flow_id: UUID = Field()
+    user_id: UUID | None = Field(default=None, nullable=True)
 
     # Needed for Column(JSON)
     class Config:
@@ -24,6 +26,15 @@ class VertexBuildBase(SQLModel):
     @field_validator("flow_id", mode="before")
     @classmethod
     def validate_flow_id(cls, value):
+        if value is None:
+            return value
+        if isinstance(value, str):
+            value = UUID(value)
+        return value
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def validate_user_id(cls, value):
         if value is None:
             return value
         if isinstance(value, str):
@@ -68,6 +79,10 @@ class VertexBuildBase(SQLModel):
 class VertexBuildTable(VertexBuildBase, table=True):  # type: ignore[call-arg]
     __tablename__ = "vertex_build"
     build_id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    __table_args__ = (
+        Index("ix_vertex_build_flow_id_timestamp", "flow_id", "timestamp"),
+        Index("ix_vertex_build_user_id_flow_id_timestamp", "user_id", "flow_id", "timestamp"),
+    )
 
 
 class VertexBuildMapModel(BaseModel):

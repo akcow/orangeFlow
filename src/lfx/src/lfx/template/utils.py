@@ -82,10 +82,12 @@ def _normalize_storage_file_path(value: str) -> str | None:
         "api/v1/files/images/",
         "api/v1/files/media/",
         "api/v1/files/download/",
+        "api/v1/files/public-inline/",
         "api/v1/files/public/",
         "files/images/",
         "files/media/",
         "files/download/",
+        "files/public-inline/",
         "files/public/",
     ):
         if raw.startswith(prefix):
@@ -99,13 +101,12 @@ def _normalize_storage_file_path(value: str) -> str | None:
         return None
 
     flow_id = parts[0]
-    file_name = parts[-1]
+    file_name = "/".join(parts[1:])
     if not flow_id or not file_name:
         return None
-    if flow_id in {".", ".."} or file_name in {".", ".."}:
+    if any(part in {".", ".."} for part in parts):
         return None
-    # Prevent path traversal; file_name should be a leaf.
-    if "/" in file_name or "\\" in file_name:
+    if "\\" in file_name:
         return None
     return f"{flow_id}/{file_name}"
 

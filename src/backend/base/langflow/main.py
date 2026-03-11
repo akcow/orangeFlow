@@ -598,5 +598,5 @@ if __name__ == "__main__":
         workers=get_number_of_workers(),
         log_level="error",
         reload=True,
-        loop="asyncio",
+        loop="langflow.windows_loop:selector_loop_factory" if platform.system() == "Windows" else "asyncio",
     )

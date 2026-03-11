@@ -13,6 +13,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 import sqlmodel
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 from langflow.utils import migration
 
@@ -30,14 +31,28 @@ def upgrade() -> None:
         with op.batch_alter_table("user", schema=None) as batch_op:
             batch_op.add_column(sa.Column("is_reviewer", sa.Boolean(), nullable=False, server_default=sa.false()))
 
-    community_item_status_enum = sa.Enum("PRIVATE", "PUBLIC", "UNREVIEWED", name="community_item_status_enum")
-    community_review_action_enum = sa.Enum("APPROVE", "REJECT", "HIDE", name="community_review_action_enum")
+    community_item_status_enum_create = sa.Enum("PRIVATE", "PUBLIC", "UNREVIEWED", name="community_item_status_enum")
+    community_review_action_enum_create = sa.Enum("APPROVE", "REJECT", "HIDE", name="community_review_action_enum")
     try:
-        community_item_status_enum.create(conn, checkfirst=True)
-        community_review_action_enum.create(conn, checkfirst=True)
+        community_item_status_enum_create.create(conn, checkfirst=True)
+        community_review_action_enum_create.create(conn, checkfirst=True)
     except Exception:
         # Best effort for dialect differences.
         pass
+    community_item_status_enum = postgresql.ENUM(
+        "PRIVATE",
+        "PUBLIC",
+        "UNREVIEWED",
+        name="community_item_status_enum",
+        create_type=False,
+    )
+    community_review_action_enum = postgresql.ENUM(
+        "APPROVE",
+        "REJECT",
+        "HIDE",
+        name="community_review_action_enum",
+        create_type=False,
+    )
 
     if not migration.table_exists("community_item_review_log", conn):
         op.create_table(

@@ -12,6 +12,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from langflow.schema.message import Message
+from langflow.services.database.models.flow.model import Flow
 from langflow.services.database.models.message.model import MessageRead, MessageTable
 from langflow.services.deps import get_settings_service, session_scope
 
@@ -142,8 +143,15 @@ async def aadd_messages(messages: Message | list[Message], flow_id: str | UUID |
             raise ValueError(msg)
 
     try:
-        messages_models = [MessageTable.from_message(msg, flow_id=flow_id) for msg in messages]
         async with session_scope() as session:
+            resolved_flow_id = flow_id if not isinstance(flow_id, str) else UUID(flow_id)
+            resolved_user_id = None
+            if resolved_flow_id:
+                flow = await session.get(Flow, resolved_flow_id)
+                resolved_user_id = flow.user_id if flow else None
+            messages_models = [
+                MessageTable.from_message(msg, flow_id=resolved_flow_id, user_id=resolved_user_id) for msg in messages
+            ]
             messages_models = await aadd_messagetables(messages_models, session)
         return [await Message.create(**message.model_dump()) for message in messages_models]
     except Exception as e:
@@ -366,6 +374,7 @@ class LCBuiltinChatMemory(BaseChatMessageHistory):
         messages = get_messages(
             session_id=self.session_id,
             context_id=self.context_id,
+            flow_id=UUID(self.flow_id) if self.flow_id else None,
         )
         return [m.to_lc_message() for m in messages if not m.error]  # Exclude error messages
 
@@ -373,6 +382,7 @@ class LCBuiltinChatMemory(BaseChatMessageHistory):
         messages = await aget_messages(
             session_id=self.session_id,
             context_id=self.context_id,
+            flow_id=UUID(self.flow_id) if self.flow_id else None,
         )
         return [m.to_lc_message() for m in messages if not m.error]  # Exclude error messages
 

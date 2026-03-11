@@ -163,13 +163,16 @@ function normalizePublicFilePreviewUrl(
   if (!trimmed) return undefined;
   if (/^(data:|blob:)/i.test(trimmed)) return trimmed;
 
-  // Some components persist `/api/v1/files/public/{flow_id}/{file}?token=...` links
+  // Some components persist tokenized public preview links such as
+  // `/api/v1/files/public/{flow_id}/{file}?token=...` or
+  // `/api/v1/files/public-inline/{flow_id}/{file}?token=...`.
   // (time-limited). For in-app previews we can use stable endpoints without tokens:
   // - images: `/api/v1/files/images/{flow_id}/{file}`
   // - media (video/audio): `/api/v1/files/media/{flow_id}/{file}`
-  const marker = "/api/v1/files/public/";
+  const markers = ["/api/v1/files/public-inline/", "/api/v1/files/public/"];
+  const marker = markers.find((candidate) => trimmed.includes(candidate));
+  if (!marker) return trimmed;
   const idx = trimmed.indexOf(marker);
-  if (idx < 0) return trimmed;
 
   const rest = trimmed.slice(idx + marker.length);
   const withoutQuery = rest.split("?", 1)[0];
@@ -5946,8 +5949,10 @@ function deriveFlowFilePathFromVideoUrl(url: string): string | null {
   // Supports both absolute and relative URLs.
   const markers = [
     "/api/v1/files/media/",
+    "/api/v1/files/public-inline/",
     "/api/v1/files/public/",
     "/files/media/",
+    "/files/public-inline/",
     "/files/public/",
   ];
   const marker = markers.find((m) => raw.includes(m));

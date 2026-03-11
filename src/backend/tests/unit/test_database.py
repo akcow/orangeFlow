@@ -340,6 +340,47 @@ async def test_delete_flows_with_transaction_and_build(client: AsyncClient, logg
 
 
 @pytest.mark.usefixtures("active_user")
+async def test_monitor_builds_returns_only_current_users_history(
+    client: AsyncClient,
+    logged_in_headers,
+    active_user,
+    user_two_api_key,
+):
+    flow = FlowCreate(name=f"history-flow-{uuid4()}", description="history", data={})
+    response = await client.post("api/v1/flows/", json=flow.model_dump(), headers=logged_in_headers)
+    assert response.status_code == 201, response.text
+    flow_id = response.json()["id"]
+
+    await log_vertex_build(
+        flow_id=flow_id,
+        vertex_id="vid",
+        valid=True,
+        params={"prompt": "test"},
+        data=ResultDataResponse(),
+        artifacts={"preview": "ok"},
+        user_id=active_user.id,
+    )
+
+    owner_response = await client.get(
+        "api/v1/monitor/builds",
+        params={"flow_id": flow_id},
+        headers=logged_in_headers,
+    )
+    assert owner_response.status_code == 200, owner_response.text
+    owner_builds = owner_response.json()["vertex_builds"]
+    assert "vid" in owner_builds
+    assert len(owner_builds["vid"]) == 1
+
+    other_user_response = await client.get(
+        "api/v1/monitor/builds",
+        params={"flow_id": flow_id},
+        headers={"x-api-key": user_two_api_key},
+    )
+    assert other_user_response.status_code == 200, other_user_response.text
+    assert other_user_response.json() == {"vertex_builds": {}}
+
+
+@pytest.mark.usefixtures("active_user")
 async def test_delete_folder_with_flows_with_transaction_and_build(client: AsyncClient, logged_in_headers):
     # Create a new project
     folder_name = f"Test Project {uuid4()}"

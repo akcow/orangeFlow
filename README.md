@@ -52,15 +52,23 @@ python start_service.py
 
 启动后访问：`http://localhost:7860`
 
-- 默认数据库：`data/runtime/langflow_shared.db`
+- 默认数据库：`PostgreSQL`
+- 默认连接串：`postgresql://langflow:langflow@127.0.0.1:5433/langflow`
 
 脚本会自动执行以下步骤：
 1. 清理缓存与组件索引缓存
 2. **自动检测并安装 uv**（如果未安装）
-3. 执行 `uv sync` 安装 Python 依赖
-4. 前端依赖安装与构建（按需）
-5. 同步 `src/frontend/build` 到后端静态目录
-6. 设置开发环境变量并启动 LangFlow
+3. 执行 `uv sync --extra postgresql` 安装 Python 依赖和 PostgreSQL 驱动
+4. 加载仓库根目录 `.env`
+5. 检查 PostgreSQL 是否可连通；若未显式配置数据库，会自动尝试启动 `docker/postgres.docker-compose.yml`
+6. 前端依赖安装与构建（按需）
+7. 同步 `src/frontend/build` 到后端静态目录
+8. 设置开发环境变量并启动 LangFlow
+
+说明：
+- `start_service.py` 不再默认回退到 SQLite。
+- 如果你在 `.env` 里写了 `LANGFLOW_DATABASE_URL=sqlite://...`，脚本会直接报错，防止历史记录、并发写入和多用户隔离再次退回旧问题。
+- 如果你不想用本地 Docker PostgreSQL，可以直接在 `.env` 或系统环境变量里设置你自己的 `LANGFLOW_DATABASE_URL`。
 
 ### 3.2 管理员登录模式（需要真实登录流程时使用）
 
@@ -70,7 +78,8 @@ python start_service_admin.py --admin-username admin
 
 首次会提示输入管理员密码（如果没有通过参数或环境变量传入）。
 
-- 默认数据库：`data/runtime/langflow_shared.db`（与 `start_service.py` 一致）
+- 默认数据库：`PostgreSQL`
+- 默认连接串：`postgresql://langflow:langflow@127.0.0.1:5433/langflow`
 
 常用参数：
 
@@ -93,8 +102,8 @@ python start_service_admin.py --skip-frontend
 |---|---|---|
 | 登录行为 | 自动登录（`LANGFLOW_AUTO_LOGIN=true`） | 需要管理员账号登录（`LANGFLOW_AUTO_LOGIN=false`） |
 | 适用场景 | 日常开发联调 | 登录/权限相关验证 |
-| 默认数据库 | 默认 `data/runtime/langflow_shared.db` | 默认 `data/runtime/langflow_shared.db` |
-| 可选参数 | 无 | 支持 `--port`、`--db-path`、`--reset-db` 等 |
+| 默认数据库 | 默认 PostgreSQL | 默认 PostgreSQL |
+| 可选参数 | 无 | 支持 `--port`、`--database-url` 等；旧的 `--db-path`、`--reset-db` 已废弃 |
 
 ## 4. 环境变量配置（.env）
 
@@ -111,6 +120,19 @@ cp .env.example .env
   - `LANGFLOW_HOST`
   - `LANGFLOW_LOG_LEVEL`
   - `LANGFLOW_DATABASE_URL`
+  - `LANGFLOW_STORAGE_TYPE`
+  - `POSTGRES_USER`
+  - `POSTGRES_PASSWORD`
+  - `POSTGRES_DB`
+  - `POSTGRES_HOST`
+  - `POSTGRES_PORT`
+  - `LANGFLOW_S3_BUCKET_NAME`
+  - `LANGFLOW_S3_REGION`
+  - `LANGFLOW_S3_ENDPOINT_URL`
+  - `LANGFLOW_S3_ACCESS_KEY_ID`
+  - `LANGFLOW_S3_SECRET_ACCESS_KEY`
+  - `LANGFLOW_S3_ROOT_PREFIX`
+  - `LANGFLOW_S3_PUBLIC_BASE_URL`
 
 - 模型/网关相关（按需配置）：
   - `ARK_API_KEY`
@@ -176,7 +198,9 @@ python start_service.py
 - 日常开发：`python start_service.py`
 - 登录/权限联调：`python start_service_admin.py`
 
-首次运行时，脚本会自动检测并安装 uv（Python 依赖管理工具），然后执行 `uv sync` 安装所有依赖。你不需要手动安装 uv 或执行 `uv sync`。
+首次运行时，脚本会自动检测并安装 uv（Python 依赖管理工具），然后执行 `uv sync --extra postgresql` 安装依赖，并确保连接到 PostgreSQL。你不需要再手动切回 SQLite。
+
+如果本机没有可用 PostgreSQL，`start_service.py` 会优先尝试拉起 `docker/postgres.docker-compose.yml` 中的本地数据库容器。
 
 ### Q2：端口 7860 被占用怎么办？
 
@@ -205,6 +229,31 @@ A：检查 `.env` 是否配置了对应 key，例如：
 A：
 1. 重新运行启动脚本（脚本会清理组件缓存）
 2. 必要时手动执行组件缓存清理脚本：`python -m scripts.clear_component_cache`
+
+### Q6：内测和商业化部署时，文件存储应该怎么配？
+
+A：
+- 单机小规模内测：可以先用 `LANGFLOW_STORAGE_TYPE=local`
+- 多用户、要上服务器、后续商业化：改成 `LANGFLOW_STORAGE_TYPE=s3` 或 `LANGFLOW_STORAGE_TYPE=minio`
+
+MinIO 示例：
+
+```env
+LANGFLOW_STORAGE_TYPE=s3
+LANGFLOW_S3_BUCKET_NAME=langflow-media
+LANGFLOW_S3_ENDPOINT_URL=http://127.0.0.1:9000
+LANGFLOW_S3_ACCESS_KEY_ID=minioadmin
+LANGFLOW_S3_SECRET_ACCESS_KEY=minioadmin
+LANGFLOW_S3_ROOT_PREFIX=prod
+LANGFLOW_S3_ADDRESSING_STYLE=path
+LANGFLOW_S3_USE_SSL=false
+LANGFLOW_S3_VERIFY_SSL=false
+```
+
+说明：
+- 现在的 S3 存储实现支持 AWS S3 和 MinIO 这类 S3 兼容对象存储
+- 生成图片/视频的预览访问会自动走对象存储预签名 URL 或你配置的 `LANGFLOW_S3_PUBLIC_BASE_URL`
+- 对于需要本地文件路径的组件，服务端会把对象临时落到本地缓存后再处理，不会因为用了对象存储就直接失效
 
 ## 8. 你可以直接用的协作流程
 

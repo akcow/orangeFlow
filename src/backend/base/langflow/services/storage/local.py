@@ -1,6 +1,7 @@
 import anyio
 from aiofile import async_open
 from lfx.log.logger import logger
+from urllib.parse import quote
 
 from .service import StorageService
 
@@ -16,6 +17,17 @@ class LocalStorageService(StorageService):
     def build_full_path(self, flow_id: str, file_name: str) -> str:
         """Build the full path of a file in the local storage."""
         return str(self.data_dir / flow_id / file_name)
+
+    def build_inline_url(self, flow_id: str, file_name: str, *, kind: str | None = None) -> str | None:
+        safe_file_name = quote(file_name, safe="/")
+        if kind == "image":
+            return f"/api/v1/files/images/{flow_id}/{safe_file_name}"
+        if kind in {"video", "audio"}:
+            return f"/api/v1/files/media/{flow_id}/{safe_file_name}"
+        return f"/api/v1/files/download/{flow_id}/{safe_file_name}"
+
+    def build_public_url(self, flow_id: str, file_name: str, *, ttl_seconds: int = 3600) -> str | None:
+        return self._build_signed_proxy_url("/api/v1/files/public", flow_id, file_name, ttl_seconds=ttl_seconds)
 
     async def save_file(self, flow_id: str, file_name: str, data: bytes) -> None:
         """Save a file in the local storage.

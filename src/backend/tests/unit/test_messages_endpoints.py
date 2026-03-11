@@ -13,34 +13,70 @@ from langflow.services.deps import session_scope
 
 
 @pytest.fixture
-async def created_message():
+async def created_message(active_user):
     async with session_scope() as session:
-        message = MessageCreate(text="Test message", sender="User", sender_name="User", session_id="session_id")
+        message = MessageCreate(
+            text="Test message",
+            sender="User",
+            sender_name="User",
+            session_id="session_id",
+            user_id=active_user.id,
+        )
         messagetable = MessageTable.model_validate(message, from_attributes=True)
         messagetables = await aadd_messagetables([messagetable], session)
         return MessageRead.model_validate(messagetables[0], from_attributes=True)
 
 
 @pytest.fixture
-async def created_messages(session):  # noqa: ARG001
+async def created_messages(active_user, session):  # noqa: ARG001
     async with session_scope() as _session:
         messages = [
-            MessageCreate(text="Test message 1", sender="User", sender_name="User", session_id="session_id2"),
-            MessageCreate(text="Test message 2", sender="User", sender_name="User", session_id="session_id2"),
-            MessageCreate(text="Test message 3", sender="AI", sender_name="AI", session_id="session_id2"),
+            MessageCreate(
+                text="Test message 1",
+                sender="User",
+                sender_name="User",
+                session_id="session_id2",
+                user_id=active_user.id,
+            ),
+            MessageCreate(
+                text="Test message 2",
+                sender="User",
+                sender_name="User",
+                session_id="session_id2",
+                user_id=active_user.id,
+            ),
+            MessageCreate(
+                text="Test message 3",
+                sender="AI",
+                sender_name="AI",
+                session_id="session_id2",
+                user_id=active_user.id,
+            ),
         ]
         messagetables = [MessageTable.model_validate(message, from_attributes=True) for message in messages]
         return await aadd_messagetables(messagetables, _session)
 
 
 @pytest.fixture
-async def messages_with_datetime_session_id(session):  # noqa: ARG001
+async def messages_with_datetime_session_id(active_user, session):  # noqa: ARG001
     """Create messages with datetime-like session IDs that contain characters requiring URL encoding."""
     datetime_session_id = "2024-01-15 10:30:45 UTC"  # Contains spaces and colons
     async with session_scope() as _session:
         messages = [
-            MessageCreate(text="Datetime message 1", sender="User", sender_name="User", session_id=datetime_session_id),
-            MessageCreate(text="Datetime message 2", sender="AI", sender_name="AI", session_id=datetime_session_id),
+            MessageCreate(
+                text="Datetime message 1",
+                sender="User",
+                sender_name="User",
+                session_id=datetime_session_id,
+                user_id=active_user.id,
+            ),
+            MessageCreate(
+                text="Datetime message 2",
+                sender="AI",
+                sender_name="AI",
+                session_id=datetime_session_id,
+                user_id=active_user.id,
+            ),
         ]
         messagetables = [MessageTable.model_validate(message, from_attributes=True) for message in messages]
         created_messages = await aadd_messagetables(messagetables, _session)
@@ -195,14 +231,18 @@ async def test_get_messages_with_non_encoded_datetime_session_id(
 
 
 @pytest.mark.api_key_required
-async def test_get_messages_with_various_encoded_characters(client: AsyncClient, logged_in_headers):
+async def test_get_messages_with_various_encoded_characters(client: AsyncClient, logged_in_headers, active_user):
     """Test various URL-encoded characters in session IDs."""
     # Create a session ID with various special characters
     special_session_id = "test+session:2024@domain.com"
 
     async with session_scope() as session:
         message = MessageCreate(
-            text="Special chars message", sender="User", sender_name="User", session_id=special_session_id
+            text="Special chars message",
+            sender="User",
+            sender_name="User",
+            session_id=special_session_id,
+            user_id=active_user.id,
         )
         messagetable = MessageTable.model_validate(message, from_attributes=True)
         await aadd_messagetables([messagetable], session)
@@ -235,3 +275,27 @@ async def test_get_messages_empty_result_with_encoded_nonexistent_session(client
     assert response.status_code == 200, response.text
     messages = response.json()
     assert len(messages) == 0
+
+
+@pytest.mark.api_key_required
+async def test_get_messages_are_scoped_to_current_user(
+    client: AsyncClient,
+    created_messages,
+    logged_in_headers,
+    user_two_api_key,
+):
+    response = await client.get(
+        "api/v1/monitor/messages",
+        params={"session_id": "session_id2"},
+        headers=logged_in_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == len(created_messages)
+
+    other_user_response = await client.get(
+        "api/v1/monitor/messages",
+        params={"session_id": "session_id2"},
+        headers={"x-api-key": user_two_api_key},
+    )
+    assert other_user_response.status_code == 200, other_user_response.text
+    assert other_user_response.json() == []

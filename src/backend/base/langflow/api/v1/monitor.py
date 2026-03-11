@@ -4,12 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_pagination import Page, Params
 from fastapi_pagination.ext.sqlmodel import apaginate
-from sqlalchemy import delete
+from sqlalchemy import and_, delete, or_
 from sqlmodel import col, select
 
-from langflow.api.utils import DbSession, custom_params
+from langflow.api.utils import CurrentActiveUser, DbSession, custom_params
 from langflow.schema.message import MessageResponse
-from langflow.services.auth.utils import get_current_active_user
+from langflow.services.database.models.flow.model import Flow
 from langflow.services.database.models.message.model import MessageRead, MessageTable, MessageUpdate
 from langflow.services.database.models.transactions.crud import transform_transaction_table
 from langflow.services.database.models.transactions.model import TransactionTable
@@ -22,32 +22,48 @@ from langflow.services.database.models.vertex_builds.model import VertexBuildMap
 router = APIRouter(prefix="/monitor", tags=["Monitor"])
 
 
+def _message_owner_filter(current_user_id: UUID):
+    return or_(
+        MessageTable.user_id == current_user_id,
+        and_(MessageTable.user_id.is_(None), Flow.user_id == current_user_id),
+    )
+
+
 @router.get("/builds")
-async def get_vertex_builds(flow_id: Annotated[UUID, Query()], session: DbSession) -> VertexBuildMapModel:
+async def get_vertex_builds(
+    flow_id: Annotated[UUID, Query()],
+    session: DbSession,
+    current_user: CurrentActiveUser,
+) -> VertexBuildMapModel:
     try:
-        vertex_builds = await get_vertex_builds_by_flow_id(session, flow_id)
+        vertex_builds = await get_vertex_builds_by_flow_id(session, flow_id, user_id=current_user.id)
         return VertexBuildMapModel.from_list_of_dicts(vertex_builds)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.delete("/builds", status_code=204)
-async def delete_vertex_builds(flow_id: Annotated[UUID, Query()], session: DbSession) -> None:
+async def delete_vertex_builds(
+    flow_id: Annotated[UUID, Query()],
+    session: DbSession,
+    current_user: CurrentActiveUser,
+) -> None:
     try:
-        await delete_vertex_builds_by_flow_id(session, flow_id)
+        await delete_vertex_builds_by_flow_id(session, flow_id, user_id=current_user.id)
         await session.commit()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/messages/sessions", dependencies=[Depends(get_current_active_user)])
+@router.get("/messages/sessions")
 async def get_message_sessions(
     session: DbSession,
+    current_user: CurrentActiveUser,
     flow_id: Annotated[UUID | None, Query()] = None,
 ) -> list[str]:
     try:
-        stmt = select(MessageTable.session_id).distinct()
-        stmt = stmt.where(col(MessageTable.session_id).isnot(None))
+        stmt = select(MessageTable.session_id).distinct().select_from(MessageTable).outerjoin(Flow, Flow.id == MessageTable.flow_id)
+        stmt = stmt.where(col(MessageTable.session_id).isnot(None)).where(_message_owner_filter(current_user.id))
 
         if flow_id:
             stmt = stmt.where(MessageTable.flow_id == flow_id)
@@ -61,6 +77,7 @@ async def get_message_sessions(
 @router.get("/messages")
 async def get_messages(
     session: DbSession,
+    current_user: CurrentActiveUser,
     flow_id: Annotated[UUID | None, Query()] = None,
     session_id: Annotated[str | None, Query()] = None,
     sender: Annotated[str | None, Query()] = None,
@@ -68,7 +85,8 @@ async def get_messages(
     order_by: Annotated[str | None, Query()] = "timestamp",
 ) -> list[MessageResponse]:
     try:
-        stmt = select(MessageTable)
+        stmt = select(MessageTable).select_from(MessageTable).outerjoin(Flow, Flow.id == MessageTable.flow_id)
+        stmt = stmt.where(_message_owner_filter(current_user.id))
         if flow_id:
             stmt = stmt.where(MessageTable.flow_id == flow_id)
         if session_id:
@@ -89,23 +107,42 @@ async def get_messages(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.delete("/messages", status_code=204, dependencies=[Depends(get_current_active_user)])
-async def delete_messages(message_ids: list[UUID], session: DbSession) -> None:
+@router.delete("/messages", status_code=204)
+async def delete_messages(message_ids: list[UUID], session: DbSession, current_user: CurrentActiveUser) -> None:
     try:
-        await session.exec(delete(MessageTable).where(MessageTable.id.in_(message_ids)))  # type: ignore[attr-defined]
+        owned_flow_ids = select(Flow.id).where(Flow.user_id == current_user.id)
+        await session.exec(
+            delete(MessageTable)
+            .where(MessageTable.id.in_(message_ids))  # type: ignore[attr-defined]
+            .where(
+                or_(
+                    MessageTable.user_id == current_user.id,
+                    and_(MessageTable.user_id.is_(None), MessageTable.flow_id.in_(owned_flow_ids)),
+                )
+            )
+        )
         await session.commit()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.put("/messages/{message_id}", dependencies=[Depends(get_current_active_user)], response_model=MessageRead)
+@router.put("/messages/{message_id}", response_model=MessageRead)
 async def update_message(
     message_id: UUID,
     message: MessageUpdate,
     session: DbSession,
+    current_user: CurrentActiveUser,
 ):
     try:
-        db_message = await session.get(MessageTable, message_id)
+        db_message = (
+            await session.exec(
+                select(MessageTable)
+                .select_from(MessageTable)
+                .outerjoin(Flow, Flow.id == MessageTable.flow_id)
+                .where(MessageTable.id == message_id)
+                .where(_message_owner_filter(current_user.id))
+            )
+        ).first()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -127,16 +164,22 @@ async def update_message(
 
 @router.patch(
     "/messages/session/{old_session_id}",
-    dependencies=[Depends(get_current_active_user)],
 )
 async def update_session_id(
     old_session_id: str,
     new_session_id: Annotated[str, Query(..., description="The new session ID to update to")],
     session: DbSession,
+    current_user: CurrentActiveUser,
 ) -> list[MessageResponse]:
     try:
         # Get all messages with the old session ID
-        stmt = select(MessageTable).where(MessageTable.session_id == old_session_id)
+        stmt = (
+            select(MessageTable)
+            .select_from(MessageTable)
+            .outerjoin(Flow, Flow.id == MessageTable.flow_id)
+            .where(MessageTable.session_id == old_session_id)
+            .where(_message_owner_filter(current_user.id))
+        )
         messages = (await session.exec(stmt)).all()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -166,11 +209,19 @@ async def update_session_id(
 async def delete_messages_session(
     session_id: str,
     session: DbSession,
+    current_user: CurrentActiveUser,
 ):
     try:
+        owned_flow_ids = select(Flow.id).where(Flow.user_id == current_user.id)
         await session.exec(
             delete(MessageTable)
             .where(col(MessageTable.session_id) == session_id)
+            .where(
+                or_(
+                    MessageTable.user_id == current_user.id,
+                    and_(MessageTable.user_id.is_(None), MessageTable.flow_id.in_(owned_flow_ids)),
+                )
+            )
             .execution_options(synchronize_session="fetch")
         )
         await session.commit()
@@ -185,11 +236,14 @@ async def get_transactions(
     flow_id: Annotated[UUID, Query()],
     session: DbSession,
     params: Annotated[Params | None, Depends(custom_params)],
+    current_user: CurrentActiveUser,
 ) -> Page[TransactionTable]:
     try:
         stmt = (
             select(TransactionTable)
+            .join(Flow, Flow.id == TransactionTable.flow_id)
             .where(TransactionTable.flow_id == flow_id)
+            .where(Flow.user_id == current_user.id)
             .order_by(col(TransactionTable.timestamp))
         )
         import warnings

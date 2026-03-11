@@ -366,6 +366,7 @@ async def generate_flow_events(
                     params=params,
                     data=result_data_response,
                     artifacts=artifacts,
+                    user_id=str(current_user.id),
                 )
             else:
                 await chat_service.set_cache(flow_id_str, graph)

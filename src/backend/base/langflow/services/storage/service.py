@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from urllib.parse import quote
 from typing import TYPE_CHECKING
 
 import anyio
+from lfx.utils.public_files import generate_public_file_token
 
 from langflow.services.base import Service
 
@@ -24,6 +26,59 @@ class StorageService(Service):
 
     def build_full_path(self, flow_id: str, file_name: str) -> str:
         raise NotImplementedError
+
+    def build_object_key(self, flow_id: str, file_name: str) -> str:
+        raw = f"{flow_id}/{file_name}".replace("\\", "/").lstrip("/")
+        return "/".join(part for part in raw.split("/") if part)
+
+    def build_inline_url(self, flow_id: str, file_name: str, *, kind: str | None = None) -> str | None:
+        return None
+
+    def build_public_url(self, flow_id: str, file_name: str, *, ttl_seconds: int = 3600) -> str | None:
+        return None
+
+    def _resolve_secret_key(self) -> str:
+        try:
+            return str(self.settings_service.auth_settings.SECRET_KEY.get_secret_value() or "")
+        except Exception:
+            return ""
+
+    def _resolve_public_base_url(self) -> str:
+        explicit = str(getattr(self.settings_service.settings, "public_base_url", "") or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
+
+        explicit = str(getattr(self.settings_service.settings, "backend_url", "") or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
+
+        try:
+            host = str(self.settings_service.settings.host or "localhost")
+            port = int(getattr(self.settings_service.settings, "runtime_port", None) or self.settings_service.settings.port or 7860)
+            if host.startswith(("http://", "https://")):
+                return host.rstrip("/")
+            scheme = "https" if bool(getattr(self.settings_service.settings, "ssl_cert_file", None)) else "http"
+            if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+                return f"{scheme}://{host}"
+            return f"{scheme}://{host}:{port}"
+        except Exception:
+            return ""
+
+    def _build_signed_proxy_url(self, route_prefix: str, flow_id: str, file_name: str, *, ttl_seconds: int = 3600) -> str | None:
+        secret_key = self._resolve_secret_key()
+        if not secret_key:
+            return None
+        base = self._resolve_public_base_url()
+        if not base:
+            return None
+        token = generate_public_file_token(
+            secret_key=secret_key,
+            flow_id=flow_id,
+            file_name=file_name,
+            ttl_seconds=ttl_seconds,
+        )
+        safe_name = quote(file_name, safe="/")
+        return f"{base.rstrip('/')}{route_prefix}/{flow_id}/{safe_name}?token={token.value}"
 
     def set_ready(self) -> None:
         self.ready = True

@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 from langflow.utils import migration
 
@@ -22,8 +23,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     conn = op.get_bind()
-    access_type_enum = sa.Enum("PRIVATE", "PUBLIC", name="access_type_enum")
-    access_type_enum.create(conn, checkfirst=True)
+    access_type_enum_create = sa.Enum("PRIVATE", "PUBLIC", name="access_type_enum")
+    access_type_enum_create.create(conn, checkfirst=True)
+    access_type_enum = postgresql.ENUM("PRIVATE", "PUBLIC", name="access_type_enum", create_type=False)
     with op.batch_alter_table("flow", schema=None) as batch_op:
         if not migration.column_exists(table_name="flow", column_name="access_type", conn=conn):
             batch_op.add_column(

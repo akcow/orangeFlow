@@ -5,25 +5,30 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 import sys
-import socket
+import time
+import importlib
 from pathlib import Path
+from urllib.parse import quote
 
 from scripts.clear_component_cache import clear_component_index_cache
 
 REPO_ROOT = Path(__file__).resolve().parent
-RUNTIME_DATA_DIR = REPO_ROOT / "data" / "runtime"
-SHARED_DEV_DB_PATH = RUNTIME_DATA_DIR / "langflow_shared.db"
-LEGACY_DB_CANDIDATES = [
-    REPO_ROOT / "src" / "lfx" / "src" / "lfx" / "langflow.db",
-]
 BACKEND_BASE = REPO_ROOT / "src" / "backend" / "base"
 FRONTEND_DIR = REPO_ROOT / "src" / "frontend"
 FRONTEND_BUILD_DIR = FRONTEND_DIR / "build"
 BACKEND_FRONTEND_DIR = BACKEND_BASE / "langflow" / "frontend"
 LFX_SRC = REPO_ROOT / "src" / "lfx" / "src"
 COMPONENTS_PATH = LFX_SRC / "lfx" / "components"
+LOCAL_POSTGRES_COMPOSE_FILE = REPO_ROOT / "docker" / "postgres.docker-compose.yml"
+UV_CACHE_DIR = REPO_ROOT / ".uv-cache"
+DEFAULT_POSTGRES_USER = "langflow"
+DEFAULT_POSTGRES_PASSWORD = "langflow"
+DEFAULT_POSTGRES_DB = "langflow"
+DEFAULT_POSTGRES_HOST = "127.0.0.1"
+DEFAULT_POSTGRES_PORT = "5433"
 
 CACHE_TARGETS = [
     FRONTEND_DIR / ".vite",
@@ -58,6 +63,13 @@ def run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None =
     subprocess.run(cmd, cwd=location, env=env, check=True)
 
 
+def _uv_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
+    env = dict(base_env or os.environ.copy())
+    env.setdefault("UV_CACHE_DIR", str(UV_CACHE_DIR))
+    UV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return env
+
+
 def remove_path(path: Path) -> None:
     if not path.exists():
         return
@@ -75,35 +87,6 @@ def copy_frontend_build() -> None:
         shutil.rmtree(BACKEND_FRONTEND_DIR)
     shutil.copytree(FRONTEND_BUILD_DIR, BACKEND_FRONTEND_DIR)
     print(f"[copy] synced build to {BACKEND_FRONTEND_DIR.relative_to(REPO_ROOT)}")
-
-
-def _ensure_shared_default_db() -> Path:
-    """Return the shared dev DB path and seed it from legacy locations when needed."""
-    RUNTIME_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if SHARED_DEV_DB_PATH.exists():
-        return SHARED_DEV_DB_PATH
-
-    for legacy_path in LEGACY_DB_CANDIDATES:
-        if not legacy_path.exists():
-            continue
-        try:
-            shutil.copy2(legacy_path, SHARED_DEV_DB_PATH)
-            for suffix in ("-shm", "-wal"):
-                legacy_sidecar = legacy_path.with_name(legacy_path.name + suffix)
-                new_sidecar = SHARED_DEV_DB_PATH.with_name(SHARED_DEV_DB_PATH.name + suffix)
-                if legacy_sidecar.exists():
-                    shutil.copy2(legacy_sidecar, new_sidecar)
-            print(
-                "[db] initialized shared dev database from legacy path: "
-                f"{legacy_path.relative_to(REPO_ROOT)} -> {SHARED_DEV_DB_PATH.relative_to(REPO_ROOT)}"
-            )
-            break
-        except OSError as exc:
-            print(
-                "[db] warning: failed to seed shared DB from "
-                f"{legacy_path.relative_to(REPO_ROOT)}: {exc}"
-            )
-    return SHARED_DEV_DB_PATH
 
 
 def _local_venv_python() -> Path | None:
@@ -127,7 +110,7 @@ def _ensure_uv_environment() -> None:
     # Prefer local .venv when it exists so the script uses the project's venv.
     venv_python = _local_venv_python()
     if venv_python is not None:
-        env = os.environ.copy()
+        env = _uv_env()
         env["LANGFLOW_START_SERVICE_REEXEC"] = "1"
         cmd = [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]]
         subprocess.run(cmd, cwd=REPO_ROOT, env=env, check=True)
@@ -135,7 +118,7 @@ def _ensure_uv_environment() -> None:
 
     # If uv is available, re-exec via uv so dependencies resolve consistently.
     if shutil.which("uv"):
-        env = os.environ.copy()
+        env = _uv_env()
         env["LANGFLOW_START_SERVICE_REEXEC"] = "1"
         cmd = ["uv", "run", "python", str(Path(__file__).resolve()), *sys.argv[1:]]
         subprocess.run(_resolve_command(cmd), cwd=REPO_ROOT, env=env, check=True)
@@ -204,10 +187,152 @@ def _ensure_python_dependencies() -> None:
     _ensure_uv_installed()
 
     # `uv sync` is idempotent and fast when already up-to-date.
-    run(["uv", "sync"], cwd=REPO_ROOT)
+    # Always install the PostgreSQL extra so the runtime has a working driver.
+    try:
+        run(["uv", "sync", "--extra", "postgresql"], cwd=REPO_ROOT, env=_uv_env())
+    except subprocess.CalledProcessError:
+        required_modules = ("psycopg", "dotenv", "fastapi", "uvicorn")
+        missing = []
+        for module_name in required_modules:
+            try:
+                importlib.import_module(module_name)
+            except Exception:
+                missing.append(module_name)
+        if missing:
+            raise
+        print(
+            "[warn] uv sync failed, but the current environment already contains the required runtime packages. "
+            "Continuing with the existing .venv."
+        )
 
 
-def _ensure_frontend_built(env: dict[str, str]) -> None:
+def _load_repo_dotenv(env: dict[str, str]) -> None:
+    env_file = REPO_ROOT / ".env"
+    if not env_file.exists():
+        return
+
+    from dotenv import dotenv_values
+
+    for key, value in dotenv_values(env_file).items():
+        if value is None or key in env:
+            continue
+        env[key] = value
+
+
+def _default_postgres_url(env: dict[str, str]) -> str:
+    user = env.get("POSTGRES_USER") or DEFAULT_POSTGRES_USER
+    password = env.get("POSTGRES_PASSWORD") or DEFAULT_POSTGRES_PASSWORD
+    db_name = env.get("POSTGRES_DB") or DEFAULT_POSTGRES_DB
+    host = env.get("POSTGRES_HOST") or DEFAULT_POSTGRES_HOST
+    port = env.get("POSTGRES_PORT") or DEFAULT_POSTGRES_PORT
+    return (
+        f"postgresql://{quote(user)}:{quote(password)}@{host}:{port}/{quote(db_name)}"
+    )
+
+
+def _normalize_database_url(url: str) -> str:
+    normalized = url.strip().strip("'").strip('"')
+    if "://" not in normalized:
+        raise ValueError(
+            "LANGFLOW_DATABASE_URL is invalid. Expected a full PostgreSQL URL like "
+            "'postgresql://langflow:password@127.0.0.1:5433/langflow'."
+        )
+
+    driver = normalized.split("://", maxsplit=1)[0].lower()
+    if driver.startswith("sqlite"):
+        raise ValueError(
+            "start_service.py no longer supports SQLite defaults. "
+            "Set LANGFLOW_DATABASE_URL to PostgreSQL, or use the bundled local PostgreSQL defaults."
+        )
+    if not (driver.startswith("postgresql") or driver.startswith("postgres")):
+        raise ValueError(
+            "start_service.py requires PostgreSQL. "
+            f"Unsupported database driver: {driver!r}."
+        )
+    return normalized
+
+
+def _psycopg_connection_url(url: str) -> str:
+    normalized = _normalize_database_url(url)
+    driver, rest = normalized.split("://", maxsplit=1)
+    driver = driver.lower()
+    if driver in {"postgres", "postgresql", "postgresql+psycopg", "postgresql+psycopg2"}:
+        return f"postgresql://{rest}"
+    if driver == "postgresql+psycopg2binary":
+        return f"postgresql://{rest}"
+    return normalized
+
+
+def _connect_postgres(database_url: str) -> None:
+    import psycopg
+
+    with psycopg.connect(_psycopg_connection_url(database_url), connect_timeout=3) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+
+
+def _start_local_postgres(env: dict[str, str]) -> None:
+    if not LOCAL_POSTGRES_COMPOSE_FILE.exists():
+        raise FileNotFoundError(
+            f"Missing local PostgreSQL compose file: {LOCAL_POSTGRES_COMPOSE_FILE}"
+        )
+    if not shutil.which("docker"):
+        raise RuntimeError(
+            "Local PostgreSQL is not reachable and Docker is not installed. "
+            "Install Docker Desktop, or set LANGFLOW_DATABASE_URL to an existing PostgreSQL instance."
+        )
+
+    print(
+        "[db] Local PostgreSQL not reachable. Bootstrapping "
+        f"{LOCAL_POSTGRES_COMPOSE_FILE.relative_to(REPO_ROOT)} ..."
+    )
+    run(
+        ["docker", "compose", "-f", str(LOCAL_POSTGRES_COMPOSE_FILE), "up", "-d", "postgres"],
+        cwd=REPO_ROOT,
+        env=env,
+    )
+
+
+def _ensure_postgres_ready(env: dict[str, str]) -> None:
+    database_url = _normalize_database_url(env["LANGFLOW_DATABASE_URL"])
+    default_local_url = _default_postgres_url(env)
+    env["LANGFLOW_DATABASE_URL"] = database_url
+
+    try:
+        _connect_postgres(database_url)
+        print("[db] PostgreSQL connection OK.")
+        return
+    except Exception as exc:
+        if database_url != default_local_url:
+            raise RuntimeError(
+                "Failed to connect to PostgreSQL using LANGFLOW_DATABASE_URL. "
+                f"Please verify the database is reachable before starting Langflow.\n"
+                f"Database URL: {database_url}\n"
+                f"Original error: {exc}"
+            ) from exc
+
+    _start_local_postgres(env)
+
+    last_error: Exception | None = None
+    for _attempt in range(20):
+        try:
+            _connect_postgres(database_url)
+            print("[db] Local PostgreSQL is ready.")
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            time.sleep(2)
+
+    raise RuntimeError(
+        "Local PostgreSQL failed to become ready after Docker bootstrap. "
+        f"Please inspect `docker compose -f {LOCAL_POSTGRES_COMPOSE_FILE} logs postgres`.\n"
+        f"Database URL: {database_url}\n"
+        f"Last error: {last_error}"
+    )
+
+
+def _ensure_frontend_built(env: dict[str, str], *, build_mode: str = "dev") -> None:
     """Build and sync the frontend only when needed."""
     package_json = FRONTEND_DIR / "package.json"
     if not package_json.exists():
@@ -263,13 +388,35 @@ def _ensure_frontend_built(env: dict[str, str]) -> None:
     ]
     source_mtime = newest_mtime(frontend_sources)
 
-    # Build if build output is missing, or source is newer than the build output.
-    if not FRONTEND_BUILD_DIR.exists():
-        run(["npm", "run", "build"], cwd=FRONTEND_DIR, env=env)
-    else:
-        build_mtime = newest_mtime([FRONTEND_BUILD_DIR])
-        if source_mtime > build_mtime:
+    stamp = FRONTEND_BUILD_DIR / ".langflow_build_mode"
+    want_stamp = build_mode
+    have_stamp = ""
+    try:
+        have_stamp = stamp.read_text(encoding="utf-8").strip() if stamp.exists() else ""
+    except Exception:
+        have_stamp = ""
+    force_build = have_stamp != want_stamp
+
+    build_exists = FRONTEND_BUILD_DIR.exists()
+    build_mtime = newest_mtime([FRONTEND_BUILD_DIR]) if build_exists else 0.0
+    needs_build = (not build_exists) or force_build or (source_mtime > build_mtime)
+
+    if needs_build:
+        try:
             run(["npm", "run", "build"], cwd=FRONTEND_DIR, env=env)
+        except subprocess.CalledProcessError:
+            if not FRONTEND_BUILD_DIR.exists():
+                raise
+            print(
+                "[warn] Frontend build failed, but an existing frontend build is available. "
+                "Reusing the last successful build."
+            )
+
+    FRONTEND_BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        stamp.write_text(want_stamp + "\n", encoding="utf-8")
+    except Exception:
+        pass
 
     # Always sync build into backend folder when it is missing or older than the build output.
     if not BACKEND_FRONTEND_DIR.exists():
@@ -283,6 +430,7 @@ def _ensure_frontend_built(env: dict[str, str]) -> None:
 
 def build_env() -> dict[str, str]:
     env = os.environ.copy()
+    _load_repo_dotenv(env)
     separator = os.pathsep
     existing_py_path = env.get("PYTHONPATH")
     injected_paths = [str(BACKEND_BASE), str(LFX_SRC)]
@@ -293,10 +441,10 @@ def build_env() -> dict[str, str]:
     env["LANGFLOW_SKIP_AUTH_AUTO_LOGIN"] = "true"
     # Always auto-login during local development so the UI skips the sign-in screen.
     env["LANGFLOW_AUTO_LOGIN"] = "true"
-    # Use one shared DB by default across dev/admin launchers unless explicitly overridden.
-    if not env.get("LANGFLOW_DATABASE_URL"):
-        db_path = _ensure_shared_default_db()
-        env["LANGFLOW_DATABASE_URL"] = f"sqlite:///{db_path.as_posix()}"
+    # start_service.py is now PostgreSQL-first and never silently falls back to SQLite.
+    env["LANGFLOW_DATABASE_URL"] = _normalize_database_url(
+        env.get("LANGFLOW_DATABASE_URL") or _default_postgres_url(env)
+    )
     # Force dev mode so component templates are rebuilt from current source (avoids stale prebuilt indexes).
     env["LFX_DEV"] = "1"
     return env
@@ -339,36 +487,36 @@ def main() -> None:
     _ensure_uv_environment()
 
     print("LangFlow dev launcher")
-    print("1) clean caches  2) ensure python deps  3) ensure frontend  4) set env  5) run service")
+    print("1) clean caches  2) ensure python deps  3) set env  4) ensure postgres  5) ensure frontend  6) run service")
 
-    print("\n[1/5] Cleaning caches and component index...")
+    print("\n[1/6] Cleaning caches and component index...")
     clear_component_index_cache(verbose=True)
     for target in CACHE_TARGETS:
         remove_path(target)
 
-    print("\n[2/5] Ensuring Python dependencies (uv sync)...")
+    print("\n[2/6] Ensuring Python dependencies (uv sync --extra postgresql)...")
     _ensure_python_dependencies()
 
     env = build_env()
-    print("\n[3/5] Ensuring frontend dependencies + build...")
-    _ensure_frontend_built(env)
-
-    print("\n[4/5] Environment summary:")
+    print("\n[3/6] Environment summary:")
     print(f"   LANGFLOW_COMPONENTS_PATH={env['LANGFLOW_COMPONENTS_PATH']}")
     print(f"   PYTHONPATH={env['PYTHONPATH']}")
     print(f"   LANGFLOW_DATABASE_URL={env['LANGFLOW_DATABASE_URL']}")
     print(f"   LFX_DEV={env['LFX_DEV']}")
 
-    print("\n[5/5] Starting LangFlow (Ctrl+C to stop)...")
+    print("\n[4/6] Ensuring PostgreSQL is ready...")
+    _ensure_postgres_ready(env)
+
+    print("\n[5/6] Ensuring frontend dependencies + build...")
+    _ensure_frontend_built(env)
+
+    print("\n[6/6] Starting LangFlow (Ctrl+C to stop)...")
     host = "0.0.0.0"
     port = _resolve_port(host)
     print(f"   URL: http://localhost:{port}")
 
-    env_file = REPO_ROOT / ".env"
-    env_file_args: list[str] = ["--env-file", str(env_file)] if env_file.exists() else []
-
     run(
-        [sys.executable, "-m", "langflow", "run", "--host", host, "--port", str(port), *env_file_args],
+        [sys.executable, "-m", "langflow", "run", "--host", host, "--port", str(port)],
         cwd=BACKEND_BASE,
         env=env,
     )

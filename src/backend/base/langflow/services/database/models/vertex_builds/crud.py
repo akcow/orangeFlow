@@ -1,14 +1,19 @@
 from uuid import UUID
 
+from sqlalchemy import and_, or_
 from sqlmodel import col, delete, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from langflow.services.database.models.flow.model import Flow
 from langflow.services.database.models.vertex_builds.model import VertexBuildBase, VertexBuildTable
 from langflow.services.deps import get_settings_service
 
 
 async def get_vertex_builds_by_flow_id(
-    db: AsyncSession, flow_id: UUID, limit: int | None = 1000
+    db: AsyncSession,
+    flow_id: UUID,
+    limit: int | None = 1000,
+    user_id: UUID | None = None,
 ) -> list[VertexBuildTable]:
     """Get the most recent vertex builds for a given flow ID.
 
@@ -29,17 +34,21 @@ async def get_vertex_builds_by_flow_id(
     """
     if isinstance(flow_id, str):
         flow_id = UUID(flow_id)
-    subquery = (
-        select(VertexBuildTable.id, func.max(VertexBuildTable.timestamp).label("max_timestamp"))
-        .where(VertexBuildTable.flow_id == flow_id)
-        .group_by(VertexBuildTable.id)
-        .subquery()
+
+    subquery = select(VertexBuildTable.id, func.max(VertexBuildTable.timestamp).label("max_timestamp")).where(
+        VertexBuildTable.flow_id == flow_id
     )
-    stmt = (
-        select(VertexBuildTable)
-        .join(
-            subquery, (VertexBuildTable.id == subquery.c.id) & (VertexBuildTable.timestamp == subquery.c.max_timestamp)
+    stmt = select(VertexBuildTable)
+    if user_id is not None:
+        ownership_filter = or_(
+            VertexBuildTable.user_id == user_id,
+            and_(VertexBuildTable.user_id.is_(None), Flow.user_id == user_id),
         )
+        subquery = subquery.join(Flow, Flow.id == VertexBuildTable.flow_id).where(ownership_filter)
+        stmt = stmt.join(Flow, Flow.id == VertexBuildTable.flow_id).where(ownership_filter)
+    subquery = subquery.group_by(VertexBuildTable.id).subquery()
+    stmt = (
+        stmt.join(subquery, (VertexBuildTable.id == subquery.c.id) & (VertexBuildTable.timestamp == subquery.c.max_timestamp))
         .where(VertexBuildTable.flow_id == flow_id)
         .order_by(col(VertexBuildTable.timestamp))
         .limit(limit)
@@ -130,7 +139,7 @@ async def log_vertex_build(
     return table
 
 
-async def delete_vertex_builds_by_flow_id(db: AsyncSession, flow_id: UUID) -> None:
+async def delete_vertex_builds_by_flow_id(db: AsyncSession, flow_id: UUID, user_id: UUID | None = None) -> None:
     """Delete all vertex builds associated with a specific flow ID.
 
     Args:
@@ -141,5 +150,11 @@ async def delete_vertex_builds_by_flow_id(db: AsyncSession, flow_id: UUID) -> No
         This operation is permanent and cannot be undone. Use with caution.
         The function commits the transaction automatically.
     """
+    if user_id is not None:
+        owned_flow = await db.exec(select(Flow.id).where(Flow.id == flow_id, Flow.user_id == user_id))
+        if owned_flow.first() is None:
+            return
     stmt = delete(VertexBuildTable).where(VertexBuildTable.flow_id == flow_id)
+    if user_id is not None:
+        stmt = stmt.where(or_(VertexBuildTable.user_id == user_id, VertexBuildTable.user_id.is_(None)))
     await db.exec(stmt)

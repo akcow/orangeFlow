@@ -187,6 +187,18 @@ class Settings(BaseSettings):
     like_webhook_url: str | None = "https://api.langflow.store/flows/trigger/64275852-ec00-45c1-984e-3bff814732da"
 
     storage_type: str = "local"
+    s3_bucket_name: str | None = None
+    s3_region: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_session_token: str | None = None
+    s3_root_prefix: str = ""
+    s3_public_base_url: str | None = None
+    s3_presign_expiration: int = 3600
+    s3_addressing_style: str = "path"
+    s3_use_ssl: bool = True
+    s3_verify_ssl: bool = True
 
     celery_enabled: bool = False
 

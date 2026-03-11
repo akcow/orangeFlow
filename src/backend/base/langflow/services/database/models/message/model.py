@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Annotated
 from uuid import UUID, uuid4
 
 from pydantic import ConfigDict, field_serializer, field_validator
-from sqlalchemy import Text
+from sqlalchemy import Index, Text
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from langflow.schema.content_block import ContentBlock
@@ -31,6 +31,7 @@ class MessageBase(SQLModel):
     properties: Properties = Field(default_factory=Properties)
     category: str = Field(default="message")
     content_blocks: list[ContentBlock] = Field(default_factory=list)
+    user_id: UUID | None = Field(default=None, nullable=True)
 
     @field_serializer("timestamp")
     def serialize_timestamp(self, value):
@@ -59,7 +60,12 @@ class MessageBase(SQLModel):
         return value
 
     @classmethod
-    def from_message(cls, message: "Message", flow_id: str | UUID | None = None):
+    def from_message(
+        cls,
+        message: "Message",
+        flow_id: str | UUID | None = None,
+        user_id: str | UUID | None = None,
+    ):
         # first check if the record has all the required fields
         if message.text is None or not message.sender or not message.sender_name:
             msg = "The message does not have the required fields (text, sender, sender_name)."
@@ -107,6 +113,12 @@ class MessageBase(SQLModel):
             except ValueError as exc:
                 msg = f"Flow ID {flow_id} is not a valid UUID"
                 raise ValueError(msg) from exc
+        if isinstance(user_id, str):
+            try:
+                user_id = UUID(user_id)
+            except ValueError as exc:
+                msg = f"User ID {user_id} is not a valid UUID"
+                raise ValueError(msg) from exc
 
         return cls(
             sender=message.sender,
@@ -117,6 +129,7 @@ class MessageBase(SQLModel):
             files=message.files or [],
             timestamp=timestamp,
             flow_id=flow_id,
+            user_id=user_id,
             properties=properties,
             category=message.category,
             content_blocks=content_blocks,
@@ -133,15 +146,19 @@ class MessageTable(MessageBase, table=True):  # type: ignore[call-arg]
     properties: dict | Properties = Field(default_factory=lambda: Properties().model_dump(), sa_column=Column(JSON))  # type: ignore[assignment]
     category: str = Field(sa_column=Column(Text))
     content_blocks: list[dict | ContentBlock] = Field(default_factory=list, sa_column=Column(JSON))  # type: ignore[assignment]
+    __table_args__ = (
+        Index("ix_message_flow_id_timestamp", "flow_id", "timestamp"),
+        Index("ix_message_user_id_session_id_timestamp", "user_id", "session_id", "timestamp"),
+    )
 
     # We need to make sure the datetimes have timezone after running session.refresh
     # because we are losing the timezone information when we save the message to the database
     # and when we read it back. We use field_validator to make sure the datetimes have timezone
     # after running session.refresh
 
-    @field_validator("flow_id", mode="before")
+    @field_validator("flow_id", "user_id", mode="before")
     @classmethod
-    def validate_flow_id(cls, value):
+    def validate_uuid_field(cls, value):
         if value is None:
             return value
         if isinstance(value, str):

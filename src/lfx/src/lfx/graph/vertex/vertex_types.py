@@ -475,6 +475,7 @@ class InterfaceVertex(ComponentVertex):
             params=self.built_object_repr(),
             data=self.result,
             artifacts=self.artifacts,
+            user_id=self.graph.user_id,
         )
 
         self._validate_built_object()

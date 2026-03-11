@@ -7,119 +7,14 @@ import { NODE_WIDTH } from "@/constants/constants";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import useFlowStore from "@/stores/flowStore";
 import { useTypesStore } from "@/stores/typesStore";
-import type { OutputLogType, VertexBuildTypeAPI } from "@/types/api";
 import type { AllNodeType } from "@/types/flow";
 import { getNodeId } from "@/utils/reactflowUtils";
 import { cn } from "@/utils/utils";
-import { parseDoubaoPreviewData } from "@/CustomNodes/hooks/use-doubao-preview";
-import { sanitizePreviewDataUrl } from "@/CustomNodes/GenericNode/components/DoubaoPreviewPanel/helpers";
-
-type GenerationHistoryItem = {
-  id: string;
-  kind: "image" | "video";
-  generatedAt?: string;
-  generatedDate?: string;
-  sourceNodeName?: string;
-  payload: any;
-  thumbnail?: string | null;
-};
-
-const MAX_HISTORY_ITEMS = 50;
-
-function normalizeOutputLogs(outputData: OutputLogType | OutputLogType[] | undefined) {
-  if (!outputData) return [];
-  return Array.isArray(outputData) ? outputData.filter(Boolean) : [outputData];
-}
-
-function resolveImageThumbnail(payload: any): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const images = Array.isArray(payload.images) ? payload.images : [];
-  const firstImage = images[0] ?? null;
-  const inlineSource =
-    sanitizePreviewDataUrl(
-      firstImage?.image_data_url ??
-        firstImage?.preview_base64 ??
-        firstImage?.preview_data_url ??
-        firstImage?.data_url,
-    ) ??
-    null;
-  const remoteSource =
-    firstImage?.image_url ??
-    firstImage?.url ??
-    firstImage?.edited_image_url ??
-    firstImage?.original_image_url ??
-    null;
-  const fallbackInline =
-    sanitizePreviewDataUrl(
-      payload.image_data_url ?? payload.preview_base64 ?? payload.preview_data_url,
-    ) ?? null;
-  const fallbackRemote =
-    payload.image_url ??
-    payload.edited_image_url ??
-    payload.original_image_url ??
-    null;
-
-  return (
-    remoteSource ??
-    inlineSource ??
-    fallbackRemote ??
-    fallbackInline ??
-    null
-  );
-}
-
-function resolveVideoThumbnail(payload: any): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const inlineCover = sanitizePreviewDataUrl(
-    payload.cover_preview_base64 ??
-      payload?.doubao_preview?.payload?.cover_preview_base64,
-  );
-  const remoteCover =
-    payload.cover_url ??
-    payload.last_frame_url ??
-    payload?.doubao_preview?.payload?.cover_url ??
-    payload?.doubao_preview?.payload?.last_frame_url ??
-    null;
-  return inlineCover ?? remoteCover ?? null;
-}
-
-function resolveVideoSource(payload: any): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const direct =
-    payload.video_url ?? payload.video_base64 ?? payload?.video ?? null;
-  if (direct) return direct;
-  const previewPayload = payload?.doubao_preview?.payload ?? {};
-  return (
-    previewPayload.video_url ??
-    previewPayload.video_base64 ??
-    (Array.isArray(previewPayload.videos)
-      ? previewPayload.videos.find((video: any) => video?.video_url || video?.url)
-          ?.video_url ??
-        previewPayload.videos.find((video: any) => video?.video_url || video?.url)
-          ?.url
-      : null) ??
-    null
-  );
-}
-
-function parseTimestamp(value?: string): number {
-  if (!value) return 0;
-  const parsed = new Date(value);
-  const time = parsed.getTime();
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function formatDateLabel(value?: string): string {
-  if (!value) return "";
-  const [dateOnly] = value.split("T");
-  if (dateOnly && dateOnly !== value) return dateOnly;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, "0");
-  const day = String(parsed.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+import {
+  buildGenerationHistoryItems,
+  resolveVideoSource,
+  type GenerationHistoryItem,
+} from "./generationHistoryUtils";
 
 export default function GenerationHistoryPanel() {
   const [activeKind, setActiveKind] = useState<"image" | "video">("image");
@@ -130,66 +25,10 @@ export default function GenerationHistoryPanel() {
   const templates = useTypesStore((state) => state.templates);
   const store = useStoreApi();
 
-  const items = useMemo(() => {
-    const nodeNameById = new Map<string, string>();
-    const nodeTypeById = new Map<string, string>();
-    nodes.forEach((node) => {
-      nodeNameById.set(node.id, node.data?.node?.display_name ?? node.data?.type);
-      nodeTypeById.set(node.id, node.data?.type);
-    });
-
-    const dedupe = new Set<string>();
-    const historyItems: GenerationHistoryItem[] = [];
-
-    Object.entries(flowPool).forEach(([nodeId, builds]) => {
-      const componentName = nodeTypeById.get(nodeId);
-      const ordered = (builds as VertexBuildTypeAPI[] | undefined) ?? [];
-      for (let i = ordered.length - 1; i >= 0; i -= 1) {
-        const entry = ordered[i];
-        const outputs = entry?.data?.outputs ?? {};
-        const outputLogs = Object.values(outputs).flatMap(normalizeOutputLogs);
-        for (const log of outputLogs) {
-          const payload = log?.message;
-          if (!payload || typeof payload !== "object") continue;
-          const preview = parseDoubaoPreviewData(componentName, payload);
-          if (!preview || !preview.available) continue;
-          if (preview.kind !== "image" && preview.kind !== "video") continue;
-
-          const dedupeKey = preview.token
-            ? `${preview.kind}-${preview.token}`
-            : "";
-          if (dedupeKey && dedupe.has(dedupeKey)) continue;
-          if (dedupeKey) {
-            dedupe.add(dedupeKey);
-          }
-
-          const thumbnail =
-            preview.kind === "image"
-              ? resolveImageThumbnail(preview.payload)
-              : resolveVideoThumbnail(preview.payload);
-
-          historyItems.push({
-            id: dedupeKey || `${nodeId}-${i}-${preview.kind}`,
-            kind: preview.kind,
-            generatedAt: preview.generated_at ?? entry?.timestamp,
-            generatedDate: formatDateLabel(
-              preview.generated_at ?? entry?.timestamp,
-            ),
-            sourceNodeName: nodeNameById.get(nodeId) ?? componentName ?? nodeId,
-            payload,
-            thumbnail,
-          });
-        }
-      }
-    });
-
-    return historyItems
-      .sort(
-        (a, b) =>
-          parseTimestamp(b.generatedAt) - parseTimestamp(a.generatedAt),
-      )
-      .slice(0, MAX_HISTORY_ITEMS);
-  }, [flowPool, nodes]);
+  const items = useMemo<GenerationHistoryItem[]>(
+    () => buildGenerationHistoryItems(flowPool, nodes),
+    [flowPool, nodes],
+  );
 
   const handleInsert = useCallback(
     (item: GenerationHistoryItem) => {
