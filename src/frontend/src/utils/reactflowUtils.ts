@@ -1022,8 +1022,12 @@ export function isValidConnection(
       ) {
         // Video-to-video "bridge" edges (e.g. Wan r2v reference videos) shouldn't consume
         // the image-role budget for first_frame_image.
+        const isVideoSourceType = (nodeType?: string) =>
+          nodeType === IMAGE_ROLE_TARGET || nodeType === "UserUploadVideo";
+        const isVideoBridgeSource =
+          isVideoSourceType(sourceNode?.data?.type);
         const isVideoBridgeEdge =
-          sourceNode?.data?.type === IMAGE_ROLE_TARGET &&
+          isVideoBridgeSource &&
           targetNode?.data?.type === IMAGE_ROLE_TARGET;
         if (isVideoBridgeEdge) {
           return true;
@@ -1031,6 +1035,19 @@ export function isValidConnection(
         const modelName = getDoubaoVideoModelName(targetNode);
         const limits = getImageRoleLimits(modelName);
         const counts = getImageRoleCounts(edgesArray, target!, targetNode);
+        const hasIncomingVideoSourceEdge = edgesArray.some((edge) => {
+          if (edge.target !== target) return false;
+          const fieldName = getEdgeTargetFieldName(edge);
+          if (fieldName !== IMAGE_ROLE_FIELD) return false;
+          const edgeVideoReferType = edge.data?.videoReferType;
+          if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
+          const edgeSourceNode = nodesArray.find((node) => node.id === edge.source);
+          return isVideoSourceType(edgeSourceNode?.data?.type);
+        });
+        if (hasIncomingVideoSourceEdge) {
+          const maxReference = limits.maxReference ?? limits.maxTotal;
+          return counts.reference < maxReference;
+        }
         if (!pickImageRoleForNewEdge(limits, counts)) {
           return false;
         }

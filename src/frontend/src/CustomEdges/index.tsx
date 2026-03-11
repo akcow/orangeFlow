@@ -27,12 +27,13 @@ type EdgeImageRole = "first" | "reference" | "last";
 type VideoReferType = "base" | "feature";
 
 const IMAGE_ROLE_OPTIONS: Array<{ label: string; value: EdgeImageRole }> = [
-  { label: "首帧", value: "first" },
-  { label: "参考", value: "reference" },
-  { label: "尾帧", value: "last" },
+  { label: "\u9996\u5e27", value: "first" },
+  { label: "\u53c2\u8003", value: "reference" },
+  { label: "\u5c3e\u5e27", value: "last" },
 ];
 const LAST_FRAME_FIELD = "last_frame_image";
 const REFERENCE_IMAGES_FIELD = "reference_images";
+const VIDEO_ROLE_SOURCE_TYPES = new Set([IMAGE_ROLE_TARGET, "UserUploadVideo"]);
 const MEDIA_SOURCE_TYPES = new Set([
   "DoubaoImageCreator",
   "DoubaoVideoGenerator",
@@ -46,9 +47,38 @@ const MEDIA_INPUT_FIELDS = new Set([
 ]);
 
 const VIDEO_ROLE_OPTIONS: Array<{ label: string; value: VideoReferType }> = [
-  { label: "特征参考", value: "feature" },
-  { label: "视频编辑", value: "base" },
+  { label: "\u89c6\u9891\u7f16\u8f91", value: "base" },
+  { label: "\u89c6\u9891\u53c2\u8003", value: "feature" },
 ];
+
+function getVideoReferTypeLimits(modelName: string): {
+  allowedRoles: VideoReferType[];
+  fallback: VideoReferType;
+} {
+  const normalized = String(modelName ?? "").trim().toLowerCase();
+  if (normalized === "wan2.6") {
+    return {
+      allowedRoles: ["feature"],
+      fallback: "feature",
+    };
+  }
+  if (normalized.startsWith("kling")) {
+    return {
+      allowedRoles: ["base", "feature"],
+      fallback: "feature",
+    };
+  }
+  if (normalized === "viduq2-pro") {
+    return {
+      allowedRoles: ["base", "feature"],
+      fallback: "feature",
+    };
+  }
+  return {
+    allowedRoles: ["feature"],
+    fallback: "feature",
+  };
+}
 
 export function DefaultEdge({
   sourceHandleId,
@@ -82,34 +112,61 @@ export function DefaultEdge({
     (targetHandleId ? scapeJSONParse(targetHandleId) : undefined);
   const targetFieldName =
     targetHandleObject?.fieldName ?? targetHandleObject?.name;
+  const getEdgeTargetFieldName = (
+    edge: {
+      data?: { targetHandle?: { fieldName?: string; name?: string } };
+      targetHandle?: string;
+    },
+  ): string | undefined => {
+    const targetHandle = edge?.data?.targetHandle;
+    if (targetHandle && typeof targetHandle === "object") {
+      return targetHandle.fieldName ?? targetHandle.name;
+    }
+    if (!edge?.targetHandle) return undefined;
+    try {
+      const parsed = scapeJSONParse(edge.targetHandle) as
+        | { fieldName?: string; name?: string }
+        | null;
+      return parsed?.fieldName ?? parsed?.name;
+    } catch {
+      return undefined;
+    }
+  };
   const isFirstFrameField = targetFieldName === IMAGE_ROLE_FIELD;
   const isLastFrameField = targetFieldName === LAST_FRAME_FIELD;
   const isVideoBridgeEdge =
     isFirstFrameField &&
-    sourceNode?.data?.type === IMAGE_ROLE_TARGET &&
+    VIDEO_ROLE_SOURCE_TYPES.has(String(sourceNode?.data?.type ?? "")) &&
     targetNode?.data?.type === IMAGE_ROLE_TARGET;
+  const hasIncomingVideoSourceEdge = edges.some((edge) => {
+    if (edge.target !== target) return false;
+    if (getEdgeTargetFieldName(edge) !== IMAGE_ROLE_FIELD) return false;
+    const edgeVideoReferType = edge.data?.videoReferType;
+    if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
+    const sourceType = getNode(edge.source)?.data?.type;
+    return VIDEO_ROLE_SOURCE_TYPES.has(String(sourceType ?? ""));
+  });
   const isRoleEdge =
     !isVideoBridgeEdge &&
     (isFirstFrameField || isLastFrameField) &&
     targetNode?.data?.type === IMAGE_ROLE_TARGET;
   const modelName = getDoubaoVideoModelName(targetNode);
   const isKlingModel = modelName.toLowerCase().startsWith("kling");
-  const isWanModel = modelName.toLowerCase().startsWith("wan2.");
   const roleLimits = getImageRoleLimits(modelName);
   const isSoraModel =
     roleLimits.allowedRoles.length === 1 &&
     roleLimits.allowedRoles[0] === "reference";
-  const isVeoModel = roleLimits.allowedRoles.includes("last");
+  const videoReferLimits = getVideoReferTypeLimits(modelName);
   const fixedRole: EdgeImageRole | null = isLastFrameField
     ? "last"
     : isSoraModel
       ? "reference"
+      : isRoleEdge && hasIncomingVideoSourceEdge
+        ? "reference"
       : null;
   const roleEdges = edges.filter((edge) => {
     if (edge.target !== target) return false;
-    const fieldName =
-      edge.data?.targetHandle?.fieldName ??
-      (edge.targetHandle ? scapeJSONParse(edge.targetHandle)?.fieldName : undefined);
+    const fieldName = getEdgeTargetFieldName(edge);
     return fieldName === IMAGE_ROLE_FIELD;
   });
   const totalRoleEdges = roleEdges.length;
@@ -125,16 +182,16 @@ export function DefaultEdge({
     ? IMAGE_ROLE_OPTIONS.filter((option) => option.value === fixedRole)
     : IMAGE_ROLE_OPTIONS.filter((option) => roleLimits.allowedRoles.includes(option.value));
 
-  const fixedVideoReferType: VideoReferType | null = isVideoBridgeEdge && isWanModel ? "feature" : null;
   const currentVideoReferType: VideoReferType =
     edgeData?.videoReferType === "base" || edgeData?.videoReferType === "feature"
       ? edgeData.videoReferType
-      : "feature";
-  const videoRoleOptions = fixedVideoReferType
-    ? VIDEO_ROLE_OPTIONS.filter((option) => option.value === fixedVideoReferType)
-    : isKlingModel
-      ? VIDEO_ROLE_OPTIONS
-      : VIDEO_ROLE_OPTIONS.filter((option) => option.value === "feature");
+      : videoReferLimits.fallback;
+  const normalizedVideoReferType: VideoReferType = videoReferLimits.allowedRoles.includes(
+    currentVideoReferType,
+  )
+    ? currentVideoReferType
+    : videoReferLimits.fallback;
+  const videoRoleOptions = VIDEO_ROLE_OPTIONS;
 
   useEffect(() => {
     if (!isRoleEdge || !fixedRole) return;
@@ -156,8 +213,7 @@ export function DefaultEdge({
 
   useEffect(() => {
     if (!isVideoBridgeEdge) return;
-    if (!fixedVideoReferType) return;
-    if (edgeData?.videoReferType === fixedVideoReferType) return;
+    if (edgeData?.videoReferType === normalizedVideoReferType) return;
     takeSnapshot();
     setEdges((edges) =>
       edges.map((edge) => {
@@ -166,12 +222,19 @@ export function DefaultEdge({
           ...edge,
           data: {
             ...(edge.data ?? ({} as any)),
-            videoReferType: fixedVideoReferType,
+            videoReferType: normalizedVideoReferType,
           },
         } as any;
       }),
     );
-  }, [edgeData?.videoReferType, fixedVideoReferType, id, isVideoBridgeEdge, setEdges, takeSnapshot]);
+  }, [
+    edgeData?.videoReferType,
+    id,
+    isVideoBridgeEdge,
+    normalizedVideoReferType,
+    setEdges,
+    takeSnapshot,
+  ]);
 
   useEffect(() => {
     if (!isRoleEdge || fixedRole) return;
@@ -212,7 +275,7 @@ export function DefaultEdge({
   const zeroOnNegative =
     (1 +
       (1 - Math.exp(-0.01 * Math.abs(sourceXNew - targetXNew))) *
-        (sourceXNew - targetXNew >= 0 ? 1 : -1)) /
+      (sourceXNew - targetXNew >= 0 ? 1 : -1)) /
     2;
 
   const distanceY =
@@ -330,9 +393,7 @@ export function DefaultEdge({
         }
 
         if (nextRole !== "reference" && edge.target === target && edge.id !== id) {
-          const fieldName =
-            edge.data?.targetHandle?.fieldName ??
-            (edge.targetHandle ? scapeJSONParse(edge.targetHandle)?.fieldName : undefined);
+          const fieldName = getEdgeTargetFieldName(edge);
           const resolvedRole = resolveEdgeImageRole(edge, totalRoleEdges);
           if (fieldName === IMAGE_ROLE_FIELD && resolvedRole === nextRole) {
             if (!roleLimits.allowedRoles.includes("reference")) {
@@ -354,8 +415,14 @@ export function DefaultEdge({
 
   const handleVideoReferTypeChange = (next: VideoReferType) => {
     if (!isVideoBridgeEdge) return;
-    const nextValue: VideoReferType =
-      fixedVideoReferType ?? (next === "base" ? "base" : "feature");
+    if (!videoReferLimits.allowedRoles.includes(next)) {
+      setErrorData({
+        title: "Role not supported",
+        list: ["The selected model does not support this video role."],
+      });
+      return;
+    }
+    const nextValue: VideoReferType = next === "base" ? "base" : "feature";
 
     takeSnapshot();
     setEdges((edges) =>
@@ -437,7 +504,7 @@ export function DefaultEdge({
           >
             {isRoleEdge ? (
               <label
-                className="flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs text-foreground shadow-sm"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-base text-foreground shadow-sm"
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
               >
@@ -450,12 +517,13 @@ export function DefaultEdge({
                   onChange={(event) =>
                     handleRoleChange(event.target.value as EdgeImageRole)
                   }
-                  className="cursor-pointer bg-transparent text-xs outline-none"
+                  className="cursor-pointer bg-transparent text-base leading-none outline-none"
                 >
                   {roleOptions.map((option) => (
                     <option
                       key={option.value}
                       value={option.value}
+                      className="bg-popover text-popover-foreground"
                       disabled={
                         !fixedRole && !roleLimits.allowedRoles.includes(option.value)
                       }
@@ -467,23 +535,28 @@ export function DefaultEdge({
               </label>
             ) : isVideoBridgeEdge ? (
               <label
-                className="flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs text-foreground shadow-sm"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-base text-foreground shadow-sm"
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
               >
                 <select
                   aria-label="Video refer type selector"
-                  value={fixedVideoReferType ?? currentVideoReferType}
-                  disabled={Boolean(isLocked) || Boolean(fixedVideoReferType) || !isKlingModel}
+                  value={normalizedVideoReferType}
+                  disabled={Boolean(isLocked)}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) =>
                     handleVideoReferTypeChange(event.target.value as VideoReferType)
                   }
-                  className="cursor-pointer bg-transparent text-xs outline-none"
+                  className="cursor-pointer bg-transparent text-base leading-none outline-none"
                 >
                   {videoRoleOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      className="bg-popover text-popover-foreground"
+                      disabled={!videoReferLimits.allowedRoles.includes(option.value)}
+                    >
                       {option.label}
                     </option>
                   ))}
@@ -494,7 +567,7 @@ export function DefaultEdge({
               <button
                 type="button"
                 aria-label={t("Remove connection")}
-                className="group flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+                className="group flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -510,7 +583,7 @@ export function DefaultEdge({
                   strokeWidth="1.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="h-4 w-4"
+                  className="h-5 w-5"
                 >
                   <circle cx="7" cy="6.5" r="2" />
                   <circle cx="7" cy="17.5" r="2" />
@@ -526,3 +599,4 @@ export function DefaultEdge({
     </g>
   );
 }
+

@@ -353,6 +353,7 @@ export type signUpInputStateType = {
   password: string;
   cnfPassword: string;
   username: string;
+  nickname: string;
 };
 
 export type inputHandlerEventType = {
@@ -430,6 +431,7 @@ export type patchUserInputStateType = {
 
 export type UserInputType = {
   username: string;
+  nickname?: string;
   password: string;
   is_active?: boolean;
   is_superuser?: boolean;

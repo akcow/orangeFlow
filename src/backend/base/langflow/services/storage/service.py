@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 from abc import abstractmethod
-from urllib.parse import quote
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import anyio
 from lfx.utils.public_files import generate_public_file_token
@@ -52,9 +53,22 @@ class StorageService(Service):
         if explicit:
             return explicit.rstrip("/")
 
+        # Backward compatibility for deployment configs that still export raw env vars.
+        explicit = str(os.getenv("LANGFLOW_PUBLIC_BASE_URL", "") or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
+
+        explicit = str(os.getenv("LANGFLOW_BACKEND_URL", "") or os.getenv("BACKEND_URL", "") or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
+
         try:
             host = str(self.settings_service.settings.host or "localhost")
-            port = int(getattr(self.settings_service.settings, "runtime_port", None) or self.settings_service.settings.port or 7860)
+            port = int(
+                getattr(self.settings_service.settings, "runtime_port", None)
+                or self.settings_service.settings.port
+                or 7860
+            )
             if host.startswith(("http://", "https://")):
                 return host.rstrip("/")
             scheme = "https" if bool(getattr(self.settings_service.settings, "ssl_cert_file", None)) else "http"

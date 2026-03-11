@@ -4,6 +4,9 @@
 
 本项目是基于 LangFlow 的定制版本，重点面向 Doubao 相关能力（图像/视频/TTS）和本地开发体验优化。
 
+如果你是要把它部署到服务器给真实用户使用，不要直接使用 `start_service.py` 这一类开发脚本。
+生产部署请看 `docker/DEPLOYMENT.md`、`docker/production.docker-compose.yml`，以及 `docker/nginx.langflow.conf.example` / `docker/Caddyfile.example`。
+
 如果你的协作者第一次接触这个仓库，建议先看完本文的：
 - `快速启动`（先跑起来）
 - `两种启动模式差异`（避免登录和数据库混淆）

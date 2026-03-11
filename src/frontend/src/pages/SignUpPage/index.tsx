@@ -10,10 +10,7 @@ import { t } from "@/i18n/t";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { SIGNUP_ERROR_ALERT } from "../../constants/alerts_constants";
-import {
-  CONTROL_INPUT_STATE,
-  SIGN_UP_SUCCESS,
-} from "../../constants/constants";
+import { CONTROL_INPUT_STATE } from "../../constants/constants";
 import useAlertStore from "../../stores/alertStore";
 import type {
   inputHandlerEventType,
@@ -27,7 +24,7 @@ export default function SignUp(): JSX.Element {
 
   const [isDisabled, setDisableBtn] = useState<boolean>(true);
 
-  const { password, cnfPassword, username } = inputState;
+  const { password, cnfPassword, username, nickname } = inputState;
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const navigate = useCustomNavigate();
@@ -43,14 +40,15 @@ export default function SignUp(): JSX.Element {
   useEffect(() => {
     if (password !== cnfPassword) return setDisableBtn(true);
     if (password === "" || cnfPassword === "") return setDisableBtn(true);
-    if (username === "") return setDisableBtn(true);
+    if (username === "" || nickname === "") return setDisableBtn(true);
     setDisableBtn(false);
-  }, [password, cnfPassword, username, handleInput]);
+  }, [password, cnfPassword, username, nickname, handleInput]);
 
   function handleSignup(): void {
     const { username, password } = inputState;
     const newUser: UserInputType = {
       username: username.trim(),
+      nickname: nickname.trim(),
       password: password.trim(),
     };
 
@@ -58,7 +56,7 @@ export default function SignUp(): JSX.Element {
       onSuccess: (user) => {
         track("User Signed Up", user);
         setSuccessData({
-          title: SIGN_UP_SUCCESS,
+          title: t("Account created successfully. You can sign in now."),
         });
         navigate("/login");
       },
@@ -120,6 +118,31 @@ export default function SignUp(): JSX.Element {
 
               <Form.Message match="valueMissing" className="field-invalid">
                 {t("Please enter your username")}
+              </Form.Message>
+            </Form.Field>
+          </div>
+          <div className="mb-3 w-full">
+            <Form.Field name="nickname">
+              <Form.Label className="data-[invalid]:label-invalid">
+                {t("Nickname")}{" "}
+                <span className="font-medium text-destructive">*</span>
+              </Form.Label>
+
+              <Form.Control asChild>
+                <Input
+                  type="text"
+                  onChange={({ target: { value } }) => {
+                    handleInput({ target: { name: "nickname", value } });
+                  }}
+                  value={nickname}
+                  className="w-full"
+                  required
+                  placeholder={t("Nickname")}
+                />
+              </Form.Control>
+
+              <Form.Message match="valueMissing" className="field-invalid">
+                {t("Please enter your nickname")}
               </Form.Message>
             </Form.Field>
           </div>

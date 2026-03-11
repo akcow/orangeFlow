@@ -214,6 +214,10 @@ class Settings(BaseSettings):
     """Timeout for the API calls in seconds."""
     frontend_timeout: int = 0
     """Timeout for the frontend API calls in seconds."""
+    public_base_url: str | None = None
+    """Explicit public base URL used when generating signed file/media links."""
+    backend_url: str | None = None
+    """Backward-compatible public backend URL alias used by older deployment configs."""
     user_agent: str = "langflow"
     """User agent for the API calls."""
     backend_only: bool = False

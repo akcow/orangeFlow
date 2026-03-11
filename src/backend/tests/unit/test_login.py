@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 def test_user():
     return User(
         username="testuser",
+        nickname="testuser",
         password=get_password_hash("testpassword"),  # Assuming password needs to be hashed
         is_active=True,
         is_superuser=False,

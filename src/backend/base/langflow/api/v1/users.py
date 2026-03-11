@@ -15,10 +15,13 @@ from langflow.services.auth.utils import (
     get_password_hash,
     verify_password,
 )
-from langflow.services.database.models.user.crud import get_user_by_id, update_user
+from langflow.services.database.models.user.crud import (
+    get_user_by_id,
+    get_user_by_nickname,
+    get_user_by_username,
+    update_user,
+)
 from langflow.services.database.models.user.model import User, UserCreate, UserRead, UserUpdate
-from langflow.services.deps import get_settings_service
-
 router = APIRouter(tags=["Users"], prefix="/users")
 
 
@@ -28,10 +31,15 @@ async def add_user(
     session: DbSession,
 ) -> User:
     """Add a new user to the database."""
+    if await get_user_by_username(session, user.username):
+        raise HTTPException(status_code=400, detail="This username is unavailable.")
+    if await get_user_by_nickname(session, user.nickname):
+        raise HTTPException(status_code=400, detail="This nickname is unavailable.")
+
     new_user = User.model_validate(user, from_attributes=True)
     try:
         new_user.password = get_password_hash(user.password)
-        new_user.is_active = get_settings_service().auth_settings.NEW_USER_IS_ACTIVE
+        new_user.is_active = True
         session.add(new_user)
         await session.commit()
         await session.refresh(new_user)
@@ -40,7 +48,7 @@ async def add_user(
             raise HTTPException(status_code=500, detail="Error creating default project")
     except IntegrityError as e:
         await session.rollback()
-        raise HTTPException(status_code=400, detail="This username is unavailable.") from e
+        raise HTTPException(status_code=400, detail="This username or nickname is unavailable.") from e
 
     return new_user
 
@@ -96,6 +104,14 @@ async def patch_user(
         user_update.password = get_password_hash(user_update.password)
 
     if user_db := await get_user_by_id(session, user_id):
+        if user_update.username and user_update.username != user_db.username:
+            existing_user = await get_user_by_username(session, user_update.username)
+            if existing_user and existing_user.id != user_id:
+                raise HTTPException(status_code=400, detail="This username is unavailable.")
+        if user_update.nickname and user_update.nickname != user_db.nickname:
+            existing_user = await get_user_by_nickname(session, user_update.nickname)
+            if existing_user and existing_user.id != user_id:
+                raise HTTPException(status_code=400, detail="This nickname is unavailable.")
         if not update_password:
             user_update.password = user_db.password
         return await update_user(user_db, user_update, session)

@@ -16,6 +16,11 @@ async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
     return (await db.exec(stmt)).first()
 
 
+async def get_user_by_nickname(db: AsyncSession, nickname: str) -> User | None:
+    stmt = select(User).where(User.nickname == nickname)
+    return (await db.exec(stmt)).first()
+
+
 async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User | None:
     if isinstance(user_id, str):
         user_id = UUID(user_id)

@@ -52,7 +52,7 @@ export const TapNowHeader = ({
   const onFlowPage = useFlowStore((state) => state.onFlowPage);
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
   const lang = isZh ? "CN" : "EN";
-  const username = userData?.username || (isZh ? "\u7528\u6237" : "User");
+  const username = userData?.nickname || userData?.username || (isZh ? "\u7528\u6237" : "User");
   const userInitial = username.slice(0, 1).toUpperCase();
 
   const navItems: Array<{ key: NavKey; label: string; to: string }> = [

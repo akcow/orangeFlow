@@ -55,6 +55,7 @@ async def deactivated_user(client):  # noqa: ARG001
     async with session_getter(get_db_service()) as session:
         user = User(
             username="deactivateduser",
+            nickname="deactivateduser",
             password=get_password_hash("testpassword"),
             is_active=False,
             is_superuser=False,
@@ -66,11 +67,10 @@ async def deactivated_user(client):  # noqa: ARG001
     return user
 
 
-async def test_user_waiting_for_approval(client):
-    username = "waitingforapproval"
+async def test_inactive_user_without_login_cannot_login(client):
+    username = "inactive-no-login"
     password = "testpassword"  # noqa: S105
 
-    # Debug: Check if the user already exists
     async with session_getter(get_db_service()) as session:
         stmt = select(User).where(User.username == username)
         existing_user = (await session.exec(stmt)).first()
@@ -83,6 +83,7 @@ async def test_user_waiting_for_approval(client):
     async with session_getter(get_db_service()) as session:
         user = User(
             username=username,
+            nickname=username,
             password=get_password_hash(password),
             is_active=False,
             last_login_at=None,
@@ -90,18 +91,15 @@ async def test_user_waiting_for_approval(client):
         session.add(user)
         await session.commit()
 
-    login_data = {"username": "waitingforapproval", "password": "testpassword"}
+    login_data = {"username": username, "password": "testpassword"}
     response = await client.post("api/v1/login", data=login_data)
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Waiting for approval"
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Inactive user"
 
-    # Debug: Check if the user still exists after the test
     async with session_getter(get_db_service()) as session:
         stmt = select(User).where(User.username == username)
         existing_user = (await session.exec(stmt)).first()
-        if existing_user:
-            pass
-        else:
+        if not existing_user:
             pytest.fail(f"User {username} does not exist after the test. This is unexpected.")
 
 
@@ -153,6 +151,7 @@ async def test_inactive_user(client: AsyncClient):
     async with session_getter(get_db_service()) as session:
         user = User(
             username="inactiveuser",
+            nickname="inactiveuser",
             password=get_password_hash("testpassword"),
             is_active=False,
             last_login_at=datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc),

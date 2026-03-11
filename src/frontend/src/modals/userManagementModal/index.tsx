@@ -31,6 +31,7 @@ export default function UserManagementModal({
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState(data?.password ?? "");
   const [username, setUserName] = useState(data?.username ?? "");
+  const [nickname, setNickname] = useState(data?.nickname ?? "");
   const [confirmPassword, setConfirmPassword] = useState(data?.password ?? "");
   const [isActive, setIsActive] = useState(data?.is_active ?? false);
   const [isSuperUser, setIsSuperUser] = useState(data?.is_superuser ?? false);
@@ -51,11 +52,13 @@ export default function UserManagementModal({
         setInputState(CONTROL_NEW_USER);
       } else {
         setUserName(data.username);
+        setNickname(data.nickname ?? "");
         setIsActive(data.is_active);
         setIsSuperUser(data.is_superuser);
         setIsReviewer(data.is_reviewer ?? false);
         setInputState({
           username: data.username,
+          nickname: data.nickname ?? "",
           password: "",
           is_active: data.is_active,
           is_superuser: data.is_superuser,
@@ -71,6 +74,7 @@ export default function UserManagementModal({
   function resetForm() {
     setPassword("");
     setUserName("");
+    setNickname("");
     setConfirmPassword("");
     setIsActive(false);
     setIsSuperUser(false);
@@ -130,6 +134,35 @@ export default function UserManagementModal({
               </Form.Control>
               <Form.Message match="valueMissing" className="field-invalid">
                 {t("Please enter your username")}
+              </Form.Message>
+            </Form.Field>
+            <Form.Field name="nickname">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                }}
+              >
+                <Form.Label className="data-[invalid]:label-invalid">
+                  {t("Nickname")}{" "}
+                  <span className="font-medium text-destructive">*</span>
+                </Form.Label>
+              </div>
+              <Form.Control asChild>
+                <input
+                  onChange={({ target: { value } }) => {
+                    handleInput({ target: { name: "nickname", value } });
+                    setNickname(value);
+                  }}
+                  value={nickname}
+                  className="primary-input"
+                  required
+                  placeholder={t("Nickname")}
+                />
+              </Form.Control>
+              <Form.Message match="valueMissing" className="field-invalid">
+                {t("Please enter your nickname")}
               </Form.Message>
             </Form.Field>
 

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -25,6 +25,7 @@ class UserOptin(BaseModel):
 class User(SQLModel, table=True):  # type: ignore[call-arg]
     id: UUIDstr = Field(default_factory=uuid4, primary_key=True, unique=True)
     username: str = Field(index=True, unique=True)
+    nickname: str = Field(index=True, unique=True)
     password: str = Field()
     profile_image: str | None = Field(default=None, nullable=True)
     is_active: bool = Field(default=False)
@@ -51,18 +52,36 @@ class User(SQLModel, table=True):  # type: ignore[call-arg]
         sa_column=Column(JSON, default=lambda: UserOptin().model_dump(), nullable=True)
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def default_nickname_to_username(cls, data):
+        if isinstance(data, dict) and not data.get("nickname") and data.get("username"):
+            data["nickname"] = data["username"]
+        return data
+
 
 class UserCreate(SQLModel):
     username: str = Field()
+    nickname: str = Field()
     password: str = Field()
     optins: dict[str, Any] | None = Field(
         default={"github_starred": False, "dialog_dismissed": False, "discord_clicked": False}
     )
 
+    @field_validator("username", "nickname")
+    @classmethod
+    def validate_identity_fields(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            msg = "This field cannot be empty."
+            raise ValueError(msg)
+        return value
+
 
 class UserRead(SQLModel):
     id: UUID = Field(default_factory=uuid4)
     username: str = Field()
+    nickname: str = Field()
     profile_image: str | None = Field()
     store_api_key: str | None = Field(nullable=True)
     is_active: bool = Field()
@@ -76,6 +95,7 @@ class UserRead(SQLModel):
 
 class UserUpdate(SQLModel):
     username: str | None = None
+    nickname: str | None = None
     profile_image: str | None = None
     password: str | None = None
     is_active: bool | None = None
@@ -83,3 +103,14 @@ class UserUpdate(SQLModel):
     is_reviewer: bool | None = None
     last_login_at: datetime | None = None
     optins: dict[str, Any] | None = None
+
+    @field_validator("username", "nickname")
+    @classmethod
+    def validate_optional_identity_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            msg = "This field cannot be empty."
+            raise ValueError(msg)
+        return value

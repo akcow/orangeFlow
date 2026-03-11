@@ -86,8 +86,9 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
 
   const isOwnProfile = !userId || userId === userData?.id;
   const profileUser = isOwnProfile ? userData : null;
-  const username = profileUser?.username || t("User");
-  const userInitial = username.slice(0, 1).toUpperCase();
+  const displayName = profileUser?.nickname || profileUser?.username || t("User");
+  const accountName = profileUser?.username || t("User");
+  const userInitial = displayName.slice(0, 1).toUpperCase();
 
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
 
@@ -105,7 +106,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
   });
 
   const handleEditProfile = () => {
-    setEditUsername(profileUser?.username || "");
+    setEditUsername(profileUser?.nickname || profileUser?.username || "");
     setEditBio(DEFAULT_BIO);
     setSelectedAvatar(profileUser?.profile_image ?? "");
     setUploadedAvatar(null);
@@ -150,15 +151,25 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
   };
 
   const handleSaveProfile = useCallback(() => {
+    const trimmedNickname = editUsername.trim();
     const avatarToSave = uploadedAvatar || selectedAvatar;
     if (avatarToSave && avatarToSave !== profileUser?.profile_image) {
       mutatePatchUser(
-        { user_id: profileUser!.id, user: { profile_image: avatarToSave, username: editUsername !== profileUser?.username ? editUsername : undefined } },
+        {
+          user_id: profileUser!.id,
+          user: {
+            profile_image: avatarToSave,
+            nickname:
+              trimmedNickname !== (profileUser?.nickname ?? profileUser?.username)
+                ? trimmedNickname
+                : undefined,
+          },
+        },
         {
           onSuccess: () => {
             const newUserData = cloneDeep(currentUserData);
             newUserData!.profile_image = avatarToSave;
-            if (editUsername) newUserData!.username = editUsername;
+            if (trimmedNickname) newUserData!.nickname = trimmedNickname;
             setContextUserData(newUserData);
             setStoreUserData(newUserData);
             setSuccessData({ title: t("Profile updated") });
@@ -172,19 +183,25 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
           },
         },
       );
-    } else if (editUsername !== profileUser?.username) {
+    } else if (trimmedNickname !== (profileUser?.nickname ?? profileUser?.username)) {
       mutatePatchUser(
-        { user_id: profileUser!.id, user: { username: editUsername } },
+        { user_id: profileUser!.id, user: { nickname: trimmedNickname } },
         {
           onSuccess: () => {
             const newUserData = cloneDeep(currentUserData);
-            newUserData!.username = editUsername;
+            newUserData!.nickname = trimmedNickname;
             setContextUserData(newUserData);
             setStoreUserData(newUserData);
             setSuccessData({ title: t("Profile updated") });
             setIsEditDialogOpen(false);
           },
-        }
+          onError: (error: any) => {
+            setErrorData({
+              title: t("Failed to update profile"),
+              list: [error?.response?.data?.detail ?? t("Unknown error")],
+            });
+          },
+        },
       );
     } else {
       setIsEditDialogOpen(false);
@@ -335,7 +352,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
               >
                 <AvatarImage
                   src={getValidAvatarUrl(profileUser?.profile_image)}
-                  alt={username}
+                  alt={displayName}
                 />
                 <AvatarFallback className="bg-[#44444C] text-xl font-semibold text-white">
                   {userInitial}
@@ -361,7 +378,8 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
 
             {/* 用户名和简介 */}
             <div className="text-center">
-              <h2 className="text-lg font-semibold text-white">{username}</h2>
+              <h2 className="text-lg font-semibold text-white">{displayName}</h2>
+              <p className="mt-1 text-xs text-[#7E7E88]">@{accountName}</p>
               <p className="mt-1 text-sm text-[#A0A0A0]">
                 {DEFAULT_BIO}
               </p>
@@ -450,7 +468,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
                   </div>
                   <div className="p-4">
                     <div className="text-xs text-[#A0A0A0]">
-                      @{username}
+                      @{accountName}
                     </div>
                     <div className="mt-1 truncate text-sm font-medium text-white">
                       {flow.name}
@@ -503,7 +521,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
             <div className="flex-1 space-y-4">
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#E0E0E0]">
-                  {t("Username")}
+                  {t("Nickname")}
                 </label>
                 <Input
                   value={editUsername}

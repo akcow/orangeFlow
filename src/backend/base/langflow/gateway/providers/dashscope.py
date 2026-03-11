@@ -236,6 +236,8 @@ class DashScopeProvider(ProviderAdapter):
         audio_url = extra.get("audio_url")
         if audio_url:
             request_input["audio_url"] = audio_url
+        if ref_urls := extra.get("reference_urls"):
+            request_input["reference_urls"] = ref_urls
         if ref_videos := extra.get("reference_video_urls"):
             request_input["reference_video_urls"] = ref_videos
 

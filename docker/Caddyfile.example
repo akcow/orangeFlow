@@ -1,0 +1,23 @@
+# Replace app.example.com with your real public domain.
+# Caddy handles HTTPS automatically after the DNS record points to this server.
+
+app.example.com {
+    encode zstd gzip
+
+    request_body {
+        max_size 1024MB
+    }
+
+    reverse_proxy 127.0.0.1:7860 {
+        header_up Host {host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-For {remote_host}
+
+        transport http {
+            dial_timeout 10s
+            read_timeout 3600s
+            write_timeout 3600s
+        }
+    }
+}

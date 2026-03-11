@@ -467,6 +467,7 @@ def runner(tmp_path):
 async def test_user(client):
     user_data = UserCreate(
         username="testuser",
+        nickname="testuser",
         password="testpassword",  # noqa: S106
     )
     response = await client.post("api/v1/users/", json=user_data.model_dump())
@@ -483,6 +484,7 @@ async def active_user(client):  # noqa: ARG001
     async with db_manager.with_session() as session:
         user = User(
             username="activeuser",
+            nickname="activeuser",
             password=get_password_hash("testpassword"),
             is_active=True,
             is_superuser=False,
@@ -530,7 +532,8 @@ async def active_super_user(client):  # noqa: ARG001
     db_manager = get_db_service()
     async with db_manager.with_session() as session:
         user = User(
-            username="activeuser",
+            username="activesuperuser",
+            nickname="activesuperuser",
             password=get_password_hash("testpassword"),
             is_active=True,
             is_superuser=True,
@@ -713,6 +716,7 @@ async def user_two(
         user = User(
             id=user_id,
             username=f"test_user_two_{user_id}",
+            nickname=f"test_user_two_{user_id}",
             password=get_password_hash("hashed_password"),
             is_active=True,
         )

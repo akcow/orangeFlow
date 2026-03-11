@@ -1358,10 +1358,12 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       const modelName = getDoubaoVideoModelName(targetNode);
       const isTargetKling = modelName.toLowerCase().startsWith("kling");
       const isTargetKlingV3 = ["kling v3", "kling-v3"].includes(modelName.trim().toLowerCase());
+      const isVideoSourceType = (nodeType?: string) =>
+        nodeType === IMAGE_ROLE_TARGET || nodeType === "UserUploadVideo";
 
       const isVideoBridgeEdge =
         targetFieldName === IMAGE_ROLE_FIELD &&
-        sourceNode?.data?.type === IMAGE_ROLE_TARGET &&
+        isVideoSourceType(sourceNode?.data?.type) &&
         targetNode?.data?.type === IMAGE_ROLE_TARGET;
 
       // Kling O1 has combined media limits on its image_list/video_list. Enforce early so
@@ -1437,7 +1439,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         });
         const existingVideoEdges = existingFirstFrameEdges.filter((edge) => {
           const src = get().nodes.find((node) => node.id === edge.source);
-          return src?.data?.type === IMAGE_ROLE_TARGET;
+          return isVideoSourceType(src?.data?.type);
         }).length;
         const existingImageEdges = Math.max(existingFirstFrameEdges.length - existingVideoEdges, 0);
 
@@ -1531,17 +1533,46 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         requestedRoleRaw === "last"
           ? requestedRoleRaw
           : undefined;
+      const hasIncomingVideoSourceEdge = oldEdges.some((edge) => {
+        if (edge.target !== connection.target) return false;
+        let parsedTargetHandle: any = edge.data?.targetHandle;
+        if (!parsedTargetHandle && edge.targetHandle) {
+          try {
+            parsedTargetHandle = scapeJSONParse(edge.targetHandle);
+          } catch {
+            parsedTargetHandle = null;
+          }
+        }
+        const edgeTargetFieldName = parsedTargetHandle?.fieldName ?? parsedTargetHandle?.name;
+        if (edgeTargetFieldName !== IMAGE_ROLE_FIELD) return false;
+        const edgeVideoReferType = edge.data?.videoReferType;
+        if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
+        const src = get().nodes.find((node) => node.id === edge.source);
+        return isVideoSourceType(src?.data?.type);
+      });
 
       if (isLastFrameEdge) {
         imageRole = requestedRole === "last" ? requestedRole : "last";
       } else if (isVideoBridgeEdge) {
-        // Default to feature reference for video-to-video connections.
+        // Default to feature reference for incoming video-source connections.
         videoReferType = "feature";
       } else if (isRoleEdge) {
         const modelName = getDoubaoVideoModelName(targetNode);
         const limits = getImageRoleLimits(modelName);
         const counts = getImageRoleCounts(oldEdges, connection.target!, targetNode);
-        if (requestedRole && canAddImageRole(requestedRole, counts, limits)) {
+        if (hasIncomingVideoSourceEdge) {
+          const maxReference = limits.maxReference ?? limits.maxTotal;
+          if (counts.reference >= maxReference) {
+            setErrorData({
+              title: "Connection limit reached",
+              list: [
+                "The selected model has reached its reference image limit for this input.",
+              ],
+            });
+            return oldEdges;
+          }
+          imageRole = "reference";
+        } else if (requestedRole && canAddImageRole(requestedRole, counts, limits)) {
           imageRole = requestedRole;
         } else {
           const nextRole = pickImageRoleForNewEdge(limits, counts);

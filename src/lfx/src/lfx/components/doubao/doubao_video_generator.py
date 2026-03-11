@@ -1858,15 +1858,20 @@ class DoubaoVideoGenerator(Component):
 
         entries = self._collect_multimodal_inputs("first_frame_image")
         resolved_img_url = None
-        reference_urls = []
+        reference_video_urls: list[str] = []
+        reference_image_urls: list[str] = []
         for entry in entries:
             url = entry.get("url")
             if not url:
                 continue
-            if self._is_video_url(url):
-                reference_urls.append(url)
+            kind = str(entry.get("kind") or "").strip().lower()
+            if kind == "video" or self._is_video_url(url):
+                reference_video_urls.append(url)
             elif entry.get("role") == "first" and not resolved_img_url:
                 resolved_img_url = url
+                reference_image_urls.append(url)
+            else:
+                reference_image_urls.append(url)
         
         # Fallback: if no explicit 'first' image, take the first non-video image
         if not resolved_img_url:
@@ -1876,7 +1881,7 @@ class DoubaoVideoGenerator(Component):
                     resolved_img_url = url
                     break
 
-        has_reference = bool(reference_urls)
+        has_reference = bool(reference_video_urls)
         img_url = resolved_img_url
         has_img = bool(img_url)
 
@@ -1918,7 +1923,10 @@ class DoubaoVideoGenerator(Component):
         if mode == "i2v":
             request_input["img_url"] = img_url
         if mode == "r2v":
-            request_input["reference_video_urls"] = reference_urls[:3]
+            merged_reference_urls = list(dict.fromkeys([*reference_video_urls[:3], *reference_image_urls]))
+            request_input["reference_urls"] = merged_reference_urls[:5]
+            # Backward-compatible deprecated field.
+            request_input["reference_video_urls"] = reference_video_urls[:3]
 
         # Wan 2.5+ t2v/i2v: audio behavior is controlled via input.audio_url.
         # - enable_audio=true: omit audio_url => auto audio; audio_input can override via audio_url.
@@ -1982,7 +1990,10 @@ class DoubaoVideoGenerator(Component):
                 "model": dashscope_model,
                 "mode": mode,
                 "has_img": bool(request_input.get("img_url")),
-                "has_reference": bool(request_input.get("reference_video_urls")),
+                "has_reference": bool(
+                    request_input.get("reference_urls")
+                    or request_input.get("reference_video_urls")
+                ),
                 "has_audio_url": bool(request_input.get("audio_url")),
                 "audio_url_scheme": str(request_input.get("audio_url") or "").split(":", 1)[0]
                 if request_input.get("audio_url")
@@ -2388,14 +2399,31 @@ class DoubaoVideoGenerator(Component):
     def _resolve_public_base_url(self) -> str:
         explicit = str(os.getenv("LANGFLOW_PUBLIC_BASE_URL", "") or "").strip()
         if explicit:
-            return explicit
+            return explicit.rstrip("/")
+        explicit = str(os.getenv("LANGFLOW_BACKEND_URL", "") or os.getenv("BACKEND_URL", "") or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
         try:  # pragma: no cover - runtime dependency
             from langflow.services.deps import get_settings_service
 
             settings_service = get_settings_service()
+            explicit = str(getattr(settings_service.settings, "public_base_url", "") or "").strip()
+            if explicit:
+                return explicit.rstrip("/")
+            explicit = str(getattr(settings_service.settings, "backend_url", "") or "").strip()
+            if explicit:
+                return explicit.rstrip("/")
             host = str(settings_service.settings.host or "localhost")
-            port = int(settings_service.settings.port or 7860)
-            scheme = "https" if settings_service.settings.ssl_cert_file else "http"
+            port = int(
+                getattr(settings_service.settings, "runtime_port", None)
+                or getattr(settings_service.settings, "port", 7860)
+                or 7860
+            )
+            if host.startswith(("http://", "https://")):
+                return host.rstrip("/")
+            scheme = "https" if bool(getattr(settings_service.settings, "ssl_cert_file", None)) else "http"
+            if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+                return f"{scheme}://{host}"
             return f"{scheme}://{host}:{port}"
         except Exception:
             return ""
@@ -2405,6 +2433,24 @@ class DoubaoVideoGenerator(Component):
         normalized = str(file_path or "").replace("\\", "/").lstrip("/").strip()
         if not normalized:
             return None
+        # Support API-style paths emitted by upload components.
+        prefixes = (
+            "api/v1/files/images/",
+            "api/v1/files/media/",
+            "api/v1/files/download/",
+            "api/v1/files/public-inline/",
+            "api/v1/files/public/",
+            "files/images/",
+            "files/media/",
+            "files/download/",
+            "files/public-inline/",
+            "files/public/",
+        )
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix) :]
+                break
+        normalized = normalized.split("?", 1)[0]
         parts = [p for p in normalized.split("/") if p]
         if len(parts) < 2:
             return None
@@ -2473,6 +2519,7 @@ class DoubaoVideoGenerator(Component):
         return supported[res][ratio]
 
     INLINE_KEYS = ["image_data_url", "data_url", "preview_base64", "image_base64"]
+    PUBLIC_URL_KEYS = ["public_url", "publicUrl"]
     URL_KEYS = ["edited_image_url", "image_url", "url", "video_url"]
 
     def _extract_image_url(self, image_input: Any) -> str | None:
@@ -2496,11 +2543,17 @@ class DoubaoVideoGenerator(Component):
                 normalized = self._normalize_data_url(inline_value)
                 if normalized:
                     return normalized
-            url_value = self._first_non_empty(image_input, self.URL_KEYS)
+            url_value = self._first_non_empty(image_input, self.PUBLIC_URL_KEYS + self.URL_KEYS)
             if url_value:
+                normalized_url = self._resolve_public_media_url(str(url_value).strip())
+                if normalized_url:
+                    return normalized_url
                 return str(url_value).strip()
             path_candidate = image_input.get("file_path") or image_input.get("path") or image_input.get("value")
             if isinstance(path_candidate, str):
+                normalized_path_url = self._resolve_public_media_url(path_candidate)
+                if normalized_path_url:
+                    return normalized_path_url
                 encoded = self._encode_local_image(path_candidate)
                 if encoded:
                     return encoded
@@ -2516,6 +2569,14 @@ class DoubaoVideoGenerator(Component):
                             nested_url = self._extract_image_url(entry)
                             if nested_url:
                                 return nested_url
+
+            for nested_key in ("payload", "data", "result"):
+                nested_value = image_input.get(nested_key)
+                if nested_value is image_input:
+                    continue
+                nested_url = self._extract_image_url(nested_value)
+                if nested_url:
+                    return nested_url
 
             preview = image_input.get("doubao_preview")
             if isinstance(preview, dict):
@@ -2537,7 +2598,11 @@ class DoubaoVideoGenerator(Component):
             if not trimmed:
                 return None
             if trimmed.startswith(("http://", "https://", "data:")):
-                return trimmed
+                normalized_url = self._resolve_public_media_url(trimmed)
+                return normalized_url or trimmed
+            normalized_url = self._resolve_public_media_url(trimmed)
+            if normalized_url:
+                return normalized_url
             encoded = self._encode_local_image(trimmed)
             if encoded:
                 return encoded
@@ -2550,6 +2615,36 @@ class DoubaoVideoGenerator(Component):
             value = container.get(key)
             if isinstance(value, str) and value.strip():
                 return value
+        return None
+
+    def _resolve_public_media_url(self, value: str | None, *, ttl_seconds: int = 3600) -> str | None:
+        """Resolve in-app media references to public URLs usable by upstream model providers."""
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        lowered = raw.lower()
+        if lowered.startswith(("data:", "oss://")):
+            return raw
+
+        if self._is_http_url(raw):
+            if "/api/v1/files/" not in raw and "/files/" not in raw:
+                return raw
+            flow_path = self._extract_flow_file_path_candidate(raw)
+            if flow_path:
+                public_url = self._build_public_file_url(flow_path, ttl_seconds=ttl_seconds)
+                if public_url:
+                    return public_url
+            return raw
+
+        flow_path = self._extract_flow_file_path_candidate(raw)
+        if flow_path:
+            public_url = self._build_public_file_url(flow_path, ttl_seconds=ttl_seconds)
+            if public_url:
+                return public_url
+        if raw.startswith(("/", "api/v1/files/", "files/")):
+            base = self._resolve_public_base_url().rstrip("/")
+            if base:
+                return f"{base}/{raw.lstrip('/')}"
         return None
 
     @staticmethod
@@ -2821,6 +2916,14 @@ class DoubaoVideoGenerator(Component):
                 direct = value.get("video_url")
                 if isinstance(direct, str) and direct.strip():
                     return True
+                for key in ("url", "public_url", "publicUrl", "file_path", "path"):
+                    candidate = value.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        normalized = candidate.strip()
+                        if self._is_video_url(normalized):
+                            return True
+                        if "/api/v1/files/media/" in normalized.lower() or "/files/media/" in normalized.lower():
+                            return True
                 videos = value.get("videos")
                 if isinstance(videos, list) and videos:
                     return True
@@ -2840,6 +2943,9 @@ class DoubaoVideoGenerator(Component):
 
             # Always try extracting from path first, then value
             url = self._extract_image_url(path_entry) or self._extract_image_url(value_entry)
+            file_path = self._extract_file_path(path_entry) or self._extract_file_path(value_entry)
+            if not url and file_path:
+                url = self._resolve_public_media_url(file_path)
             if not url:
                 continue
 
@@ -2866,7 +2972,16 @@ class DoubaoVideoGenerator(Component):
                         if nested_role:
                             role = nested_role
 
-            kind = "video" if (self._is_video_url(url) or _has_video_marker(value_entry) or _has_video_marker(path_entry)) else "image"
+            kind = (
+                "video"
+                if (
+                    self._is_video_url(url)
+                    or bool(file_path and self._is_video_url(file_path))
+                    or _has_video_marker(value_entry)
+                    or _has_video_marker(path_entry)
+                )
+                else "image"
+            )
             entries.append({"url": url, "role": role, "kind": kind})
 
         return entries
@@ -2899,6 +3014,7 @@ class DoubaoVideoGenerator(Component):
             first_frame_url = None
             last_frame_url = None
             reference_images = []
+            skipped_video_inputs = 0
 
             # 处理 first_frame_image with roles
             entries = self._collect_multimodal_inputs("first_frame_image")
@@ -2906,6 +3022,10 @@ class DoubaoVideoGenerator(Component):
                     role = entry.get("role", "first")
                     url = entry.get("url")
                     if not url:
+                        continue
+                    kind = str(entry.get("kind") or "").strip().lower()
+                    if kind == "video" or self._is_video_url(str(url)):
+                        skipped_video_inputs += 1
                         continue
 
                     if role == "first":
@@ -2938,7 +3058,16 @@ class DoubaoVideoGenerator(Component):
                 if last_frame_raw:
                     url = self._extract_image_url(last_frame_raw)
                     if url:
-                        last_frame_url = url
+                        if self._is_video_url(url):
+                            skipped_video_inputs += 1
+                        else:
+                            last_frame_url = url
+
+            if skipped_video_inputs:
+                self.status = (
+                    f"Veo 3.1: ignored {skipped_video_inputs} video input(s); "
+                    "image fields only accept images."
+                )
 
             # 检测模式
             has_first = bool(first_frame_url)
@@ -3729,10 +3858,9 @@ class DoubaoVideoGenerator(Component):
 
             file_path = self._extract_file_path(path_entry) or self._extract_file_path(value_entry)
             if file_path:
-                ext = (Path(str(file_path)).suffix or "").lower().lstrip(".")
-                public_url = self._build_public_file_url(str(file_path), ttl_seconds=3600)
+                public_url = self._resolve_public_media_url(str(file_path), ttl_seconds=3600)
                 if public_url:
-                    if ext in {"mp4", "mov"}:
+                    if self._is_video_url(public_url) or self._is_video_url(str(file_path)):
                         videos.append({"video_url": public_url, "role": role, "source": "upload"})
                         continue
                     images.append({"image_url": public_url, "role": role, "source": "upload"})
@@ -4178,16 +4306,19 @@ class DoubaoVideoGenerator(Component):
 
             entries = self._collect_multimodal_inputs("first_frame_image")
             resolved_img_url: str | None = None
-            reference_urls: list[str] = []
+            reference_video_urls: list[str] = []
+            reference_image_urls: list[str] = []
             fallback_img_url: str | None = None
 
             for entry in entries:
                 url = str(entry.get("url") or "").strip()
                 if not url:
                     continue
-                if self._is_video_url(url):
-                    reference_urls.append(url)
+                kind = str(entry.get("kind") or "").strip().lower()
+                if kind == "video" or self._is_video_url(url):
+                    reference_video_urls.append(url)
                     continue
+                reference_image_urls.append(url)
                 if not fallback_img_url:
                     fallback_img_url = url
                 if entry.get("role") == "first" and not resolved_img_url:
@@ -4195,10 +4326,10 @@ class DoubaoVideoGenerator(Component):
 
             img_url = resolved_img_url or fallback_img_url
 
-            if reference_urls and model_name != "wan2.6":
+            if reference_video_urls and model_name != "wan2.6":
                 return self._error("wan2.5 does not support reference-video (r2v). Use wan2.6 or remove reference video.")
 
-            if reference_urls:
+            if reference_video_urls:
                 dashscope_model = "wan2.6-r2v"
                 mode = "r2v"
             elif img_url:
@@ -4218,8 +4349,11 @@ class DoubaoVideoGenerator(Component):
 
             if mode == "i2v" and img_url:
                 extra_body["img_url"] = img_url
-            if mode == "r2v" and reference_urls:
-                extra_body["reference_video_urls"] = reference_urls[:3]
+            if mode == "r2v" and reference_video_urls:
+                merged_reference_urls = list(dict.fromkeys([*reference_video_urls[:3], *reference_image_urls]))
+                extra_body["reference_urls"] = merged_reference_urls[:5]
+                # Backward-compatible deprecated field.
+                extra_body["reference_video_urls"] = reference_video_urls[:3]
 
             # Audio behavior (Wan 2.5+ t2v/i2v):
             # - enable_audio=true: omit audio_url => auto audio; or use upstream audio_input if provided.
@@ -4278,6 +4412,7 @@ class DoubaoVideoGenerator(Component):
             first_frame_url = None
             last_frame_url = None
             reference_images: list[str] = []
+            skipped_video_inputs = 0
             first_frame_raw = getattr(self, "first_frame_image", None)
             if first_frame_raw:
                 entries = self._collect_multimodal_inputs("first_frame_image")
@@ -4285,6 +4420,10 @@ class DoubaoVideoGenerator(Component):
                     role = entry.get("role", "first")
                     url = entry.get("url")
                     if not url:
+                        continue
+                    kind = str(entry.get("kind") or "").strip().lower()
+                    if kind == "video" or self._is_video_url(str(url)):
+                        skipped_video_inputs += 1
                         continue
                     if role == "first" and not first_frame_url:
                         first_frame_url = url
@@ -4296,7 +4435,18 @@ class DoubaoVideoGenerator(Component):
             if not last_frame_url:
                 last_frame_raw = getattr(self, "last_frame_image", None)
                 if last_frame_raw:
-                    last_frame_url = self._extract_image_url(last_frame_raw)
+                    candidate_last = self._extract_image_url(last_frame_raw)
+                    if candidate_last:
+                        if self._is_video_url(candidate_last):
+                            skipped_video_inputs += 1
+                        else:
+                            last_frame_url = candidate_last
+
+            if skipped_video_inputs:
+                self.status = (
+                    f"Veo gateway: ignored {skipped_video_inputs} video input(s); "
+                    "image fields only accept images."
+                )
 
             has_first = bool(first_frame_url)
             has_last = bool(last_frame_url)
@@ -4549,19 +4699,32 @@ class DoubaoVideoGenerator(Component):
             content: list[dict[str, Any]] = [{"type": "text", "text": text_params}]
 
             entries = self._collect_multimodal_inputs("first_frame_image")
+            skipped_video_inputs = 0
             # Also append manual last_frame_image if present
             manual_last = getattr(self, "last_frame_image", None)
             if manual_last:
                  last_url = self._extract_image_url(manual_last)
                  if last_url:
-                     entries.append({"url": last_url, "role": "last"})
+                     entries.append(
+                         {
+                             "url": last_url,
+                             "role": "last",
+                             "kind": "video" if self._is_video_url(last_url) else "image",
+                         }
+                     )
 
             first_frame_url: str | None = None
             last_frame_url: str | None = None
 
             for entry in entries:
                 url = entry.get("url")
+                kind = str(entry.get("kind") or "").strip().lower()
                 role = entry.get("role") or "first"
+                if not isinstance(url, str) or not url.strip():
+                    continue
+                if kind == "video" or self._is_video_url(url):
+                    skipped_video_inputs += 1
+                    continue
                 
                 if role == "first":
                     if not first_frame_url:
@@ -4584,6 +4747,12 @@ class DoubaoVideoGenerator(Component):
                 elif role == "reference":
                      # Seedream supports reference images if implemented in backend gateway. Add as generic image.
                      content.append({"type": "image_url", "image_url": {"url": url}, "role": "reference_image"})
+
+            if skipped_video_inputs:
+                self.status = (
+                    f"Gateway fallback: ignored {skipped_video_inputs} video input(s); "
+                    "this endpoint only accepts image frames."
+                )
 
             if first_frame_url and last_frame_url and "doubao" in model_display_name.lower() and "seedance" not in model_display_name.lower():
                  # Doubao-Video vs Seedance conflict? 

@@ -163,3 +163,20 @@ def test_veo_1080p_non_8s_downgrades_resolution_to_720p(_mock_veo_requests: list
     payload = _mock_veo_requests[0]
     assert payload["metadata"]["durationSeconds"] == 4
     assert payload["metadata"]["resolution"] == "720p"
+
+
+def test_veo_ignores_video_entries_in_image_fields(_mock_veo_requests: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="VEO3.1",
+        duration=4,
+        resolution="720p",
+        first_frame_image=[
+            {"video_url": "https://cdn.example.com/resource?id=1", "role": "first", "doubao_preview": {"kind": "video"}},
+            {"url": "https://example.com/start.jpg", "role": "first"},
+        ],
+    )
+    result = component._build_video_veo(prompt="p", endpoint_id="veo-3.1-generate-preview", api_key="k")
+    assert result.type == "video"
+    payload = _mock_veo_requests[0]
+    assert payload["images"] == ["https://example.com/start.jpg"]
+    assert "resource?id=1" not in str(payload)

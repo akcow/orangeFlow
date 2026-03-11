@@ -99,17 +99,31 @@ def resolve_secret_key() -> str:
 def resolve_public_base_url() -> str:
     explicit = str(os.getenv("LANGFLOW_PUBLIC_BASE_URL", "") or "").strip()
     if explicit:
-        return explicit
+        return explicit.rstrip("/")
+
+    explicit = str(os.getenv("LANGFLOW_BACKEND_URL", "") or os.getenv("BACKEND_URL", "") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
     try:  # pragma: no cover - runtime dependency
         from langflow.services.deps import get_settings_service
 
         settings_service = get_settings_service()
+        explicit = str(getattr(settings_service.settings, "public_base_url", "") or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
+        explicit = str(getattr(settings_service.settings, "backend_url", "") or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
         host = str(settings_service.settings.host or "localhost")
-        port = int(getattr(settings_service.settings, "port", 7860) or 7860)
+        port = int(
+            getattr(settings_service.settings, "runtime_port", None)
+            or getattr(settings_service.settings, "port", 7860)
+            or 7860
+        )
         # Prefer explicit URL if provided.
         if str(host).startswith(("http://", "https://")):
             return str(host).rstrip("/")
-        scheme = "https" if bool(getattr(settings_service.settings, "https", False)) else "http"
+        scheme = "https" if bool(getattr(settings_service.settings, "ssl_cert_file", None)) else "http"
         # Don't include default ports.
         if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
             return f"{scheme}://{host}"

@@ -81,3 +81,96 @@ def test_wan_i2v_uses_img_url_and_i2v_model(_mock_gateway: list[dict[str, Any]])
     extra = payload["extra_body"]
     assert extra["img_url"] == "https://example.com/start.jpg"
     assert extra["resolution"] == "720P"
+
+
+def test_wan_r2v_prefers_public_url_for_uploaded_video(_mock_gateway: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="wan2.6",
+        duration=10,
+        resolution="720p",
+        aspect_ratio="16:9",
+        first_frame_image=[
+            {
+                "video_url": "/api/v1/files/media/flow-1/source.mp4",
+                "public_url": "https://cdn.example.com/flow-1/source.mp4?token=abc",
+                "doubao_preview": {"kind": "video"},
+            }
+        ],
+    )
+    out = component._build_video_wan_gateway(prompt="p", model_name="wan2.6")
+    assert out.type == "video"
+
+    payload = _mock_gateway[0]
+    assert payload["model"] == "wan2.6-r2v"
+    extra = payload["extra_body"]
+    assert extra["reference_video_urls"] == ["https://cdn.example.com/flow-1/source.mp4?token=abc"]
+    assert "img_url" not in extra
+
+
+def test_wan_r2v_uses_file_path_upload_shape(monkeypatch: pytest.MonkeyPatch, _mock_gateway: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="wan2.6",
+        duration=10,
+        resolution="720p",
+        aspect_ratio="16:9",
+        first_frame_image={
+            "value": [{"name": "source.mp4", "role": "reference"}],
+            "file_path": ["flow-1/source.mp4"],
+        },
+    )
+    monkeypatch.setattr(
+        DoubaoVideoGenerator,
+        "_build_public_file_url",
+        lambda self, file_path, ttl_seconds=3600: "https://cdn.example.com/flow-1/source.mp4?token=xyz",
+    )
+
+    out = component._build_video_wan_gateway(prompt="p", model_name="wan2.6")
+    assert out.type == "video"
+
+    payload = _mock_gateway[0]
+    assert payload["model"] == "wan2.6-r2v"
+    extra = payload["extra_body"]
+    assert extra["reference_video_urls"] == ["https://cdn.example.com/flow-1/source.mp4?token=xyz"]
+    assert "img_url" not in extra
+
+
+def test_wan_r2v_uses_video_kind_when_url_has_no_video_suffix(_mock_gateway: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="wan2.6",
+        duration=10,
+        resolution="720p",
+        aspect_ratio="16:9",
+        first_frame_image=[{"video_url": "https://cdn.example.com/resource?id=1", "doubao_preview": {"kind": "video"}}],
+    )
+    out = component._build_video_wan_gateway(prompt="p", model_name="wan2.6")
+    assert out.type == "video"
+
+    payload = _mock_gateway[0]
+    assert payload["model"] == "wan2.6-r2v"
+    extra = payload["extra_body"]
+    assert extra["reference_video_urls"] == ["https://cdn.example.com/resource?id=1"]
+    assert "img_url" not in extra
+
+
+def test_wan_r2v_supports_mixed_video_and_image_reference_urls(_mock_gateway: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="wan2.6",
+        duration=10,
+        resolution="720p",
+        aspect_ratio="16:9",
+        first_frame_image=[
+            {"video_url": "https://cdn.example.com/char1.mp4", "doubao_preview": {"kind": "video"}},
+            {"url": "https://cdn.example.com/char2.png", "role": "reference"},
+        ],
+    )
+    out = component._build_video_wan_gateway(prompt="p", model_name="wan2.6")
+    assert out.type == "video"
+
+    payload = _mock_gateway[0]
+    assert payload["model"] == "wan2.6-r2v"
+    extra = payload["extra_body"]
+    assert extra["reference_urls"] == [
+        "https://cdn.example.com/char1.mp4",
+        "https://cdn.example.com/char2.png",
+    ]
+    assert extra["reference_video_urls"] == ["https://cdn.example.com/char1.mp4"]

@@ -194,7 +194,7 @@ async def get_current_user_by_jwt(
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-        if user_id is None or token_type is None:
+        if user_id is None or token_type != "access":
             logger.info(f"Invalid token payload. Token type: {token_type}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -369,6 +369,7 @@ async def create_super_user(
     if not super_user:
         super_user = User(
             username=username,
+            nickname=username,
             password=get_password_hash(password),
             is_superuser=True,
             is_active=True,
@@ -513,8 +514,6 @@ async def authenticate_user(username: str, password: str, db: AsyncSession) -> U
         return None
 
     if not user.is_active:
-        if not user.last_login_at:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Waiting for approval")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
 
     return user if verify_password(password, user.password) else None

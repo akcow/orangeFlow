@@ -7,6 +7,8 @@
 FROM node:20-bookworm-slim AS frontend-builder
 WORKDIR /frontend
 
+ENV NODE_OPTIONS=--max-old-space-size=8192
+
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
 
@@ -26,6 +28,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    ffmpeg \
     git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -54,11 +57,10 @@ RUN mkdir -p /app/langflow_config /app/data
 EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -fsS http://localhost:7860/health || exit 1
+    CMD curl -fsS http://localhost:7860/health_check || exit 1
 
 CMD ["langflow", "run", \
      "--host", "0.0.0.0", \
      "--port", "7860", \
      "--log-level", "info", \
      "--frontend-path", "/app/src/backend/base/langflow/frontend"]
-

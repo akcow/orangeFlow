@@ -1,4 +1,4 @@
-import { cloneDeep } from "lodash";
+﻿import { cloneDeep } from "lodash";
 import { useContext, useEffect, useRef, useState } from "react";
 import PaginatorComponent from "@/components/common/paginatorComponent";
 import {
@@ -121,7 +121,8 @@ export default function AdminPage() {
       setFilterUserList(userList.current);
     } else {
       const filteredList = userList.current.filter((user: Users) =>
-        user.username.toLowerCase().includes(input.toLowerCase()),
+        user.username.toLowerCase().includes(input.toLowerCase()) ||
+        user.nickname?.toLowerCase().includes(input.toLowerCase()),
       );
       setFilterUserList(filteredList);
     }
@@ -289,7 +290,7 @@ export default function AdminPage() {
           <div className="flex w-full justify-between px-4">
             <div className="flex w-96 items-center gap-4">
               <Input
-                placeholder={t("Search Username")}
+                placeholder={t("Search username or nickname")}
                 value={inputValue}
                 onChange={(e) => handleFilterUsers(e.target.value)}
               />
@@ -331,7 +332,7 @@ export default function AdminPage() {
                 variant="secondary"
                 onClick={() => navigate("/admin/community")}
               >
-                投稿审核
+                鎶曠瀹℃牳
               </Button>
             </div>
           </div>
@@ -362,8 +363,9 @@ export default function AdminPage() {
                     <TableRow>
                       <TableHead className="h-10">{t("ID")}</TableHead>
                       <TableHead className="h-10">{t("Username")}</TableHead>
+                      <TableHead className="h-10">{t("Nickname")}</TableHead>
                       <TableHead className="h-10">{t("Active")}</TableHead>
-                      <TableHead className="h-10">审核员</TableHead>
+                      <TableHead className="h-10">{t("Reviewer")}</TableHead>
                       <TableHead className="h-10">{t("Superuser")}</TableHead>
                       <TableHead className="h-10">{t("Created At")}</TableHead>
                       <TableHead className="h-10">{t("Updated At")}</TableHead>
@@ -386,11 +388,18 @@ export default function AdminPage() {
                               </span>
                             </ShadTooltip>
                           </TableCell>
+                          <TableCell className="truncate py-2">
+                            <ShadTooltip content={user.nickname}>
+                              <span className="cursor-default">
+                                {user.nickname}
+                              </span>
+                            </ShadTooltip>
+                          </TableCell>
                           <TableCell className="relative left-1 truncate py-2 text-align-last-left">
                             <ConfirmationModal
                               size="x-small"
                               title={t("Edit")}
-                              titleHeader={`${user.username}`}
+                              titleHeader={`${user.nickname ?? user.username}`}
                               modalContentTitle={t("Attention!")}
                               cancelText={t("Cancel")}
                               confirmationText={t("Confirm")}
@@ -423,7 +432,7 @@ export default function AdminPage() {
                             <ConfirmationModal
                               size="x-small"
                               title={t("Edit")}
-                              titleHeader={`${user.username}`}
+                              titleHeader={`${user.nickname ?? user.username}`}
                               modalContentTitle={t("Attention!")}
                               cancelText={t("Cancel")}
                               confirmationText={t("Confirm")}
@@ -456,7 +465,7 @@ export default function AdminPage() {
                             <ConfirmationModal
                               size="x-small"
                               title={t("Edit")}
-                              titleHeader={`${user.username}`}
+                              titleHeader={`${user.nickname ?? user.username}`}
                               modalContentTitle={t("Attention!")}
                               cancelText={t("Cancel")}
                               confirmationText={t("Confirm")}

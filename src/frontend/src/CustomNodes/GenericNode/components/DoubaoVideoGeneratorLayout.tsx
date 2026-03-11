@@ -1342,6 +1342,11 @@ export default function DoubaoVideoGeneratorLayout({
       if (getTargetFieldName(edge) !== FIRST_FRAME_FIELD) return false;
       const videoReferType = edge.data?.videoReferType;
       if (videoReferType === "base" || videoReferType === "feature") return false;
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const sourceType = sourceNode?.data?.type;
+      if (sourceType === "DoubaoVideoGenerator" || sourceType === "UserUploadVideo") {
+        return false;
+      }
       return true;
     });
     if (!incomingFrameEdges.length) return false;
@@ -1360,7 +1365,7 @@ export default function DoubaoVideoGeneratorLayout({
     if (hasDedicatedLastEdge || hasLastFrameValue) return false;
 
     return true;
-  }, [FIRST_FRAME_FIELD, LAST_FRAME_FIELD, data.id, edges, hasLastFrameValue]);
+  }, [FIRST_FRAME_FIELD, LAST_FRAME_FIELD, data.id, edges, hasLastFrameValue, nodes]);
 
   const isFirstLastFrameMode = Boolean(
     forceFirstLastFrameMode || hasLastFrameEdge || hasLastFrameValue,
@@ -1833,7 +1838,7 @@ export default function DoubaoVideoGeneratorLayout({
       if (field.name === "model_name" && disableSoraModelSelectionAfterFrameActions) {
         disabledOptions = [...(disabledOptions ?? []), "sora-2", "sora-2-pro"];
       }
-      if (field.name === "model_name" && isReferenceVideoMode) {
+      if (field.name === "model_name" && isReferenceVideoMode && !hasIncomingVideoBridge) {
         const allowed = new Set(
           options
             .map((option) => String(option ?? "").trim())
@@ -2609,7 +2614,10 @@ export default function DoubaoVideoGeneratorLayout({
       if (fieldName !== FIRST_FRAME_FIELD) return;
 
       const sourceNode = nodes.find((node) => node.id === edge.source);
-      if (sourceNode?.data?.type === "DoubaoVideoGenerator") {
+      if (
+        sourceNode?.data?.type === "DoubaoVideoGenerator" ||
+        sourceNode?.data?.type === "UserUploadVideo"
+      ) {
         videoEdges += 1;
       } else {
         imageEdges += 1;
@@ -2666,7 +2674,10 @@ export default function DoubaoVideoGeneratorLayout({
       }
 
       const sourceNode = nodes.find((node) => node.id === edge.source);
-      if (sourceNode?.data?.type === "DoubaoVideoGenerator") {
+      if (
+        sourceNode?.data?.type === "DoubaoVideoGenerator" ||
+        sourceNode?.data?.type === "UserUploadVideo"
+      ) {
         videoEdges += 1;
       } else {
         imageEdges += 1;

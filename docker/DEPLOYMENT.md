@@ -14,8 +14,9 @@ This avoids the old SQLite failure mode where history, generated assets, and mul
 - Use `docker/production.docker-compose.yml`
 - Keep PostgreSQL on a persistent volume
 - Keep generated media in MinIO/S3, not inside the app container filesystem
-- Set `BACKEND_URL` to the public Langflow URL so signed proxy preview links work
+- Set `LANGFLOW_PUBLIC_BASE_URL` to the public Langflow URL so signed proxy preview links work
 - Keep `LANGFLOW_AUTO_LOGIN=false` for beta/commercial use
+- Keep PostgreSQL and MinIO internal to Docker unless you explicitly need host access
 
 ## 2. First deployment
 
@@ -26,6 +27,12 @@ cd docker
 cp .env.example .env
 ```
 
+If you want a more opinionated server template, start from:
+
+```bash
+cp .env.production.example .env
+```
+
 Edit `docker/.env` and change at least:
 
 ```bash
@@ -33,7 +40,8 @@ POSTGRES_PASSWORD=change-this-postgres-password
 SUPERUSER_PASSWORD=change-this-admin-password
 MINIO_ROOT_PASSWORD=change-this-minio-password
 SECRET_KEY=replace-with-a-random-secret
-BACKEND_URL=https://your-app-domain.example.com/
+LANGFLOW_PUBLIC_BASE_URL=https://your-app-domain.example.com
+LANGFLOW_CORS_ORIGINS=https://your-app-domain.example.com
 ```
 
 Then start the stack:
@@ -42,12 +50,15 @@ Then start the stack:
 docker compose -f production.docker-compose.yml up -d --build
 ```
 
+The app container binds to `127.0.0.1:7860` by default.
+That is intentional: put Nginx or Caddy in front of it and only expose the reverse proxy publicly.
+
 Check health:
 
 ```bash
 docker compose -f production.docker-compose.yml ps
 docker compose -f production.docker-compose.yml logs -f langflow
-curl http://127.0.0.1:7860/health
+curl http://127.0.0.1:7860/health_check
 ```
 
 ## 3. Why this is the default now
@@ -65,6 +76,8 @@ This means:
 - workspace preview can still load after restart
 - image/video assets are not tied to one app container
 - the stack can scale to S3 later with the same config model
+
+The production image now also installs `ffmpeg`, so server-side video trim/edit flows do not fail after deployment.
 
 ## 4. MinIO vs S3
 
@@ -104,13 +117,18 @@ Minimum routing:
 
 - `https://app.example.com` -> Langflow `:7860`
 
+Ready-to-use examples are included:
+
+- `docker/nginx.langflow.conf.example`
+- `docker/Caddyfile.example`
+
 If you later expose MinIO directly through a CDN/domain, set:
 
 ```bash
 MINIO_PUBLIC_BASE_URL=https://assets.example.com/langflow-assets
 ```
 
-If you do not set `MINIO_PUBLIC_BASE_URL`, Langflow will generate signed proxy URLs through `BACKEND_URL`.
+If you do not set `MINIO_PUBLIC_BASE_URL`, Langflow will generate signed proxy URLs through `LANGFLOW_PUBLIC_BASE_URL`.
 That is the safer default for a private beta.
 
 ## 7. Backup
@@ -138,9 +156,10 @@ MinIO:
 
 Before exposing to more users:
 
-1. Set a real domain and `BACKEND_URL`
+1. Set a real domain and `LANGFLOW_PUBLIC_BASE_URL`
 2. Enable HTTPS
 3. Change all default passwords
-4. Turn on `API_KEY_ENABLED=true` if you need server-to-server access
-5. Put PostgreSQL and MinIO volumes on reliable disks
-6. Add regular DB and object-storage backups
+4. Set `LANGFLOW_CORS_ORIGINS` to your real public origin
+5. Keep PostgreSQL and MinIO ports closed unless you explicitly need host access
+6. Put PostgreSQL and MinIO volumes on reliable disks
+7. Add regular DB and object-storage backups

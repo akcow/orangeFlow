@@ -627,6 +627,7 @@ export const CONTROL_INPUT_STATE = {
   password: "",
   cnfPassword: "",
   username: "",
+  nickname: "",
 };
 
 export const CONTROL_PATCH_USER_STATE = {
@@ -643,6 +644,7 @@ export const CONTROL_LOGIN_STATE = {
 
 export const CONTROL_NEW_USER = {
   username: "",
+  nickname: "",
   password: "",
   is_active: false,
   is_superuser: false,
