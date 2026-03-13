@@ -3,7 +3,13 @@ export const getLocalStorage = (key: string) => {
 };
 
 export const setLocalStorage = (key: string, value: string) => {
-  localStorage.setItem(key, value);
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    console.warn(
+      `[local-storage-util] localStorage.setItem("${key}") failed (quota/security). Skipping.`,
+    );
+  }
 };
 
 export const removeLocalStorage = (key: string) => {

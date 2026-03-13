@@ -88,7 +88,7 @@ export default function SettingsPage(): JSX.Element {
       <SidebarProvider width="15rem" defaultOpen={false}>
         <SideBarButtonsComponent items={sidebarNavItems} />
         <main className="flex flex-1 overflow-hidden">
-          <div className="flex flex-1 flex-col overflow-x-hidden pt-1">
+          <div className="flex flex-1 flex-col overflow-x-hidden pt-1 md:pl-12 lg:pl-24">
             <Outlet />
           </div>
         </main>

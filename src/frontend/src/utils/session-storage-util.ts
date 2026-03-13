@@ -3,7 +3,13 @@ export const getSessionStorage = (key: string) => {
 };
 
 export const setSessionStorage = (key: string, value: string) => {
-  sessionStorage.setItem(key, value);
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    console.warn(
+      `[session-storage-util] sessionStorage.setItem("${key}") failed (quota/security). Skipping.`,
+    );
+  }
 };
 
 export const removeSessionStorage = (key: string) => {
