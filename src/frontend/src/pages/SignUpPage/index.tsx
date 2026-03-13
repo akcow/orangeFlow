@@ -90,11 +90,11 @@ export default function SignUp(): JSX.Element {
       <div className="flex h-full w-full flex-col items-center justify-center bg-muted">
         <div className="flex w-72 flex-col items-center justify-center gap-2">
           <LangflowLogo
-            title={t("Langflow logo")}
+            title={t("OrangeFlow logo")}
             className="mb-4 h-10 w-10 scale-[1.5]"
           />
           <span className="mb-6 text-2xl font-semibold text-primary">
-            {t("Sign up for Langflow")}
+            {t("Sign up for OrangeFlow")}
           </span>
           <div className="mb-3 w-full">
             <Form.Field name="username">
@@ -205,9 +205,10 @@ export default function SignUp(): JSX.Element {
           <div className="w-full">
             <Form.Submit asChild>
               <Button
+                unstyled
                 disabled={isDisabled}
                 type="submit"
-                className="mr-3 mt-6 w-full"
+                className="mr-3 mt-6 inline-flex w-full items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-colors hover:bg-blue-700 disabled:opacity-70 disabled:pointer-events-none"
                 onClick={() => {
                   handleSignup();
                 }}

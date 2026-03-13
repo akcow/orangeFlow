@@ -98,31 +98,12 @@ def _local_venv_python() -> Path | None:
 
 
 def _ensure_uv_environment() -> None:
-    """Ensure we run inside the repo's uv environment when available."""
-    if os.environ.get("LANGFLOW_START_SERVICE_REEXEC") == "1":
-        return
+    """Ensure we run inside the repo's uv environment when available.
 
-    # If we already run from .venv, keep going.
-    exe = Path(sys.executable).resolve()
-    if ".venv" in exe.parts:
-        return
-
-    # Prefer local .venv when it exists so the script uses the project's venv.
-    venv_python = _local_venv_python()
-    if venv_python is not None:
-        env = _uv_env()
-        env["LANGFLOW_START_SERVICE_REEXEC"] = "1"
-        cmd = [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]]
-        subprocess.run(cmd, cwd=REPO_ROOT, env=env, check=True)
-        raise SystemExit(0)
-
-    # If uv is available, re-exec via uv so dependencies resolve consistently.
-    if shutil.which("uv"):
-        env = _uv_env()
-        env["LANGFLOW_START_SERVICE_REEXEC"] = "1"
-        cmd = ["uv", "run", "python", str(Path(__file__).resolve()), *sys.argv[1:]]
-        subprocess.run(_resolve_command(cmd), cwd=REPO_ROOT, env=env, check=True)
-        raise SystemExit(0)
+    NOTE: Re-exec to .venv / uv is disabled. The script now always runs
+    with whatever Python interpreter invoked it (e.g. the active conda env).
+    """
+    return
 
 
 def _ensure_uv_installed() -> None:

@@ -90,6 +90,10 @@ export default function WorkflowsPage() {
     listPublic.isLoading || (scope === "mine" && listMine.isLoading);
 
   const cloneToWorkspace = async (flowId: string) => {
+    if (!isAuthenticated) {
+      navigate("/login?redirect=" + encodeURIComponent(window.location.pathname));
+      return;
+    }
     try {
       const r = await api.get<Record<string, unknown>>(
         getURL("PUBLIC_FLOW", { flowId }),
@@ -192,7 +196,7 @@ export default function WorkflowsPage() {
               const coverUrl = item.cover_path
                 ? getCommunityImageUrl(item.cover_path)
                 : null;
-              const canClone = isAuthenticated && item.status === "PUBLIC";
+              const canClone = item.status === "PUBLIC";
               return (
                 <div key={item.id} className="group">
                   <div className="overflow-hidden rounded-2xl border bg-muted/10">
@@ -226,7 +230,7 @@ export default function WorkflowsPage() {
                           onClick={() => cloneToWorkspace(item.flow_id)}
                           title={
                             !isAuthenticated
-                              ? "请先登录"
+                              ? "点击登录以克隆该工作流"
                               : item.status !== "PUBLIC"
                                 ? "未公开"
                                 : "克隆到工作空间"

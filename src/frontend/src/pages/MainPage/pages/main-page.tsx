@@ -12,6 +12,7 @@ import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
+import useAuthStore from "@/stores/authStore";
 import ModalsComponent from "../components/modalsComponent";
 import EmptyPageCommunity from "./empty-page";
 
@@ -27,6 +28,7 @@ export default function CollectionPage(): JSX.Element {
   const folderToEdit = useFolderStore((state) => state.folderToEdit);
   const folders = useFolderStore((state) => state.folders);
   const queryClient = useQueryClient();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   const { isFetched: isFlowsFetched } = useGetRefreshFlowsQuery(
     {
@@ -72,7 +74,8 @@ export default function CollectionPage(): JSX.Element {
 
   return (
     <SidebarProvider width="280px">
-      {flows &&
+      {isAuthenticated &&
+        flows &&
         examples &&
         folders &&
         (flows?.length !== examples?.length || folders?.length > 1) && (

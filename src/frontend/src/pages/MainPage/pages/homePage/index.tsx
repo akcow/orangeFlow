@@ -14,6 +14,7 @@ import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { t } from "@/i18n/t";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
+import useAuthStore from "@/stores/authStore";
 import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
 import useFileDrop from "../../hooks/use-on-file-drop";
@@ -45,6 +46,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
     folders[0]?.name ??
     "";
   const flows = useFlowsManagerStore((state) => state.flows);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   useEffect(() => {
     // Only check if we have a folderId and folders have loaded
@@ -274,7 +276,38 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
           isEmptyFolder={isEmptyFolder}
         />
 
-        {isEmptyFolder ? (
+        {!isAuthenticated ? (
+          <div className="flex flex-1 flex-col items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-white/[0.04]">
+                <svg
+                  className="h-6 w-6 text-white/40"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
+              </div>
+              <div className="flex flex-col items-center gap-1.5">
+                <h2 className="text-[17px] font-medium tracking-wide">尚未登录</h2>
+                <p className="text-[15px] text-white/40">请先登录来开启 OrangeFlow 旅程</p>
+              </div>
+              <button
+                onClick={() => navigate("/login")}
+                className="mt-2 rounded-[12px] border border-white/10 px-5 py-2 text-[15px] font-medium text-white transition-colors duration-300 hover:bg-[#333333]"
+              >
+                登录以开始使用
+              </button>
+            </div>
+          </div>
+        ) : isEmptyFolder ? (
           <EmptyFolder onCreateFlow={handleCreateNewFlow} />
         ) : (
           <div className="flex h-full flex-col">

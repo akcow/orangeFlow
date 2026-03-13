@@ -197,7 +197,7 @@ export default function HomeLandingPage() {
           className="mb-4 flex w-fit cursor-pointer items-center gap-2 hover:opacity-80"
           onClick={() => navigate("/community/tv")}
         >
-          <h2 className="text-xl font-semibold text-white">TapTV</h2>
+          <h2 className="text-xl font-semibold text-white">OrangeTV</h2>
           <ArrowRight className="h-5 w-5 text-gray-400" />
         </div>
         <HomeTVShowcase />

@@ -89,11 +89,64 @@ const router = createBrowserRouter(
     >
       <Route path="" element={<AppInitPage />}>
         <Route path="" element={<AppWrapperPage />}>
-          <Route path="community" element={<CustomDashboardWrapperPage />}>
-            <Route index element={<CustomNavigate replace to={"tv"} />} />
-            <Route path="tv" element={<TVPage />} />
-            <Route path="tv/publish" element={<TVPublishPage />} />
-            <Route path="workflows" element={<WorkflowsPage />} />
+          <Route path="" element={<CustomDashboardWrapperPage />}>
+            <Route path="community">
+              <Route index element={<CustomNavigate replace to={"tv"} />} />
+              <Route path="tv" element={<TVPage />} />
+              <Route
+                path="tv/publish"
+                element={
+                  <ProtectedRoute>
+                    <TVPublishPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="workflows" element={<WorkflowsPage />} />
+            </Route>
+            <Route path="home" element={<HomeLandingPage />} />
+            <Route path="" element={<CollectionPage />}>
+              <Route
+                index
+                element={<CustomNavigate replace to={"/home"} />}
+              />
+              {ENABLE_FILE_MANAGEMENT && (
+                <Route path="assets">
+                  <Route
+                    index
+                    element={<CustomNavigate replace to="files" />}
+                  />
+                  <Route path="files" element={<FilesPage />} />
+                  {ENABLE_KNOWLEDGE_BASES && (
+                    <Route
+                      path="knowledge-bases"
+                      element={<KnowledgePage />}
+                    />
+                  )}
+                </Route>
+              )}
+              <Route
+                path="flows/"
+                element={<HomePage key="flows" type="flows" />}
+              />
+              <Route
+                path="components/"
+                element={<HomePage key="components" type="components" />}
+              >
+                <Route
+                  path="folder/:folderId"
+                  element={<HomePage key="components" type="components" />}
+                />
+              </Route>
+              <Route
+                path="all/"
+                element={<HomePage key="flows" type="flows" />}
+              >
+                <Route
+                  path="folder/:folderId"
+                  element={<HomePage key="flows" type="flows" />}
+                />
+              </Route>
+            </Route>
           </Route>
           <Route
             path=""
@@ -105,50 +158,6 @@ const router = createBrowserRouter(
           >
             <Route path="" element={<AppAuthenticatedPage />}>
               <Route path="" element={<CustomDashboardWrapperPage />}>
-                <Route path="home" element={<HomeLandingPage />} />
-                <Route path="" element={<CollectionPage />}>
-                  <Route
-                    index
-                    element={<CustomNavigate replace to={"/home"} />}
-                  />
-                  {ENABLE_FILE_MANAGEMENT && (
-                    <Route path="assets">
-                      <Route
-                        index
-                        element={<CustomNavigate replace to="files" />}
-                      />
-                      <Route path="files" element={<FilesPage />} />
-                      {ENABLE_KNOWLEDGE_BASES && (
-                        <Route
-                          path="knowledge-bases"
-                          element={<KnowledgePage />}
-                        />
-                      )}
-                    </Route>
-                  )}
-                  <Route
-                    path="flows/"
-                    element={<HomePage key="flows" type="flows" />}
-                  />
-                  <Route
-                    path="components/"
-                    element={<HomePage key="components" type="components" />}
-                  >
-                    <Route
-                      path="folder/:folderId"
-                      element={<HomePage key="components" type="components" />}
-                    />
-                  </Route>
-                  <Route
-                    path="all/"
-                    element={<HomePage key="flows" type="flows" />}
-                  >
-                    <Route
-                      path="folder/:folderId"
-                      element={<HomePage key="flows" type="flows" />}
-                    />
-                  </Route>
-                </Route>
                 <Route path="profile" element={<ProfilePage />} />
                 <Route path="settings" element={<SettingsPage />}>
                   <Route

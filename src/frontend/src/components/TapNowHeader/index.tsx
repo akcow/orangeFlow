@@ -56,7 +56,7 @@ export const TapNowHeader = ({
   const userInitial = username.slice(0, 1).toUpperCase();
 
   const navItems: Array<{ key: NavKey; label: string; to: string }> = [
-    { key: "tv", label: "TapTV", to: "/community/tv" },
+    { key: "tv", label: "OrangeTV", to: "/community/tv" },
     {
       key: "templates",
       label: isZh ? "\u6A21\u677F\u5E93" : "Templates",
@@ -108,11 +108,11 @@ export const TapNowHeader = ({
           )}
 
           {wordmarkLoadFailed ? (
-            <span className="text-xl font-semibold tracking-tight">TapNow</span>
+            <span className="text-xl font-semibold tracking-tight text-white">OrangeFlow</span>
           ) : (
             <img
               src="/branding/tapnow-wordmark.png?v=20260305"
-              alt="TapNow"
+              alt="OrangeFlow"
               className="h-8 w-auto object-contain"
               onError={() => setWordmarkLoadFailed(true)}
             />
@@ -292,10 +292,11 @@ export const TapNowHeader = ({
           </>
         ) : !onFlowPage ? (
           <Button
+            unstyled
             onClick={() => navigate("/login")}
-            className="h-10 rounded-xl border border-white/10 bg-white px-5 text-black hover:bg-gray-200"
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-600 px-5 font-medium text-white shadow-lg shadow-blue-500/20 transition-colors hover:bg-blue-700"
           >
-            {isZh ? "\u767B\u5F55" : "Login"}
+            {isZh ? "免费体验" : "Start for Free"}
           </Button>
         ) : null}
         {onFlowPage && (

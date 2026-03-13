@@ -218,6 +218,10 @@ export default function TVPage() {
   }, [isAuthenticated, listPublic.data]);
 
   const cloneToWorkspace = async (flowId: string) => {
+    if (!isAuthenticated) {
+      navigate("/login?redirect=" + encodeURIComponent(window.location.pathname));
+      return;
+    }
     try {
       const r = await api.get<any>(getURL("PUBLIC_FLOW", { flowId }));
       const flow = r.data;
@@ -300,7 +304,11 @@ export default function TVPage() {
   };
 
   const likePublicItem = async (item: CommunityItem) => {
-    if (!isAuthenticated || likePendingId) return;
+    if (!isAuthenticated) {
+      navigate("/login?redirect=" + encodeURIComponent(window.location.pathname));
+      return;
+    }
+    if (likePendingId) return;
     setLikePendingId(item.id);
     try {
       const r = await api.post<{
