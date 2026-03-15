@@ -11,6 +11,37 @@ import {
   PROXY_TARGET,
 } from "./src/customization/config-constants";
 
+function resolveManualChunk(id: string) {
+  if (!id.includes("node_modules")) return undefined;
+
+  if (id.includes("react-pdf") || id.includes("pdfjs-dist")) {
+    return "vendor-pdf";
+  }
+
+  if (id.includes("ace-builds") || id.includes("react-ace")) {
+    return "vendor-editor";
+  }
+
+  if (id.includes("ag-grid")) {
+    return "vendor-grid";
+  }
+
+  if (id.includes("@xyflow") || id.includes("reactflow") || id.includes("elkjs")) {
+    return "vendor-flow";
+  }
+
+  if (
+    id.includes("react-markdown") ||
+    id.includes("remark-") ||
+    id.includes("rehype-") ||
+    id.includes("mathjax")
+  ) {
+    return "vendor-markdown";
+  }
+
+  return "vendor";
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
@@ -32,15 +63,12 @@ export default defineConfig(({ mode }) => {
   };
 
   const apiRoutes = API_ROUTES || ["^/api/v1/", "^/api/v2/", "/health"];
-
-  const target =
-    env.VITE_PROXY_TARGET || PROXY_TARGET || "http://localhost:7860";
-
+  const target = env.VITE_PROXY_TARGET || PROXY_TARGET || "http://localhost:7860";
   const port = Number(env.VITE_PORT) || PORT || 3000;
 
-  const proxyTargets = apiRoutes.reduce((proxyObj, route) => {
+  const proxyTargets = apiRoutes.reduce<Record<string, object>>((proxyObj, route) => {
     proxyObj[route] = {
-      target: target,
+      target,
       changeOrigin: true,
       secure: false,
       ws: true,
@@ -48,22 +76,28 @@ export default defineConfig(({ mode }) => {
     return proxyObj;
   }, {});
 
-    return {
-      base: BASENAME || "",
-      build: {
-        outDir: "build",
-      },
-      resolve: {
-        dedupe: ["react", "react-dom"],
-        alias: {
-          react: path.resolve(__dirname, "node_modules/react"),
-          "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
+  return {
+    base: BASENAME || "",
+    build: {
+      emptyOutDir: true,
+      outDir: "build",
+      rollupOptions: {
+        output: {
+          manualChunks: resolveManualChunk,
         },
       },
-      define: {
-        "import.meta.env.BACKEND_URL": JSON.stringify(
-          getLangflowEnv("BACKEND_URL", "http://localhost:7860"),
-        ),
+    },
+    resolve: {
+      dedupe: ["react", "react-dom"],
+      alias: {
+        react: path.resolve(__dirname, "node_modules/react"),
+        "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
+      },
+    },
+    define: {
+      "import.meta.env.BACKEND_URL": JSON.stringify(
+        getLangflowEnv("BACKEND_URL", "http://localhost:7860"),
+      ),
       "import.meta.env.ACCESS_TOKEN_EXPIRE_SECONDS": JSON.stringify(
         getLangflowEnv("ACCESS_TOKEN_EXPIRE_SECONDS", 60),
       ),
@@ -77,10 +111,8 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react(), svgr(), tsconfigPaths()],
     server: {
-      port: port,
-      proxy: {
-        ...proxyTargets,
-      },
+      port,
+      proxy: proxyTargets,
     },
   };
 });

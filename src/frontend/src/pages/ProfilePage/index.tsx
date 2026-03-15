@@ -4,9 +4,7 @@ import { cloneDeep } from "lodash";
 import {
   ArrowUpRight,
   Camera,
-  CircleDollarSign,
   Edit2,
-  History,
   Lock,
   Plus,
   X,
@@ -19,10 +17,6 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/controllers/API/api";
 import { getURL } from "@/controllers/API/helpers/constants";
 import { useUpdateUser } from "@/controllers/API/queries/auth";
-import {
-  useGetMyCreditLedgerQuery,
-  useGetMyCreditsQuery,
-} from "@/controllers/API/queries/credits";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import { AuthContext } from "@/contexts/authContext";
 import useAuthStore from "@/stores/authStore";
@@ -95,13 +89,6 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
   const displayName = profileUser?.nickname || profileUser?.username || t("User");
   const accountName = profileUser?.username || t("User");
   const userInitial = displayName.slice(0, 1).toUpperCase();
-
-  const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
-  const { data: creditAccount } = useGetMyCreditsQuery({ enabled: isOwnProfile });
-  const { data: creditLedger = [] } = useGetMyCreditLedgerQuery(
-    { limit: 10 },
-    { enabled: isOwnProfile },
-  );
 
   // 获取用户实际创建的 flow（有封面的才算作品）
   const userFlowsQuery = useQuery({
@@ -400,88 +387,6 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
 
         {/* 右侧主内容 */}
         <main className="flex-1 overflow-y-auto p-6">
-          {isOwnProfile ? (
-            <div className="mb-6 grid gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)]">
-              <section className="rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(255,200,87,0.22),rgba(255,255,255,0.06))] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.2)] backdrop-blur-sm">
-                <div className="flex items-center gap-3 text-white">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-black/20">
-                    <CircleDollarSign className="h-5 w-5 text-amber-200" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-white/70">{isZh ? "当前积分" : "Current Credits"}</p>
-                    <p className="mt-1 text-3xl font-semibold tracking-tight">
-                      {creditAccount?.balance ?? 0}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
-                    <p className="text-xs text-white/65">{isZh ? "累计充值" : "Total Added"}</p>
-                    <p className="mt-2 text-lg font-semibold text-white">
-                      {creditAccount?.total_recharged ?? 0}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/15 p-3">
-                    <p className="text-xs text-white/65">{isZh ? "累计消耗" : "Total Used"}</p>
-                    <p className="mt-2 text-lg font-semibold text-white">
-                      {creditAccount?.total_consumed ?? 0}
-                    </p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-white/10 bg-[#151518] p-5">
-                <div className="flex items-center gap-2 text-white">
-                  <History className="h-4 w-4 text-white/70" />
-                  <h3 className="text-sm font-semibold">
-                    {isZh ? "最近积分流水" : "Recent Credit Activity"}
-                  </h3>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {creditLedger.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-white/55">
-                      {isZh ? "暂无积分记录" : "No credit activity yet"}
-                    </div>
-                  ) : (
-                    creditLedger.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-white">
-                            {entry.remark ||
-                              (entry.delta > 0
-                                ? isZh
-                                  ? "积分增加"
-                                  : "Credits added"
-                                : isZh
-                                  ? "积分扣除"
-                                  : "Credits charged")}
-                          </p>
-                          <p className="mt-1 text-xs text-white/45">
-                            {new Date(entry.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p
-                            className={`text-sm font-semibold ${
-                              entry.delta > 0 ? "text-emerald-300" : "text-amber-300"
-                            }`}
-                          >
-                            {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
-                          </p>
-                          <p className="mt-1 text-xs text-white/45">
-                            {isZh ? "余额" : "Balance"} {entry.balance_after}
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
-          ) : null}
           {/* 标签页 */}
           <div className="mb-6 flex items-center gap-8 border-b border-white/10 pb-4">
             <button

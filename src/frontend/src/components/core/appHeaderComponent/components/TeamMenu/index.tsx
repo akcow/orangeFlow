@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { CreditsCenterDialog } from "@/components/CreditsCenterDialog";
 import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,19 +11,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useGetMyCreditsQuery } from "@/controllers/API/queries/credits";
+import useCreditsCenterStore from "@/stores/creditsCenterStore";
 import { cn } from "@/utils/utils";
 import { CreateTeamModal } from "./CreateTeamModal";
-import { TeamSettingsModal } from "./TeamSettingsModal";
 import { useTeamMockData } from "./useTeamMockData";
 
 export default function TeamMenu() {
   const { i18n } = useTranslation();
-  const { teams, currentTeam, switchTeam, createTeam, updateMemberRole, updateTeamProfile } =
-    useTeamMockData();
+  const { teams, currentTeam, switchTeam, createTeam } = useTeamMockData();
   const { data: creditAccount } = useGetMyCreditsQuery();
+  const openCreditsCenter = useCreditsCenterStore((state) => state.openCreditsCenter);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
@@ -30,15 +30,24 @@ export default function TeamMenu() {
   const roleText =
     currentUserRole === "owner"
       ? isZh
-        ? "\u62e5\u6709\u8005"
+        ? "拥有者"
         : "Owner"
-      : isZh
-        ? "\u6210\u5458"
-        : "Member";
+      : currentUserRole === "admin"
+        ? isZh
+          ? "管理员"
+          : "Admin"
+        : isZh
+          ? "成员"
+          : "Member";
   const memberCountText = `${currentTeam.members.length} ${
-    isZh ? "\u540d\u6210\u5458" : "members"
+    isZh ? "位成员" : "members"
   }`;
   const creditBalance = creditAccount?.balance ?? 0;
+
+  const handleOpenSection = (section: Parameters<typeof openCreditsCenter>[0]) => {
+    setIsMenuOpen(false);
+    openCreditsCenter(section);
+  };
 
   return (
     <>
@@ -102,7 +111,7 @@ export default function TeamMenu() {
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-zinc-400 hover:text-white"
-              onClick={() => setIsSettingsOpen(true)}
+              onClick={() => handleOpenSection("teamSettings")}
             >
               <IconComponent name="Settings" className="h-4 w-4" />
             </Button>
@@ -111,22 +120,32 @@ export default function TeamMenu() {
           <DropdownMenuSeparator className="my-2 bg-zinc-800" />
 
           <div className="flex flex-col gap-2 px-2 py-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => handleOpenSection("topup")}
+                className="flex min-w-0 items-center gap-2 text-left"
+              >
                 <IconComponent name="Box" className="h-4 w-4 text-zinc-400" />
                 <span className="font-semibold">{creditBalance}</span>
                 <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-bold uppercase text-[#1BB3E4]">
                   CREDITS
                 </span>
-              </div>
-              <IconComponent name="ChevronRight" className="h-4 w-4 text-zinc-500" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenSection("teamBenefits")}
+                className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                aria-label={isZh ? "查看团队权益" : "Open team benefits"}
+              >
+                <IconComponent name="ChevronRight" className="h-4 w-4" />
+              </button>
             </div>
 
             <div className="mt-1 flex items-center justify-between text-xs">
               <div className="flex items-center gap-1 text-[#1BB3E4]">
-                <span>
-                  {isZh ? "\u5f53\u524d\u79ef\u5206\u4f59\u989d" : "Current credit balance"}
-                </span>
+                <span>{isZh ? "当前积分余额" : "Current credit balance"}</span>
                 <IconComponent name="HelpCircle" className="h-3 w-3 text-zinc-500" />
               </div>
               <span className="font-medium text-[#1BB3E4]">{creditBalance}</span>
@@ -181,19 +200,13 @@ export default function TeamMenu() {
             className="cursor-pointer gap-2 rounded-md py-2 text-[#1BB3E4] hover:bg-zinc-800"
           >
             <IconComponent name="Plus" className="h-4 w-4" />
-            <span>{isZh ? "\u521b\u5efa\u56e2\u961f" : "Create team"}</span>
+            <span>{isZh ? "创建团队" : "Create team"}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
       <CreateTeamModal open={isCreateOpen} onOpenChange={setIsCreateOpen} onCreate={createTeam} />
-      <TeamSettingsModal
-        open={isSettingsOpen}
-        onOpenChange={setIsSettingsOpen}
-        team={currentTeam}
-        updateMemberRole={updateMemberRole}
-        updateTeamProfile={updateTeamProfile}
-      />
+      <CreditsCenterDialog />
     </>
   );
 }

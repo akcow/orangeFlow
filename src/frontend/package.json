@@ -97,7 +97,7 @@
   "scripts": {
     "dev:docker": "vite --host 0.0.0.0",
     "start": "vite",
-    "build": "vite build",
+    "build": "node --max-old-space-size=6144 ./node_modules/vite/bin/vite.js build",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",

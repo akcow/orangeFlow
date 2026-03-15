@@ -362,6 +362,7 @@ def _ensure_frontend_built(env: dict[str, str], *, build_mode: str = "dev") -> N
         FRONTEND_DIR / "src",
         FRONTEND_DIR / "public",
         FRONTEND_DIR / "index.html",
+        FRONTEND_DIR / "vite.config.mts",
         FRONTEND_DIR / "vite.config.ts",
         FRONTEND_DIR / "vite.config.js",
         FRONTEND_DIR / "package.json",
