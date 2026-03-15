@@ -18,6 +18,11 @@ import {
   useUpdateUser,
 } from "@/controllers/API/queries/auth";
 import {
+  useGetAdminCreditUsersQuery,
+  useGetAdminUserCreditLedgerQuery,
+  usePostAdjustUserCredits,
+} from "@/controllers/API/queries/credits";
+import {
   useCreateAdminNotification,
   useGetAdminNotificationsQuery,
 } from "@/controllers/API/queries/notifications";
@@ -27,11 +32,13 @@ import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import { t } from "@/i18n/t";
 import type {
   AdminNotificationTargetType,
+  CreditAdminUser,
   CreateAdminNotificationResponse,
   CreateAdminNotificationPayload,
   TeamSummary,
   Users,
 } from "@/types/api";
+import { dispatchCreditsRefreshEvent } from "@/utils/creditsEvents";
 import IconComponent from "../../components/common/genericIconComponent";
 import ShadTooltip from "../../components/common/shadTooltipComponent";
 import { Badge } from "../../components/ui/badge";
@@ -44,6 +51,13 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Checkbox, CheckBoxDiv } from "../../components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import {
@@ -253,12 +267,17 @@ export default function AdminPage() {
   const [highlightedNotificationId, setHighlightedNotificationId] = useState<string | null>(
     null,
   );
+  const [selectedCreditUser, setSelectedCreditUser] = useState<CreditAdminUser | null>(null);
+  const [creditAdjustAmount, setCreditAdjustAmount] = useState("0");
+  const [creditAdjustRemark, setCreditAdjustRemark] = useState("");
 
   const userList = useRef<Users[]>([]);
 
   const { mutate: mutateDeleteUser } = useDeleteUsers();
   const { mutate: mutateUpdateUser } = useUpdateUser();
   const { mutate: mutateAddUser } = useAddUser();
+  const { mutate: mutateAdjustUserCredits, isPending: isAdjustingCredits } =
+    usePostAdjustUserCredits();
   const { mutate: mutateGetUsers, isPending, isIdle } = useGetUsers({});
   const { mutate: mutateGetSelectableUsers } = useGetUsers({});
   const { mutate: mutateCreateAdminNotification, isPending: isCreatingNotification } =
@@ -272,6 +291,20 @@ export default function AdminPage() {
   const { data: teamOptions = [], isLoading: isLoadingTeams } = useGetTeamsQuery(
     { includeAll: true },
     { enabled: !!userData?.is_superuser },
+  );
+  const {
+    data: adminCreditUsersPage,
+    refetch: refetchAdminCreditUsers,
+  } = useGetAdminCreditUsersQuery(
+    { skip: size * (index - 1), limit: size },
+    { enabled: !!userData?.is_superuser },
+  );
+  const {
+    data: selectedCreditLedger = [],
+    refetch: refetchSelectedCreditLedger,
+  } = useGetAdminUserCreditLedgerQuery(
+    { userId: selectedCreditUser?.id ?? "", limit: 20 },
+    { enabled: !!userData?.is_superuser && !!selectedCreditUser?.id },
   );
 
   useEffect(() => {
@@ -431,6 +464,13 @@ export default function AdminPage() {
       ),
     [filteredNotificationHistory],
   );
+  const adminCreditUserMap = useMemo(
+    () =>
+      new Map(
+        (adminCreditUsersPage?.users ?? []).map((user) => [user.id, user] as const),
+      ),
+    [adminCreditUsersPage?.users],
+  );
 
   function getUsers() {
     mutateGetUsers(
@@ -487,6 +527,7 @@ export default function AdminPage() {
       {
         onSuccess: () => {
           resetFilter();
+          void refetchAdminCreditUsers();
           setSuccessData({ title: USER_DEL_SUCCESS_ALERT });
         },
         onError: (error) => {
@@ -505,6 +546,7 @@ export default function AdminPage() {
       {
         onSuccess: () => {
           resetFilter();
+          void refetchAdminCreditUsers();
           setSuccessData({ title: USER_EDIT_SUCCESS_ALERT });
         },
         onError: (error) => {
@@ -525,6 +567,7 @@ export default function AdminPage() {
       {
         onSuccess: () => {
           resetFilter();
+          void refetchAdminCreditUsers();
           setSuccessData({ title: USER_EDIT_SUCCESS_ALERT });
         },
         onError: (error) => {
@@ -552,6 +595,7 @@ export default function AdminPage() {
           {
             onSuccess: () => {
               resetFilter();
+              void refetchAdminCreditUsers();
               setSuccessData({ title: USER_ADD_SUCCESS_ALERT });
             },
             onError: (error) => {
@@ -570,6 +614,58 @@ export default function AdminPage() {
         });
       },
     });
+  }
+
+  function openCreditDialog(user: Users) {
+    const matchedUser = adminCreditUserMap.get(user.id) ?? ({
+      ...user,
+      credit_balance: 0,
+      credit_total_consumed: 0,
+      credit_total_recharged: 0,
+    } as CreditAdminUser);
+    setSelectedCreditUser(matchedUser);
+    setCreditAdjustAmount("0");
+    setCreditAdjustRemark("");
+  }
+
+  function handleAdjustCredits() {
+    if (!selectedCreditUser) return;
+    const amount = Number(creditAdjustAmount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      setErrorData({ title: "请输入非 0 的积分调整值" });
+      return;
+    }
+    if (!creditAdjustRemark.trim()) {
+      setErrorData({ title: "请填写调整备注" });
+      return;
+    }
+
+    mutateAdjustUserCredits(
+      {
+        userId: selectedCreditUser.id,
+        payload: {
+          amount,
+          remark: creditAdjustRemark.trim(),
+        },
+      },
+      {
+        onSuccess: async () => {
+          await refetchAdminCreditUsers();
+          await refetchSelectedCreditLedger();
+          dispatchCreditsRefreshEvent();
+          setCreditAdjustAmount("0");
+          setCreditAdjustRemark("");
+          setSuccessData({ title: "积分调整成功" });
+        },
+        onError: (error) => {
+          const detail = error?.response?.data?.detail;
+          setErrorData({
+            title: "积分调整失败",
+            list: detail ? [typeof detail === "string" ? detail : JSON.stringify(detail)] : undefined,
+          });
+        },
+      },
+    );
   }
 
   function toggleSelection(kind: "selectedUserIds" | "selectedTeamIds", id: string) {
@@ -692,6 +788,7 @@ export default function AdminPage() {
   return (
     <>
       {userData && (
+        <>
         <div className="admin-page-panel flex h-full flex-col pb-8">
           <div className="main-page-nav-arrangement">
             <span className="main-page-nav-title">
@@ -1172,18 +1269,24 @@ export default function AdminPage() {
                       <TableHead className="h-10">{t("ID")}</TableHead>
                       <TableHead className="h-10">{t("Username")}</TableHead>
                       <TableHead className="h-10">{t("Nickname")}</TableHead>
+                      <TableHead className="h-10">{"积分"}</TableHead>
+                      <TableHead className="h-10">{"累计消耗"}</TableHead>
+                      <TableHead className="h-10">{"累计充值"}</TableHead>
                       <TableHead className="h-10">{t("Active")}</TableHead>
                       <TableHead className="h-10">{t("Reviewer")}</TableHead>
                       <TableHead className="h-10">{t("Superuser")}</TableHead>
                       <TableHead className="h-10">{t("Created At")}</TableHead>
                       <TableHead className="h-10">{t("Updated At")}</TableHead>
-                      <TableHead className="h-10 w-[100px] text-right"></TableHead>
+                      <TableHead className="h-10 w-[150px] text-right"></TableHead>
                     </TableRow>
                   </TableHeader>
                   {!isPending && (
                     <TableBody>
-                      {filterUserList.map((user: UserInputType, rowIndex) => (
-                        <TableRow key={rowIndex}>
+                      {filterUserList.map((user: UserInputType, rowIndex) => {
+                        const creditUser = adminCreditUserMap.get(user.id ?? "");
+
+                        return (
+                          <TableRow key={rowIndex}>
                           <TableCell className="truncate py-2 font-medium">
                             <ShadTooltip content={user.id}>
                               <span className="cursor-default">{user.id}</span>
@@ -1198,6 +1301,15 @@ export default function AdminPage() {
                             <ShadTooltip content={user.nickname}>
                               <span className="cursor-default">{user.nickname}</span>
                             </ShadTooltip>
+                          </TableCell>
+                          <TableCell className="truncate py-2 font-medium">
+                            {creditUser?.credit_balance ?? 0}
+                          </TableCell>
+                          <TableCell className="truncate py-2">
+                            {creditUser?.credit_total_consumed ?? 0}
+                          </TableCell>
+                          <TableCell className="truncate py-2">
+                            {creditUser?.credit_total_recharged ?? 0}
                           </TableCell>
                           <TableCell className="relative left-1 truncate py-2 text-align-last-left">
                             {renderToggleCell(user, rowIndex, "is_active", user.is_active)}
@@ -1214,8 +1326,16 @@ export default function AdminPage() {
                           <TableCell className="truncate py-2">
                             {new Date(user.updated_at!).toISOString().split("T")[0]}
                           </TableCell>
-                          <TableCell className="flex w-[100px] py-2 text-right">
+                          <TableCell className="flex w-[150px] py-2 text-right">
                             <div className="flex">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-xs"
+                                onClick={() => openCreditDialog(user as Users)}
+                              >
+                                {"积分"}
+                              </Button>
                               <UserManagementModal
                                 title={t("Edit")}
                                 titleHeader={`${user.id}`}
@@ -1260,8 +1380,9 @@ export default function AdminPage() {
                               </ConfirmationModal>
                             </div>
                           </TableCell>
-                        </TableRow>
-                      ))}
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   )}
                 </Table>
@@ -1277,6 +1398,151 @@ export default function AdminPage() {
             </>
           )}
         </div>
+        <Dialog
+          open={!!selectedCreditUser}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedCreditUser(null);
+              setCreditAdjustAmount("0");
+              setCreditAdjustRemark("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>
+                {selectedCreditUser
+                  ? `积分管理 · ${selectedCreditUser.nickname || selectedCreditUser.username}`
+                  : "积分管理"}
+              </DialogTitle>
+              <DialogDescription>
+                查看当前余额、最近消耗记录，并直接为该用户增加或扣减积分。
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedCreditUser ? (
+              <div className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Card className="border-border bg-muted/20">
+                    <CardContent className="pt-5">
+                      <div className="text-xs text-muted-foreground">当前积分</div>
+                      <div className="mt-2 text-2xl font-semibold">
+                        {adminCreditUserMap.get(selectedCreditUser.id)?.credit_balance ??
+                          selectedCreditUser.credit_balance ??
+                          0}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border bg-muted/20">
+                    <CardContent className="pt-5">
+                      <div className="text-xs text-muted-foreground">累计消耗</div>
+                      <div className="mt-2 text-2xl font-semibold">
+                        {adminCreditUserMap.get(selectedCreditUser.id)?.credit_total_consumed ??
+                          selectedCreditUser.credit_total_consumed ??
+                          0}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border bg-muted/20">
+                    <CardContent className="pt-5">
+                      <div className="text-xs text-muted-foreground">累计充值</div>
+                      <div className="mt-2 text-2xl font-semibold">
+                        {adminCreditUserMap.get(selectedCreditUser.id)?.credit_total_recharged ??
+                          selectedCreditUser.credit_total_recharged ??
+                          0}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+                  <Card className="border-border bg-background">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">手动调整积分</CardTitle>
+                      <CardDescription>
+                        正数表示增加积分，负数表示扣减积分。备注必填。
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>调整数值</Label>
+                        <Input
+                          type="number"
+                          value={creditAdjustAmount}
+                          onChange={(event) => setCreditAdjustAmount(event.target.value)}
+                          placeholder="例如 100 或 -20"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>备注</Label>
+                        <Textarea
+                          value={creditAdjustRemark}
+                          onChange={(event) => setCreditAdjustRemark(event.target.value)}
+                          placeholder="填写调整原因，例如活动赠送、客服补偿、误扣回退"
+                          className="min-h-[120px]"
+                        />
+                      </div>
+                      <Button
+                        variant="primary"
+                        className="w-full"
+                        onClick={handleAdjustCredits}
+                        disabled={isAdjustingCredits}
+                      >
+                        {isAdjustingCredits ? "提交中..." : "确认调整"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border bg-background">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">最近积分流水</CardTitle>
+                      <CardDescription>最新 20 条记录，包含人工调整和模型扣费。</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {selectedCreditLedger.length === 0 ? (
+                        <div className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                          暂无积分记录
+                        </div>
+                      ) : (
+                        <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                          {selectedCreditLedger.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between rounded-lg border px-4 py-3"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">
+                                  {entry.remark || entry.component_key || entry.entry_type}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {formatDateLabel(entry.created_at)}
+                                  {entry.model_key ? ` · ${entry.model_key}` : ""}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p
+                                  className={`text-sm font-semibold ${
+                                    entry.delta > 0 ? "text-emerald-600" : "text-amber-600"
+                                  }`}
+                                >
+                                  {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  余额 {entry.balance_after}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+        </>
       )}
     </>
   );

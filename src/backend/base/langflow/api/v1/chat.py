@@ -38,6 +38,10 @@ from langflow.api.v1.schemas import (
 )
 from langflow.exceptions.component import ComponentBuildError
 from langflow.services.chat.service import ChatService
+from langflow.services.credits.service import (
+    collect_chargeable_items_from_flow_data,
+    ensure_sufficient_balance_for_items,
+)
 from langflow.services.database.models.flow.model import Flow
 from langflow.services.deps import (
     get_chat_service,
@@ -183,11 +187,37 @@ async def build_flow(
     Returns:
         Dict with job_id that can be used to poll for build status
     """
+    chat_service = get_chat_service()
+
     # First verify the flow exists
     async with session_scope() as session:
         flow = await session.get(Flow, flow_id)
         if not flow:
             raise HTTPException(status_code=404, detail=f"Flow with id {flow_id} not found")
+
+        graph = (
+            await build_and_cache_graph_from_data(
+                flow_id=flow_id,
+                graph_data=data.model_dump(),
+                chat_service=chat_service,
+            )
+            if data
+            else await build_graph_from_db(flow_id=flow_id, session=session, chat_service=chat_service)
+        )
+        graph = graph.prepare(stop_component_id, start_component_id)
+        planned_vertex_ids = list(graph.vertices_to_run.union(get_top_level_vertices(graph, graph.vertices_to_run)))
+        flow_data = data.model_dump() if data else flow.data
+        chargeable_items = await collect_chargeable_items_from_flow_data(
+            session,
+            flow_data=flow_data,
+            planned_vertex_ids=planned_vertex_ids,
+        )
+        if chargeable_items:
+            await ensure_sufficient_balance_for_items(
+                session,
+                user_id=current_user.id,
+                items=chargeable_items,
+            )
 
     job_id = await start_flow_build(
         flow_id=flow_id,

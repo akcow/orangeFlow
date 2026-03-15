@@ -28,6 +28,11 @@ from langflow.events.event_manager import EventManager
 from langflow.exceptions.component import ComponentBuildError
 from langflow.schema.message import ErrorMessage
 from langflow.schema.schema import OutputValue
+from langflow.services.credits.service import (
+    apply_usage_charge,
+    extract_chargeable_item_from_node,
+    resolve_pricing_rule,
+)
 from langflow.services.database.models.flow.model import Flow
 from langflow.services.deps import get_chat_service, get_telemetry_service, session_scope
 from langflow.services.job_queue.service import JobQueueNotFoundError, JobQueueService
@@ -355,6 +360,44 @@ async def generate_flow_events(
                 background_tasks.add_task(graph.end_all_traces_in_context(error=exc))
 
             result_data_response.message = artifacts
+
+            if (
+                valid
+                and not getattr(vertex, "frozen", False)
+                and not bool(result_data_response.used_frozen_result)
+            ):
+                component_key, resource_type, model_key = extract_chargeable_item_from_node(
+                    vertex.data if isinstance(vertex.data, dict) else None,
+                    vertex_id=vertex.id,
+                )
+                if resource_type and model_key:
+                    try:
+                        async with session_scope() as billing_session:
+                            pricing_rule = await resolve_pricing_rule(
+                                billing_session,
+                                component_key=component_key,
+                                model_key=model_key,
+                            )
+                            if pricing_rule:
+                                await apply_usage_charge(
+                                    billing_session,
+                                    user_id=current_user.id,
+                                    flow_id=flow_id,
+                                    run_id=str(graph.run_id),
+                                    vertex_id=vertex.id,
+                                    component_key=component_key,
+                                    resource_type=resource_type,
+                                    model_key=model_key,
+                                    credits_cost=pricing_rule.credits_cost,
+                                )
+                    except HTTPException as exc:
+                        await logger.awarning(
+                            f"Failed to apply credit charge for run {graph.run_id} vertex {vertex.id}: {exc.detail}"
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        await logger.aexception(
+                            f"Unexpected error while charging credits for run {graph.run_id} vertex {vertex.id}: {exc}"
+                        )
 
             # Log the vertex build
             if not vertex.will_stream and log_builds:

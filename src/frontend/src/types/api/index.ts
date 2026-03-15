@@ -184,6 +184,7 @@ export type Users = {
   is_superuser: boolean;
   is_reviewer?: boolean;
   profile_image: string;
+  credit_balance?: number;
   create_at: Date;
   updated_at: Date;
   optins?: {
@@ -252,6 +253,73 @@ export type TeamSummary = {
   owner_id?: string | null;
   member_count: number;
   current_user_role?: TeamRole | null;
+};
+
+export type CreditResourceType = "IMAGE" | "VIDEO";
+
+export type CreditLedgerEntryType =
+  | "INITIAL_GRANT"
+  | "MANUAL_ADJUSTMENT"
+  | "USAGE_CHARGE";
+
+export type CreditAccount = {
+  user_id: string;
+  balance: number;
+  total_recharged: number;
+  total_consumed: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreditLedgerEntry = {
+  id: string;
+  delta: number;
+  balance_after: number;
+  entry_type: CreditLedgerEntryType;
+  resource_type?: CreditResourceType | null;
+  component_key?: string | null;
+  model_key?: string | null;
+  flow_id?: string | null;
+  run_id?: string | null;
+  vertex_id?: string | null;
+  remark?: string | null;
+  created_by_id?: string | null;
+  created_at: string;
+};
+
+export type CreditPricingRule = {
+  id: string;
+  resource_type: CreditResourceType;
+  component_key: string;
+  model_key: string;
+  display_name: string;
+  credits_cost: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreditAdminUser = Users & {
+  credit_balance: number;
+  credit_total_recharged: number;
+  credit_total_consumed: number;
+  last_login_at?: string | null;
+};
+
+export type CreditAdminUsersPage = {
+  total_count: number;
+  users: CreditAdminUser[];
+};
+
+export type CreditAdjustPayload = {
+  amount: number;
+  remark: string;
+};
+
+export type CreditPricingRuleUpdatePayload = {
+  credits_cost?: number;
+  is_active?: boolean;
+  display_name?: string;
 };
 
 export type Component = {

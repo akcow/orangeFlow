@@ -6,6 +6,11 @@ from .admin_notification import (
     AdminNotificationUserTarget,
 )
 from .community_item import CommunityItem, CommunityItemLike
+from .credit import (
+    CreditAccount,
+    CreditLedgerEntry,
+    CreditPricingRule,
+)
 from .file import File
 from .flow import Flow
 from .folder import Folder
@@ -25,6 +30,9 @@ __all__ = [
     "AdminNotificationUserTarget",
     "CommunityItem",
     "CommunityItemLike",
+    "CreditAccount",
+    "CreditLedgerEntry",
+    "CreditPricingRule",
     "File",
     "Flow",
     "Folder",

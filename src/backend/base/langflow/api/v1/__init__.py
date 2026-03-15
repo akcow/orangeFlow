@@ -2,6 +2,7 @@ from langflow.api.v1.api_key import router as api_key_router
 from langflow.api.v1.chat import router as chat_router
 from langflow.api.v1.canvas_assistant import router as canvas_assistant_router
 from langflow.api.v1.community import router as community_router
+from langflow.api.v1.credits import router as credits_router
 from langflow.api.v1.endpoints import router as endpoints_router
 from langflow.api.v1.files import router as files_router
 from langflow.api.v1.flows import router as flows_router
@@ -28,6 +29,7 @@ __all__ = [
   "canvas_assistant_router",
   "chat_router",
   "community_router",
+  "credits_router",
   "endpoints_router",
   "files_router",
   "flows_router",

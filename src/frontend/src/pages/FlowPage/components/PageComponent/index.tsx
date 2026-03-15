@@ -30,6 +30,7 @@ import {
   NOTE_NODE_MIN_HEIGHT,
   NOTE_NODE_MIN_WIDTH,
 } from "@/constants/constants";
+import { CreditsBalanceButton } from "@/components/CreditsBalanceButton";
 import { useGetBuildsQuery } from "@/controllers/API/queries/_builds";
 import CustomLoader from "@/customization/components/custom-loader";
 import { track } from "@/customization/utils/analytics";
@@ -1513,6 +1514,7 @@ export default function Page({
                 </div>
               </div>
               <div className="flex items-center gap-3 pointer-events-auto">
+                <CreditsBalanceButton />
                 <Button variant="secondary" className="h-10 rounded-full px-5 text-sm font-medium text-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:bg-[#3D3D42]" style={{ backgroundColor: "#2E2E32" }}>
                   <IconComponent name="Sparkles" className="mr-1.5 h-[18px] w-[18px] text-yellow-500" />
                   社区

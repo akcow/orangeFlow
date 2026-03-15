@@ -22,6 +22,7 @@ import useFlowStore from "../stores/flowStore";
 import type { VertexBuildTypeAPI } from "../types/api";
 import { isErrorLogType } from "../types/utils/typeCheckingUtils";
 import type { VertexLayerElementType } from "../types/zustand/flow";
+import { dispatchCreditsRefreshEvent } from "./creditsEvents";
 import { isStringArray, tryParseJson } from "./utils";
 
 type BuildVerticesParams = {
@@ -80,6 +81,44 @@ function getInactiveVertexData(vertexId: string): VertexBuildTypeAPI {
 
 function logFlowLoad(message: string, data?: any) {
   console.warn(`[FlowLoad] ${message}`, data || "");
+}
+
+async function getBuildErrorMessage(response: Response) {
+  const fallbackMessage =
+    response.status === 404
+      ? t("Flow not found")
+      : t("Error starting build process");
+
+  try {
+    const payload = await response.clone().json();
+    const detail = payload?.detail;
+
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
+
+    if (detail && typeof detail === "object") {
+      if (typeof detail.message === "string" && detail.message.trim()) {
+        const currentBalance =
+          typeof detail.current_balance === "number"
+            ? ` (${t("Current balance")}: ${detail.current_balance})`
+            : "";
+        return `${detail.message}${currentBalance}`;
+      }
+      return JSON.stringify(detail);
+    }
+  } catch {
+    try {
+      const text = await response.text();
+      if (text.trim()) {
+        return text;
+      }
+    } catch {
+      return fallbackMessage;
+    }
+  }
+
+  return fallbackMessage;
 }
 
 export async function updateVerticesOrder(
@@ -326,10 +365,7 @@ export async function buildFlowVertices({
     });
 
     if (!buildResponse.ok) {
-      if (buildResponse.status === 404) {
-        throw new Error(t("Flow not found"));
-      }
-      throw new Error(t("Error starting build process"));
+      throw new Error(await getBuildErrorMessage(buildResponse));
     }
 
     const { job_id } = await buildResponse.json();
@@ -571,6 +607,7 @@ async function onEvent(
           [NO_BUILD_RESULTS_ERROR_MESSAGE],
         );
       }
+      dispatchCreditsRefreshEvent();
       onBuildComplete && onBuildComplete(allNodesValid);
       return true;
     }
@@ -650,6 +687,7 @@ export async function buildVertices({
       );
     }
     if (onBuildComplete) {
+      dispatchCreditsRefreshEvent();
       onBuildComplete(allNodesValid);
     }
     useFlowStore.getState().endBuilding();

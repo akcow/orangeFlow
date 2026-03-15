@@ -33,6 +33,7 @@ export const URLs = {
   KNOWLEDGE_BASES: `knowledge_bases`,
   PROVIDER_CREDENTIALS: "provider-credentials",
   COMMUNITY: "community",
+  CREDITS: "credits",
   NOTIFICATIONS: "notifications",
   ASSETS_LIBRARY: "library/assets",
   TEAMS: "teams",
