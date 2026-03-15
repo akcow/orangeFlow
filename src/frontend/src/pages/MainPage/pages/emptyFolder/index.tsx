@@ -7,9 +7,17 @@ import { useState } from "react";
 
 type EmptyFolderProps = {
   onCreateFlow?: () => void;
+  title?: string;
+  description?: string;
+  hideCreateButton?: boolean;
 };
 
-export const EmptyFolder = ({ onCreateFlow }: EmptyFolderProps) => {
+export const EmptyFolder = ({
+  onCreateFlow,
+  title,
+  description,
+  hideCreateButton = false,
+}: EmptyFolderProps) => {
   const folders = useFolderStore((state) => state.folders);
   const createBlankFlow = useCreateBlankFlow();
   const [isCreatingFlow, setIsCreatingFlow] = useState(false);
@@ -36,27 +44,29 @@ export const EmptyFolder = ({ onCreateFlow }: EmptyFolderProps) => {
           className="pt-5 font-chivo text-2xl font-semibold"
           data-testid="mainpage_title"
         >
-          {folders?.length > 1 ? t("Empty project") : t("Start building")}
+          {title ?? (folders?.length > 1 ? t("Empty project") : t("Start building"))}
         </h3>
         <p className="pb-5 text-sm text-secondary-foreground">
-          {t("Start from scratch with a blank flow.")}
+          {description ?? t("Start from scratch with a blank flow.")}
         </p>
-        <Button
-          variant="default"
-          onClick={handleCreateFlow}
-          id="new-project-btn"
-          data-testid="new_project_btn_empty_page"
-          loading={isCreatingFlow}
-        >
-          <ForwardedIconComponent
-            name="plus"
-            aria-hidden="true"
-            className="h-4 w-4"
-          />
-          <span className="whitespace-nowrap font-semibold">
-            {t("New Flow")}
-          </span>
-        </Button>
+        {!hideCreateButton && (
+          <Button
+            variant="default"
+            onClick={handleCreateFlow}
+            id="new-project-btn"
+            data-testid="new_project_btn_empty_page"
+            loading={isCreatingFlow}
+          >
+            <ForwardedIconComponent
+              name="plus"
+              aria-hidden="true"
+              className="h-4 w-4"
+            />
+            <span className="whitespace-nowrap font-semibold">
+              {t("New Flow")}
+            </span>
+          </Button>
+        )}
       </div>
     </div>
   );

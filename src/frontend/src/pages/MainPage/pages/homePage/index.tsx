@@ -1,20 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import PaginatorComponent from "@/components/common/paginatorComponent";
 import CardsWrapComponent from "@/components/core/cardsWrapComponent";
 import { IS_MAC } from "@/constants/constants";
 import { useGetFolderQuery } from "@/controllers/API/queries/folders/use-get-folder";
+import { usePostFolders } from "@/controllers/API/queries/folders/use-post-folders";
+import { usePostAddFlow } from "@/controllers/API/queries/flows/use-post-add-flow";
 import { CustomBanner } from "@/customization/components/custom-banner";
-import {
-  ENABLE_DATASTAX_LANGFLOW,
-  ENABLE_MCP,
-} from "@/customization/feature-flags";
+import { ENABLE_DATASTAX_LANGFLOW } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { t } from "@/i18n/t";
-import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import useAuthStore from "@/stores/authStore";
+import useAlertStore from "@/stores/alertStore";
 import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
 import useFileDrop from "../../hooks/use-on-file-drop";
@@ -22,12 +22,15 @@ import EmptyFolder from "../emptyFolder";
 import { cn } from "@/utils/utils";
 import { TapNowWorkflowsHeader } from "./TapNowWorkflowsHeader";
 
-const HomePage = ({ type }: { type: "flows" | "components" }) => {
+const DEFAULT_VIEWPORT = { zoom: 1, x: 0, y: 0 };
+
+const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
   const [view, setView] = useState<"grid" | "list">(() => {
     const savedView = localStorage.getItem("view");
     return savedView === "grid" || savedView === "list" ? savedView : "list";
   });
   const { folderId } = useParams();
+  const queryClient = useQueryClient();
   const [pageIndex, setPageIndex] = useState(1);
   const [pageSize, setPageSize] = useState(12);
   const [search, setSearch] = useState("");
@@ -35,18 +38,129 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
     const saved = localStorage.getItem("flow_sort_order");
     return saved === "asc" ? "asc" : "desc";
   });
+  const [workspaceScope, setWorkspaceScope] = useState<"personal" | "team">(
+    () => {
+      const savedScope = localStorage.getItem("lf_workspace_scope");
+      return savedScope === "team" ? "team" : "personal";
+    },
+  );
   const navigate = useCustomNavigate();
   const createBlankFlow = useCreateBlankFlow();
+  const setErrorData = useAlertStore((state) => state.setErrorData);
+  const { mutateAsync: postFolder } = usePostFolders();
+  const { mutateAsync: postAddFlow } = usePostAddFlow();
 
-  const [flowType, setFlowType] = useState<"flows" | "components">(type);
   const myCollectionId = useFolderStore((state) => state.myCollectionId);
   const folders = useFolderStore((state) => state.folders);
-  const folderName =
-    folders.find((folder) => folder.id === folderId)?.name ??
-    folders[0]?.name ??
-    "";
-  const flows = useFlowsManagerStore((state) => state.flows);
+  const [isCreatingTeamProject, setIsCreatingTeamProject] = useState(false);
+  const [lastTeamFolderId, setLastTeamFolderId] = useState(() => {
+    return (
+      localStorage.getItem("lf_last_team_folder_id") ||
+      localStorage.getItem("mock_current_team_id") ||
+      ""
+    );
+  });
+  const personalFolderId = myCollectionId ?? "";
+  const isFolderAvailable = useCallback(
+    (candidateId: string) =>
+      Boolean(
+        candidateId &&
+          candidateId !== personalFolderId &&
+          folders.some((folder) => folder.id === candidateId),
+      ),
+    [folders, personalFolderId],
+  );
+  const firstTeamFolderId = useMemo(
+    () =>
+      folders.find((folder) => folder?.id && folder.id !== personalFolderId)
+        ?.id ?? "",
+    [folders, personalFolderId],
+  );
+  const teamFolderId = useMemo(() => {
+    if (isFolderAvailable(folderId ?? "")) {
+      return folderId;
+    }
+    if (isFolderAvailable(lastTeamFolderId)) {
+      return lastTeamFolderId;
+    }
+    return firstTeamFolderId;
+  }, [folderId, firstTeamFolderId, isFolderAvailable, lastTeamFolderId]);
+  const scopedFolderId =
+    workspaceScope === "team" ? teamFolderId : personalFolderId;
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const [selectedFlows, setSelectedFlows] = useState<string[]>([]);
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
+    null,
+  );
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+
+  const handleWorkspaceScopeChange = useCallback(
+    (scope: "personal" | "team") => {
+      const nextFolderId = scope === "team" ? teamFolderId : personalFolderId;
+      setWorkspaceScope(scope);
+      localStorage.setItem("lf_workspace_scope", scope);
+      setPageIndex(1);
+      setSelectedFlows([]);
+      setLastSelectedIndex(null);
+
+      if (scope === "team" && nextFolderId) {
+        localStorage.setItem("lf_last_team_folder_id", nextFolderId);
+        localStorage.setItem("mock_current_team_id", nextFolderId);
+        setLastTeamFolderId(nextFolderId);
+      }
+
+      if (nextFolderId && folderId !== nextFolderId) {
+        navigate(`/all/folder/${nextFolderId}`);
+      } else if (scope === "team" && !nextFolderId && folderId) {
+        navigate("/all");
+      }
+    },
+    [
+      folderId,
+      navigate,
+      personalFolderId,
+      teamFolderId,
+    ],
+  );
+
+  useEffect(() => {
+    if (!lastTeamFolderId) {
+      return;
+    }
+    if (!isFolderAvailable(lastTeamFolderId)) {
+      localStorage.removeItem("lf_last_team_folder_id");
+      setLastTeamFolderId("");
+    }
+  }, [isFolderAvailable, lastTeamFolderId]);
+
+  useEffect(() => {
+    if (!scopedFolderId || folderId === scopedFolderId) {
+      return;
+    }
+    navigate(`/all/folder/${scopedFolderId}`);
+  }, [folderId, navigate, scopedFolderId]);
+
+  useEffect(() => {
+    const previousTeamId = localStorage.getItem("mock_current_team_id") || "";
+    const nextTeamId =
+      workspaceScope === "team" ? teamFolderId || lastTeamFolderId : "";
+
+    if (nextTeamId) {
+      localStorage.setItem("mock_current_team_id", nextTeamId);
+      localStorage.setItem("lf_last_team_folder_id", nextTeamId);
+      setLastTeamFolderId(nextTeamId);
+    } else {
+      localStorage.removeItem("mock_current_team_id");
+    }
+
+    if (previousTeamId !== nextTeamId) {
+      void queryClient.invalidateQueries({ queryKey: ["useGetFolder"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["useGetRefreshFlowsQuery"],
+      });
+    }
+  }, [workspaceScope, teamFolderId, lastTeamFolderId, queryClient]);
 
   useEffect(() => {
     // Only check if we have a folderId and folders have loaded
@@ -61,12 +175,12 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   }, [folderId, folders, navigate]);
 
   const { data: folderData, isLoading } = useGetFolderQuery({
-    id: folderId ?? myCollectionId!,
+    id: scopedFolderId,
     page: pageIndex,
     size: pageSize,
     sort_order: sortOrder,
-    is_component: flowType === "components",
-    is_flow: flowType === "flows",
+    is_component: false,
+    is_flow: true,
     search,
   });
 
@@ -108,49 +222,101 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
   }, []);
 
   const isEmptyFolder =
-    flows?.find(
-      (flow) =>
-        flow.folder_id === (folderId ?? myCollectionId) &&
-        (ENABLE_MCP ? flow.is_component === false : true),
-    ) === undefined;
+    !isLoading && (!scopedFolderId || (folderData?.flows?.total ?? 0) === 0);
+  const isTeamProjectEmptyState = workspaceScope === "team" && !teamFolderId;
 
-  const handleFileDrop = useFileDrop(isEmptyFolder ? undefined : flowType);
+  const handleFileDrop = useFileDrop(isEmptyFolder ? undefined : "flows");
 
   const handleCreateNewFlow = async () => {
     try {
-      await createBlankFlow();
-    } catch {
+      if (workspaceScope !== "team") {
+        await createBlankFlow();
+        return;
+      }
+
+      let targetFolderId = teamFolderId;
+      if (!targetFolderId) {
+        if (isCreatingTeamProject) {
+          return;
+        }
+        setIsCreatingTeamProject(true);
+        try {
+          const createdFolder = (await postFolder({
+            data: {
+              name: "\u56e2\u961f\u9879\u76ee",
+              description: "",
+              parent_id: null,
+              components: [],
+              flows: [],
+            },
+          })) as
+            | {
+                id?: string | null;
+                folder?: { id?: string | null };
+                data?: { id?: string | null };
+              }
+            | string
+            | undefined;
+
+          targetFolderId =
+            (typeof createdFolder === "string" ? createdFolder : undefined) ||
+            createdFolder?.id ||
+            createdFolder?.folder?.id ||
+            createdFolder?.data?.id ||
+            "";
+          if (!targetFolderId) {
+            throw new Error("\u521b\u5efa\u56e2\u961f\u9879\u76ee\u5931\u8d25");
+          }
+        } finally {
+          setIsCreatingTeamProject(false);
+        }
+      }
+
+      localStorage.setItem("lf_last_team_folder_id", targetFolderId);
+      localStorage.setItem("lf_workspace_scope", "team");
+      localStorage.setItem("mock_current_team_id", targetFolderId);
+      setLastTeamFolderId(targetFolderId);
+      setWorkspaceScope("team");
+
+      const createdFlow = (await postAddFlow({
+        name: t("New Flow"),
+        data: { nodes: [], edges: [], viewport: DEFAULT_VIEWPORT },
+        description: "",
+        is_component: false,
+        folder_id: targetFolderId,
+        endpoint_name: undefined,
+        icon: undefined,
+        gradient: undefined,
+        tags: undefined,
+        mcp_enabled: true,
+      })) as
+        | { id?: string; flow?: { id?: string }; data?: { id?: string } }
+        | string
+        | undefined;
+
+      const createdFlowId =
+        (typeof createdFlow === "string" ? createdFlow : undefined) ||
+        createdFlow?.id ||
+        createdFlow?.flow?.id ||
+        createdFlow?.data?.id ||
+        "";
+      if (!createdFlowId) {
+        throw new Error("\u521b\u5efa flow \u5931\u8d25");
+      }
+
+      navigate(`/flow/${createdFlowId}/folder/${targetFolderId}`);
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { detail?: string } }; message?: string })
+          ?.response?.data?.detail ||
+        (error as { message?: string } | undefined)?.message ||
+        t("Please try again");
+      setErrorData({
+        title: "\u65b0\u5efa flow \u5931\u8d25",
+        list: [message],
+      });
     }
   };
-
-  useEffect(() => {
-    if (
-      !isEmptyFolder &&
-      flows?.find(
-        (flow) =>
-          flow.folder_id === (folderId ?? myCollectionId) &&
-          flow.is_component === (flowType === "components"),
-      ) === undefined
-    ) {
-      const otherTabHasItems =
-        flows?.find(
-          (flow) =>
-            flow.folder_id === (folderId ?? myCollectionId) &&
-            flow.is_component === (flowType === "flows"),
-        ) !== undefined;
-
-      if (otherTabHasItems) {
-        setFlowType(flowType === "flows" ? "components" : "flows");
-      }
-    }
-  }, [isEmptyFolder]);
-
-  const [selectedFlows, setSelectedFlows] = useState<string[]>([]);
-  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
-    null,
-  );
-  const [isShiftPressed, setIsShiftPressed] = useState(false);
-  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -190,11 +356,9 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
       setIsCtrlPressed(false);
     };
 
-    if (flowType === "flows" || flowType === "components") {
-      document.addEventListener("keydown", handleKeyDown);
-      document.addEventListener("keyup", handleKeyUp);
-      window.addEventListener("blur", handleBlur);
-    }
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
@@ -204,7 +368,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
       setIsShiftPressed(false);
       setIsCtrlPressed(false);
     };
-  }, [flowType]);
+  }, []);
 
   const setSelectedFlow = useCallback(
     (selected: boolean, flowId: string, index: number) => {
@@ -254,19 +418,16 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
     <CardsWrapComponent
       onFileDrop={handleFileDrop}
       dragMessage={t("Drop your {{items}} here", {
-        items: isEmptyFolder
-          ? t("flows or components")
-          : flowType === "flows"
-            ? t("flows")
-            : t("components"),
+        items: t("flows"),
       })}
     >
       <div className="flex h-full w-full flex-col overflow-y-auto bg-black px-8 py-6 text-white">
         {ENABLE_DATASTAX_LANGFLOW && <CustomBanner />}
 
         <TapNowWorkflowsHeader
-          flowType={flowType}
-          setFlowType={setFlowType}
+          workspaceScope={workspaceScope}
+          setWorkspaceScope={handleWorkspaceScopeChange}
+          onCreateFlow={handleCreateNewFlow}
           view={view}
           setView={setView}
           setSearch={onSearch}
@@ -308,7 +469,20 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
             </div>
           </div>
         ) : isEmptyFolder ? (
-          <EmptyFolder onCreateFlow={handleCreateNewFlow} />
+          <EmptyFolder
+            onCreateFlow={handleCreateNewFlow}
+            title={
+              isTeamProjectEmptyState
+                ? "\u6682\u65e0\u56e2\u961f\u9879\u76ee"
+                : undefined
+            }
+            description={
+              isTeamProjectEmptyState
+                ? "\u5728\u56e2\u961f\u4e2d\u521b\u5efa\u65b0\u9879\u76ee\uff0c\u6216\u5c06\u4e2a\u4eba\u9879\u76ee\u79fb\u52a8\u81f3\u56e2\u961f"
+                : undefined
+            }
+            hideCreateButton={isTeamProjectEmptyState}
+          />
         ) : (
           <div className="flex h-full flex-col">
             {isLoading ? (
@@ -323,9 +497,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                   <ListSkeleton />
                 </div>
               )
-            ) : (flowType === "flows" || flowType === "components") &&
-              data &&
-              data.pagination.total > 0 ? (
+            ) : data && data.pagination.total > 0 ? (
               <div
                 className={cn(
                   "mt-4",
@@ -358,38 +530,25 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                   />
                 ))}
               </div>
-            ) : flowType === "flows" ? (
+            ) : (
               <div className="pt-24 text-center text-sm text-secondary-foreground">
                 {t("No flows in this project.")}{" "}
-                <a
+                <button
+                  type="button"
                   onClick={() => {
                     void handleCreateNewFlow();
                   }}
                   className="cursor-pointer underline"
                 >
                   {t("Create a new flow")}
-                </a>
-                {t(", or browse the store.")}
-              </div>
-            ) : (
-              <div className="pt-24 text-center text-sm text-secondary-foreground">
-                {t("No saved or custom components.")} {t("Learn more about")}{" "}
-                <a
-                  href="https://docs.langflow.org/components-custom-components"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline"
-                >
-                  {t("creating custom components")}
-                </a>
+                </button>
                 {t(", or browse the store.")}
               </div>
             )}
           </div>
         )}
 
-        {(flowType === "flows" || flowType === "components") &&
-          !isLoading &&
+        {!isLoading &&
           !isEmptyFolder &&
           data.pagination.total >= 10 && (
             <div className="flex justify-end px-3 py-4">
@@ -400,7 +559,7 @@ const HomePage = ({ type }: { type: "flows" | "components" }) => {
                 totalRowsCount={data.pagination.total}
                 paginate={handlePageChange}
                 pages={data.pagination.pages}
-                isComponent={flowType === "components"}
+                isComponent={false}
               />
             </div>
           )}

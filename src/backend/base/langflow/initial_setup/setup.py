@@ -43,6 +43,8 @@ from langflow.services.database.models.folder.constants import (
     LEGACY_FOLDER_NAMES,
 )
 from langflow.services.database.models.folder.model import Folder, FolderCreate, FolderRead
+from langflow.services.database.models.team_membership.crud import ensure_team_membership
+from langflow.services.database.models.team_membership.model import TeamRoleEnum
 from langflow.services.deps import get_settings_service, get_storage_service, get_variable_service, session_scope
 
 # In the folder ./starter_projects we have a few JSON files that represent
@@ -1071,6 +1073,12 @@ async def get_or_create_default_folder(session: AsyncSession, user_id: UUID) -> 
                 try:
                     await session.commit()
                     await session.refresh(legacy_folder)
+                    await ensure_team_membership(
+                        session,
+                        folder_id=legacy_folder.id,
+                        user_id=user_id,
+                        role=TeamRoleEnum.OWNER,
+                    )
                     return FolderRead.model_validate(legacy_folder, from_attributes=True)
                 except sa.exc.IntegrityError:
                     # If there's a conflict, rollback and proceed to create new folder
@@ -1083,12 +1091,24 @@ async def get_or_create_default_folder(session: AsyncSession, user_id: UUID) -> 
         session.add(folder_obj)
         await session.commit()
         await session.refresh(folder_obj)
+        await ensure_team_membership(
+            session,
+            folder_id=folder_obj.id,
+            user_id=user_id,
+            role=TeamRoleEnum.OWNER,
+        )
     except sa.exc.IntegrityError as e:
         # Another worker may have created the folder concurrently.
         await session.rollback()
         result = await session.exec(stmt)
         folder = result.first()
         if folder:
+            await ensure_team_membership(
+                session,
+                folder_id=folder.id,
+                user_id=user_id,
+                role=TeamRoleEnum.OWNER,
+            )
             return FolderRead.model_validate(folder, from_attributes=True)
         msg = "Failed to get or create default folder"
         raise ValueError(msg) from e

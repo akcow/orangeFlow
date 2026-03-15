@@ -33,7 +33,9 @@ export const URLs = {
   KNOWLEDGE_BASES: `knowledge_bases`,
   PROVIDER_CREDENTIALS: "provider-credentials",
   COMMUNITY: "community",
+  NOTIFICATIONS: "notifications",
   ASSETS_LIBRARY: "library/assets",
+  TEAMS: "teams",
   WORKFLOWS_LIBRARY: "library/workflows",
   KLING_ELEMENTS: "library/kling-elements",
 } as const;

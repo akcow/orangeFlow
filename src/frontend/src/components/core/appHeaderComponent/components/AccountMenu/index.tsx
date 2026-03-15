@@ -1,4 +1,3 @@
-
 import { useTranslation } from "react-i18next";
 import { useLogout } from "@/controllers/API/queries/auth";
 import { CustomProfileIcon } from "@/customization/components/custom-profile-icon";
@@ -100,7 +99,7 @@ export const AccountMenu = () => {
                     data-testid="menu_admin_page_button"
                     id="menu_admin_page_button"
                   >
-                    {t("Admin Page")}
+                    {"\u7ba1\u7406\u540e\u53f0"}
                   </span>
                 </HeaderMenuItemButton>
               </div>

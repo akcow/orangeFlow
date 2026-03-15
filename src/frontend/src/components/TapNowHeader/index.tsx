@@ -1,14 +1,14 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, HelpCircle, LogOut, Settings, User } from "lucide-react";
+import { Bell, ChevronDown, HelpCircle, LogOut, Settings, Shield, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useGetMyNotificationsQuery } from "@/controllers/API/queries/notifications";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -19,8 +19,10 @@ import TeamMenu from "@/components/core/appHeaderComponent/components/TeamMenu";
 import useFlowStore from "@/stores/flowStore";
 import PublishDropdown from "@/components/core/flowToolbarComponent/components/deploy-dropdown";
 import IconComponent from "@/components/common/genericIconComponent";
+import { NotificationPanel } from "./NotificationPanel";
 
 type NavKey = "tv" | "templates" | "workspace" | "home";
+
 interface TapNowHeaderProps {
   centerContent?: React.ReactNode;
   dataTestId?: string;
@@ -41,30 +43,41 @@ export const TapNowHeader = ({
   const location = useLocation();
   const { i18n } = useTranslation();
   const { userData, isAuthenticated, logout } = useAuthStore();
-  const { notificationCenter, setNotificationCenter, notificationList } = useAlertStore();
+  const notificationCenter = useAlertStore((state) => state.notificationCenter);
+  const setNotificationCenter = useAlertStore(
+    (state) => state.setNotificationCenter,
+  );
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
   const [wordmarkLoadFailed, setWordmarkLoadFailed] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
-  const isUserMenuOpen = false;
   const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const onFlowPage = useFlowStore((state) => state.onFlowPage);
+  const { data: persistentNotifications = [] } = useGetMyNotificationsQuery({
+    enabled: isAuthenticated && !!userData && !onFlowPage,
+  });
 
   const activeNav = useMemo(() => getActiveNav(location.pathname), [location.pathname]);
-  const onFlowPage = useFlowStore((state) => state.onFlowPage);
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
   const lang = isZh ? "CN" : "EN";
   const username = userData?.nickname || userData?.username || (isZh ? "\u7528\u6237" : "User");
   const userInitial = username.slice(0, 1).toUpperCase();
+  const canReview = !!(userData?.is_superuser || userData?.is_reviewer);
+  const hasPersistentUnread = persistentNotifications.some(
+    (item) => !item.read_at,
+  );
+  const hasNotificationDot = notificationCenter || hasPersistentUnread;
 
   const navItems: Array<{ key: NavKey; label: string; to: string }> = [
     { key: "tv", label: "OrangeTV", to: "/community/tv" },
     {
       key: "templates",
-      label: isZh ? "\u6A21\u677F\u5E93" : "Templates",
+      label: isZh ? "\u6a21\u677f\u5e93" : "Templates",
       to: "/community/workflows",
     },
     {
       key: "workspace",
-      label: isZh ? "\u5DE5\u4F5C\u7A7A\u95F4" : "Workspace",
+      label: isZh ? "\u5de5\u4f5c\u7a7a\u95f4" : "Workspace",
       to: "/flows",
     },
   ];
@@ -81,6 +94,12 @@ export const TapNowHeader = ({
     navigate("/login");
   };
 
+  const handleOpenNotificationPanel = () => {
+    setIsAvatarMenuOpen(false);
+    setNotificationCenter(false);
+    setIsNotificationPanelOpen(true);
+  };
+
   return (
     <header
       data-testid={dataTestId}
@@ -88,10 +107,15 @@ export const TapNowHeader = ({
         "sticky top-0 z-50 flex h-[72px] w-full items-center justify-between px-4 md:px-8",
         onFlowPage
           ? "absolute left-0 top-0 pointer-events-none"
-          : "border-b border-white/10 bg-black/75 backdrop-blur-md text-white"
+          : "border-b border-white/10 bg-black/75 backdrop-blur-md text-white",
       )}
     >
-      <div className={cn("relative z-20 flex min-w-0 items-center gap-4 md:gap-8", onFlowPage ? "pointer-events-auto" : "")}>
+      <div
+        className={cn(
+          "relative z-20 flex min-w-0 items-center gap-4 md:gap-8",
+          onFlowPage ? "pointer-events-auto" : "",
+        )}
+      >
         <Link
           to="/home"
           className="flex items-center gap-3 transition-opacity hover:opacity-85"
@@ -118,11 +142,8 @@ export const TapNowHeader = ({
             />
           )}
         </Link>
-        {onFlowPage && centerContent && (
-          <div className="flex items-center">
-            {centerContent}
-          </div>
-        )}
+
+        {onFlowPage && centerContent && <div className="flex items-center">{centerContent}</div>}
 
         {!onFlowPage && (
           <nav className="hidden items-center gap-1 md:flex">
@@ -130,10 +151,11 @@ export const TapNowHeader = ({
               <Link
                 key={item.key}
                 to={item.to}
-                className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${activeNav === item.key
-                  ? "bg-white/[0.08] text-white"
-                  : "text-white/65 hover:bg-white/[0.06] hover:text-white"
-                  }`}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                  activeNav === item.key
+                    ? "bg-white/[0.08] text-white"
+                    : "text-white/65 hover:bg-white/[0.06] hover:text-white"
+                }`}
               >
                 {item.label}
               </Link>
@@ -154,7 +176,7 @@ export const TapNowHeader = ({
             variant="ghost"
             className="hidden h-10 rounded-xl px-4 text-sm font-medium text-white/75 hover:bg-white/[0.08] hover:text-white md:inline-flex"
           >
-            {isZh ? "\u4EF7\u683C\u65B9\u6848" : "Pricing"}
+            {isZh ? "\u4ef7\u683c\u65b9\u6848" : "Pricing"}
           </Button>
         )}
 
@@ -181,7 +203,7 @@ export const TapNowHeader = ({
                 onClick={() => changeLanguage("zh-CN")}
                 className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
               >
-                {"\u4E2D\u6587 (CN)"}
+                {"\u4e2d\u6587 (CN)"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => changeLanguage("en")}
@@ -200,6 +222,7 @@ export const TapNowHeader = ({
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
+                  data-testid="avatar-menu-trigger"
                   className="h-10 w-10 rounded-full border border-white/15 p-0 hover:bg-white/[0.08] focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 >
                   <Avatar className="h-9 w-9">
@@ -227,10 +250,10 @@ export const TapNowHeader = ({
                     <span className="text-xs text-[#A0A0A0]">
                       {userData.is_superuser
                         ? isZh
-                          ? "超级管理员"
+                          ? "\u8d85\u7ea7\u7ba1\u7406\u5458"
                           : "Superuser"
                         : isZh
-                          ? "用户"
+                          ? "\u666e\u901a\u7528\u6237"
                           : "User"}
                     </span>
                   </div>
@@ -238,14 +261,32 @@ export const TapNowHeader = ({
                 <DropdownMenuSeparator className="mx-4 my-0 bg-[#333338]" />
                 <DropdownMenuItem
                   onClick={() => {
-                    setIsAvatarMenuOpen(false);
-                    setNotificationCenter(!notificationCenter);
+                    handleOpenNotificationPanel();
                   }}
+                  data-testid="avatar-notification-menu-item"
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
-                  <Bell className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "我的通知" : "My Notifications"}</span>
+                  <div className="relative">
+                    <Bell className="h-4 w-4 text-[#A0A0A0]" />
+                    {hasNotificationDot ? (
+                      <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-destructive" />
+                    ) : null}
+                  </div>
+                  <span>{isZh ? "\u6211\u7684\u901a\u77e5" : "My Notifications"}</span>
                 </DropdownMenuItem>
+                {canReview && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setIsAvatarMenuOpen(false);
+                      navigate("/admin/community");
+                    }}
+                    data-testid="avatar-moderation-menu-item"
+                    className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
+                  >
+                    <Shield className="h-4 w-4 text-[#A0A0A0]" />
+                    <span>{isZh ? "\u5185\u5bb9\u5ba1\u6838" : "Content Moderation"}</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   onClick={() => {
                     setIsAvatarMenuOpen(false);
@@ -254,7 +295,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <User className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "个人主页" : "Profile"}</span>
+                  <span>{isZh ? "\u4e2a\u4eba\u4e3b\u9875" : "Profile"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -264,7 +305,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <Settings className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "账户管理" : "Account Settings"}</span>
+                  <span>{isZh ? "\u8d26\u6237\u8bbe\u7f6e" : "Account Settings"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -274,7 +315,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <HelpCircle className="h-4 w-4 text-[#A0A0A0]" />
-                  <span>{isZh ? "使用教程" : "Tutorial"}</span>
+                  <span>{isZh ? "\u4f7f\u7528\u6559\u7a0b" : "Tutorial"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="mx-4 my-0 bg-[#333338]" />
                 <DropdownMenuItem
@@ -285,7 +326,7 @@ export const TapNowHeader = ({
                   className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
                 >
                   <LogOut className="h-4 w-4 text-red-400" />
-                  <span>{isZh ? "登出账号" : "Log Out"}</span>
+                  <span>{isZh ? "\u9000\u51fa\u8d26\u53f7" : "Log Out"}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -296,9 +337,10 @@ export const TapNowHeader = ({
             onClick={() => navigate("/login")}
             className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-600 px-5 font-medium text-white shadow-lg shadow-blue-500/20 transition-colors hover:bg-blue-700"
           >
-            {isZh ? "免费体验" : "Start for Free"}
+            {isZh ? "\u514d\u8d39\u4f53\u9a8c" : "Start for Free"}
           </Button>
         ) : null}
+
         {onFlowPage && (
           <div className="pointer-events-auto flex items-center gap-3">
             <Button
@@ -307,12 +349,21 @@ export const TapNowHeader = ({
               style={{ backgroundColor: "#2E2E32" }}
             >
               <IconComponent name="Sparkles" className="mr-1.5 h-4 w-4 text-yellow-500" />
-              社区
+              {"\u7075\u611f\u52a9\u624b"}
             </Button>
             <PublishDropdown />
           </div>
         )}
       </div>
+
+      <NotificationPanel
+        open={isNotificationPanelOpen}
+        onOpenChange={setIsNotificationPanelOpen}
+        isZh={isZh}
+        title={isZh ? "\u6211\u7684\u901a\u77e5" : "Notifications"}
+        emptyText={isZh ? "\u6682\u65e0\u65b0\u901a\u77e5" : "No notifications yet"}
+        clearLabel={isZh ? "\u6e05\u7a7a\u901a\u77e5" : "Clear notifications"}
+      />
     </header>
   );
 };

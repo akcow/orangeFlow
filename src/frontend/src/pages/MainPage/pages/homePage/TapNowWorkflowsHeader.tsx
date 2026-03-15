@@ -7,15 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDeleteDeleteFlows } from "@/controllers/API/queries/flows/use-delete-delete-flows";
 import { useGetDownloadFlows } from "@/controllers/API/queries/flows/use-get-download-flows";
-import { ENABLE_MCP } from "@/customization/feature-flags";
 import DeleteConfirmationModal from "@/modals/deleteConfirmationModal";
 import useAlertStore from "@/stores/alertStore";
-import useCreateBlankFlow from "@/hooks/flows/use-create-blank-flow";
 import { cn } from "@/utils/utils";
 
 interface TapNowWorkflowsHeaderProps {
-  flowType: "flows" | "components";
-  setFlowType: (flowType: "flows" | "components") => void;
+  workspaceScope: "personal" | "team";
+  setWorkspaceScope: (scope: "personal" | "team") => void;
+  onCreateFlow: () => Promise<void>;
   view: "list" | "grid";
   setView: (view: "list" | "grid") => void;
   setSearch: (search: string) => void;
@@ -26,8 +25,9 @@ interface TapNowWorkflowsHeaderProps {
 }
 
 export const TapNowWorkflowsHeader = ({
-  flowType,
-  setFlowType,
+  workspaceScope,
+  setWorkspaceScope,
+  onCreateFlow,
   view,
   setView,
   setSearch,
@@ -39,9 +39,7 @@ export const TapNowWorkflowsHeader = ({
   const { t } = useTranslation();
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isCreatingFlow, setIsCreatingFlow] = useState(false);
-  const isMCPEnabled = ENABLE_MCP;
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
-  const createBlankFlow = useCreateBlankFlow();
 
   const debouncedSetSearch = useCallback(
     debounce((value: string) => {
@@ -65,7 +63,7 @@ export const TapNowWorkflowsHeader = ({
     setDebouncedSearch(e.target.value);
   };
 
-  const tabTypes = isMCPEnabled ? ["flows"] : ["components", "flows"];
+  const tabTypes: Array<"personal" | "team"> = ["personal", "team"];
 
   const handleDownload = () => {
     downloadFlows({ ids: selectedFlows });
@@ -87,14 +85,12 @@ export const TapNowWorkflowsHeader = ({
     if (isCreatingFlow) return;
     setIsCreatingFlow(true);
     try {
-      await createBlankFlow();
+      await onCreateFlow();
     } catch {
     } finally {
       setIsCreatingFlow(false);
     }
   };
-
-  if (isEmptyFolder) return null;
 
   return (
     <div className="flex flex-col gap-4 w-full mb-4">
@@ -104,15 +100,15 @@ export const TapNowWorkflowsHeader = ({
           <Button
             key={type}
             variant="ghost"
-            onClick={() => setFlowType(type as "flows" | "components")}
+            onClick={() => setWorkspaceScope(type)}
             className={cn(
-              "rounded-none border-b-2 px-4 py-2 text-sm font-medium transition-colors hover:bg-transparent hover:text-white",
-              flowType === type
+              "rounded-none border-b-2 px-4 py-2 text-lg font-medium transition-colors hover:bg-transparent hover:text-white",
+              workspaceScope === type
                 ? "border-white text-white"
                 : "border-transparent text-gray-400"
             )}
           >
-            {type === "flows" ? t("Flows") : t("Components")}
+            {type === "personal" ? "\u4e2a\u4eba" : "\u56e2\u961f"}
           </Button>
         ))}
       </div>
@@ -125,9 +121,9 @@ export const TapNowWorkflowsHeader = ({
             icon="Search"
             type="text"
             placeholder={
-              flowType === "flows"
-                ? t("Search flows...")
-                : t("Search components...")
+              workspaceScope === "personal"
+                ? "\u641c\u7d22\u4e2a\u4eba\u6d41\u7a0b..."
+                : "\u641c\u7d22\u56e2\u961f\u6d41\u7a0b..."
             }
             className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus-visible:ring-white/20"
             value={debouncedSearch}
@@ -199,6 +195,7 @@ export const TapNowWorkflowsHeader = ({
                     size="icon"
                     className="h-10 w-10 border-white/10 bg-white/5 hover:bg-white/10 hover:text-white text-gray-400"
                     onClick={onToggleSortOrder}
+                    disabled={!onToggleSortOrder || isEmptyFolder}
                     >
                     <ForwardedIconComponent
                         name={sortOrder === "desc" ? "ArrowDownNarrowWide" : "ArrowUpNarrowWide"}

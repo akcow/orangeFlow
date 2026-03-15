@@ -99,25 +99,34 @@ export default function SignUp(): JSX.Element {
           <div className="mb-3 w-full">
             <Form.Field name="username">
               <Form.Label className="data-[invalid]:label-invalid">
-                {t("Username")}{" "}
+                {t("Email")}{" "}
                 <span className="font-medium text-destructive">*</span>
               </Form.Label>
 
               <Form.Control asChild>
                 <Input
-                  type="username"
+                  type="text"
                   onChange={({ target: { value } }) => {
                     handleInput({ target: { name: "username", value } });
                   }}
                   value={username}
                   className="w-full"
                   required
-                  placeholder={t("Username")}
+                  placeholder={t("Email")}
                 />
               </Form.Control>
 
               <Form.Message match="valueMissing" className="field-invalid">
-                {t("Please enter your username")}
+                请输入有效的邮箱地址
+              </Form.Message>
+              <Form.Message 
+                match={(value) => {
+                  if (!value) return false;
+                  return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+                }}
+                className="field-invalid"
+              >
+                请输入有效的邮箱地址
               </Form.Message>
             </Form.Field>
           </div>

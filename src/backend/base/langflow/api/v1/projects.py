@@ -41,6 +41,8 @@ from langflow.services.database.models.folder.model import (
     FolderUpdate,
 )
 from langflow.services.database.models.folder.pagination_model import FolderWithPaginatedFlows
+from langflow.services.database.models.team_membership.crud import ensure_team_membership
+from langflow.services.database.models.team_membership.model import TeamRoleEnum
 from langflow.services.deps import get_service, get_settings_service, get_storage_service
 from langflow.services.schema import ServiceType
 
@@ -96,6 +98,12 @@ async def create_project(
         session.add(new_project)
         await session.commit()
         await session.refresh(new_project)
+        await ensure_team_membership(
+            session,
+            folder_id=new_project.id,
+            user_id=current_user.id,
+            role=TeamRoleEnum.OWNER,
+        )
 
         # Auto-register MCP server for this project with configured default auth
         if get_settings_service().settings.add_projects_to_mcp_servers:
@@ -651,6 +659,12 @@ async def upload_file(
     session.add(new_project)
     await session.commit()
     await session.refresh(new_project)
+    await ensure_team_membership(
+        session,
+        folder_id=new_project.id,
+        user_id=current_user.id,
+        role=TeamRoleEnum.OWNER,
+    )
     del data["folder_name"]
     del data["folder_description"]
 

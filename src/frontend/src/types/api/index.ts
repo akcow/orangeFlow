@@ -194,6 +194,66 @@ export type Users = {
   };
 };
 
+export type AdminNotificationTargetType = "ALL" | "USERS" | "TEAMS";
+
+export type UserNotification = {
+  recipient_id: string;
+  notification_id: string;
+  title: string;
+  content: string;
+  link?: string | null;
+  target_type: AdminNotificationTargetType;
+  created_at: string;
+  expires_at: string;
+  read_at?: string | null;
+  sender_name: string;
+};
+
+export type AdminNotificationHistoryItem = {
+  id: string;
+  title: string;
+  content: string;
+  link?: string | null;
+  target_type: AdminNotificationTargetType;
+  created_at: string;
+  expires_at: string;
+  created_by_name: string;
+  recipient_count: number;
+  read_count: number;
+  hidden_count: number;
+};
+
+export type CreateAdminNotificationPayload = {
+  title: string;
+  content: string;
+  link?: string | null;
+  target_type: AdminNotificationTargetType;
+  user_ids: string[];
+  team_ids: string[];
+};
+
+export type CreateAdminNotificationResponse = {
+  id: string;
+  title: string;
+  content: string;
+  link?: string | null;
+  target_type: AdminNotificationTargetType;
+  created_at: string;
+  expires_at: string;
+  recipient_count: number;
+};
+
+export type TeamRole = "OWNER" | "ADMIN" | "MEMBER";
+
+export type TeamSummary = {
+  id: string;
+  name: string;
+  description?: string | null;
+  owner_id?: string | null;
+  member_count: number;
+  current_user_role?: TeamRole | null;
+};
+
 export type Component = {
   name: string;
   description: string;

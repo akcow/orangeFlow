@@ -77,6 +77,16 @@ class UserCreate(SQLModel):
             raise ValueError(msg)
         return value
 
+    @field_validator("username")
+    @classmethod
+    def validate_username_as_email(cls, value: str) -> str:
+        if value.lower() == "admin":
+            return value
+        import re
+        if not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", value):
+            raise ValueError("Please provide a valid email address.")
+        return value
+
 
 class UserRead(SQLModel):
     id: UUID = Field(default_factory=uuid4)
@@ -113,4 +123,14 @@ class UserUpdate(SQLModel):
         if not value:
             msg = "This field cannot be empty."
             raise ValueError(msg)
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def validate_username_as_email(cls, value: str | None) -> str | None:
+        if value is None or value.lower() == "admin":
+            return value
+        import re
+        if not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", value):
+            raise ValueError("Please provide a valid email address.")
         return value

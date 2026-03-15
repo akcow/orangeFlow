@@ -186,14 +186,14 @@ export default function LoginPage(): JSX.Element {
               <Form.Control asChild>
                 <div className="relative">
                   <Input
-                    type="username"
+                    type="text"
                     onChange={({ target: { value } }) => {
                       handleInput({ target: { name: "username", value } });
                     }}
                     value={username}
                     className="h-[52px] w-full rounded-2xl border-white/10 bg-white/5 px-4 text-white placeholder:text-white/30 hover:border-white/20 focus:border-white/30"
                     required
-                    placeholder="邮箱"
+                    placeholder="邮箱或管理员账号"
                   />
                   {username && (
                     <div className="absolute right-4 top-[17px] text-[12px] font-medium text-[#209CEE]">
@@ -203,7 +203,17 @@ export default function LoginPage(): JSX.Element {
                 </div>
               </Form.Control>
               <Form.Message match="valueMissing" className="mt-1 text-xs text-red-500">
-                {t("Please enter your username")}
+                请输入您的账号或邮箱
+              </Form.Message>
+              <Form.Message 
+                match={(value) => {
+                  if (!value) return false;
+                  if (value.toLowerCase() === "admin") return false;
+                  return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+                }} 
+                className="mt-1 text-xs text-red-500"
+              >
+                请输入有效的邮箱地址
               </Form.Message>
             </Form.Field>
 

@@ -1,17 +1,30 @@
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 import IconComponent from "@/components/common/genericIconComponent";
+import { useTeamMockData } from "@/components/core/appHeaderComponent/components/TeamMenu/useTeamMockData";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { usePostAddFlow } from "@/controllers/API/queries/flows/use-post-add-flow";
+import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import { t } from "@/i18n/t";
 import TVPublishForm from "@/pages/Community/TVPublishForm";
+import useAlertStore from "@/stores/alertStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { useFolderStore } from "@/stores/foldersStore";
 import { cn } from "@/utils/utils";
+import useDeleteFlow from "@/hooks/flows/use-delete-flow";
 
 type DeployMenuItem = {
   key: "publish" | "share" | "move";
@@ -23,17 +36,202 @@ type DeployMenuItem = {
   onClick: () => void;
 };
 
+type CreatedFlowResponse = {
+  id: string;
+  folder_id?: string | null;
+};
+
+const DEFAULT_VIEWPORT = { zoom: 1, x: 0, y: 0 };
+
 export default function PublishDropdown() {
   const [openTvPublish, setOpenTvPublish] = useState(false);
+  const [openMoveDialog, setOpenMoveDialog] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
   const currentFlow = useFlowsManagerStore((state) => state.currentFlow);
   const flowId = currentFlow?.id;
+  const { folderId } = useParams();
+  const myCollectionId = useFolderStore((state) => state.myCollectionId);
+  const setSuccessData = useAlertStore((state) => state.setSuccessData);
+  const setErrorData = useAlertStore((state) => state.setErrorData);
+  const navigate = useCustomNavigate();
+  const { currentTeam } = useTeamMockData();
+  const { deleteFlow } = useDeleteFlow();
+  const { mutate: postAddFlow } = usePostAddFlow();
+
+  const targetTeamId =
+    folderId ?? currentFlow?.folder_id ?? myCollectionId ?? "";
+  const personalProjectId = myCollectionId ?? "";
+  const isTeamContext = Boolean(localStorage.getItem("mock_current_team_id"));
+  const teamName = currentTeam?.name || "Team";
+
+  const restoreTeamContext = (teamId: string | null) => {
+    if (teamId) {
+      localStorage.setItem("mock_current_team_id", teamId);
+    } else {
+      localStorage.removeItem("mock_current_team_id");
+    }
+  };
+
+  const createFlowCopy = (targetFolderId: string) =>
+    new Promise<CreatedFlowResponse>((resolve, reject) => {
+      if (!currentFlow) {
+        reject(new Error("Current flow is unavailable"));
+        return;
+      }
+
+      postAddFlow(
+        {
+          name: currentFlow.name,
+          data: currentFlow.data ?? {
+            nodes: [],
+            edges: [],
+            viewport: DEFAULT_VIEWPORT,
+          },
+          description: currentFlow.description ?? "",
+          is_component: false,
+          folder_id: targetFolderId,
+          endpoint_name: currentFlow.endpoint_name ?? undefined,
+          icon: currentFlow.icon ?? undefined,
+          gradient: currentFlow.gradient ?? undefined,
+          tags: currentFlow.tags ?? undefined,
+          mcp_enabled: currentFlow.mcp_enabled ?? true,
+        },
+        {
+          onSuccess: (createdFlow) => resolve(createdFlow as CreatedFlowResponse),
+          onError: (error) => reject(error),
+        },
+      );
+    });
+
+  const getErrorMessage = (error: unknown) => {
+    const maybeError = error as
+      | { response?: { data?: { detail?: string } }; message?: string }
+      | undefined;
+    return (
+      maybeError?.response?.data?.detail ??
+      maybeError?.message ??
+      t("Please try again")
+    );
+  };
+
+  const handleMoveToTeam = async () => {
+    if (!currentFlow || !flowId) {
+      setErrorData({
+        title: "\u65e0\u6cd5\u79fb\u52a8\u6d41\u7a0b",
+        list: ["\u5f53\u524d\u6d41\u7a0b\u4e0d\u5b58\u5728"],
+      });
+      return;
+    }
+
+    if (!targetTeamId) {
+      setErrorData({
+        title: "\u65e0\u6cd5\u79fb\u52a8\u6d41\u7a0b",
+        list: ["\u672a\u627e\u5230\u76ee\u6807\u56e2\u961f\u9879\u76ee"],
+      });
+      return;
+    }
+
+    const previousTeamId = localStorage.getItem("mock_current_team_id");
+    setIsTransferring(true);
+
+    try {
+      localStorage.setItem("mock_current_team_id", targetTeamId);
+      await createFlowCopy(targetTeamId);
+
+      restoreTeamContext(previousTeamId);
+      await deleteFlow({ id: flowId });
+
+      localStorage.setItem("lf_workspace_scope", "team");
+      localStorage.setItem("mock_current_team_id", targetTeamId);
+
+      setSuccessData({
+        title: "\u6d41\u7a0b\u5df2\u79fb\u52a8\u5230\u56e2\u961f\u9879\u76ee",
+      });
+      setOpenMoveDialog(false);
+      navigate(`/all/folder/${targetTeamId}`);
+    } catch (error) {
+      restoreTeamContext(previousTeamId);
+      setErrorData({
+        title: "\u79fb\u52a8\u5230\u56e2\u961f\u5931\u8d25",
+        list: [getErrorMessage(error)],
+      });
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const handleCloneToPersonal = async () => {
+    if (!currentFlow || !flowId) {
+      setErrorData({
+        title: "\u65e0\u6cd5\u514b\u9686\u6d41\u7a0b",
+        list: ["\u5f53\u524d\u6d41\u7a0b\u4e0d\u5b58\u5728"],
+      });
+      return;
+    }
+
+    if (!personalProjectId) {
+      setErrorData({
+        title: "\u65e0\u6cd5\u514b\u9686\u6d41\u7a0b",
+        list: ["\u672a\u627e\u5230\u4e2a\u4eba\u9879\u76ee"],
+      });
+      return;
+    }
+
+    const previousTeamId = localStorage.getItem("mock_current_team_id");
+    setIsTransferring(true);
+
+    try {
+      localStorage.removeItem("mock_current_team_id");
+      await createFlowCopy(personalProjectId);
+
+      localStorage.setItem("lf_workspace_scope", "personal");
+      localStorage.removeItem("mock_current_team_id");
+
+      setSuccessData({
+        title: "\u6d41\u7a0b\u5df2\u514b\u9686\u81f3\u4e2a\u4eba\u9879\u76ee",
+      });
+      setOpenMoveDialog(false);
+      navigate(`/all/folder/${personalProjectId}`);
+    } catch (error) {
+      restoreTeamContext(previousTeamId);
+      setErrorData({
+        title: "\u514b\u9686\u5230\u4e2a\u4eba\u9879\u76ee\u5931\u8d25",
+        list: [getErrorMessage(error)],
+      });
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const transferMenu = isTeamContext
+    ? {
+        title: "\u514b\u9686\u81f3\u4e2a\u4eba\u9879\u76ee",
+        description:
+          "\u5c06\u56e2\u961f\u6d41\u7a0b\u590d\u5236\u4e00\u4efd\u5230\u4e2a\u4eba\u9879\u76ee\uff0c\u56e2\u961f\u4e2d\u7684\u539f\u6d41\u7a0b\u5c06\u4fdd\u7559\u3002",
+        actionLabel: "\u514b\u9686",
+        onClick: () => {
+          if (!flowId) return;
+          setOpenMoveDialog(true);
+        },
+      }
+    : {
+        title: "\u79fb\u52a8\u5230\u56e2\u961f\u9879\u76ee",
+        description:
+          "\u5c06\u5f53\u524d\u4e2a\u4eba\u6d41\u7a0b\u79fb\u52a8\u5230\u56e2\u961f\u9879\u76ee\uff0c\u4fbf\u4e8e\u6210\u5458\u534f\u4f5c\u3002",
+        actionLabel: "\u79fb\u52a8",
+        onClick: () => {
+          if (!flowId) return;
+          setOpenMoveDialog(true);
+        },
+      };
 
   const deployMenuItems: DeployMenuItem[] = [
     {
       key: "publish",
-      title: "在 TapTV 上发布",
-      description: "在 TapTV 上发布你的作品，让更多创作者看到。",
-      actionLabel: "发布",
+      title: "\u53d1\u5e03\u5230 TapTV",
+      description:
+        "\u5c06\u6d41\u7a0b\u53d1\u5e03\u5230 TapTV \u793e\u533a\uff0c\u8ba9\u66f4\u591a\u4eba\u53ef\u4ee5\u4f7f\u7528\u548c\u514b\u9686\u3002",
+      actionLabel: "\u53d1\u5e03",
       iconName: "Globe",
       disabled: !flowId,
       onClick: () => {
@@ -43,19 +241,21 @@ export default function PublishDropdown() {
     },
     {
       key: "share",
-      title: "通过链接分享",
-      description: "任何拥有此链接的人都可以查看并克隆你的画布。",
-      actionLabel: "分享",
+      title: "\u5206\u4eab\u94fe\u63a5",
+      description:
+        "\u751f\u6210\u6d41\u7a0b\u7684\u5206\u4eab\u94fe\u63a5\uff0c\u65b9\u4fbf\u53d1\u9001\u7ed9\u5176\u4ed6\u4eba\u67e5\u770b\u3002",
+      actionLabel: "\u5206\u4eab",
       iconName: "Link2",
-      onClick: () => { },
+      onClick: () => {},
     },
     {
       key: "move",
-      title: "移动到团队项目",
-      description: "将此项目转移到团队进行协作。",
-      actionLabel: "移动",
+      title: transferMenu.title,
+      description: transferMenu.description,
+      actionLabel: transferMenu.actionLabel,
       iconName: "ScanSearch",
-      onClick: () => { },
+      disabled: !flowId,
+      onClick: transferMenu.onClick,
     },
   ];
 
@@ -69,7 +269,11 @@ export default function PublishDropdown() {
             className="h-10 w-10 flex cursor-pointer items-center justify-center rounded-full bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:bg-gray-100 transition-colors"
             data-testid="publish-button"
           >
-            <IconComponent name="Forward" className="h-[22px] w-[22px] text-gray-500" strokeWidth={2.5} />
+            <IconComponent
+              name="Forward"
+              className="h-[22px] w-[22px] text-gray-500"
+              strokeWidth={2.5}
+            />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -85,7 +289,7 @@ export default function PublishDropdown() {
               className={cn(
                 "group flex cursor-pointer items-start gap-2.5 rounded-none px-0 py-3 outline-none focus:bg-transparent data-[highlighted]:bg-transparent",
                 index !== deployMenuItems.length - 1 &&
-                "border-b border-border",
+                  "border-b border-border",
               )}
               disabled={item.disabled}
               onClick={item.onClick}
@@ -121,6 +325,46 @@ export default function PublishDropdown() {
               onSuccess={() => setOpenTvPublish(false)}
             />
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openMoveDialog} onOpenChange={setOpenMoveDialog}>
+        <DialogContent className="w-[min(480px,calc(100vw-20px))] border-[#4b4d59] bg-[#23242b] p-5 text-white">
+          <DialogHeader className="space-y-3">
+            <DialogTitle className="text-[22px] font-semibold leading-tight">
+              {isTeamContext
+                ? "\u514b\u9686\u81f3\u4e2a\u4eba\u9879\u76ee"
+                : `\u79fb\u52a8\u81f3 ${teamName}'s Team`}
+            </DialogTitle>
+            <DialogDescription className="text-[14px] leading-relaxed text-white/80">
+              {isTeamContext
+                ? "\u5c06\u56e2\u961f\u9879\u76ee\u590d\u5236\u4e00\u4efd\u81f3\u4e2a\u4eba\u8fdb\u884c\u4f7f\u7528\u3002\u4f60\u53ef\u4ee5\u5728\"\u4e2a\u4eba\u9879\u76ee\"\u4e2d\u8bbf\u95ee\u3002"
+                : "\u5c06\u9879\u76ee\u8f6c\u79fb\u81f3\u56e2\u961f\u8fdb\u884c\u534f\u4f5c\u3002\u4f60\u53ef\u4ee5\u5728\"\u56e2\u961f\u9879\u76ee\"\u4e2d\u8bbf\u95ee\u3002"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-5 grid grid-cols-2 gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-lg border border-[#5a5d69] bg-[#444650] text-[15px] font-semibold text-white hover:bg-[#4c4f5b]"
+              onClick={() => setOpenMoveDialog(false)}
+              disabled={isTransferring}
+            >
+              {"\u53d6\u6d88"}
+            </Button>
+            <Button
+              type="button"
+              className="h-10 rounded-lg border-0 bg-white text-[15px] font-semibold text-black hover:bg-white/90"
+              loading={isTransferring}
+              onClick={isTeamContext ? handleCloneToPersonal : handleMoveToTeam}
+              data-testid="confirm-move-to-team-btn"
+            >
+              {isTeamContext
+                ? "\u514b\u9686\u81f3\u4e2a\u4eba"
+                : "\u79fb\u52a8\u5230\u56e2\u961f"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </>
