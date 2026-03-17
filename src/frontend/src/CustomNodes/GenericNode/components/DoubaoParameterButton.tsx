@@ -280,7 +280,7 @@ export function DoubaoParameterButton({
             }}
             className={cn(
               isModelSelector
-                ? "flex h-11 flex-1 items-center justify-between rounded-full border border-border/70 bg-muted/70 px-4 text-left text-sm font-medium text-foreground shadow-sm transition-colors hover:border-border hover:bg-muted"
+                ? "flex h-11 flex-1 items-center justify-between rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 text-left text-sm font-medium text-[#2E3150] transition dark:border-white/15 dark:bg-white/10 dark:text-white"
                 : "flex h-11 flex-1 items-center justify-between rounded-full border border-[#E0E5F6] bg-[#F4F6FB] px-4 text-left text-sm font-medium text-[#2E3150] dark:border-white/15 dark:bg-white/10 dark:text-white",
               widthClass ?? "basis-[140px]",
             )}
@@ -291,7 +291,7 @@ export function DoubaoParameterButton({
                 className={cn(
                   "h-4 w-4",
                   isModelSelector
-                    ? "text-muted-foreground"
+                    ? "text-[#7D85A8] dark:text-slate-300"
                     : "text-[#7D85A8] dark:text-slate-300",
                 )}
               />
@@ -301,7 +301,7 @@ export function DoubaoParameterButton({
               name="ChevronDown"
               className={cn(
                 isModelSelector
-                  ? "h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200 ease-out"
+                  ? "h-4 w-4 flex-shrink-0 text-[#8D94B3] transition-transform duration-200 ease-out dark:text-slate-400"
                   : "h-4 w-4 flex-shrink-0 text-[#8D94B3] transition-transform duration-200 ease-out dark:text-slate-400",
                 open && "rotate-180",
               )}
@@ -518,4 +518,3 @@ export function buildRangeOptions(templateField: unknown): number[] {
   }
   return options;
 }
-

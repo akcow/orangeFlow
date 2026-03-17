@@ -38,7 +38,7 @@ def _ensure_index(table_name: str, index_name: str, columns: list[str]) -> None:
 def upgrade() -> None:
     conn = op.get_bind()
 
-    resource_type_enum_create = sa.Enum("IMAGE", "VIDEO", name="credit_resource_type_enum")
+    resource_type_enum_create = sa.Enum("IMAGE", "VIDEO", "TEXT", name="credit_resource_type_enum")
     ledger_entry_type_enum_create = sa.Enum(
         "INITIAL_GRANT",
         "MANUAL_ADJUSTMENT",
@@ -55,6 +55,7 @@ def upgrade() -> None:
         resource_type_enum = postgresql.ENUM(
             "IMAGE",
             "VIDEO",
+            "TEXT",
             name="credit_resource_type_enum",
             create_type=False,
         )
@@ -66,7 +67,7 @@ def upgrade() -> None:
             create_type=False,
         )
     else:
-        resource_type_enum = sa.Enum("IMAGE", "VIDEO", name="credit_resource_type_enum")
+        resource_type_enum = sa.Enum("IMAGE", "VIDEO", "TEXT", name="credit_resource_type_enum")
         ledger_entry_type_enum = sa.Enum(
             "INITIAL_GRANT",
             "MANUAL_ADJUSTMENT",
@@ -192,7 +193,7 @@ def downgrade() -> None:
                 op.drop_index(index_name, table_name="credit_account")
         op.drop_table("credit_account")
 
-    resource_type_enum = sa.Enum("IMAGE", "VIDEO", name="credit_resource_type_enum")
+    resource_type_enum = sa.Enum("IMAGE", "VIDEO", "TEXT", name="credit_resource_type_enum")
     ledger_entry_type_enum = sa.Enum(
         "INITIAL_GRANT",
         "MANUAL_ADJUSTMENT",

@@ -68,7 +68,7 @@ type SidebarItem = {
   icon: typeof CircleDollarSign;
 };
 
-const EXCHANGE_RATE = 100;
+const EXCHANGE_RATE = 10;
 const MIN_TOPUP_CREDITS = 500;
 const MAX_TOPUP_CREDITS = 500_000;
 const TOPUP_STEP = 100;
@@ -107,9 +107,9 @@ function formatCredits(value: number) {
 }
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("zh-CN", {
     style: "currency",
-    currency: "USD",
+    currency: "CNY",
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(value);
@@ -236,7 +236,11 @@ function TeamSettingsPanel({
               className="h-10 rounded-2xl border-white/10 bg-transparent pl-10 text-sm text-white"
             />
           </div>
-          <Button onClick={onInviteMembers} className="h-10 rounded-2xl border-0 bg-[#2FA8E5] px-5 text-sm font-medium text-white hover:bg-[#47b3ea]">
+          <Button
+            unstyled
+            onClick={onInviteMembers}
+            className="inline-flex h-10 items-center justify-center rounded-2xl bg-[#2FA8E5] px-5 text-sm font-medium text-white transition-colors hover:bg-[#47b3ea]"
+          >
             + {isZh ? "邀请成员" : "Invite Member"}
           </Button>
         </div>
@@ -355,7 +359,7 @@ function TeamBenefitsPanel({
             <div className="text-[18px] font-semibold text-white">{isZh ? "积分余额" : "Credit Balance"}: {formatCredits(currentBalance)}</div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-white/38">
               <span>{isZh ? "当前汇率" : "Current Rate"}</span>
-              <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-white/55">{`$1=100 ${isZh ? "积分" : "credits"}`}</span>
+              <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-white/55">{`${isZh ? "¥1 = 10 积分" : "¥1 = 10 credits"}`}</span>
               <span>{isZh ? "升级套餐，解锁更高充值汇率" : "Upgrade the plan to unlock a better recharge rate"}</span>
             </div>
           </div>
@@ -554,14 +558,18 @@ export function CreditsCenterDialog() {
                             <div className="mt-2 text-base text-white/70">{isZh ? "积分" : "credits"}</div>
                             <div className="mt-8 flex items-center justify-between border-b border-white/8 pb-4">
                               <span className="text-sm text-white/42">{isZh ? "当前汇率" : "Current rate"}</span>
-                              <span className="rounded-full border border-white/10 bg-white/4 px-3 py-1 text-xs text-white/82">{`$1 = ${EXCHANGE_RATE} ${isZh ? "积分" : "Credits"}`}</span>
+                              <span className="rounded-full border border-white/10 bg-white/4 px-3 py-1 text-xs text-white/82">{`¥1 = ${EXCHANGE_RATE} ${isZh ? "积分" : "Credits"}`}</span>
                             </div>
                             <div className="mt-5 flex items-center justify-between">
                               <span className="text-[18px] text-white/62">{isZh ? "应付金额" : "Amount due"}</span>
                               <span className="text-[38px] font-semibold leading-none text-white">{formatCurrency(totalCost)}</span>
                             </div>
                           </div>
-                          <Button onClick={() => setNoticeData({ title: isZh ? "充值页面当前仅做展示，暂未接入真实支付能力。" : "Top-up is display-only for now." })} className="h-10 rounded-xl border-0 bg-[#2FA8E5] text-sm font-medium text-white hover:bg-[#47b3ea]">
+                          <Button
+                            unstyled
+                            onClick={() => setNoticeData({ title: isZh ? "充值页面当前仅做展示，暂未接入真实支付能力。" : "Top-up is display-only for now." })}
+                            className="inline-flex h-10 items-center justify-center rounded-xl bg-[#2FA8E5] px-4 text-sm font-medium text-white transition-colors hover:bg-[#47b3ea]"
+                          >
                             {isZh ? "立即充值" : "Recharge Now"}
                           </Button>
                         </div>

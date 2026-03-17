@@ -255,7 +255,7 @@ export type TeamSummary = {
   current_user_role?: TeamRole | null;
 };
 
-export type CreditResourceType = "IMAGE" | "VIDEO";
+export type CreditResourceType = "IMAGE" | "VIDEO" | "TEXT";
 
 export type CreditLedgerEntryType =
   | "INITIAL_GRANT"
@@ -297,6 +297,25 @@ export type CreditPricingRule = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type CreditEstimateBillingMode =
+  | "estimated"
+  | "usage_based"
+  | "unavailable";
+
+export type CreditEstimate = {
+  component_key: string;
+  resource_type?: CreditResourceType | null;
+  model_key?: string | null;
+  display_name?: string | null;
+  billing_mode: CreditEstimateBillingMode;
+  estimated_credits?: number | null;
+};
+
+export type CreditEstimatePayload = {
+  node_payload?: Record<string, any> | null;
+  vertex_id?: string;
 };
 
 export type CreditAdminUser = Users & {

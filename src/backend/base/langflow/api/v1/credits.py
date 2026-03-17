@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from enum import Enum
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -8,6 +10,7 @@ from pydantic import BaseModel, Field
 from langflow.api.utils import CurrentActiveUser, DbSession
 from langflow.services.credits.service import (
     adjust_user_credits,
+    estimate_chargeable_build_item,
     get_or_create_credit_account,
     get_pricing_rules,
     list_admin_credit_users,
@@ -92,6 +95,26 @@ class CreditPricingRuleUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=120)
 
 
+class CreditEstimateBillingMode(str, Enum):
+    ESTIMATED = "estimated"
+    USAGE_BASED = "usage_based"
+    UNAVAILABLE = "unavailable"
+
+
+class CreditEstimateRequest(BaseModel):
+    node_payload: dict[str, Any] | None = None
+    vertex_id: str = ""
+
+
+class CreditEstimateResponse(BaseModel):
+    component_key: str
+    resource_type: CreditResourceType | None = None
+    model_key: str | None = None
+    display_name: str | None = None
+    billing_mode: CreditEstimateBillingMode
+    estimated_credits: int | None = None
+
+
 def _to_account_response(account) -> CreditAccountResponse:
     return CreditAccountResponse(
         user_id=account.user_id,
@@ -135,6 +158,17 @@ def _to_pricing_response(rule: CreditPricingRule) -> CreditPricingRuleResponse:
     )
 
 
+def _to_estimate_response(estimate) -> CreditEstimateResponse:
+    return CreditEstimateResponse(
+        component_key=estimate.component_key,
+        resource_type=estimate.resource_type,
+        model_key=estimate.model_key,
+        display_name=estimate.display_name,
+        billing_mode=CreditEstimateBillingMode(estimate.billing_mode),
+        estimated_credits=estimate.estimated_credits,
+    )
+
+
 @router.get("/me", response_model=CreditAccountResponse, status_code=200)
 async def get_my_credits(session: DbSession, current_user: CurrentActiveUser):
     account = await get_or_create_credit_account(session, current_user.id)
@@ -155,6 +189,20 @@ async def get_my_credit_ledger(
 async def get_credit_pricing(session: DbSession, current_user: CurrentActiveUser):  # noqa: ARG001
     rules = await get_pricing_rules(session)
     return [_to_pricing_response(rule) for rule in rules]
+
+
+@router.post("/estimate", response_model=CreditEstimateResponse, status_code=200)
+async def post_credit_estimate(
+    payload: CreditEstimateRequest,
+    session: DbSession,
+    current_user: CurrentActiveUser,  # noqa: ARG001
+):
+    estimate = await estimate_chargeable_build_item(
+        session,
+        node_payload=payload.node_payload,
+        vertex_id=payload.vertex_id,
+    )
+    return _to_estimate_response(estimate)
 
 
 @router.get("/admin/users", response_model=CreditAdminUsersPageResponse, status_code=200)

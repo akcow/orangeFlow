@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
 import DoubaoQuickAddMenu from "./DoubaoQuickAddMenu";
+import GenerationCostPill from "./GenerationCostPill";
 import {
   DoubaoParameterButton,
   DOUBAO_CONFIG_TOOLTIP,
@@ -1667,7 +1668,7 @@ export default function TextCreationLayout({
         <div className="nodrag pointer-events-auto absolute left-0 right-0 top-full z-[1600]">
           <div
             className={cn(
-              "relative mt-4 rounded-[32px] border border-border/50 bg-background p-6 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
+              "relative mt-4 rounded-[32px] border border-border/50 bg-background px-6 pt-6 pb-0 shadow-[0_25px_50px_rgba(15,23,42,0.08)]",
               "transition-colors transition-shadow duration-200 ease-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_25px_50px_rgba(0,0,0,0.30)]",
               // Cancel ReactFlow viewport zoom (keep fixed pixel size while zooming canvas).
               "transform-gpu origin-top scale-[var(--inv-zoom)]",
@@ -1701,14 +1702,14 @@ export default function TextCreationLayout({
 
               <div className="flex min-h-[168px] flex-col gap-3">
                 <textarea
-                  rows={3}
+                  rows={4}
                   value={resolvedPromptValue}
                   disabled={busy}
                   readOnly={promptReadonly}
                   placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
                   className={cn(
                     "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
-                    "min-h-[72px] max-h-[72px] overflow-y-auto",
+                    "min-h-[96px] max-h-[96px] overflow-y-auto",
                     "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
                     "placeholder:text-[#9CA3C0]",
                     generationPromptInputBusyClass(busy),
@@ -1762,25 +1763,27 @@ export default function TextCreationLayout({
                     />
                   ))}
 
-                  <button
-                    type="button"
-                    disabled={disableRun}
-                    className={cn(
-                      "ml-auto flex h-11 w-11 items-center justify-center rounded-full text-white",
-                      "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
-                      disableRun
-                        ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
-                        : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
-                    )}
-                    onClick={handleRun}
-                    onMouseEnter={() => setRunHovering(true)}
-                    onMouseLeave={() => setRunHovering(false)}
-                  >
-                    <ForwardedIconComponent
-                      name={runIconName}
-                      className="h-4 w-4"
-                    />
-                  </button>
+                  <GenerationCostPill data={data}>
+                    <button
+                      type="button"
+                      disabled={disableRun}
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full text-white",
+                        "shadow-[0_12px_24px_rgba(46,123,255,0.35)] transition",
+                        disableRun
+                          ? "cursor-not-allowed bg-slate-300 shadow-none hover:bg-slate-300"
+                          : "bg-[#2E7BFF] hover:bg-[#0F5CE0]",
+                      )}
+                      onClick={handleRun}
+                      onMouseEnter={() => setRunHovering(true)}
+                      onMouseLeave={() => setRunHovering(false)}
+                    >
+                      <ForwardedIconComponent
+                        name={runIconName}
+                        className="h-4 w-4"
+                      />
+                    </button>
+                  </GenerationCostPill>
                 </div>
               </div>
 

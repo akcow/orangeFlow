@@ -31,7 +31,7 @@ from langflow.schema.schema import OutputValue
 from langflow.services.credits.service import (
     apply_usage_charge,
     extract_chargeable_item_from_node,
-    resolve_pricing_rule,
+    resolve_chargeable_build_item,
 )
 from langflow.services.database.models.flow.model import Flow
 from langflow.services.deps import get_chat_service, get_telemetry_service, session_scope
@@ -373,22 +373,23 @@ async def generate_flow_events(
                 if resource_type and model_key:
                     try:
                         async with session_scope() as billing_session:
-                            pricing_rule = await resolve_pricing_rule(
+                            chargeable_item = await resolve_chargeable_build_item(
                                 billing_session,
-                                component_key=component_key,
-                                model_key=model_key,
+                                node_payload=vertex.data if isinstance(vertex.data, dict) else None,
+                                vertex_id=vertex.id,
+                                usage_sources=[result_dict, artifacts, result_data_response],
                             )
-                            if pricing_rule:
+                            if chargeable_item:
                                 await apply_usage_charge(
                                     billing_session,
                                     user_id=current_user.id,
                                     flow_id=flow_id,
                                     run_id=str(graph.run_id),
                                     vertex_id=vertex.id,
-                                    component_key=component_key,
-                                    resource_type=resource_type,
-                                    model_key=model_key,
-                                    credits_cost=pricing_rule.credits_cost,
+                                    component_key=chargeable_item.component_key,
+                                    resource_type=chargeable_item.resource_type,
+                                    model_key=chargeable_item.model_key,
+                                    credits_cost=chargeable_item.credits_cost,
                                 )
                     except HTTPException as exc:
                         await logger.awarning(

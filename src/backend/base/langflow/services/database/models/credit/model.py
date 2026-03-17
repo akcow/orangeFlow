@@ -13,6 +13,7 @@ from sqlmodel import Field, SQLModel
 class CreditResourceType(str, Enum):
     IMAGE = "IMAGE"
     VIDEO = "VIDEO"
+    TEXT = "TEXT"
 
 
 class CreditLedgerEntryType(str, Enum):
