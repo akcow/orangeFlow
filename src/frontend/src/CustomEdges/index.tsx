@@ -115,7 +115,7 @@ export function DefaultEdge({
   const getEdgeTargetFieldName = (
     edge: {
       data?: { targetHandle?: { fieldName?: string; name?: string } };
-      targetHandle?: string;
+      targetHandle?: string | null;
     },
   ): string | undefined => {
     const targetHandle = edge?.data?.targetHandle;

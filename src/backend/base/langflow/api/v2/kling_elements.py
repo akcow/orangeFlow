@@ -21,6 +21,7 @@ from sqlmodel import col, select
 
 from langflow.api.schemas import UploadFileResponse
 from langflow.api.utils import CurrentActiveUser, DbSession
+from langflow.gateway.kling_auth import resolve_kling_bearer_token
 from langflow.services.database.models.user_asset.model import UserAsset
 from langflow.services.deps import get_settings_service, get_storage_service
 from langflow.services.settings.service import SettingsService
@@ -67,15 +68,16 @@ def _load_provider_credentials_key(*, providers: list[str]) -> str | None:
 
 
 def _resolve_kling_api_key() -> str:
-    key = _normalize_key(os.getenv("KLING_API_KEY")) or _load_provider_credentials_key(
-        providers=["kling", "klingai"]
-    )
+    key = resolve_kling_bearer_token(providers=["kling", "klingai"])
     if key:
         return key
     # Return 400 (not 401) so the UI doesn't misinterpret it as a login problem.
     raise HTTPException(
         status_code=HTTPStatus.BAD_REQUEST,
-        detail="未配置 KLING_API_KEY（或 provider credentials: kling）。请先配置后再创建/删除主体或智能补齐。",
+        detail=(
+            "未配置 Kling 鉴权信息。请设置 KLING_API_KEY，或 KLING_ACCESS_KEY + KLING_SECRET_KEY，"
+            "或在 provider credentials 的 kling 中填写 api_key / app_id+access_token。"
+        ),
     )
 
 
@@ -256,7 +258,7 @@ async def _kling_request(
         if resp.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-                detail="Kling 鉴权失败，请检查 KLING_API_KEY 是否正确。",
+                detail="Kling 鉴权失败，请检查 API Token 或 AccessKey/SecretKey 配置是否正确。",
             )
         if 400 <= resp.status_code < 500:
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=f"Kling 请求失败：{resp.text}")

@@ -1,13 +1,16 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import MediaReferencePromptInput from "@/components/MediaReferencePromptInput";
+import {
+  renderPromptWithMediaReferenceTokens,
+  type MediaReferenceKind,
+} from "@/components/mediaReferencePromptUtils";
 import { usePostValidatePrompt } from "@/controllers/API/queries/nodes/use-post-validate-prompt";
 import { t } from "@/i18n/t";
 import IconComponent from "../../components/common/genericIconComponent";
-import SanitizedHTMLWrapper from "../../components/common/sanitizedHTMLWrapper";
 import ShadTooltip from "../../components/common/shadTooltipComponent";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Textarea } from "../../components/ui/textarea";
 import {
   BUG_ALERT,
   PROMPT_ERROR_ALERT,
@@ -24,7 +27,120 @@ import type { PromptModalType } from "../../types/components";
 import { handleKeyDown } from "../../utils/reactflowUtils";
 import { classNames } from "../../utils/utils";
 import BaseModal from "../baseModal";
-import varHighlightHTML from "./utils/var-highlight-html";
+
+function renderPreviewTokenChip(
+  kind: MediaReferenceKind,
+  index: number,
+  key: string,
+): JSX.Element {
+  const label = `${kind === "video" ? "Video" : "Image"} ${index}`;
+  const accentClass =
+    kind === "video"
+      ? "border border-emerald-100 bg-white text-emerald-900"
+      : "border border-sky-100 bg-white text-sky-900";
+  const iconWrapClass =
+    kind === "video"
+      ? "bg-emerald-100 text-emerald-700"
+      : "bg-sky-100 text-sky-700";
+
+  return (
+    <span
+      key={key}
+      className={classNames(
+        "mx-0.5 inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-2.5 text-[0.92em] font-semibold align-middle leading-none shadow-sm",
+        accentClass,
+      )}
+    >
+      <span
+        className={classNames(
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+          iconWrapClass,
+        )}
+      >
+        {kind === "video" ? (
+          <svg
+            viewBox="0 0 16 16"
+            className="h-3 w-3 fill-current"
+            aria-hidden="true"
+          >
+            <path d="M5 3.5a.75.75 0 0 1 1.155-.634l5 3.25a.75.75 0 0 1 0 1.268l-5 3.25A.75.75 0 0 1 5 10V3.5Z" />
+          </svg>
+        ) : (
+          <svg
+            viewBox="0 0 16 16"
+            className="h-3 w-3 stroke-current"
+            fill="none"
+            aria-hidden="true"
+          >
+            <rect x="2.25" y="3" width="11.5" height="10" rx="2" strokeWidth="1.5" />
+            <path d="M4.5 10.25 6.8 7.9a.7.7 0 0 1 1.02.03l1.42 1.58 1.27-1.2a.7.7 0 0 1 .96-.02l1.03.96" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none" />
+          </svg>
+        )}
+      </span>
+      <span className="truncate leading-none">{label}</span>
+    </span>
+  );
+}
+
+function renderPreviewTextSegment(
+  value: string,
+  keyPrefix: string,
+): React.ReactNode[] {
+  if (!value) return [];
+
+  const nodes: React.ReactNode[] = [];
+  const pattern = new RegExp(regexHighlight);
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = pattern.exec(value);
+
+  while (match) {
+    const [fullMatch = "", codeFence, openRun, varName, closeRun] = match;
+    const matchStart = match.index;
+    const matchEnd = matchStart + fullMatch.length;
+
+    if (matchStart > lastIndex) {
+      nodes.push(value.slice(lastIndex, matchStart));
+    }
+
+    if (codeFence) {
+      nodes.push(codeFence);
+    } else {
+      const lenOpen = openRun?.length ?? 0;
+      const lenClose = closeRun?.length ?? 0;
+      const isVariable = lenOpen === lenClose && lenOpen % 2 === 1;
+
+      if (!isVariable) {
+        nodes.push(fullMatch);
+      } else {
+        const outerCount = Math.floor(lenOpen / 2);
+        if (outerCount > 0) {
+          nodes.push("{".repeat(outerCount));
+        }
+        nodes.push(
+          <span
+            key={`${keyPrefix}-${matchStart}`}
+            className="chat-message-highlight"
+          >
+            {`{${varName}}`}
+          </span>,
+        );
+        if (outerCount > 0) {
+          nodes.push("}".repeat(outerCount));
+        }
+      }
+    }
+
+    lastIndex = matchEnd;
+    match = pattern.exec(value);
+  }
+
+  if (lastIndex < value.length) {
+    nodes.push(value.slice(lastIndex));
+  }
+
+  return nodes;
+}
 
 export default function PromptModal({
   field_name = "",
@@ -36,9 +152,10 @@ export default function PromptModal({
   disabled,
   id = "",
   readonly = false,
+  mediaSuggestions,
 }: PromptModalType): JSX.Element {
-  const CHECK_AND_SAVE_SUCCESS_TEXT = "检查并保存成功";
-  const CHECK_AND_SAVE_FAILED_TEXT = "检查并保存失败";
+  const CHECK_AND_SAVE_SUCCESS_TEXT = "妫€鏌ュ苟淇濆瓨鎴愬姛";
+  const CHECK_AND_SAVE_FAILED_TEXT = "妫€鏌ュ苟淇濆瓨澶辫触";
   const [modalOpen, setModalOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
   const [isEdit, setIsEdit] = useState(true);
@@ -55,7 +172,6 @@ export default function PromptModal({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   function checkVariables(valueToCheck: string): void {
-    // Match *any* brace run around an identifier
     const regex = /(\{+)([^{}]+)(\}+)/g;
     const matches: string[] = [];
     let match: RegExpExecArray | null = regex.exec(valueToCheck);
@@ -63,9 +179,8 @@ export default function PromptModal({
     while (match) {
       const [openRun, varName, closeRun] = [match[1], match[2], match[3]];
 
-      // keep only odd, balanced runs (actual variables)
       if (openRun.length === closeRun.length && openRun.length % 2 === 1) {
-        matches.push(`{${varName}}`); // normalise to single-brace form
+        matches.push(`{${varName}}`);
       }
       match = regex.exec(valueToCheck);
     }
@@ -96,27 +211,18 @@ export default function PromptModal({
     setWordsHighlight(filteredWordsHighlight);
   }
 
-  const coloredContent = (typeof inputValue === "string" ? inputValue : "")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(regexHighlight, (match, openRun, varName, closeRun) => {
-      // 1) Only highlight when both sides are the *same* length and that
-      //    length is odd (   1,3,5,…  ).
-      const lenOpen = openRun?.length ?? 0;
-      const lenClose = closeRun?.length ?? 0;
-      const isVariable = lenOpen === lenClose && lenOpen % 2 === 1;
-
-      if (!isVariable) return match; // even-brace runs ⇒ escape, no highlight
-
-      // 2) Number of literal braces each side = floor(lenOpen / 2)
-      const literal = "{".repeat(Math.floor(lenOpen / 2));
-      return (
-        literal +
-        varHighlightHTML({ name: varName }) +
-        literal.replace(/\{/g, "}") // same amount of closing braces
-      );
-    })
-    .replace(/\n/g, "<br />");
+  const previewContent = useMemo(() => {
+    const safeValue = typeof inputValue === "string" ? inputValue : "";
+    return renderPromptWithMediaReferenceTokens(
+      safeValue,
+      (kind, index, _rawToken, key) =>
+        renderPreviewTokenChip(kind, index, key),
+    ).flatMap((node, index) =>
+      typeof node === "string"
+        ? renderPreviewTextSegment(node, `preview-${index}`)
+        : [node],
+    );
+  }, [inputValue]);
 
   useEffect(() => {
     if (inputValue && inputValue != "") {
@@ -129,18 +235,17 @@ export default function PromptModal({
   }, [value, modalOpen]);
 
   function getClassByNumberLength(): string {
-    let sumOfCaracteres: number = 0;
+    let sumOfCaracteres = 0;
     wordsHighlight.forEach((element) => {
-      sumOfCaracteres = sumOfCaracteres + element.replace(/[{}]/g, "").length;
+      sumOfCaracteres =
+        sumOfCaracteres + element.replace(/[{}]/g, "").length;
     });
     return sumOfCaracteres > MAX_WORDS_HIGHLIGHT
       ? "code-highlight"
       : "code-nohighlight";
   }
 
-  // Function need some review, working for now
   function validatePrompt(closeModal: boolean): void {
-    //nodeClass is always null on tweaks
     postValidatePrompt(
       { name: field_name, template: inputValue, frontend_node: nodeClass! },
       {
@@ -163,7 +268,6 @@ export default function PromptModal({
               setModalOpen(closeModal);
               setIsEdit(false);
             }
-            // Always show an explicit success/failure message for "Check & Save".
             setSuccessData({ title: CHECK_AND_SAVE_SUCCESS_TEXT });
             if (!inputVariables || inputVariables.length === 0) {
               setNoticeData({ title: TEMP_NOTICE_ALERT });
@@ -206,7 +310,6 @@ export default function PromptModal({
       const textArea = textareaRef.current;
       const { x, y } = clickPosition;
 
-      // Use caretPositionFromPoint to get the closest text position. Does not work on Safari.
       if ("caretPositionFromPoint" in document) {
         const range =
           (document as any).caretPositionFromPoint(x, y)?.offset ?? 0;
@@ -247,34 +350,41 @@ export default function PromptModal({
       <BaseModal.Content overflowHidden>
         <div className={classNames("flex h-full w-full rounded-lg border")}>
           {isEdit && !readonly ? (
-            <Textarea
+            <MediaReferencePromptInput
               id={"modal-" + id}
               data-testid={"modal-" + id}
               ref={textareaRef}
-              className="form-input h-full w-full resize-none rounded-lg border-0 custom-scroll focus-visible:ring-1"
+              suggestions={mediaSuggestions}
+              containerClassName="h-full"
+              contentClassName="h-full w-full rounded-lg p-3 text-sm leading-6"
+              className="form-input h-full w-full resize-none rounded-lg border-0 custom-scroll p-3 focus-visible:ring-1"
               value={inputValue}
+              onValueChange={(nextValue) => {
+                setInputValue(nextValue);
+                checkVariables(nextValue);
+              }}
               onBlur={() => {
                 setScrollPosition(textareaRef.current?.scrollTop || 0);
                 setIsEdit(false);
               }}
               autoFocus
-              onChange={(event) => {
-                setInputValue(event.target.value);
-                checkVariables(event.target.value);
-              }}
               placeholder={EDIT_TEXT_PLACEHOLDER}
               onKeyDown={(e) => {
                 handleKeyDown(e, inputValue, "");
               }}
             />
           ) : (
-            <SanitizedHTMLWrapper
+            <div
               ref={previewRef}
-              className={getClassByNumberLength() + " m-0"}
+              data-testid="edit-prompt-preview"
+              className={classNames(
+                getClassByNumberLength(),
+                "m-0 h-full w-full overflow-y-auto custom-scroll whitespace-pre-wrap rounded-lg p-3 text-sm leading-6",
+              )}
               onClick={handlePreviewClick}
-              content={coloredContent}
-              suppressWarning={true}
-            />
+            >
+              {previewContent}
+            </div>
           )}
         </div>
       </BaseModal.Content>

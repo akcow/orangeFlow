@@ -6,6 +6,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from langflow.gateway.auth import get_hosted_key
 from langflow.gateway.errors import GatewayError, ModelNotFoundError
+from langflow.gateway.kling_auth import resolve_kling_bearer_token
 from langflow.gateway.task_ids import decode_task_id, encode_task_id
 from langflow.gateway.schemas import (
     ChatCompletionRequest,
@@ -232,16 +233,17 @@ def resolve_provider(model: str) -> tuple[str, Any]:
 
     # Kling models (video).
     if model.startswith("kling"):
-        api_key = _resolve_api_key(
-            env_vars=["KLING_API_KEY"],
-            provider_cred_keys=["kling", "klingai"],
-        )
+        api_key = resolve_kling_bearer_token(providers=["kling", "klingai"])
         base_url = os.getenv("KLING_API_BASE", "https://api-beijing.klingai.com")
         if not api_key:
             raise GatewayError(
                 401,
                 "PROVIDER_KEY_MISSING",
-                f"Key for model {model} not configured. Set KLING_API_KEY, or save provider credentials 'kling'.",
+                (
+                    f"Key for model {model} not configured. "
+                    "Set KLING_API_KEY, or KLING_ACCESS_KEY + KLING_SECRET_KEY, "
+                    "or save provider credentials 'kling' (api_key or app_id/access_token)."
+                ),
             )
         return "kling", KlingProvider(api_key=api_key, base_url=base_url)
 

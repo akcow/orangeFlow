@@ -9,6 +9,7 @@ import inspect
 import math
 import mimetypes
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +53,11 @@ from lfx.schema.data import Data
 from lfx.template.field.base import Output
 
 load_dotenv()
+
+PROMPT_MEDIA_REFERENCE_TOKEN_RE = re.compile(
+    r"\{\{\s*(image|video)\s+(\d+)\s*\}\}",
+    re.IGNORECASE,
+)
 
 
 class DoubaoImageCreator(Component):
@@ -2042,6 +2048,36 @@ class DoubaoImageCreator(Component):
             return v.split("base64,", 1)[1].strip()
         return v
 
+    def _replace_prompt_media_reference_tokens(
+        self,
+        prompt: str,
+        *,
+        image_count: int,
+        video_count: int = 0,
+        kling_style: bool = False,
+        label: str,
+    ) -> str:
+        """Validate and optionally convert UI media placeholders before sending prompt upstream."""
+        safe_prompt = str(prompt or "")
+        if not safe_prompt:
+            return ""
+
+        def _replace(match: re.Match[str]) -> str:
+            kind = str(match.group(1) or "").strip().lower()
+            index = int(match.group(2) or 0)
+            limit = image_count if kind == "image" else video_count
+            if index < 1:
+                raise ValueError(f"{label}: media placeholder index must start at 1.")
+            if index > limit:
+                raise ValueError(
+                    f"{label}: prompt references {kind.title()} {index}, but only {limit} {kind} input(s) are available."
+                )
+            if kling_style:
+                return f"<<<{kind}_{index}>>>"
+            return match.group(0)
+
+        return PROMPT_MEDIA_REFERENCE_TOKEN_RE.sub(_replace, safe_prompt)
+
     def _build_images_kling_gateway(
         self,
         *,
@@ -2081,9 +2117,16 @@ class DoubaoImageCreator(Component):
 
             model_id = str(model_meta.get("model_id") or "kling-image-o1").strip() or "kling-image-o1"
             is_o3 = model_id == "kling-v3-omni"
+            kling_prompt = self._replace_prompt_media_reference_tokens(
+                prompt,
+                image_count=len(image_list),
+                video_count=0,
+                kling_style=True,
+                label="kling O1/O3",
+            )
             kling_payload: dict[str, Any] = {
                 "model_name": model_id,
-                "prompt": prompt,
+                "prompt": kling_prompt,
                 "resolution": kling_resolution,
                 "aspect_ratio": kling_ratio,
             }
@@ -2107,7 +2150,7 @@ class DoubaoImageCreator(Component):
 
             response = images_generations(
                 model=str(model_meta.get("model_id") or "kling-image-o1"),
-                prompt=prompt,
+                prompt=kling_prompt,
                 n=int(image_count),
                 size="1024x1024",
                 response_format="url",

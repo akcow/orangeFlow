@@ -7,6 +7,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import time
 import wave
@@ -40,6 +41,11 @@ from lfx.template.field.base import Output
 from lfx.utils.public_files import generate_public_file_token
 
 load_dotenv()
+
+PROMPT_MEDIA_REFERENCE_TOKEN_RE = re.compile(
+    r"\{\{\s*(image|video)\s+(\d+)\s*\}\}",
+    re.IGNORECASE,
+)
 
 
 class DoubaoVideoGenerator(Component):
@@ -3942,6 +3948,36 @@ class DoubaoVideoGenerator(Component):
 
         return {"image_list": image_list, "video_list": video_list}
 
+    def _replace_prompt_media_reference_tokens(
+        self,
+        prompt: str,
+        *,
+        image_count: int,
+        video_count: int,
+        kling_style: bool,
+        label: str,
+    ) -> str:
+        """Validate and optionally convert UI media placeholders before sending prompt upstream."""
+        safe_prompt = str(prompt or "")
+        if not safe_prompt:
+            return ""
+
+        def _replace(match: re.Match[str]) -> str:
+            kind = str(match.group(1) or "").strip().lower()
+            index = int(match.group(2) or 0)
+            limit = image_count if kind == "image" else video_count
+            if index < 1:
+                raise ValueError(f"{label}: media placeholder index must start at 1.")
+            if index > limit:
+                raise ValueError(
+                    f"{label}: prompt references {kind.title()} {index}, but only {limit} {kind} input(s) are available."
+                )
+            if kling_style:
+                return f"<<<{kind}_{index}>>>"
+            return match.group(0)
+
+        return PROMPT_MEDIA_REFERENCE_TOKEN_RE.sub(_replace, safe_prompt)
+
     def _build_video_kling_gateway(self, *, prompt: str, endpoint_id: str) -> Data:
         """Kling video generation via hosted gateway (Omni-Video + V-series)."""
         try:
@@ -4057,12 +4093,13 @@ class DoubaoVideoGenerator(Component):
 
                 is_customize_shot = bool(kling_multi_shot and shot_type == "customize")
 
+                label = "kling V3"
+
                 # multi-shot prompt parsing (same constraints as O3 docs).
                 multi_prompt: list[dict[str, Any]] | None = None
                 if is_customize_shot:
                     import json
 
-                    label = "kling V3"
                     if isinstance(raw_multi_prompt, list):
                         parsed = raw_multi_prompt
                     else:
@@ -4079,6 +4116,13 @@ class DoubaoVideoGenerator(Component):
                         if not isinstance(item, dict):
                             raise ValueError(f"{label}ï¼šmulti_prompt æ¯é¡¹å¿…é¡»æ˜¯å¯¹è±¡ã€‚")
                         prompt_i = str(item.get("prompt") or "").strip()
+                        prompt_i = self._replace_prompt_media_reference_tokens(
+                            prompt_i,
+                            image_count=1 + (1 if tail_url else 0),
+                            video_count=0,
+                            kling_style=True,
+                            label=f"{label} multi_prompt",
+                        )
                         if not prompt_i:
                             raise ValueError(f"{label}ï¼šç¬¬ {idx} ä¸ªåˆ†é•œ prompt ä¸èƒ½ä¸ºç©ºã€‚")
                         if len(prompt_i) > 512:
@@ -4106,9 +4150,16 @@ class DoubaoVideoGenerator(Component):
                 if (not str(prompt or "").strip()) and (not is_customize_shot):
                     return self._error("kling V3ï¼šprompt ä¸èƒ½ä¸ºç©ºï¼ˆå¼€å¯å¤šé•œå¤´æ¨¡å¼?æ—¶é™¤å¤–ï¼‰ã€‚")
 
+                kling_prompt = self._replace_prompt_media_reference_tokens(
+                    prompt,
+                    image_count=1 + (1 if tail_url else 0),
+                    video_count=0,
+                    kling_style=True,
+                    label=label,
+                )
                 kling_payload: dict[str, Any] = {
                     "model_name": kling_model_name,
-                    "prompt": "" if is_customize_shot else prompt,
+                    "prompt": "" if is_customize_shot else kling_prompt,
                     "mode": mode,
                     "sound": sound,
                     "aspect_ratio": ratio,
@@ -4130,7 +4181,7 @@ class DoubaoVideoGenerator(Component):
                 if external_task_id:
                     kling_payload["external_task_id"] = external_task_id
 
-                gateway_prompt = "" if is_customize_shot else prompt
+                gateway_prompt = "" if is_customize_shot else kling_prompt
                 create = videos_create(
                     model=endpoint_id,
                     prompt=gateway_prompt,
@@ -4184,6 +4235,14 @@ class DoubaoVideoGenerator(Component):
 
             callback_url = str(getattr(self, "kling_callback_url", "") or "").strip()
             external_task_id = str(getattr(self, "kling_external_task_id", "") or "").strip()
+            kling_prompt_label = "kling O3" if is_o3 else "kling O1"
+            kling_prompt = self._replace_prompt_media_reference_tokens(
+                prompt,
+                image_count=len(image_list),
+                video_count=len(video_list),
+                kling_style=True,
+                label=kling_prompt_label,
+            )
 
             kling_multi_shot = self._parse_boolish(getattr(self, "kling_multi_shot", False))
             shot_type = str(getattr(self, "kling_shot_type", "") or "intelligence").strip().lower() or "intelligence"
@@ -4221,6 +4280,13 @@ class DoubaoVideoGenerator(Component):
                     if not isinstance(item, dict):
                         raise ValueError("kling O3：multi_prompt 每项必须是对象。")
                     prompt_i = str(item.get("prompt") or "").strip()
+                    prompt_i = self._replace_prompt_media_reference_tokens(
+                        prompt_i,
+                        image_count=len(image_list),
+                        video_count=len(video_list),
+                        kling_style=True,
+                        label="kling O3 multi_prompt",
+                    )
                     if not prompt_i:
                         raise ValueError(f"kling O3：第 {idx} 个分镜 prompt 不能为空。")
                     if len(prompt_i) > 512:
@@ -4240,7 +4306,7 @@ class DoubaoVideoGenerator(Component):
 
             kling_payload: dict[str, Any] = {
                 "model_name": kling_model_name,
-                "prompt": "" if (is_o3 and is_customize_shot) else prompt,
+                "prompt": "" if (is_o3 and is_customize_shot) else kling_prompt,
                 "mode": mode,
             }
             if is_o3:
@@ -4267,7 +4333,7 @@ class DoubaoVideoGenerator(Component):
             if external_task_id:
                 kling_payload["external_task_id"] = external_task_id
 
-            gateway_prompt = "" if (is_o3 and is_customize_shot) else prompt
+            gateway_prompt = "" if (is_o3 and is_customize_shot) else kling_prompt
             create = videos_create(
                 model=endpoint_id,
                 prompt=gateway_prompt,

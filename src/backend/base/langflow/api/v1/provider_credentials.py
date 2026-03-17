@@ -64,6 +64,12 @@ def _env_mapping(provider: str) -> dict[str, str]:
             "access_token": "TTS_TOKEN",
             "api_key": "DASHSCOPE_API_KEY",
         }
+    if provider in {"kling", "klingai"}:
+        return {
+            "app_id": "KLING_ACCESS_KEY",
+            "access_token": "KLING_SECRET_KEY",
+            "api_key": "KLING_API_KEY",
+        }
     # default：豆包
     return {
         "app_id": "TTS_APP_ID",

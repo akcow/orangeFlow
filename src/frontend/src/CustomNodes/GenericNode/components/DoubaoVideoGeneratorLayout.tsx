@@ -2,6 +2,7 @@ import { cloneDeep } from "lodash";
 import { type ReactFlowState, useStore } from "@xyflow/react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import DoubaoPreviewPanel, { type DoubaoPreviewPanelActions, type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
+import MediaReferencePromptInput from "@/components/MediaReferencePromptInput";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import GenerationCostPill from "./GenerationCostPill";
 import DoubaoQuickAddMenu from "./DoubaoQuickAddMenu";
@@ -63,6 +64,7 @@ import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-uplo
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { BASE_URL_API } from "@/constants/constants";
 import KlingElementPickerButton from "@/components/kling/KlingElementPickerButton";
+import type { MediaReferenceSuggestion } from "@/components/mediaReferencePromptUtils";
 import { generationPromptInputBusyClass } from "./promptGenerationStyles";
 import type { KlingElement } from "@/stores/klingElementsStore";
 
@@ -2390,6 +2392,27 @@ export default function DoubaoVideoGeneratorLayout({
     () => promptMediaPreviews.slice(0, 6),
     [promptMediaPreviews],
   );
+  const promptMediaSuggestions = useMemo<MediaReferenceSuggestion[]>(() => {
+    let imageIndex = 0;
+    let videoIndex = 0;
+
+    return promptMediaPreviews.map((preview, index) => {
+      const previewSource = preview.imageSource ?? preview.downloadSource ?? "";
+      const isVideo = isVideoCandidate(previewSource, preview.fileName);
+      const suggestionIndex = isVideo ? ++videoIndex : ++imageIndex;
+      const kind = isVideo ? "video" : "image";
+
+      return {
+        id: preview.id ?? `${kind}-${suggestionIndex}-${index}`,
+        kind,
+        index: suggestionIndex,
+        label: `${kind === "video" ? "Video" : "Image"} ${suggestionIndex}`,
+        token: `{{${kind === "video" ? "Video" : "Image"} ${suggestionIndex}}}`,
+        sourceLabel: preview.label ?? preview.fileName,
+        previewUrl: previewSource || undefined,
+      };
+    });
+  }, [promptMediaPreviews]);
   const selectedLastFrame = combinedLastFramePreviews[0] ?? null;
   const selectedLastFrameSource = useMemo(
     () =>
@@ -4701,6 +4724,7 @@ export default function DoubaoVideoGeneratorLayout({
                 setValue={(newValue) => handlePromptChange({ value: newValue })}
                 nodeClass={data.node!}
                 setNodeClass={handleNodeClass}
+                mediaSuggestions={promptMediaSuggestions}
               >
                 <button
                   type="button"
@@ -4845,16 +4869,20 @@ export default function DoubaoVideoGeneratorLayout({
                               ) : null}
                             </div>
                           </div>
-                          <textarea
+                          <MediaReferencePromptInput
                             rows={2}
                             value={shot.prompt}
                             disabled={isBusy}
+                            suggestions={promptMediaSuggestions}
+                            dropdownPosition="top"
                             placeholder="分镜提示词（可包含 <<<element_1>>> / <<<image_1>>> / <<<video_1>>>）"
                             maxLength={512}
+                            contentClassName="mt-2 min-h-[56px] rounded-xl border border-[#E2E7F5] bg-white p-2 text-sm leading-6 text-[#1C202D] dark:border-white/15 dark:bg-neutral-900/40 dark:text-white"
+                            placeholderClassName="text-[#9CA3C0] dark:text-slate-400"
                             className={cn(
-                              "nopan nodelete nodrag noflow nowheel custom-scroll mt-2 w-full resize-none rounded-xl",
-                              "min-h-[56px] border border-[#E2E7F5] bg-white p-2 text-sm leading-6 text-[#1C202D] focus:outline-none",
-                              "placeholder:text-[#9CA3C0] dark:border-white/15 dark:bg-neutral-900/40 dark:text-white dark:placeholder:text-slate-400",
+                              "custom-scroll mt-2 w-full resize-none rounded-xl",
+                              "min-h-[56px] border border-[#E2E7F5] bg-white p-2 text-sm leading-6 focus:outline-none",
+                              "dark:border-white/15 dark:bg-neutral-900/40",
                               generationPromptInputBusyClass(isBusy),
                             )}
                             onFocus={() => {
@@ -4863,8 +4891,8 @@ export default function DoubaoVideoGeneratorLayout({
                                 klingMultiShotSnapshotTakenRef.current = true;
                               }
                             }}
-                            onChange={(e) => {
-                              updateAt({ prompt: e.target.value, duration: shot.duration });
+                            onValueChange={(next) => {
+                              updateAt({ prompt: next, duration: shot.duration });
                             }}
                           />
                         </div>
@@ -4895,11 +4923,15 @@ export default function DoubaoVideoGeneratorLayout({
                   </div>
                 </div>
               ) : (
-                <textarea
+                <MediaReferencePromptInput
                   rows={4}
                   value={resolvedPromptValue}
                   disabled={isBusy}
                   readOnly={promptReadonly}
+                  suggestions={promptMediaSuggestions}
+                  dropdownPosition="top"
+                  contentClassName="min-h-[96px] max-h-[96px] overflow-hidden p-0 pr-20 text-sm leading-6 text-[#1C202D] dark:text-white"
+                  placeholderClassName="text-[#9CA3C0] dark:text-slate-400"
                   placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
                   className={cn(
                     "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
@@ -4921,8 +4953,7 @@ export default function DoubaoVideoGeneratorLayout({
                   onBlur={() => {
                     setPromptFocused(false);
                   }}
-                  onChange={(e) => {
-                    const next = e.target.value;
+                  onValueChange={(next) => {
                     setPromptDraftValue(next);
                     if (isPromptComposing) {
                       setPromptCompositionValue(next);

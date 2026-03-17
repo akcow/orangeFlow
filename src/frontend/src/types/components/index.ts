@@ -674,6 +674,7 @@ export type PromptModalType = {
   children: ReactNode;
   id?: string;
   readonly?: boolean;
+  mediaSuggestions?: import("@/components/mediaReferencePromptUtils").MediaReferenceSuggestion[];
 };
 
 export type textModalPropsType = {

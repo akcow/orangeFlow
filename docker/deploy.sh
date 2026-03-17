@@ -40,21 +40,29 @@ replace_placeholder() {
   if [[ -z "$current" || "$current" == replace-with-* || "$current" == change-this-* ]]; then
     local generated
     generated="$(openssl rand -hex 24)"
-    python - <<PY
-from pathlib import Path
-path = Path(r"$ENV_FILE")
-key = "$key"
-generated = "$generated"
-lines = path.read_text(encoding="utf-8").splitlines()
-updated = []
-for line in lines:
-    if line.startswith(f"{key}="):
-        updated.append(f"{key}={generated}")
-    else:
-        updated.append(line)
-path.write_text("\n".join(updated) + "\n", encoding="utf-8")
-PY
+    local tmp_file
+    tmp_file="$(mktemp)"
+    awk -v key="$key" -v value="$generated" '
+      BEGIN { updated = 0 }
+      index($0, key "=") == 1 {
+        print key "=" value
+        updated = 1
+        next
+      }
+      { print }
+      END {
+        if (!updated) {
+          print key "=" value
+        }
+      }
+    ' "$ENV_FILE" > "$tmp_file"
+    mv "$tmp_file" "$ENV_FILE"
   fi
+}
+
+read_env_value() {
+  local key="$1"
+  grep -E "^${key}=" "$ENV_FILE" | head -n 1 | cut -d= -f2- || true
 }
 
 if command -v openssl >/dev/null 2>&1; then
@@ -70,22 +78,28 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build
 echo "Starting services..."
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
 
+LANGFLOW_BIND_ADDRESS="$(read_env_value "LANGFLOW_BIND_ADDRESS")"
+LANGFLOW_PORT="$(read_env_value "LANGFLOW_PORT")"
+LANGFLOW_PUBLIC_BASE_URL="$(read_env_value "LANGFLOW_PUBLIC_BASE_URL")"
+LANGFLOW_ACCESS_SECURE="$(read_env_value "LANGFLOW_ACCESS_SECURE")"
+
+LANGFLOW_BIND_ADDRESS="${LANGFLOW_BIND_ADDRESS:-0.0.0.0}"
+LANGFLOW_PORT="${LANGFLOW_PORT:-7860}"
+
 echo "Waiting for Langflow health check..."
+healthy=0
 for _ in $(seq 1 45); do
-  if curl -fsS "http://127.0.0.1:7860/health_check" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${LANGFLOW_PORT}/health_check" >/dev/null 2>&1; then
     echo "Langflow is healthy."
+    healthy=1
     break
   fi
   sleep 2
 done
 
-LANGFLOW_BIND_ADDRESS="$(grep -E '^LANGFLOW_BIND_ADDRESS=' "$ENV_FILE" | cut -d= -f2- || true)"
-LANGFLOW_PORT="$(grep -E '^LANGFLOW_PORT=' "$ENV_FILE" | cut -d= -f2- || true)"
-LANGFLOW_PUBLIC_BASE_URL="$(grep -E '^LANGFLOW_PUBLIC_BASE_URL=' "$ENV_FILE" | cut -d= -f2- || true)"
-LANGFLOW_ACCESS_SECURE="$(grep -E '^LANGFLOW_ACCESS_SECURE=' "$ENV_FILE" | cut -d= -f2- || true)"
-
-LANGFLOW_BIND_ADDRESS="${LANGFLOW_BIND_ADDRESS:-0.0.0.0}"
-LANGFLOW_PORT="${LANGFLOW_PORT:-7860}"
+if [[ "$healthy" != "1" ]]; then
+  echo "Warning: Langflow did not pass the health check within the expected time window."
+fi
 
 echo
 echo "Deployment complete."

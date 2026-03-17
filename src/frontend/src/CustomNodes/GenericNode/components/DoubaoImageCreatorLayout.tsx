@@ -2,6 +2,7 @@ import { cloneDeep } from "lodash";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { type ReactFlowState, useStore, addEdge } from "@xyflow/react";
+import MediaReferencePromptInput from "@/components/MediaReferencePromptInput";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +67,7 @@ import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-uplo
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import { CONSOLE_ERROR_MSG, INVALID_FILE_ALERT } from "@/constants/alerts_constants";
 import KlingElementPickerButton from "@/components/kling/KlingElementPickerButton";
+import type { MediaReferenceSuggestion } from "@/components/mediaReferencePromptUtils";
 import type { KlingElement } from "@/stores/klingElementsStore";
 import { generationPromptInputBusyClass } from "./promptGenerationStyles";
 import {
@@ -735,6 +737,19 @@ export default function DoubaoImageCreatorLayout({
   const promptReferencePreviews = combinedReferencePreviews;
   const visiblePromptReferencePreviews = useMemo<DoubaoReferenceImage[]>(
     () => promptReferencePreviews.slice(0, 6),
+    [promptReferencePreviews],
+  );
+  const promptMediaSuggestions = useMemo<MediaReferenceSuggestion[]>(
+    () =>
+      promptReferencePreviews.map((preview, index) => ({
+        id: preview.id ?? `image-${index + 1}`,
+        kind: "image",
+        index: index + 1,
+        label: `Image ${index + 1}`,
+        token: `{{Image ${index + 1}}}`,
+        sourceLabel: preview.label ?? preview.fileName,
+        previewUrl: preview.imageSource ?? preview.downloadSource ?? undefined,
+      })),
     [promptReferencePreviews],
   );
   const localReferenceCount = referencePreviews.length;
@@ -3188,6 +3203,7 @@ export default function DoubaoImageCreatorLayout({
               setValue={(newValue) => handlePromptChange({ value: newValue })}
               nodeClass={data.node!}
               setNodeClass={handleNodeClass}
+              mediaSuggestions={promptMediaSuggestions}
             >
               <button
                 type="button"
@@ -3243,80 +3259,84 @@ export default function DoubaoImageCreatorLayout({
                     )}
                   </div>
                 )}
-                <textarea
-                rows={4}
-                value={resolvedPromptValue}
-                disabled={isBusy}
-                readOnly={promptReadonly}
+                <MediaReferencePromptInput
+                  rows={4}
+                  value={resolvedPromptValue}
+                  disabled={isBusy}
+                  readOnly={promptReadonly}
+                  suggestions={promptMediaSuggestions}
+                  dropdownPosition="top"
                 placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
-                className={cn(
-                  "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
-                  "min-h-[96px] max-h-[96px] overflow-y-auto",
-                  "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
-                  "placeholder:text-[#9CA3C0]",
-                  generationPromptInputBusyClass(isBusy),
-                  klingElementApplied && "bg-[#FFF7D6] dark:bg-amber-500/15",
-                  "dark:text-white dark:placeholder:text-slate-400",
-                )}
-                onFocus={() => {
-                  setPromptFocused(true);
-                  setSlashQuickFeaturesSuppressed(false);
-                  if (!promptSnapshotTakenRef.current) {
-                    takeSnapshot();
-                    promptSnapshotTakenRef.current = true;
-                  }
-                }}
-                onBlur={() => {
-                  // Defer to avoid interfering with ReactFlow drag initiation on the same pointer event.
-                  queueMicrotask(() => {
-                    setPromptFocused(false);
-                    setSlashQuickFeaturesOpen(false);
+                  contentClassName={cn(
+                    "min-h-[96px] max-h-[96px] overflow-hidden p-0 pr-20 text-sm leading-6 text-[#1C202D]",
+                    "dark:text-white",
+                  )}
+                  placeholderClassName="text-[#9CA3C0] dark:text-slate-400"
+                  className={cn(
+                    "custom-scroll w-full resize-none",
+                    "min-h-[96px] max-h-[96px] overflow-y-auto",
+                    "border-0 p-0 pr-20 text-sm leading-6 focus:outline-none",
+                    generationPromptInputBusyClass(isBusy),
+                    klingElementApplied && "bg-[#FFF7D6] dark:bg-amber-500/15",
+                  )}
+                  onFocus={() => {
+                    setPromptFocused(true);
                     setSlashQuickFeaturesSuppressed(false);
-                  });
-                }}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setPromptDraftValue(next);
-                  setSlashQuickFeaturesSuppressed(false);
-                  if (next.trimStart().startsWith("/")) {
-                    setSlashQuickFeaturesOpen(true);
-                  } else {
-                    setSlashQuickFeaturesOpen(false);
-                  }
-                  if (isPromptComposing) {
-                    setPromptCompositionValue(next);
-                    return;
-                  }
-                  setPromptCompositionValue(null);
-                  handlePromptChange({ value: next }, { skipSnapshot: true });
-                }}
-                onCompositionStart={() => {
-                  setIsPromptComposing(true);
-                }}
-                onCompositionEnd={(e) => {
-                  setIsPromptComposing(false);
-                  const finalValue = promptCompositionValue ?? e.currentTarget.value;
-                  setPromptCompositionValue(null);
-                  setPromptDraftValue(finalValue);
-                  handlePromptChange({ value: finalValue }, { skipSnapshot: true });
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
+                    if (!promptSnapshotTakenRef.current) {
+                      takeSnapshot();
+                      promptSnapshotTakenRef.current = true;
+                    }
+                  }}
+                  onBlur={() => {
+                    // Defer to avoid interfering with ReactFlow drag initiation on the same pointer event.
+                    queueMicrotask(() => {
+                      setPromptFocused(false);
+                      setSlashQuickFeaturesOpen(false);
+                      setSlashQuickFeaturesSuppressed(false);
+                    });
+                  }}
+                  onValueChange={(next) => {
+                    setPromptDraftValue(next);
+                    setSlashQuickFeaturesSuppressed(false);
+                    if (next.trimStart().startsWith("/")) {
+                      setSlashQuickFeaturesOpen(true);
+                    } else {
+                      setSlashQuickFeaturesOpen(false);
+                    }
+                    if (isPromptComposing) {
+                      setPromptCompositionValue(next);
+                      return;
+                    }
+                    setPromptCompositionValue(null);
+                    handlePromptChange({ value: next }, { skipSnapshot: true });
+                  }}
+                  onCompositionStart={() => {
+                    setIsPromptComposing(true);
+                  }}
+                  onCompositionEnd={(e) => {
+                    setIsPromptComposing(false);
+                    const finalValue = promptCompositionValue ?? e.currentTarget.value;
+                    setPromptCompositionValue(null);
+                    setPromptDraftValue(finalValue);
+                    handlePromptChange({ value: finalValue }, { skipSnapshot: true });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSlashQuickFeaturesOpen(false);
+                      setSlashQuickFeaturesSuppressed(true);
+                      return;
+                    }
+                    if (e.key !== "Enter" || e.shiftKey) return;
+                    const nativeIsComposing = Boolean(
+                      (e.nativeEvent as unknown as { isComposing?: boolean })?.isComposing,
+                    );
+                    if (nativeIsComposing || isPromptComposing) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    setSlashQuickFeaturesOpen(false);
-                    setSlashQuickFeaturesSuppressed(true);
-                    return;
-                  }
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  const nativeIsComposing = Boolean(
-                    (e.nativeEvent as unknown as { isComposing?: boolean })?.isComposing,
-                  );
-                  if (nativeIsComposing || isPromptComposing) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!effectiveDisableRun) handleRun();
-                }}
+                    if (!effectiveDisableRun) handleRun();
+                  }}
                 />
 
                 <div className="mt-auto flex flex-wrap gap-3 pt-2">
