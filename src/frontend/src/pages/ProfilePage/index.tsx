@@ -72,14 +72,14 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null);
   const [avatarCrop, setAvatarCrop] = useState({ x: 0, y: 0 });
   const [avatarZoom, setAvatarZoom] = useState(1);
-  const [avatarCroppedAreaPixels, setAvatarCroppedAreaPixels] = useState(null);
+  const [avatarCroppedAreaPixels, setAvatarCroppedAreaPixels] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   // Custom Background Cropping States
   const [isBackgroundCropping, setIsBackgroundCropping] = useState(false);
   const [pendingBackgroundImage, setPendingBackgroundImage] = useState<string | null>(null);
   const [backgroundCrop, setBackgroundCrop] = useState({ x: 0, y: 0 });
   const [backgroundZoom, setBackgroundZoom] = useState(1);
-  const [backgroundCroppedAreaPixels, setBackgroundCroppedAreaPixels] = useState(null);
+  const [backgroundCroppedAreaPixels, setBackgroundCroppedAreaPixels] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +89,7 @@ export default function ProfilePage({ userId }: ProfilePageProps) {
   const displayName = profileUser?.nickname || profileUser?.username || t("User");
   const accountName = profileUser?.username || t("User");
   const userInitial = displayName.slice(0, 1).toUpperCase();
+  const isZh = i18n.language === "zh-CN" || i18n.language.startsWith("zh");
 
   // 获取用户实际创建的 flow（有封面的才算作品）
   const userFlowsQuery = useQuery({

@@ -1,19 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # Multi-stage production build:
-# - frontend-builder: builds the React/Vite frontend to static files
+# - Frontend should be built locally before running docker build
 # - runtime: installs Python deps (via uv.lock) + copies custom code
-
-FROM node:20-bookworm-slim AS frontend-builder
-WORKDIR /frontend
-
-ENV NODE_OPTIONS=--max-old-space-size=8192
-
-COPY src/frontend/package.json src/frontend/package-lock.json ./
-RUN npm ci
-
-COPY src/frontend/ ./
-RUN npm run build
 
 FROM python:3.12-slim AS runtime
 
@@ -43,9 +32,10 @@ COPY src/lfx/pyproject.toml src/lfx/README.md ./src/lfx/
 COPY src/backend ./src/backend
 COPY src/lfx ./src/lfx
 
-# Replace backend-bundled frontend assets with freshly built ones.
+# Replace backend-bundled frontend assets with locally built ones.
+# Run 'cd src/frontend && npm install && npm run build' before docker build
 RUN rm -rf ./src/backend/base/langflow/frontend/*
-COPY --from=frontend-builder /frontend/build/ ./src/backend/base/langflow/frontend/
+COPY src/frontend/build/ ./src/backend/base/langflow/frontend/
 
 # Install Python deps (and workspace packages) deterministically from uv.lock.
 RUN uv sync --frozen --no-dev --extra postgresql
