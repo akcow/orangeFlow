@@ -1,5 +1,6 @@
 src/frontend/node_modules
-src/frontend/build
+# Keep locally built frontend assets in the Docker build context.
+!src/frontend/build
 src/frontend/coverage
 src/frontend/test-results
 src/frontend/playwright-report
