@@ -1,26 +1,26 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: langflow-dev-postgres
+    container_name: orangeflow-dev-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-langflow}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langflow}
-      POSTGRES_DB: ${POSTGRES_DB:-langflow}
+      POSTGRES_USER: ${POSTGRES_USER:-orangeflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orangeflow}
+      POSTGRES_DB: ${POSTGRES_DB:-orangeflow}
       PGDATA: /var/lib/postgresql/data
       POSTGRES_INITDB_ARGS: --encoding=UTF-8
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
-      - langflow-dev-postgres-data:/var/lib/postgresql/data
+      - orangeflow-dev-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-langflow} -d ${POSTGRES_DB:-langflow}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orangeflow} -d ${POSTGRES_DB:-orangeflow}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
 
 volumes:
-  langflow-dev-postgres-data:
+  orangeflow-dev-postgres-data:
     driver: local
-    name: langflow-dev-postgres-data
+    name: orangeflow-dev-postgres-data

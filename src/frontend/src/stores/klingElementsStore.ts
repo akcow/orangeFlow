@@ -27,20 +27,22 @@ export type KlingPresetElement = {
 };
 
 export const KLING_TAG_OPTIONS: Array<{ id: string; label: string }> = [
-  { id: "o_101", label: "热梗" },
-  { id: "o_102", label: "人物" },
-  { id: "o_103", label: "动物" },
-  { id: "o_104", label: "道具" },
-  { id: "o_105", label: "服饰" },
-  { id: "o_106", label: "场景" },
-  { id: "o_107", label: "特效" },
+  { id: "o_101", label: "动物" },
+  { id: "o_102", label: "宠物" },
+  { id: "o_103", label: "美食" },
+  { id: "o_104", label: "服饰" },
+  { id: "o_105", label: "人物" },
+  { id: "o_106", label: "品牌" },
+  { id: "o_107", label: "场景" },
   { id: "o_108", label: "其他" },
 ];
 
 type KlingElementsStore = {
   hydrated: boolean;
-  loading: boolean;
-  error: string | null;
+  customLoading: boolean;
+  presetsLoading: boolean;
+  customError: string | null;
+  presetsError: string | null;
   custom: KlingElement[];
   presets: KlingPresetElement[];
 
@@ -122,8 +124,10 @@ function normalizePresets(value: unknown): KlingPresetElement[] {
 
 export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
   hydrated: false,
-  loading: false,
-  error: null,
+  customLoading: false,
+  presetsLoading: false,
+  customError: null,
+  presetsError: null,
   custom: [],
   presets: [],
 
@@ -135,7 +139,7 @@ export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
   },
 
   refreshCustom: async () => {
-    set({ loading: true, error: null });
+    set({ customLoading: true, customError: null });
     try {
       const res = await api.get<unknown>(`${base()}/custom`, {
         params: { limit: 200, offset: 0 },
@@ -145,13 +149,14 @@ export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
     } catch (e: unknown) {
       const err = e as { message?: string; response?: { data?: { detail?: unknown; message?: unknown } } };
       const detail = err?.response?.data?.detail ?? err?.response?.data?.message;
-      set({ custom: [], error: String(detail ?? err?.message ?? "加载主体失败") });
+      set({ custom: [], customError: String(detail ?? err?.message ?? "加载我的主体失败") });
     } finally {
-      set({ loading: false });
+      set({ customLoading: false });
     }
   },
 
   refreshPresets: async () => {
+    set({ presetsLoading: true, presetsError: null });
     try {
       const res = await api.get<unknown>(`${base()}/presets`, {
         params: { page_num: 1, page_size: 200 },
@@ -159,10 +164,11 @@ export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
       const list = normalizePresets(res?.data);
       set({ presets: list });
     } catch (e: unknown) {
-      // Presets are optional; keep custom usable even if this fails.
       const err = e as { message?: string; response?: { data?: { detail?: unknown; message?: unknown } } };
       const detail = err?.response?.data?.detail ?? err?.response?.data?.message;
-      set({ presets: [], error: String(detail ?? err?.message ?? "加载官方主体失败") });
+      set({ presets: [], presetsError: String(detail ?? err?.message ?? "加载官方主体失败") });
+    } finally {
+      set({ presetsLoading: false });
     }
   },
 
@@ -171,11 +177,11 @@ export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
     const createdRaw = res?.data;
     const created = normalizeList([createdRaw])[0];
     if (!created) {
-      throw new Error("创建主体失败：返回数据无效");
+      throw new Error("创建主体失败：返回结果缺少有效主体数据");
     }
     set((s) => ({
       custom: [created, ...s.custom.filter((x) => x.asset_id !== created.asset_id)],
-      error: null,
+      customError: null,
     }));
     return created;
   },
@@ -183,11 +189,13 @@ export const useKlingElementsStore = create<KlingElementsStore>((set, get) => ({
   deleteCustom: async (asset_id) => {
     try {
       await api.post(`${base()}/delete`, { asset_id: String(asset_id) });
-      set((s) => ({ custom: s.custom.filter((x) => x.asset_id !== String(asset_id)) }));
+      set((s) => ({
+        custom: s.custom.filter((x) => x.asset_id !== String(asset_id)),
+      }));
     } catch (e: unknown) {
       const err = e as { message?: string; response?: { data?: { detail?: unknown; message?: unknown } } };
       const detail = err?.response?.data?.detail ?? err?.response?.data?.message;
-      set({ error: String(detail ?? err?.message ?? "删除主体失败") });
+      set({ customError: String(detail ?? err?.message ?? "删除主体失败") });
     }
   },
 }));

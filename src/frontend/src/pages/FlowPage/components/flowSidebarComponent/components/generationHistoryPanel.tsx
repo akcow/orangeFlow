@@ -12,6 +12,7 @@ import { getNodeId } from "@/utils/reactflowUtils";
 import { cn } from "@/utils/utils";
 import {
   buildGenerationHistoryItems,
+  removeGenerationHistoryItem,
   resolveVideoSource,
   type GenerationHistoryItem,
 } from "./generationHistoryUtils";
@@ -19,7 +20,9 @@ import {
 export default function GenerationHistoryPanel() {
   const [activeKind, setActiveKind] = useState<"image" | "video">("image");
   const flowPool = useFlowStore((state) => state.flowPool);
+  const setFlowPool = useFlowStore((state) => state.setFlowPool);
   const nodes = useFlowStore((state) => state.nodes);
+  const setNodes = useFlowStore((state) => state.setNodes);
   const paste = useFlowStore((state) => state.paste);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const templates = useTypesStore((state) => state.templates);
@@ -28,6 +31,11 @@ export default function GenerationHistoryPanel() {
   const items = useMemo<GenerationHistoryItem[]>(
     () => buildGenerationHistoryItems(flowPool, nodes),
     [flowPool, nodes],
+  );
+
+  const visibleItems = useMemo(
+    () => items.filter((item) => item.kind === activeKind),
+    [activeKind, items],
   );
 
   const handleInsert = useCallback(
@@ -52,7 +60,7 @@ export default function GenerationHistoryPanel() {
         value: item.payload,
         input_types: ["Data"],
         name: "draft_output",
-        display_name: "预览缓存",
+        display_name: "草稿输出",
       };
 
       clonedTemplate.template = {
@@ -99,6 +107,17 @@ export default function GenerationHistoryPanel() {
     [paste, store, takeSnapshot, templates],
   );
 
+  const handleDelete = useCallback(
+    (item: GenerationHistoryItem) => {
+      const next = removeGenerationHistoryItem(flowPool, nodes, item);
+      if (!next.removed) return;
+      takeSnapshot();
+      setFlowPool(next.flowPool);
+      setNodes(next.nodes);
+    },
+    [flowPool, nodes, setFlowPool, setNodes, takeSnapshot],
+  );
+
   return (
     <div className="flex h-full flex-col px-3 pb-3 pt-2">
       <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
@@ -106,7 +125,7 @@ export default function GenerationHistoryPanel() {
         <span>生成历史</span>
       </div>
       <p className="mb-3 text-xs text-muted-foreground">
-        仅显示当前 flow 本次会话的生成结果，点击可加入画布。
+        这里只保留成功生成的图片和视频，便于再次插入节点或清理历史。
       </p>
       <div className="flex-1 overflow-auto pr-1">
         <div className="mb-3 grid grid-cols-2 gap-2">
@@ -135,26 +154,30 @@ export default function GenerationHistoryPanel() {
             );
           })}
         </div>
-        {items.filter((item) => item.kind === activeKind).length === 0 ? (
+        {visibleItems.length === 0 ? (
           <div className="rounded-lg border border-dashed border-muted-foreground/40 p-4 text-xs text-muted-foreground">
-            暂无记录
+            暂无生成记录
           </div>
         ) : (
           <div className="space-y-2">
-            {items
-              .filter((item) => item.kind === activeKind)
-              .map((item) => {
-                const videoSource =
-                  item.kind === "video"
-                    ? resolveVideoSource(item.payload)
-                    : null;
-                return (
+            {visibleItems.map((item) => {
+              const videoSource =
+                item.kind === "video"
+                  ? resolveVideoSource(item.payload)
+                  : null;
+              return (
+                <div
+                  key={item.id}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl border border-border/70 px-2 py-2",
+                    "bg-background/70",
+                  )}
+                >
                   <Button
-                    key={item.id}
                     type="button"
                     variant="ghost"
                     className={cn(
-                      "flex h-auto w-full items-center gap-3 rounded-xl border border-border/70 px-3 py-2",
+                      "flex h-auto min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-0",
                       "justify-start text-left hover:bg-accent/40",
                     )}
                     onClick={() => handleInsert(item)}
@@ -187,7 +210,7 @@ export default function GenerationHistoryPanel() {
                         {item.kind === "image" ? "图片生成" : "视频生成"}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
-                        {item.sourceNodeName ?? "未知节点"}
+                        {item.sourceNodeName ?? "未命名节点"}
                       </div>
                       {item.generatedDate && (
                         <div className="text-[11px] text-muted-foreground">
@@ -196,8 +219,20 @@ export default function GenerationHistoryPanel() {
                       )}
                     </div>
                   </Button>
-                );
-              })}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 text-muted-foreground hover:text-red-600"
+                    onClick={() => handleDelete(item)}
+                    title="删除记录"
+                    aria-label="删除记录"
+                  >
+                    <ForwardedIconComponent name="Trash2" className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

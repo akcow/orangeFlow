@@ -1,7 +1,9 @@
+import { cloneDeep } from "lodash";
 import { parseDoubaoPreviewData } from "@/CustomNodes/hooks/use-doubao-preview";
 import { sanitizePreviewDataUrl } from "@/CustomNodes/GenericNode/components/DoubaoPreviewPanel/helpers";
 import type { OutputLogType, VertexBuildTypeAPI } from "@/types/api";
 import type { AllNodeType } from "@/types/flow";
+import type { FlowPoolType } from "@/types/zustand/flow";
 
 export type GenerationHistoryItem = {
   id: string;
@@ -9,11 +11,18 @@ export type GenerationHistoryItem = {
   generatedAt?: string;
   generatedDate?: string;
   sourceNodeName?: string;
+  sourceNodeId: string;
+  sourceType: "build" | "draft";
+  previewToken?: string;
+  buildIndex?: number;
+  outputKey?: string;
+  logIndex?: number;
   payload: any;
   thumbnail?: string | null;
 };
 
 export const MAX_HISTORY_ITEMS = 50;
+export const GENERATION_HISTORY_COMPONENTS = new Set(["DoubaoImageCreator", "DoubaoVideoGenerator"]);
 
 function normalizePublicPreviewUrl(
   source: unknown,
@@ -133,6 +142,18 @@ export function formatDateLabel(value?: string): string {
   return `${year}-${month}-${day}`;
 }
 
+function matchesHistoryPreview(
+  payload: unknown,
+  item: Pick<GenerationHistoryItem, "kind" | "previewToken">,
+): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  const preview = parseDoubaoPreviewData(undefined, payload);
+  if (!preview || !preview.available) return false;
+  if (preview.kind !== item.kind) return false;
+  if (!item.previewToken) return false;
+  return preview.token === item.previewToken;
+}
+
 export function buildGenerationHistoryItems(
   flowPool: Record<string, VertexBuildTypeAPI[] | undefined>,
   nodes: AllNodeType[],
@@ -149,44 +170,55 @@ export function buildGenerationHistoryItems(
 
   Object.entries(flowPool).forEach(([nodeId, builds]) => {
     const componentName = nodeTypeById.get(nodeId);
+    if (!componentName || !GENERATION_HISTORY_COMPONENTS.has(componentName)) return;
     const ordered = (builds as VertexBuildTypeAPI[] | undefined) ?? [];
-    for (let i = ordered.length - 1; i >= 0; i -= 1) {
-      const entry = ordered[i];
+    for (let buildIndex = ordered.length - 1; buildIndex >= 0; buildIndex -= 1) {
+      const entry = ordered[buildIndex];
       const outputs = entry?.data?.outputs ?? {};
-      const outputLogs = Object.values(outputs).flatMap(normalizeOutputLogs);
-      for (const log of outputLogs) {
-        const payload = log?.message;
-        if (!payload || typeof payload !== "object") continue;
-        const preview = parseDoubaoPreviewData(componentName, payload);
-        if (!preview || !preview.available) continue;
-        if (preview.kind !== "image" && preview.kind !== "video") continue;
 
-        const dedupeKey = preview.token ? `${preview.kind}-${preview.token}` : "";
-        if (dedupeKey && dedupe.has(dedupeKey)) continue;
-        if (dedupeKey) {
-          dedupe.add(dedupeKey);
+      for (const [outputKey, outputData] of Object.entries(outputs)) {
+        const outputLogs = normalizeOutputLogs(outputData);
+        for (let logIndex = 0; logIndex < outputLogs.length; logIndex += 1) {
+          const log = outputLogs[logIndex];
+          const payload = log?.message;
+          if (!payload || typeof payload !== "object") continue;
+
+          const preview = parseDoubaoPreviewData(componentName, payload);
+          if (!preview || !preview.available) continue;
+          if (preview.kind !== "image" && preview.kind !== "video") continue;
+
+          const dedupeKey = preview.token ? `${preview.kind}-${preview.token}` : "";
+          if (dedupeKey && dedupe.has(dedupeKey)) continue;
+          if (dedupeKey) dedupe.add(dedupeKey);
+
+          const thumbnail =
+            preview.kind === "image"
+              ? resolveImageThumbnail(preview.payload)
+              : resolveVideoThumbnail(preview.payload);
+
+          historyItems.push({
+            id: dedupeKey || `${nodeId}-${buildIndex}-${outputKey}-${logIndex}-${preview.kind}`,
+            kind: preview.kind,
+            generatedAt: preview.generated_at ?? entry?.timestamp,
+            generatedDate: formatDateLabel(preview.generated_at ?? entry?.timestamp),
+            sourceNodeName: nodeNameById.get(nodeId) ?? componentName ?? nodeId,
+            sourceNodeId: nodeId,
+            sourceType: "build",
+            previewToken: preview.token || undefined,
+            buildIndex,
+            outputKey,
+            logIndex,
+            payload,
+            thumbnail,
+          });
         }
-
-        const thumbnail =
-          preview.kind === "image"
-            ? resolveImageThumbnail(preview.payload)
-            : resolveVideoThumbnail(preview.payload);
-
-        historyItems.push({
-          id: dedupeKey || `${nodeId}-${i}-${preview.kind}`,
-          kind: preview.kind,
-          generatedAt: preview.generated_at ?? entry?.timestamp,
-          generatedDate: formatDateLabel(preview.generated_at ?? entry?.timestamp),
-          sourceNodeName: nodeNameById.get(nodeId) ?? componentName ?? nodeId,
-          payload,
-          thumbnail,
-        });
       }
     }
   });
 
   nodes.forEach((node) => {
     const componentName = nodeTypeById.get(node.id);
+    if (!componentName || !GENERATION_HISTORY_COMPONENTS.has(componentName)) return;
     const payload = (node.data as any)?.node?.template?.draft_output?.value;
     if (!payload || typeof payload !== "object") return;
 
@@ -196,9 +228,7 @@ export function buildGenerationHistoryItems(
 
     const dedupeKey = preview.token ? `${preview.kind}-${preview.token}` : "";
     if (dedupeKey && dedupe.has(dedupeKey)) return;
-    if (dedupeKey) {
-      dedupe.add(dedupeKey);
-    }
+    if (dedupeKey) dedupe.add(dedupeKey);
 
     const thumbnail =
       preview.kind === "image"
@@ -211,6 +241,9 @@ export function buildGenerationHistoryItems(
       generatedAt: preview.generated_at,
       generatedDate: formatDateLabel(preview.generated_at),
       sourceNodeName: nodeNameById.get(node.id) ?? componentName ?? node.id,
+      sourceNodeId: node.id,
+      sourceType: "draft",
+      previewToken: preview.token || undefined,
       payload,
       thumbnail,
     });
@@ -219,4 +252,96 @@ export function buildGenerationHistoryItems(
   return historyItems
     .sort((a, b) => parseTimestamp(b.generatedAt) - parseTimestamp(a.generatedAt))
     .slice(0, MAX_HISTORY_ITEMS);
+}
+
+export function removeGenerationHistoryItem(
+  flowPool: FlowPoolType,
+  nodes: AllNodeType[],
+  item: GenerationHistoryItem,
+): {
+  flowPool: FlowPoolType;
+  nodes: AllNodeType[];
+  removed: boolean;
+} {
+  let removed = false;
+  const nextFlowPool = { ...flowPool };
+  const nextNodes = [...nodes];
+
+  if (
+    item.sourceType === "build" &&
+    item.buildIndex !== undefined &&
+    item.outputKey !== undefined
+  ) {
+    const builds = Array.isArray(flowPool[item.sourceNodeId])
+      ? [...(flowPool[item.sourceNodeId] as VertexBuildTypeAPI[])]
+      : [];
+    const build = builds[item.buildIndex];
+    const outputs = build?.data?.outputs;
+
+    if (build && outputs && Object.hasOwn(outputs, item.outputKey)) {
+      const nextBuild = cloneDeep(build);
+      const nextOutputs = nextBuild?.data?.outputs ?? {};
+      const outputData = nextOutputs[item.outputKey];
+
+      if (Array.isArray(outputData)) {
+        const filteredLogs = outputData.filter((log, index) => {
+          if (item.logIndex === index) {
+            removed = true;
+            return false;
+          }
+          if (matchesHistoryPreview(log?.message, item)) {
+            removed = true;
+            return false;
+          }
+          return true;
+        });
+        if (filteredLogs.length === 0) {
+          delete nextOutputs[item.outputKey];
+        } else {
+          (nextOutputs as Record<string, OutputLogType | OutputLogType[]>)[item.outputKey] =
+            filteredLogs as OutputLogType[];
+        }
+      } else if (
+        item.logIndex === undefined ||
+        item.logIndex === 0 ||
+        matchesHistoryPreview(outputData?.message, item)
+      ) {
+        delete nextOutputs[item.outputKey];
+        removed = true;
+      }
+
+      nextBuild.data.outputs = nextOutputs;
+      if (Object.keys(nextOutputs).length === 0) {
+        builds.splice(item.buildIndex, 1);
+      } else {
+        builds[item.buildIndex] = nextBuild;
+      }
+      nextFlowPool[item.sourceNodeId] = builds;
+    }
+  }
+
+  for (let index = 0; index < nextNodes.length; index += 1) {
+    const node = nextNodes[index];
+    const template = (node.data as any)?.node?.template;
+    const draftValue = template?.draft_output?.value;
+    if (!draftValue || typeof draftValue !== "object") continue;
+
+    const sameNodeDraft = item.sourceType === "draft" && node.id === item.sourceNodeId;
+    const samePreviewDraft = matchesHistoryPreview(draftValue, item);
+    if (!sameNodeDraft && !samePreviewDraft) continue;
+
+    const nextNode = cloneDeep(node);
+    const nextTemplate = (nextNode.data as any)?.node?.template;
+    if (nextTemplate?.draft_output) {
+      delete nextTemplate.draft_output;
+      nextNodes[index] = nextNode;
+      removed = true;
+    }
+  }
+
+  return {
+    flowPool: nextFlowPool,
+    nodes: nextNodes,
+    removed,
+  };
 }

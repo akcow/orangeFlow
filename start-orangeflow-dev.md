@@ -1,4 +1,4 @@
-# LangFlow 开发服务启动指南
+# OrangeFlow 开发服务启动指南
 
 ## 🚀 快速启动
 
@@ -50,7 +50,7 @@ npm run build
 Copy-Item -Path "src/frontend/build/*" -Destination "src/backend/base/langflow/frontend/" -Recurse -Force
 ```
 
-### 5. ??LangFlow??
+### 5. ??OrangeFlow??
 
 ???? `start_service.py`????? 2-4????? %LOCALAPPDATA%\langflow\lfx\Cache\component_index.json????
 
@@ -187,7 +187,7 @@ DASHSCOPE_API_KEY=your_dashscope_api_key_here
 ### 问题1: 页面白屏 (最常见问题)
 **现象**: 访问 http://localhost:7860 显示空白页面，但检查网络请求发现 assets/*.js 返回的是 HTML 而不是 JavaScript 文件。
 
-**根本原因**: 环境变量未正确设置，LangFlow 从全局安装位置读取前端资源，而不是使用我们构建的前端文件。
+**根本原因**: 环境变量未正确设置，OrangeFlow 从全局安装位置读取前端资源，而不是使用我们构建的前端文件。
 
 **详细分析**:
 1. 直接访问 `http://127.0.0.1:7860/assets/index-*.js` 得到的是 HTML（约 1142 字节）而不是 JS 文件
@@ -233,7 +233,7 @@ DASHSCOPE_API_KEY=your_dashscope_api_key_here
    ```bash
    echo %LANGFLOW_COMPONENTS_PATH%
    ```
-2. **重新加载组件**: 在LangFlow界面中点击 "刷新" 按钮
+2. **重新加载组件**: 在OrangeFlow界面中点击 "刷新" 按钮
 3. **检查文件权限**: 确保组件目录可读
 
 ## 🔧 开发调试
@@ -258,7 +258,7 @@ set LANGFLOW_LOG_LEVEL=debug
 
 - [ ] http://localhost:7860 可以正常访问
 - [ ] **页面正常显示（非白屏）** - 检查浏览器开发者工具网络标签页，确认 assets/*.js 文件返回的是 JavaScript 而非 HTML
-- [ ] 页面显示正常的LangFlow界面（无色块或错乱图形）
+- [ ] 页面显示正常的OrangeFlow界面（无色块或错乱图形）
 - [ ] 豆包图片编辑组件在组件库中可见
 - [ ] 可以创建包含豆包组件的新流程
 - [ ] 豆包组件的预览功能正常工作
@@ -278,7 +278,7 @@ set LANGFLOW_LOG_LEVEL=debug
 4. 重新启动: 运行启动脚本或完整命令
 
 ### 更新组件
-1. 修改组件文件后，LangFlow会自动重新加载
+1. 修改组件文件后，OrangeFlow会自动重新加载
 2. 如需强制刷新: 在界面中点击刷新按钮
 3. 检查组件输出: 在组件的输出面板查看结果
 
@@ -300,7 +300,7 @@ set LANGFLOW_LOG_LEVEL=debug
 
 ## 🎉 总结
 
-按照本指南启动的LangFlow服务将包含：
+按照本指南启动的OrangeFlow服务将包含：
 - ✅ 正确的环境配置
 - ✅ 完整的豆包图片编辑组件
 - ✅ 前端预览功能支持

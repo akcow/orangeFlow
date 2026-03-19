@@ -670,14 +670,15 @@ export default function KlingElementCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-[1100px] p-0">
-        <div className="p-6">
+      <DialogContent className="h-auto max-h-[92vh] w-[min(96vw,1100px)] max-w-[1100px] overflow-hidden p-0">
+        <div className="flex max-h-[92vh] flex-col p-6">
           <DialogHeader className="flex flex-row items-center justify-between">
             <DialogTitle className="text-lg font-semibold">新建主体</DialogTitle>
           </DialogHeader>
 
-          <div className="mt-6 grid grid-cols-[560px_1fr] gap-10">
-            <div>
+          <div className="mt-6 flex-1 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)] xl:gap-8">
+              <div className="min-w-0">
               <div className="mb-4 flex items-center gap-2">
                 <Button
                   type="button"
@@ -729,7 +730,7 @@ export default function KlingElementCreateDialog({
                   <div className="mt-3 space-y-3">
                     <label
                       className={cn(
-                        "relative flex h-[220px] w-[420px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
+                        "relative flex h-[220px] w-full max-w-[420px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
                         videoPreviewSrc && "border-border/80",
                       )}
                     >
@@ -900,7 +901,7 @@ export default function KlingElementCreateDialog({
                   <div className="mt-3">
                     <label
                       className={cn(
-                        "relative flex h-[160px] w-[220px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
+                        "relative flex h-[160px] w-full max-w-[220px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10",
                         frontalFile && "border-border/80",
                       )}
                     >
@@ -942,12 +943,12 @@ export default function KlingElementCreateDialog({
                       {filling ? "补齐中..." : "智能补齐"}
                     </Button>
                   </div>
-                  <div className="mt-3 flex items-start gap-4">
+                  <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
                     {/* slot 1 */}
-                    <div className="relative">
+                    <div className="relative min-w-0">
                       <button
                         type="button"
-                        className="relative flex h-[180px] w-[260px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
+                        className="relative flex h-[180px] w-full max-w-[260px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
                         onClick={() => void handlePickReferSlot1()}
                       >
                         {referPreviews[0] ? (
@@ -969,12 +970,12 @@ export default function KlingElementCreateDialog({
                     </div>
 
                     {/* slot 2/3 */}
-                    <div className="flex flex-col gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                       {[1, 2].map((idx) => (
-                        <div key={idx} className="relative">
+                        <div key={idx} className="relative min-w-0">
                           <button
                             type="button"
-                            className="relative flex h-[150px] w-[200px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
+                            className="relative flex h-[150px] w-full max-w-[200px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/10"
                             onClick={() => void replaceReferAt(idx)}
                           >
                             {referPreviews[idx] ? (
@@ -1005,7 +1006,7 @@ export default function KlingElementCreateDialog({
               )}
             </div>
 
-            <div className="space-y-6">
+              <div className="space-y-6">
               <div>
                 <div className="mb-2 text-sm font-medium">主体名称（必填）</div>
                 <Input
@@ -1097,10 +1098,11 @@ export default function KlingElementCreateDialog({
                   {error}
                 </div>
               )}
+              </div>
             </div>
           </div>
 
-          <DialogFooter className="mt-8">
+          <DialogFooter className="mt-6">
             <Button variant="outline" onClick={() => handleClose(false)} disabled={submitting}>
               取消
             </Button>

@@ -1,11 +1,13 @@
-﻿# LangFlow 精简版（Doubao 定制）
+# OrangeFlow（基于 LangFlow 的二次开发版）
 
-![Langflow logo](./docs/static/img/langflow-logo-color-black-solid.svg)
+![OrangeFlow logo](./docs/static/img/langflow-logo-color-black-solid.svg)
 
-本项目是基于 LangFlow 的定制版本，重点面向 Doubao 相关能力（图像/视频/TTS）和本地开发体验优化。
+本项目对外统一命名为 **OrangeFlow**。它基于 LangFlow 深度二次开发，重点面向 Doubao 相关能力（图像/视频/TTS）和本地开发体验优化。
+
+说明：为了兼容上游生态与现有代码，仓库内部仍保留部分 `LANGFLOW_*` 环境变量、`langflow` CLI 入口和 `src/backend/base/langflow/` 这类源码路径；但部署名称、镜像名、容器名和对外文档均以 **OrangeFlow** 为准。
 
 如果你是要把它部署到服务器给真实用户使用，不要直接使用 `start_service.py` 这一类开发脚本。
-生产部署请看 `docker/DEPLOYMENT.md`、`docker/production.docker-compose.yml`，以及 `docker/nginx.langflow.conf.example` / `docker/Caddyfile.example`。
+生产部署请看 `docker/DEPLOYMENT.md`、`docker/production.docker-compose.yml`，以及 `docker/nginx.orangeflow.conf.example` / `docker/Caddyfile.example`。
 
 如果你的协作者第一次接触这个仓库，建议先看完本文的：
 - `快速启动`（先跑起来）
@@ -56,7 +58,7 @@ python start_service.py
 启动后访问：`http://localhost:7860`
 
 - 默认数据库：`PostgreSQL`
-- 默认连接串：`postgresql://langflow:langflow@127.0.0.1:5433/langflow`
+- 默认连接串：`postgresql://orangeflow:orangeflow@127.0.0.1:5433/orangeflow`
 
 脚本会自动执行以下步骤：
 1. 清理缓存与组件索引缓存
@@ -66,7 +68,7 @@ python start_service.py
 5. 检查 PostgreSQL 是否可连通；若未显式配置数据库，会自动尝试启动 `docker/postgres.docker-compose.yml`
 6. 前端依赖安装与构建（按需）
 7. 同步 `src/frontend/build` 到后端静态目录
-8. 设置开发环境变量并启动 LangFlow
+8. 设置开发环境变量并启动 OrangeFlow
 
 说明：
 - `start_service.py` 不再默认回退到 SQLite。
@@ -82,7 +84,7 @@ python start_service_admin.py --admin-username admin
 首次会提示输入管理员密码（如果没有通过参数或环境变量传入）。
 
 - 默认数据库：`PostgreSQL`
-- 默认连接串：`postgresql://langflow:langflow@127.0.0.1:5433/langflow`
+- 默认连接串：`postgresql://orangeflow:orangeflow@127.0.0.1:5433/orangeflow`
 
 常用参数：
 
@@ -145,14 +147,14 @@ cp .env.example .env
 
 补充说明：
 - `DoubaoImageCreator`、`DoubaoVideoGenerator`、`DoubaoTTS` 会优先读取组件输入中的 key；留空时读取对应环境变量。
-- 管理员启动脚本默认不显式传 `--env-file`，但 LangFlow 仍会尝试加载附近 `.env`（不会覆盖已设置的关键环境变量）。
+- 管理员启动脚本默认不显式传 `--env-file`，但 OrangeFlow 底层运行时仍会尝试加载附近 `.env`（不会覆盖已设置的关键环境变量）。
 
 ## 5. 目录导览（新协作者重点）
 
 ```text
 .
 |- src/
-|  |- backend/base/langflow/              # 后端主代码（API、服务、数据库等）
+|  |- backend/base/langflow/              # 后端主代码（内部仍沿用上游 langflow 包路径）
 |  |- frontend/                           # 前端工程（React/Vite）
 |  |- lfx/src/lfx/                        # 组件与运行时核心逻辑
 |  |  |- components/doubao/               # Doubao 定制组件
@@ -243,7 +245,7 @@ MinIO 示例：
 
 ```env
 LANGFLOW_STORAGE_TYPE=s3
-LANGFLOW_S3_BUCKET_NAME=langflow-media
+LANGFLOW_S3_BUCKET_NAME=orangeflow-media
 LANGFLOW_S3_ENDPOINT_URL=http://127.0.0.1:9000
 LANGFLOW_S3_ACCESS_KEY_ID=minioadmin
 LANGFLOW_S3_SECRET_ACCESS_KEY=minioadmin

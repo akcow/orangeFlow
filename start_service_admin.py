@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LangFlow dev launcher (admin login mode, PostgreSQL-first)."""
+"""OrangeFlow dev launcher (admin login mode, PostgreSQL-first)."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def _resolve_port(host: str, port: int | None) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="LangFlow dev launcher (admin login mode, PostgreSQL-first).")
+    parser = argparse.ArgumentParser(description="OrangeFlow dev launcher (admin login mode, PostgreSQL-first).")
     parser.add_argument("--admin-username", default=os.environ.get("LANGFLOW_SUPERUSER") or "admin")
     parser.add_argument("--admin-password", default=os.environ.get("LANGFLOW_SUPERUSER_PASSWORD"))
     parser.add_argument(
@@ -123,7 +123,7 @@ def main() -> None:
         if not admin_password:
             raise ValueError("Admin password cannot be empty")
 
-    print("LangFlow admin-login launcher")
+    print("OrangeFlow admin-login launcher")
     print("1) clean caches  2) ensure python deps  3) set env  4) ensure postgres  5) ensure frontend  6) run service")
 
     if not args.skip_clean:
@@ -162,7 +162,7 @@ def main() -> None:
     else:
         print("\n[5/6] Skipping frontend build (--skip-frontend).")
 
-    print("\n[6/6] Starting LangFlow (Ctrl+C to stop)...")
+    print("\n[6/6] Starting OrangeFlow (Ctrl+C to stop)...")
     print(f"   URL (localhost): http://localhost:{port}")
     print(f"   URL (127.0.0.1): http://127.0.0.1:{port}")
     print(f"   Admin login: http://127.0.0.1:{port}/login/admin?force=1")
@@ -179,5 +179,5 @@ if __name__ == "__main__":
         print(f"\nCommand failed: {exc}")
         sys.exit(exc.returncode)
     except Exception as exc:  # noqa: BLE001
-        print(f"\nFailed to start LangFlow: {exc}")
+        print(f"\nFailed to start OrangeFlow: {exc}")
         sys.exit(1)

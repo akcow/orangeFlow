@@ -1,5 +1,6 @@
 import {
   buildGenerationHistoryItems,
+  removeGenerationHistoryItem,
   resolveVideoSource,
 } from "../generationHistoryUtils";
 
@@ -75,7 +76,7 @@ describe("generationHistoryUtils", () => {
       createNode({
         id: "image-node",
         type: "DoubaoImageCreator",
-        displayName: "封面图生成",
+        displayName: "图片节点",
       }),
     ];
     const flowPool = {
@@ -105,7 +106,7 @@ describe("generationHistoryUtils", () => {
       kind: "image",
       generatedAt: "2026-03-10T08:00:00Z",
       generatedDate: "2026-03-10",
-      sourceNodeName: "封面图生成",
+      sourceNodeName: "图片节点",
       thumbnail: signedImageUrl,
     });
   });
@@ -244,5 +245,62 @@ describe("generationHistoryUtils", () => {
     expect(items[0]?.thumbnail).toBe(
       "https://app.example.com/api/v1/files/images/flow-5/images/output.png",
     );
+  });
+
+  it("ignores uploaded-only previews from non-generation nodes", () => {
+    const nodes = [
+      createNode({
+        id: "upload-node",
+        type: "UserImageUpload",
+        draftOutput: {
+          image_url: "https://cdn.example.com/uploaded/reference.png",
+        },
+      }),
+    ];
+
+    const items = buildGenerationHistoryItems({}, nodes);
+
+    expect(items).toHaveLength(0);
+  });
+
+  it("removes persisted history item and matching draft copy", () => {
+    const imageUrl = "https://cdn.example.com/langflow-assets/flow-6/images/out.png";
+    const nodes = [
+      createNode({
+        id: "image-node",
+        type: "DoubaoImageCreator",
+        draftOutput: createImageMessage({
+          token: "img-delete",
+          generatedAt: "2026-03-10T13:05:00Z",
+          imageUrl,
+        }),
+      }),
+    ];
+    const flowPool = {
+      "image-node": [
+        {
+          timestamp: "2026-03-10T13:00:00Z",
+          data: {
+            outputs: {
+              image: [
+                {
+                  message: createImageMessage({
+                    token: "img-delete",
+                    generatedAt: "2026-03-10T13:00:00Z",
+                    imageUrl,
+                  }),
+                },
+              ],
+            },
+          },
+        },
+      ],
+    } as any;
+
+    const item = buildGenerationHistoryItems(flowPool, nodes)[0]!;
+    const next = removeGenerationHistoryItem(flowPool, nodes, item);
+
+    expect(next.removed).toBe(true);
+    expect(buildGenerationHistoryItems(next.flowPool, next.nodes)).toHaveLength(0);
   });
 });

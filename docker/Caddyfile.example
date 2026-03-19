@@ -1,4 +1,4 @@
-# Replace app.example.com with your real public domain.
+# Replace app.example.com with your real OrangeFlow public domain.
 # Caddy handles HTTPS automatically after the DNS record points to this server.
 
 app.example.com {

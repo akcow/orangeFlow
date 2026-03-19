@@ -86,11 +86,11 @@ LANGFLOW_ACCESS_SECURE="$(read_env_value "LANGFLOW_ACCESS_SECURE")"
 LANGFLOW_BIND_ADDRESS="${LANGFLOW_BIND_ADDRESS:-0.0.0.0}"
 LANGFLOW_PORT="${LANGFLOW_PORT:-7860}"
 
-echo "Waiting for Langflow health check..."
+echo "Waiting for OrangeFlow health check..."
 healthy=0
 for _ in $(seq 1 45); do
   if curl -fsS "http://127.0.0.1:${LANGFLOW_PORT}/health_check" >/dev/null 2>&1; then
-    echo "Langflow is healthy."
+    echo "OrangeFlow is healthy."
     healthy=1
     break
   fi
@@ -98,7 +98,7 @@ for _ in $(seq 1 45); do
 done
 
 if [[ "$healthy" != "1" ]]; then
-  echo "Warning: Langflow did not pass the health check within the expected time window."
+  echo "Warning: OrangeFlow did not pass the health check within the expected time window."
 fi
 
 echo
@@ -114,7 +114,7 @@ echo "Default admin username: admin"
 echo "Admin password source : SUPERUSER_PASSWORD in $ENV_FILE"
 echo
 echo "Useful commands:"
-echo "  docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" logs -f langflow"
+echo "  docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" logs -f orangeflow"
 echo "  docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" ps"
 echo "  docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" down"
 echo

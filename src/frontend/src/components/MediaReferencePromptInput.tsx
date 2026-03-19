@@ -38,60 +38,61 @@ type MediaReferencePromptInputProps = Omit<
   placeholderClassName?: string;
 };
 
+function getMediaReferenceDisplayLabel(
+  kind: MediaReferenceKind,
+  index: number,
+): string {
+  return `${kind === "video" ? "Video" : "Image"} ${index}`;
+}
+
 function renderTokenChip(
   kind: MediaReferenceKind,
   index: number,
   rawToken: string,
   key: string,
 ): ReactNode {
-  const label = `${kind === "video" ? "Video" : "Image"} ${index}`;
-  const widthCh = Math.max(label.length + 1, rawToken.length - 2);
+  const label = getMediaReferenceDisplayLabel(kind, index);
   const accentClass =
     kind === "video"
-      ? "border border-emerald-100 bg-white text-emerald-900 dark:border-emerald-200/20 dark:bg-white dark:text-emerald-900"
-      : "border border-sky-100 bg-white text-sky-900 dark:border-sky-200/20 dark:bg-white dark:text-sky-900";
-  const iconWrapClass =
-    kind === "video"
-      ? "bg-emerald-100 text-emerald-700"
-      : "bg-sky-100 text-sky-700";
+      ? "bg-sky-600 text-white"
+      : "bg-emerald-600 text-white";
 
   return (
     <span
       key={key}
-      className={cn(
-        "mx-0.5 inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-2.5 text-[0.92em] font-semibold align-middle leading-none shadow-sm",
-        accentClass,
-      )}
-      style={{ width: `${widthCh}ch` }}
+      className="relative inline-block align-middle whitespace-pre leading-6"
     >
+      <span className="invisible select-none whitespace-pre">{rawToken}</span>
       <span
         className={cn(
-          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
-          iconWrapClass,
+          "absolute inset-y-[2px] left-[1px] right-[1px] inline-flex items-center gap-1 rounded-full px-1 text-[10px] font-semibold leading-none shadow-sm",
+          accentClass,
         )}
       >
-        {kind === "video" ? (
-          <svg
-            viewBox="0 0 16 16"
-            className="h-3 w-3 fill-current"
-            aria-hidden="true"
-          >
-            <path d="M5 3.5a.75.75 0 0 1 1.155-.634l5 3.25a.75.75 0 0 1 0 1.268l-5 3.25A.75.75 0 0 1 5 10V3.5Z" />
-          </svg>
-        ) : (
-          <svg
-            viewBox="0 0 16 16"
-            className="h-3 w-3 stroke-current"
-            fill="none"
-            aria-hidden="true"
-          >
-            <rect x="2.25" y="3" width="11.5" height="10" rx="2" strokeWidth="1.5" />
-            <path d="M4.5 10.25 6.8 7.9a.7.7 0 0 1 1.02.03l1.42 1.58 1.27-1.2a.7.7 0 0 1 .96-.02l1.03.96" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none" />
-          </svg>
-        )}
+        <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-full bg-white/18 text-white">
+          {kind === "video" ? (
+            <svg
+              viewBox="0 0 16 16"
+              className="h-2 w-2 fill-current"
+              aria-hidden="true"
+            >
+              <path d="M5 3.5a.75.75 0 0 1 1.155-.634l5 3.25a.75.75 0 0 1 0 1.268l-5 3.25A.75.75 0 0 1 5 10V3.5Z" />
+            </svg>
+          ) : (
+            <svg
+              viewBox="0 0 16 16"
+              className="h-2 w-2 stroke-current"
+              fill="none"
+              aria-hidden="true"
+            >
+              <rect x="2.25" y="3" width="11.5" height="10" rx="2" strokeWidth="1.5" />
+              <path d="M4.5 10.25 6.8 7.9a.7.7 0 0 1 1.02.03l1.42 1.58 1.27-1.2a.7.7 0 0 1 .96-.02l1.03.96" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none" />
+            </svg>
+          )}
+        </span>
+        <span className="min-w-0 whitespace-nowrap leading-none">{label}</span>
       </span>
-      <span className="truncate leading-none">{label}</span>
     </span>
   );
 }
@@ -184,13 +185,38 @@ const MediaReferencePromptInput = forwardRef<
       );
     }, [filteredSuggestions]);
 
+    const normalizeCollapsedCaret = (caret: number) => {
+      const containingToken = tokenMatches.find(
+        (match) => caret > match.start && caret < match.end,
+      );
+      if (!containingToken) return caret;
+
+      const distanceToStart = caret - containingToken.start;
+      const distanceToEnd = containingToken.end - caret;
+      return distanceToStart <= distanceToEnd
+        ? containingToken.start
+        : containingToken.end;
+    };
+
     const syncSelectionFromTarget = (
       target: HTMLTextAreaElement,
       clearDismissed = false,
     ) => {
+      let start = target.selectionStart ?? 0;
+      let end = target.selectionEnd ?? target.selectionStart ?? 0;
+
+      if (start === end) {
+        const normalizedCaret = normalizeCollapsedCaret(start);
+        if (normalizedCaret !== start) {
+          target.setSelectionRange(normalizedCaret, normalizedCaret);
+          start = normalizedCaret;
+          end = normalizedCaret;
+        }
+      }
+
       setSelection({
-        start: target.selectionStart ?? 0,
-        end: target.selectionEnd ?? target.selectionStart ?? 0,
+        start,
+        end,
       });
       if (clearDismissed) setDismissedTriggerKey(null);
     };
@@ -247,6 +273,12 @@ const MediaReferencePromptInput = forwardRef<
     const findTokenForDelete = (caret: number): MediaReferenceTokenMatch | null =>
       tokenMatches.find((match) => caret >= match.start && caret < match.end) ?? null;
 
+    const findTokenForArrowLeft = (caret: number): MediaReferenceTokenMatch | null =>
+      tokenMatches.find((match) => caret > match.start && caret <= match.end) ?? null;
+
+    const findTokenForArrowRight = (caret: number): MediaReferenceTokenMatch | null =>
+      tokenMatches.find((match) => caret >= match.start && caret < match.end) ?? null;
+
     const findTokenRangeBeforeTrailingWhitespace = (
       caret: number,
     ): { start: number; end: number } | null => {
@@ -294,6 +326,27 @@ const MediaReferencePromptInput = forwardRef<
             insertSuggestion(activeSuggestion);
             return;
           }
+        }
+      }
+
+      if (
+        (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+        selection.start === selection.end
+      ) {
+        const caret = selection.start;
+        const token =
+          event.key === "ArrowLeft"
+            ? findTokenForArrowLeft(caret)
+            : findTokenForArrowRight(caret);
+
+        if (token) {
+          event.preventDefault();
+          const nextCaret =
+            event.key === "ArrowLeft" ? token.start : token.end;
+          pendingSelectionRef.current = { start: nextCaret, end: nextCaret };
+          setSelection({ start: nextCaret, end: nextCaret });
+          textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+          return;
         }
       }
 
@@ -525,17 +578,17 @@ const MediaReferencePromptInput = forwardRef<
                     key={suggestion.id}
                     type="button"
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-[22px] bg-white px-3 py-3 text-left transition-[background-color,transform] duration-200 ease-out",
+                      "flex w-full items-center gap-3 rounded-[22px] border border-white/8 bg-[#3A3A3E] px-3 py-3 text-left transition-[background-color,border-color,transform] duration-200 ease-out",
                       active
-                        ? "bg-[#ECEFF3] text-[#111827]"
-                        : "text-[#111827] hover:bg-[#F3F5F8]",
+                        ? "border-white/12 bg-[#55555A] text-white"
+                        : "text-white hover:border-white/12 hover:bg-[#48484D]",
                     )}
                     onMouseDown={(event) => {
                       event.preventDefault();
                       insertSuggestion(suggestion);
                     }}
                   >
-                    <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-[#E8EDF5] dark:bg-white/8">
+                    <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-[#4B4B50]">
                       {suggestion.previewUrl ? (
                         suggestion.kind === "video" ? (
                           <video
@@ -553,7 +606,7 @@ const MediaReferencePromptInput = forwardRef<
                           />
                         )
                       ) : (
-                        <span className="flex h-full w-full items-center justify-center text-[#64748B] dark:text-white/70">
+                        <span className="flex h-full w-full items-center justify-center text-white/70">
                           {suggestion.kind === "video" ? (
                             <svg
                               viewBox="0 0 16 16"
@@ -576,10 +629,10 @@ const MediaReferencePromptInput = forwardRef<
                           )}
                         </span>
                       )}
-                      <span className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-black/6 dark:ring-white/8" />
+                      <span className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/10" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[17px] font-semibold leading-6">
+                      <span className="block truncate text-[17px] font-semibold leading-6 text-white">
                         {label}
                       </span>
                     </span>

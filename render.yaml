@@ -1,17 +1,18 @@
 services:
   # A Docker web service
   - type: web
-    name: langflow
+    name: orangeflow
     runtime: docker
     dockerfilePath: ./docker/render.Dockerfile
-    repo: https://github.com/langflow-ai/langflow
+    # Replace with your own OrangeFlow fork/repository before using Render.
+    repo: https://github.com/your-org/orangeflow
     branch: main
     plan: standard
     healthCheckPath: /health_check
     autoDeploy: false
     envVars:
       - key: LANGFLOW_DATABASE_URL
-        value: sqlite:////app/data/.cache/langflow/langflow.db
+        value: sqlite:////app/data/.cache/orangeflow/orangeflow.db
       - key: LANGFLOW_HOST
         value: 0.0.0.0
       - key: LANGFLOW_PORT
@@ -20,5 +21,5 @@ services:
       - key: LANGFLOW_LOG_LEVEL
         value: INFO
     disk:
-      name: langflow-data
+      name: orangeflow-data
       mountPath: /app/data

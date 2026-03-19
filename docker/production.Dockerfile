@@ -6,12 +6,12 @@
 
 FROM python:3.12-slim AS runtime
 
-LABEL description="Custom Langflow (includes lfx custom components)"
+LABEL description="OrangeFlow production image (LangFlow-based with lfx custom components)"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    LANGFLOW_CONFIG_DIR=/app/langflow_config \
+    LANGFLOW_CONFIG_DIR=/app/orangeflow_config \
     LANGFLOW_LOG_LEVEL=INFO
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,7 +42,7 @@ RUN uv sync --frozen --no-dev --extra postgresql
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-RUN mkdir -p /app/langflow_config /app/data
+RUN mkdir -p /app/orangeflow_config /app/data
 
 EXPOSE 7860
 

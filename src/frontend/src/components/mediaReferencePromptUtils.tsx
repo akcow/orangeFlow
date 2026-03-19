@@ -37,13 +37,17 @@ export function extractMediaReferenceTrigger(
   const safeValue = String(value ?? "");
   const safeCaret = Math.max(0, Math.min(caretIndex, safeValue.length));
   const beforeCaret = safeValue.slice(0, safeCaret);
-  const match = beforeCaret.match(/(^|\s)@([^\s@{}]*)$/);
-  if (!match) return null;
+  const start = beforeCaret.lastIndexOf("@");
+  if (start === -1) return null;
 
-  const prefix = match[1] ?? "";
-  const query = match[2] ?? "";
-  const fullMatch = match[0] ?? "";
-  const start = safeCaret - fullMatch.length + prefix.length;
+  const prevChar = start > 0 ? beforeCaret.slice(start - 1, start) : "";
+  if (prevChar === "@" || prevChar === "{" || /[A-Za-z0-9_]/.test(prevChar)) {
+    return null;
+  }
+
+  const query = beforeCaret.slice(start + 1);
+  if (/[\s@{}]/.test(query)) return null;
+
   return {
     start,
     end: safeCaret,

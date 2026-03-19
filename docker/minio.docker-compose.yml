@@ -1,7 +1,7 @@
 services:
   minio:
     image: minio/minio:RELEASE.2025-02-18T16-25-55Z
-    container_name: langflow-minio
+    container_name: orangeflow-minio
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -15,7 +15,7 @@ services:
 
   minio-init:
     image: minio/mc:RELEASE.2025-02-15T10-36-16Z
-    container_name: langflow-minio-init
+    container_name: orangeflow-minio-init
     depends_on:
       - minio
     entrypoint: >
@@ -24,11 +24,11 @@ services:
         echo 'waiting for minio...';
         sleep 2;
       done;
-      /usr/bin/mc mb --ignore-existing local/${MINIO_BUCKET:-langflow-media};
+      /usr/bin/mc mb --ignore-existing local/${MINIO_BUCKET:-orangeflow-media};
       exit 0;
       "
 
 volumes:
   minio-data:
     driver: local
-    name: langflow-minio-data
+    name: orangeflow-minio-data

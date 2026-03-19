@@ -17,8 +17,10 @@ export default function KlingElementsPanel({
   const refreshCustom = useKlingElementsStore((s) => s.refreshCustom);
   const refreshPresets = useKlingElementsStore((s) => s.refreshPresets);
   const del = useKlingElementsStore((s) => s.deleteCustom);
-  const loading = useKlingElementsStore((s) => s.loading);
-  const error = useKlingElementsStore((s) => s.error);
+  const customLoading = useKlingElementsStore((s) => s.customLoading);
+  const presetsLoading = useKlingElementsStore((s) => s.presetsLoading);
+  const customError = useKlingElementsStore((s) => s.customError);
+  const presetsError = useKlingElementsStore((s) => s.presetsError);
   const custom = useKlingElementsStore((s) => s.custom);
   const presets = useKlingElementsStore((s) => s.presets);
 
@@ -75,6 +77,9 @@ export default function KlingElementsPanel({
     if (!query) return list;
     return list.filter((el: any) => String(el.element_name ?? "").toLowerCase().includes(query));
   }, [custom, presets, q, tab]);
+
+  const loading = tab === "custom" ? customLoading : presetsLoading;
+  const error = tab === "custom" ? customError : presetsError;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">

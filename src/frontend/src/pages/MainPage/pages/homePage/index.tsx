@@ -24,6 +24,23 @@ import { TapNowWorkflowsHeader } from "./TapNowWorkflowsHeader";
 
 const DEFAULT_VIEWPORT = { zoom: 1, x: 0, y: 0 };
 
+function extractCreatedEntityId(
+  value:
+    | string
+    | {
+        id?: string | null;
+        folder?: { id?: string | null };
+        flow?: { id?: string | null };
+        data?: { id?: string | null };
+      }
+    | undefined,
+): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return value?.id || value?.folder?.id || value?.flow?.id || value?.data?.id || "";
+}
+
 const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
   const [view, setView] = useState<"grid" | "list">(() => {
     const savedView = localStorage.getItem("view");
@@ -78,7 +95,7 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
   );
   const teamFolderId = useMemo(() => {
     if (isFolderAvailable(folderId ?? "")) {
-      return folderId;
+      return folderId ?? "";
     }
     if (isFolderAvailable(lastTeamFolderId)) {
       return lastTeamFolderId;
@@ -175,7 +192,7 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
   }, [folderId, folders, navigate]);
 
   const { data: folderData, isLoading } = useGetFolderQuery({
-    id: scopedFolderId,
+    id: scopedFolderId ?? "",
     page: pageIndex,
     size: pageSize,
     sort_order: sortOrder,
@@ -258,12 +275,7 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
             | string
             | undefined;
 
-          targetFolderId =
-            (typeof createdFolder === "string" ? createdFolder : undefined) ||
-            createdFolder?.id ||
-            createdFolder?.folder?.id ||
-            createdFolder?.data?.id ||
-            "";
+          targetFolderId = extractCreatedEntityId(createdFolder);
           if (!targetFolderId) {
             throw new Error("\u521b\u5efa\u56e2\u961f\u9879\u76ee\u5931\u8d25");
           }
@@ -294,12 +306,7 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
         | string
         | undefined;
 
-      const createdFlowId =
-        (typeof createdFlow === "string" ? createdFlow : undefined) ||
-        createdFlow?.id ||
-        createdFlow?.flow?.id ||
-        createdFlow?.data?.id ||
-        "";
+      const createdFlowId = extractCreatedEntityId(createdFlow);
       if (!createdFlowId) {
         throw new Error("\u521b\u5efa flow \u5931\u8d25");
       }

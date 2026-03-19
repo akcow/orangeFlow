@@ -1,6 +1,6 @@
-# lfx - Langflow Executor
+# lfx - OrangeFlow Executor
 
-lfx is a command-line tool for running Langflow workflows. It provides two main commands: `serve` and `run`.
+lfx is a command-line tool for running OrangeFlow workflows. It provides two main commands: `serve` and `run`.
 
 ## Installation
 
@@ -19,8 +19,8 @@ uvx lfx run my_flow.json "input"
 
 ```bash
 # Clone and run in workspace
-git clone https://github.com/langflow-ai/langflow
-cd langflow/src/lfx
+git clone https://github.com/your-org/orangeflow
+cd orangeflow/src/lfx
 uv run lfx serve my_flow.json
 ```
 
@@ -61,7 +61,7 @@ chat_output = cp.ChatOutput()
 
 ### `lfx serve` - Run flows as an API
 
-Serve a Langflow workflow as a REST API.
+Serve an OrangeFlow workflow as a REST API.
 
 **Important:** You must set the `LANGFLOW_API_KEY` environment variable before running the serve command.
 
@@ -102,7 +102,7 @@ curl -X POST http://localhost:8000/flows/af9edd65-6393-58e2-9ae5-d5f012e714f4/ru
 
 ### `lfx run` - Run flows directly
 
-Execute a Langflow workflow and get results immediately.
+Execute an OrangeFlow workflow and get results immediately.
 
 ```bash
 uv run lfx run my_flow.json "What is AI?"
@@ -148,14 +148,14 @@ Here's a step-by-step example of creating and running an agent workflow with dep
 Create a file called `simple_agent.py`:
 
 ```python
-"""A simple agent flow example for Langflow.
+"""A simple agent flow example for OrangeFlow.
 
-This script demonstrates how to set up a conversational agent using Langflow's
+This script demonstrates how to set up a conversational agent using OrangeFlow's
 Agent component with web search capabilities.
 
 Features:
 - Uses the new flattened component access (cp.AgentComponent instead of deep imports)
-- Configures logging to 'langflow.log' at INFO level
+- Configures logging to 'orangeflow.log' at INFO level
 - Creates an agent with OpenAI GPT model
 - Provides web search tools via URLComponent
 - Connects ChatInput → Agent → ChatOutput
@@ -174,7 +174,7 @@ from lfx.log.logger import LogConfig
 
 log_config = LogConfig(
     log_level="INFO",
-    log_file=Path("langflow.log"),
+    log_file=Path("orangeflow.log"),
 )
 
 # Showcase the new flattened component access - no need for deep imports!

@@ -47,14 +47,18 @@ export default function KlingElementPickerButton({
   ) => void;
 }) {
   const hydrate = useKlingElementsStore((s) => s.hydrate);
-  const loading = useKlingElementsStore((s) => s.loading);
-  const error = useKlingElementsStore((s) => s.error);
+  const customLoading = useKlingElementsStore((s) => s.customLoading);
+  const presetsLoading = useKlingElementsStore((s) => s.presetsLoading);
+  const customError = useKlingElementsStore((s) => s.customError);
+  const presetsError = useKlingElementsStore((s) => s.presetsError);
   const custom = useKlingElementsStore((s) => s.custom);
   const presets = useKlingElementsStore((s) => s.presets);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingIds, setPendingIds] = useState<number[]>([]);
   const didSnapshotRef = useRef(false);
+  const loading = customLoading || presetsLoading;
+  const error = customError ?? presetsError;
 
   useEffect(() => {
     setPendingIds(Array.isArray(selectedElementIds) ? [...selectedElementIds] : []);

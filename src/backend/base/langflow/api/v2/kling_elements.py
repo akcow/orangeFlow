@@ -85,6 +85,23 @@ def _resolve_kling_base_url() -> str:
     return str(os.getenv("KLING_API_BASE") or "https://api-beijing.klingai.com").rstrip("/")
 
 
+def _candidate_kling_base_urls() -> list[str]:
+    candidates = [
+        _resolve_kling_base_url(),
+        "https://api-beijing.klingai.com",
+        "https://api.klingai.com",
+    ]
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in candidates:
+        normalized = str(value or "").rstrip("/")
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(normalized)
+    return out
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
@@ -243,15 +260,27 @@ async def _kling_request(
     json: dict[str, Any] | None = None,
 ) -> Any:
     api_key = _resolve_kling_api_key()
-    base_url = _resolve_kling_base_url()
-    url = f"{base_url}{path}"
     headers: dict[str, str] = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    request_errors: list[str] = []
+    resp: httpx.Response | None = None
 
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.request(method.upper(), url, headers=headers, json=json)
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=f"Kling request failed: {exc}") from exc
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        for base_url in _candidate_kling_base_urls():
+            url = f"{base_url}{path}"
+            try:
+                resp = await client.request(method.upper(), url, headers=headers, json=json)
+                break
+            except httpx.RequestError as exc:
+                request_errors.append(f"{base_url}: {exc}")
+
+    if resp is None:
+        detail = (
+            "无法连接可灵官方服务，请检查服务器网络是否可访问 Kling 域名，"
+            "或确认 `KLING_API_BASE` 配置是否正确。"
+        )
+        if request_errors:
+            detail = f"{detail} 已尝试：{'; '.join(request_errors)}"
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=detail)
 
     if resp.status_code < 200 or resp.status_code >= 300:
         # Avoid leaking upstream auth codes to the UI (can be mistaken for app login issues).

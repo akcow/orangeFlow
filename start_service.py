@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #!/usr/bin/env python3
-"""One-stop LangFlow dev launcher (see start-langflow-dev.md)."""
+"""One-stop OrangeFlow dev launcher (see start-orangeflow-dev.md)."""
 from __future__ import annotations
 
 import os
@@ -24,9 +24,9 @@ LFX_SRC = REPO_ROOT / "src" / "lfx" / "src"
 COMPONENTS_PATH = LFX_SRC / "lfx" / "components"
 LOCAL_POSTGRES_COMPOSE_FILE = REPO_ROOT / "docker" / "postgres.docker-compose.yml"
 UV_CACHE_DIR = REPO_ROOT / ".uv-cache"
-DEFAULT_POSTGRES_USER = "langflow"
-DEFAULT_POSTGRES_PASSWORD = "langflow"
-DEFAULT_POSTGRES_DB = "langflow"
+DEFAULT_POSTGRES_USER = "orangeflow"
+DEFAULT_POSTGRES_PASSWORD = "orangeflow"
+DEFAULT_POSTGRES_DB = "orangeflow"
 DEFAULT_POSTGRES_HOST = "127.0.0.1"
 DEFAULT_POSTGRES_PORT = "5433"
 
@@ -216,7 +216,7 @@ def _normalize_database_url(url: str) -> str:
     if "://" not in normalized:
         raise ValueError(
             "LANGFLOW_DATABASE_URL is invalid. Expected a full PostgreSQL URL like "
-            "'postgresql://langflow:password@127.0.0.1:5433/langflow'."
+            "'postgresql://orangeflow:password@127.0.0.1:5433/orangeflow'."
         )
 
     driver = normalized.split("://", maxsplit=1)[0].lower()
@@ -288,7 +288,7 @@ def _ensure_postgres_ready(env: dict[str, str]) -> None:
         if database_url != default_local_url:
             raise RuntimeError(
                 "Failed to connect to PostgreSQL using LANGFLOW_DATABASE_URL. "
-                f"Please verify the database is reachable before starting Langflow.\n"
+                f"Please verify the database is reachable before starting OrangeFlow.\n"
                 f"Database URL: {database_url}\n"
                 f"Original error: {exc}"
             ) from exc
@@ -468,7 +468,7 @@ def _resolve_port(host: str) -> int:
 def main() -> None:
     _ensure_uv_environment()
 
-    print("LangFlow dev launcher")
+    print("OrangeFlow dev launcher")
     print("1) clean caches  2) ensure python deps  3) set env  4) ensure postgres  5) ensure frontend  6) run service")
 
     print("\n[1/6] Cleaning caches and component index...")
@@ -492,7 +492,7 @@ def main() -> None:
     print("\n[5/6] Ensuring frontend dependencies + build...")
     _ensure_frontend_built(env)
 
-    print("\n[6/6] Starting LangFlow (Ctrl+C to stop)...")
+    print("\n[6/6] Starting OrangeFlow (Ctrl+C to stop)...")
     host = "0.0.0.0"
     port = _resolve_port(host)
     print(f"   URL: http://localhost:{port}")
@@ -513,5 +513,5 @@ if __name__ == "__main__":
         print(f"\nCommand failed: {exc}")
         sys.exit(exc.returncode)
     except Exception as exc:  # noqa: BLE001
-        print(f"\nFailed to start LangFlow: {exc}")
+        print(f"\nFailed to start OrangeFlow: {exc}")
         sys.exit(1)

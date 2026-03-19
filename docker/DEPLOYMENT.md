@@ -1,9 +1,14 @@
 # Production Deployment
 
+This repository is now branded and deployed externally as **OrangeFlow**.
+It still keeps `LANGFLOW_*` environment variables and the `langflow` CLI entrypoint internally for compatibility with the upstream runtime.
+
+If you want a practical step-by-step server checklist, see `docker/ORANGEFLOW_SERVER_CHECKLIST.md`.
+
 This repository is now wired for a PostgreSQL-first deployment.
 For a small private beta and later commercialization, the recommended stack is:
 
-- `Langflow app`
+- `OrangeFlow app`
 - `PostgreSQL`
 - `MinIO` (or AWS S3 later)
 
@@ -14,7 +19,7 @@ This avoids the old SQLite failure mode where history, generated assets, and mul
 - Use `docker/production.docker-compose.yml`
 - Keep PostgreSQL on a persistent volume
 - Keep generated media in MinIO/S3, not inside the app container filesystem
-- Set `LANGFLOW_PUBLIC_BASE_URL` to the public Langflow URL so signed proxy preview links work
+- Set `LANGFLOW_PUBLIC_BASE_URL` to the public OrangeFlow URL so signed proxy preview links work
 - Keep `LANGFLOW_AUTO_LOGIN=false` for beta/commercial use
 - Keep `LANGFLOW_SKIP_AUTH_AUTO_LOGIN=false`
 - Keep PostgreSQL and MinIO internal to Docker unless you explicitly need host access
@@ -78,7 +83,7 @@ Check health:
 
 ```bash
 docker compose -f production.docker-compose.yml ps
-docker compose -f production.docker-compose.yml logs -f langflow
+docker compose -f production.docker-compose.yml logs -f orangeflow
 curl http://127.0.0.1:7860/health_check
 ```
 
@@ -100,7 +105,7 @@ The production compose file matches that direction:
 
 - database: PostgreSQL only
 - media storage: MinIO by default
-- preview/history URLs: signed Langflow proxy URLs by default
+- preview/history URLs: signed OrangeFlow proxy URLs by default
 
 This means:
 
@@ -132,7 +137,7 @@ To switch later, keep `LANGFLOW_STORAGE_TYPE=s3` and replace the S3 env values w
 This repo now supports:
 
 - nested object keys like `images/output.png`
-- signed proxy preview URLs through Langflow
+- signed proxy preview URLs through OrangeFlow
 - `draft_output` fallback for the latest generated result
 - user-scoped generation history records
 
@@ -144,23 +149,23 @@ Those changes directly address the old cases where:
 
 ## 6. Reverse proxy
 
-For real users, put Nginx or Caddy in front of Langflow and terminate HTTPS there.
+For real users, put Nginx or Caddy in front of OrangeFlow and terminate HTTPS there.
 Minimum routing:
 
-- `https://app.example.com` -> Langflow `:7860`
+- `https://app.example.com` -> OrangeFlow `:7860`
 
 Ready-to-use examples are included:
 
-- `docker/nginx.langflow.conf.example`
+- `docker/nginx.orangeflow.conf.example`
 - `docker/Caddyfile.example`
 
 If you later expose MinIO directly through a CDN/domain, set:
 
 ```bash
-MINIO_PUBLIC_BASE_URL=https://assets.example.com/langflow-assets
+MINIO_PUBLIC_BASE_URL=https://assets.example.com/orangeflow-assets
 ```
 
-If you do not set `MINIO_PUBLIC_BASE_URL`, Langflow will generate signed proxy URLs through `LANGFLOW_PUBLIC_BASE_URL`.
+If you do not set `MINIO_PUBLIC_BASE_URL`, OrangeFlow will generate signed proxy URLs through `LANGFLOW_PUBLIC_BASE_URL`.
 That is the safer default for a private beta.
 
 Do not leave `LANGFLOW_ACCESS_SECURE=true` unless the public browser URL is really HTTPS.
@@ -184,7 +189,7 @@ cat backup.sql | docker compose -f production.docker-compose.yml exec -T postgre
 
 MinIO:
 
-- snapshot the `langflow-minio-data` volume
+- snapshot the `orangeflow-minio-data` volume
 - or replicate objects to S3 on a schedule
 
 ## 8. Upgrade checklist

@@ -36,31 +36,22 @@ function renderPreviewTokenChip(
   const label = `${kind === "video" ? "Video" : "Image"} ${index}`;
   const accentClass =
     kind === "video"
-      ? "border border-emerald-100 bg-white text-emerald-900"
-      : "border border-sky-100 bg-white text-sky-900";
-  const iconWrapClass =
-    kind === "video"
-      ? "bg-emerald-100 text-emerald-700"
-      : "bg-sky-100 text-sky-700";
+      ? "bg-sky-600 text-white"
+      : "bg-emerald-600 text-white";
 
   return (
     <span
       key={key}
       className={classNames(
-        "mx-0.5 inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-2.5 text-[0.92em] font-semibold align-middle leading-none shadow-sm",
+        "inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[10px] font-semibold align-middle leading-none shadow-sm",
         accentClass,
       )}
     >
-      <span
-        className={classNames(
-          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
-          iconWrapClass,
-        )}
-      >
+      <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-full bg-white/18 text-white">
         {kind === "video" ? (
           <svg
             viewBox="0 0 16 16"
-            className="h-3 w-3 fill-current"
+            className="h-2 w-2 fill-current"
             aria-hidden="true"
           >
             <path d="M5 3.5a.75.75 0 0 1 1.155-.634l5 3.25a.75.75 0 0 1 0 1.268l-5 3.25A.75.75 0 0 1 5 10V3.5Z" />
@@ -68,7 +59,7 @@ function renderPreviewTokenChip(
         ) : (
           <svg
             viewBox="0 0 16 16"
-            className="h-3 w-3 stroke-current"
+            className="h-2 w-2 stroke-current"
             fill="none"
             aria-hidden="true"
           >
@@ -78,7 +69,7 @@ function renderPreviewTokenChip(
           </svg>
         )}
       </span>
-      <span className="truncate leading-none">{label}</span>
+      <span className="whitespace-nowrap leading-none">{label}</span>
     </span>
   );
 }
@@ -357,7 +348,7 @@ export default function PromptModal({
               suggestions={mediaSuggestions}
               containerClassName="h-full"
               contentClassName="h-full w-full rounded-lg p-3 text-sm leading-6"
-              className="form-input h-full w-full resize-none rounded-lg border-0 custom-scroll p-3 focus-visible:ring-1"
+              className="form-input h-full w-full resize-none rounded-lg border-0 custom-scroll p-3 text-sm leading-6 focus-visible:ring-1"
               value={inputValue}
               onValueChange={(nextValue) => {
                 setInputValue(nextValue);
