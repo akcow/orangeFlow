@@ -22,7 +22,7 @@ export const useGetMyCreditsQuery: useQueryFunctionType<undefined, CreditAccount
 
   useCreditsRefresh(() => {
     void result.refetch();
-  }, !!result.isFetched && !!isAuthenticated && (options?.enabled ?? true));
+  }, !!result.isFetched && !!isAuthenticated);
 
   return result;
 };

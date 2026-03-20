@@ -4,8 +4,6 @@ services:
     name: orangeflow
     runtime: docker
     dockerfilePath: ./docker/render.Dockerfile
-    # Replace with your own OrangeFlow fork/repository before using Render.
-    repo: https://github.com/your-org/orangeflow
     branch: main
     plan: standard
     healthCheckPath: /health_check

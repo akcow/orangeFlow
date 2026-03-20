@@ -1,12 +1,16 @@
 import type { ReactNode } from "react";
 import Markdown from "react-markdown";
-import rehypeMathjax from "rehype-mathjax";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import type { ContentType } from "@/types/chat";
 import { t } from "@/i18n/t";
 import ForwardedIconComponent from "../../common/genericIconComponent";
 import SimplifiedCodeTabComponent from "../codeTabsComponent";
 import DurationDisplay from "./DurationDisplay";
+
+const rehypeKatexPlugin = rehypeKatex as any;
+const remarkMathPlugin = remarkMath as any;
 
 export default function ContentDisplay({
   content,
@@ -31,8 +35,8 @@ export default function ContentDisplay({
         {content.header.title && (
           <>
             <Markdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeMathjax]}
+              remarkPlugins={[remarkGfm, remarkMathPlugin]}
+              rehypePlugins={[rehypeKatexPlugin]}
               className="inline-block w-fit max-w-full text-sm font-semibold text-foreground"
             >
               {content.header.title}
@@ -55,9 +59,9 @@ export default function ContentDisplay({
       contentData = (
         <div className="ml-1 pr-20">
           <Markdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkMathPlugin]}
             linkTarget="_blank"
-            rehypePlugins={[rehypeMathjax]}
+            rehypePlugins={[rehypeKatexPlugin]}
             className="markdown prose max-w-full text-sm font-normal dark:prose-invert"
             components={{
               p({ node, ...props }) {
@@ -161,8 +165,8 @@ export default function ContentDisplay({
         if (typeof output === "string") {
           return (
             <Markdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeMathjax]}
+              remarkPlugins={[remarkGfm, remarkMathPlugin]}
+              rehypePlugins={[rehypeKatexPlugin]}
               className="markdown prose max-w-full text-sm font-normal dark:prose-invert"
               components={{
                 pre({ node, ...props }) {
@@ -210,8 +214,8 @@ export default function ContentDisplay({
       contentData = (
         <div className="flex flex-col gap-2">
           <Markdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeMathjax]}
+            remarkPlugins={[remarkGfm, remarkMathPlugin]}
+            rehypePlugins={[rehypeKatexPlugin]}
             className="markdown prose max-w-full text-sm font-normal dark:prose-invert"
           >
             **Input:**
@@ -223,8 +227,8 @@ export default function ContentDisplay({
           {content.output && (
             <>
               <Markdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeMathjax]}
+                remarkPlugins={[remarkGfm, remarkMathPlugin]}
+                rehypePlugins={[rehypeKatexPlugin]}
                 className="markdown prose max-w-full text-sm font-normal dark:prose-invert"
               >
                 **Output:**
@@ -235,8 +239,8 @@ export default function ContentDisplay({
           {content.error && (
             <div className="text-red-500">
               <Markdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeMathjax]}
+                remarkPlugins={[remarkGfm, remarkMathPlugin]}
+                rehypePlugins={[rehypeKatexPlugin]}
                 className="markdown prose max-w-full text-sm font-normal dark:prose-invert"
               >
                 **Error:**

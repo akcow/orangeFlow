@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { tomorrow } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import IconComponent from "../../common/genericIconComponent";
+import { CodeBlock } from "../../ui/code-block";
 import { Button } from "../../ui/button";
 
 type SimplifiedCodeTabProps = {
@@ -50,13 +49,12 @@ export default function SimplifiedCodeTabComponent({
           )}
         </Button>
       </div>
-      <SyntaxHighlighter
+      <CodeBlock
+        code={code}
         language={language.toLowerCase()}
-        style={tomorrow}
+        themeMode="dark"
         className="!mt-0 h-full w-full overflow-scroll !rounded-b-md !rounded-t-none border border-border text-left !custom-scroll"
-      >
-        {code}
-      </SyntaxHighlighter>
+      />
     </div>
   );
 }

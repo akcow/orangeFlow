@@ -462,10 +462,7 @@ export function formatControlValue(name: string, value: unknown): string {
       .replaceAll("\u7075\u52a8", "")
       .replace(/\s+/g, " ")
       .trim();
-    let display = cleaned.endsWith(".") ? cleaned.slice(0, -1).trim() : cleaned;
-    if (display.startsWith("Seedream") && display.length > 0) {
-      display = display.slice(0, -1).trimEnd();
-    }
+    const display = cleaned.replace(/[\u00B7\u2022.\-|£ü]+$/u, "").trim();
     return display;
   }
 
@@ -474,8 +471,8 @@ export function formatControlValue(name: string, value: unknown): string {
     if (!raw) return "";
     if (raw.toLowerCase().startsWith("auto")) return "\u81ea\u52a8";
 
-    // Keep only the leading "512px/1K/2K/4K" label (strip suffixes like "(recommended)").
-    const match = raw.match(/^(512px|1K|2K|4K)/i);
+    // Keep only the leading "512px/1K/2K/3K/4K" label (strip suffixes like "(recommended)").
+    const match = raw.match(/^(512px|1K|2K|3K|4K)/i);
     if (match) {
       const normalized = match[1]!;
       return normalized.toLowerCase() === "512px" ? "512px" : normalized.toUpperCase();

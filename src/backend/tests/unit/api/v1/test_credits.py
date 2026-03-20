@@ -10,6 +10,7 @@ from langflow.services.credits.service import (
     apply_usage_charge,
     ensure_sufficient_balance_for_items,
     get_or_create_credit_account,
+    normalize_model_name,
 )
 from langflow.services.database.models.credit.model import CreditResourceType
 from langflow.services.database.models.flow.model import Flow
@@ -126,3 +127,9 @@ async def test_apply_usage_charge_is_idempotent(async_session):
 
     account = await get_or_create_credit_account(async_session, user.id)
     assert account.balance == 90
+
+
+def test_normalize_seedream_5_lite_aliases():
+    assert normalize_model_name("doubao-seedream-5-0-260128") == "seedream 5.0 lite"
+    assert normalize_model_name("doubao-seedream-5-0-lite-260128") == "seedream 5.0 lite"
+    assert normalize_model_name("Seedream 5.0 Lite (260128)") == "seedream 5.0 lite"

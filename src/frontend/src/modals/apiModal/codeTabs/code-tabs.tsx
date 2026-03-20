@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import {
-  oneDark,
-  oneLight,
-} from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { useShallow } from "zustand/react/shallow";
 import IconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
+import { CodeBlock } from "@/components/ui/code-block";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs-button";
 import { customCodeTabsClass } from "@/customization/constants";
 import { useIsAutoLogin } from "@/hooks/use-is-auto-login";
@@ -252,17 +248,16 @@ export default function APITabsComponent() {
                             />
                           )}
                         </Button>
-                        <SyntaxHighlighter
+                        <CodeBlock
+                          code={step.code}
                           showLineNumbers={index > 0}
                           wrapLongLines={true}
                           language={currentTab.language}
-                          style={dark ? oneDark : oneLight}
+                          themeMode={dark ? "dark" : "light"}
                           className={`!mt-0 ${
                             index === steps.length - 1 ? "h-full" : ""
                           } ${customCodeTabsClass.step}`}
-                        >
-                          {step.code}
-                        </SyntaxHighlighter>
+                        />
                       </div>
                     </div>
                   ))}
@@ -291,15 +286,14 @@ export default function APITabsComponent() {
                         />
                       )}
                     </Button>
-                    <SyntaxHighlighter
+                    <CodeBlock
+                      code={String(currentTab.code)}
                       showLineNumbers={true}
                       wrapLongLines={true}
                       language={currentTab.language}
-                      style={dark ? oneDark : oneLight}
+                      themeMode={dark ? "dark" : "light"}
                       className={customCodeTabsClass.default}
-                    >
-                      {currentTab.code}
-                    </SyntaxHighlighter>
+                    />
                   </div>
                 </div>
               );

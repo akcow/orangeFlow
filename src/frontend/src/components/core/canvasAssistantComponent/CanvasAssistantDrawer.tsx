@@ -446,12 +446,14 @@ function normalizeModelLabel(opt: string): { value: string; label: string; group
   const raw = String(opt ?? "").trim();
   const lower = raw.toLowerCase();
   if (lower.includes("seedream")) {
+    if (/5[._-]?0/.test(lower)) {
+      return { value: raw, label: "Seedream 5.0 Lite", groupKey: "seedream_50" };
+    }
     if (/4[._-]?5/.test(lower)) return { value: raw, label: "Seedream 4.5", groupKey: "seedream_45" };
     if (/4[._-]?0/.test(lower) || /\bseedream\b.*\b4\b/.test(lower)) {
       return { value: raw, label: "Seedream 4.0", groupKey: "seedream_40" };
     }
-    // Default to 4.0 naming if the source string is ambiguous.
-    return { value: raw, label: "Seedream 4.0", groupKey: "seedream_40" };
+    return { value: raw, label: "Seedream 5.0 Lite", groupKey: "seedream_50" };
   }
   return { value: raw, label: raw };
 }
@@ -597,7 +599,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
       .map((x) => x.trim())
       .filter((x) => x.length > 0);
 
-    // Deduplicate seedream variants into two display names (Seedream 4.5 / 4.0),
+    // Deduplicate seedream variants into stable display names,
     // while preserving the first encountered underlying value for each.
     const out: Array<{ value: string; label: string }> = [];
     const seenValue = new Set<string>();
@@ -616,7 +618,7 @@ export default function CanvasAssistantDrawer(): JSX.Element | null {
     }
 
     // Keep Seedream options near the top (after non-seedream if present).
-    for (const k of ["seedream_45", "seedream_40"]) {
+    for (const k of ["seedream_50", "seedream_45", "seedream_40"]) {
       const v = seedreamPicked.get(k);
       if (v && !seenValue.has(v.value)) {
         seenValue.add(v.value);

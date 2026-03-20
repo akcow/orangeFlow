@@ -149,11 +149,32 @@ describe("TapNowHeader notifications", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/admin/community");
   });
 
+  it("shows the credit management entry for superusers and navigates to credit management", () => {
+    mockUserData = {
+      ...mockUserData,
+      is_superuser: true,
+    };
+
+    render(<TapNowHeader />);
+
+    fireEvent.click(screen.getByTestId("avatar-credit-management-menu-item"));
+
+    expect(mockNavigate).toHaveBeenCalledWith("/admin/credits");
+  });
+
   it("hides the moderation entry for regular users", () => {
     render(<TapNowHeader />);
 
     expect(
       screen.queryByTestId("avatar-moderation-menu-item"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the credit management entry for regular users", () => {
+    render(<TapNowHeader />);
+
+    expect(
+      screen.queryByTestId("avatar-credit-management-menu-item"),
     ).not.toBeInTheDocument();
   });
 });

@@ -11,35 +11,174 @@ import {
   PROXY_TARGET,
 } from "./src/customization/config-constants";
 
-function resolveManualChunk(id: string) {
-  if (!id.includes("node_modules")) return undefined;
+function normalizeModuleId(id: string) {
+  return id.replace(/\\/g, "/");
+}
 
-  if (id.includes("react-pdf") || id.includes("pdfjs-dist")) {
+function isPackageMatch(id: string, patterns: string[]) {
+  return patterns.some((pattern) => id.includes(`/node_modules/${pattern}`));
+}
+
+function resolveManualChunk(id: string) {
+  const normalizedId = normalizeModuleId(id);
+  if (!normalizedId.includes("/node_modules/")) return undefined;
+
+  if (
+    isPackageMatch(normalizedId, [
+      "react-pdf",
+      "pdfjs-dist",
+    ])
+  ) {
     return "vendor-pdf";
   }
 
-  if (id.includes("ace-builds") || id.includes("react-ace")) {
-    return "vendor-editor";
-  }
-
-  if (id.includes("ag-grid")) {
+  if (
+    isPackageMatch(normalizedId, [
+      "ag-grid-community",
+      "ag-grid-react",
+    ])
+  ) {
     return "vendor-grid";
   }
 
-  if (id.includes("@xyflow") || id.includes("reactflow") || id.includes("elkjs")) {
+  if (
+    isPackageMatch(normalizedId, [
+      "@xyflow/react",
+      "reactflow",
+      "elkjs",
+    ])
+  ) {
     return "vendor-flow";
   }
 
   if (
-    id.includes("react-markdown") ||
-    id.includes("remark-") ||
-    id.includes("rehype-") ||
-    id.includes("mathjax")
+    isPackageMatch(normalizedId, [
+      "ace-builds",
+    ])
+  ) {
+    return "vendor-ace";
+  }
+
+  if (
+    isPackageMatch(normalizedId, [
+      "react-markdown",
+      "remark-gfm",
+      "remark-math",
+      "rehype-katex",
+      "rehype-raw",
+      "katex",
+      "unified",
+      "remark-",
+      "rehype-",
+      "micromark",
+      "mdast-",
+      "hast-",
+      "unist-",
+      "vfile",
+      "bail",
+      "trough",
+      "property-information",
+      "space-separated-tokens",
+      "comma-separated-tokens",
+      "decode-named-character-reference",
+      "character-entities",
+      "ccount",
+      "devlop",
+    ])
   ) {
     return "vendor-markdown";
   }
 
-  return "vendor";
+  if (
+    isPackageMatch(normalizedId, [
+      "vanilla-jsoneditor",
+      "svelte",
+    ])
+  ) {
+    return "vendor-json";
+  }
+
+  if (
+    isPackageMatch(normalizedId, [
+      "@tanstack/react-query",
+      "zustand",
+      "zod",
+      "axios",
+      "lodash",
+      "lodash-es",
+      "moment",
+      "moment-timezone",
+      "nanoid",
+      "fuse.js",
+      "uuid",
+      "dompurify",
+      "pako",
+      "whatwg-fetch",
+      "base64-js",
+      "emoji-regex",
+      "short-unique-id",
+      "pretty-ms",
+      "file-saver",
+    ])
+  ) {
+    return "vendor-app";
+  }
+
+  if (
+    isPackageMatch(normalizedId, [
+      "react",
+      "react-ace",
+      "react-sortablejs",
+      "use-stick-to-bottom",
+      "react-dom",
+      "scheduler",
+      "react-router",
+      "react-router-dom",
+      "@remix-run/router",
+    ])
+  ) {
+    return "vendor-app";
+  }
+
+  if (
+    isPackageMatch(normalizedId, [
+      "@radix-ui",
+      "@headlessui/react",
+      "@chakra-ui",
+      "framer-motion",
+      "cmdk",
+      "class-variance-authority",
+      "clsx",
+      "tailwind-merge",
+      "shadcn-ui",
+      "react-hook-form",
+      "@hookform/resolvers",
+    ])
+  ) {
+    return "vendor-ui";
+  }
+
+  if (
+    isPackageMatch(normalizedId, [
+      "@tabler/icons-react",
+      "lucide-react",
+      "react-icons",
+    ])
+  ) {
+    return "vendor-icons";
+  }
+
+  if (
+    isPackageMatch(normalizedId, [
+      "openseadragon",
+      "react-easy-crop",
+      "sortablejs",
+    ])
+  ) {
+    return "vendor-interactive";
+  }
+
+  return "vendor-app";
 }
 
 export default defineConfig(({ mode }) => {
@@ -79,6 +218,7 @@ export default defineConfig(({ mode }) => {
   return {
     base: BASENAME || "",
     build: {
+      chunkSizeWarningLimit: 2600,
       emptyOutDir: true,
       outDir: "build",
       rollupOptions: {

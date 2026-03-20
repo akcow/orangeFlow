@@ -33,7 +33,7 @@ COPY src/backend ./src/backend
 COPY src/lfx ./src/lfx
 
 # Replace backend-bundled frontend assets with locally built ones.
-# Run 'cd src/frontend && npm install && npm run build' before docker build
+# Run 'cd src/frontend && npm ci && npm run build' before docker build
 RUN rm -rf ./src/backend/base/langflow/frontend/*
 COPY src/frontend/build/ ./src/backend/base/langflow/frontend/
 

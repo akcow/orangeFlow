@@ -21,7 +21,7 @@ export const usePostAdjustUserCredits: useMutationFunctionType<
     return res.data;
   };
 
-  const mutation: UseMutationResult = mutate(
+  const mutation: UseMutationResult<CreditLedgerEntry, any, Params> = mutate(
     ["credits", "admin", "adjust"],
     adjustUserCredits,
     options,

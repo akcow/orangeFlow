@@ -23,6 +23,7 @@ function normalizeModelName(rawValue: string): string {
 function canonicalizeModelName(normalizedName: string): string {
   const noParen = normalizedName.replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
 
+  if (noParen.startsWith("seedream 5.0")) return "seedream 5.0 lite";
   if (noParen.startsWith("seedream 4.5")) return "seedream 4.5";
   if (noParen.startsWith("seedream 4.0")) return "seedream 4.0";
   if (noParen.startsWith("seedance 1.5 pro")) return "seedance 1.5 pro";
@@ -32,6 +33,8 @@ function canonicalizeModelName(normalizedName: string): string {
 }
 
 const MODEL_NAME_ALIASES: Record<string, string> = {
+  "doubao-seedream-5-0-260128": "seedream 5.0 lite",
+  "doubao-seedream-5-0-lite-260128": "seedream 5.0 lite",
   "doubao-seedance-1-5-pro-251215": "seedance 1.5 pro",
   "doubao-seedance-1.5-pro 251215": "seedance 1.5 pro",
   "doubao-seedance-1-0-pro-250528": "seedance 1.0 pro",
@@ -43,6 +46,11 @@ const MODEL_NAME_ALIASES: Record<string, string> = {
 
 // Image models (DoubaoImageCreator)
 export const IMAGE_MODEL_META_BY_NAME: Record<string, ModelOptionVisualMeta> = {
+  "seedream 5.0 lite": {
+    icon: "ModelSeedSeries",
+    description:
+      "字节最新 Seedream 图像模型，支持 2K/3K 输出、最多 14 张参考图、多图融合创作，并可启用联网搜索；当前项目固定输出 PNG。",
+  },
   "seedream 4.5": {
     icon: "ModelSeedSeries",
     description: "字节跳动最新推出的图像多模态模型，整合了文生图、图生图、组图输出等能力，融合常识和推理能力。相比前代4.0模型生成效果大幅提升，具备更好的编辑一致性和多图融合效果，能更精准的控制画面细节，小字、小人脸生成更自然，图片排版、色彩更和谐，美感提升",

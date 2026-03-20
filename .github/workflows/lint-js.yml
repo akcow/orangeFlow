@@ -44,8 +44,7 @@ jobs:
       - name: Install Node.js dependencies
         run: |
           cd src/frontend
-          npm install
-        if: ${{ steps.setup-node.outputs.cache-hit != 'true' }}
+          npm ci
 
       - name: Run Biome
         run: |

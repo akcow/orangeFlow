@@ -32,7 +32,7 @@ export const useGetMyCreditLedgerQuery: useQueryFunctionType<Params, CreditLedge
 
   useCreditsRefresh(() => {
     void result.refetch();
-  }, !!result.isFetched && !!isAuthenticated && (options?.enabled ?? true));
+  }, !!result.isFetched && !!isAuthenticated);
 
   return result;
 };

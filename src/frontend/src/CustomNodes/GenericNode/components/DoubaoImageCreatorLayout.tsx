@@ -1,5 +1,5 @@
 import { cloneDeep } from "lodash";
-import { type CSSProperties, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { type ReactFlowState, useStore, addEdge } from "@xyflow/react";
 import MediaReferencePromptInput from "@/components/MediaReferencePromptInput";
@@ -78,8 +78,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const CONTROL_FIELDS = [
-  // Requirement: model selector button width -100px.
-  { name: "model_name", icon: "Sparkles", widthClass: "flex-none basis-[150px]" },
+  { name: "model_name", icon: "Sparkles", widthClass: "flex-none basis-[172px]" },
   { name: "resolution", icon: "Monitor", widthClass: "basis-[150px]" },
   { name: "aspect_ratio", icon: "Square", widthClass: "basis-[110px]" },
   { name: "image_count", icon: "Layers", widthClass: "basis-[90px]" },
@@ -236,50 +235,6 @@ function sortAspectRatioOptions(options: Array<string | number>): Array<string |
     ...ratioOptions.map((entry) => entry.option),
     ...passthroughOptions,
   ];
-}
-
-const PREVIEW_ROW_WIDE_EXPAND_START_RATIO = 16 / 9;
-const PREVIEW_ROW_ULTRA_WIDE_RATIO = 4;
-const PREVIEW_ROW_ULTRA_WIDE_TARGET_HEIGHT_FACTOR = 0.5;
-const PREVIEW_ROW_WIDE_TO_ULTRA_CURVE = 1.2;
-
-function parseAspectRatioForPreviewRow(value: unknown): { width: number; height: number } | null {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw || raw === "adaptive" || raw === "auto") return null;
-
-  const match = raw.match(/(\d+(?:\.\d+)?)\s*[:：xX]\s*(\d+(?:\.\d+)?)/);
-  if (!match) return null;
-
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return null;
-  }
-  return { width, height };
-}
-
-function resolvePreviewRowWidthBoost(value: unknown): number {
-  const ratio = parseAspectRatioForPreviewRow(value);
-  if (!ratio) return 1;
-
-  const wOverH = ratio.width / ratio.height;
-  if (!Number.isFinite(wOverH)) {
-    return 1;
-  }
-  // Keep non-wide ratios exactly the same size as before.
-  if (wOverH <= PREVIEW_ROW_WIDE_EXPAND_START_RATIO) return 1;
-  // For ultra-wide ratios (>= 4:1), target preview height = 50% of 1:1 preview height.
-  // height = (boostedWidth / ratio); set heightTarget=0.5 => boostedWidth=0.5*ratio.
-  if (wOverH >= PREVIEW_ROW_ULTRA_WIDE_RATIO) {
-    return wOverH * PREVIEW_ROW_ULTRA_WIDE_TARGET_HEIGHT_FACTOR;
-  }
-
-  // Smoothly interpolate from 1x (at 16:9) to 2x (at 4:1) to avoid abrupt jumps.
-  const span =
-    PREVIEW_ROW_ULTRA_WIDE_RATIO - PREVIEW_ROW_WIDE_EXPAND_START_RATIO;
-  const progress = (wOverH - PREVIEW_ROW_WIDE_EXPAND_START_RATIO) / span;
-  const eased = Math.pow(Math.max(0, Math.min(1, progress)), PREVIEW_ROW_WIDE_TO_ULTRA_CURVE);
-  return 1 + eased;
 }
 
 const SLASH_QUICK_FEATURES = [
@@ -615,7 +570,8 @@ export default function DoubaoImageCreatorLayout({
     return Array.from(new Set(ids));
   }, [klingElementIdsValue]);
   const klingElementApplied = isKlingImageModel && selectedKlingElementIds.length > 0;
-  const supportsGeminiFeatureButtons = isGeminiImageModel;
+  const supportsMultiTurnFeatureButtons = isGeminiImageModel;
+  const supportsOnlineSearchFeatureButtons = isGeminiImageModel || isSeedreamImageModel;
   const geminiHighFidelityWarningLimit = isNanoBananaPro ? 5 : isNanoBanana2 ? 10 : null;
   const geminiHighFidelityWarningName = isNanoBananaPro
     ? "Nano Banana Pro"
@@ -1234,13 +1190,13 @@ export default function DoubaoImageCreatorLayout({
   const canonicalOnlineSearchField = canonicalTemplate?.[ONLINE_SEARCH_FIELD];
 
   useEffect(() => {
-    if (!supportsGeminiFeatureButtons) return;
+    if (!supportsMultiTurnFeatureButtons && !supportsOnlineSearchFeatureButtons) return;
     if (!data.node) return;
 
     const currentTemplate = data.node.template ?? {};
     const patches: APITemplateType = {};
 
-    if (!currentTemplate[MULTI_TURN_FIELD]) {
+    if (supportsMultiTurnFeatureButtons && !currentTemplate[MULTI_TURN_FIELD]) {
       patches[MULTI_TURN_FIELD] = {
         ...(canonicalMultiTurnField ?? {
           _input_type: "BoolInput",
@@ -1255,7 +1211,7 @@ export default function DoubaoImageCreatorLayout({
       };
     }
 
-    if (!currentTemplate[ONLINE_SEARCH_FIELD]) {
+    if (supportsOnlineSearchFeatureButtons && !currentTemplate[ONLINE_SEARCH_FIELD]) {
       patches[ONLINE_SEARCH_FIELD] = {
         ...(canonicalOnlineSearchField ?? {
           _input_type: "BoolInput",
@@ -1293,7 +1249,8 @@ export default function DoubaoImageCreatorLayout({
       });
     });
   }, [
-    supportsGeminiFeatureButtons,
+    supportsMultiTurnFeatureButtons,
+    supportsOnlineSearchFeatureButtons,
     data.id,
     data.node,
     setNodes,
@@ -2930,31 +2887,12 @@ export default function DoubaoImageCreatorLayout({
     };
   }, [setNodes, data.id]);
 
-  const previewAspectRatioRaw = String(
-    template.aspect_ratio?.value ?? template.aspect_ratio?.default ?? "adaptive",
-  ).trim();
-  const previewRowWidthBoost = useMemo(
-    () => resolvePreviewRowWidthBoost(previewAspectRatioRaw),
-    [previewAspectRatioRaw],
-  );
   const previewRowClassName = "relative flex flex-col gap-4 lg:flex-row";
-  const previewRowStyle = useMemo<CSSProperties | undefined>(() => {
-    if (previewRowWidthBoost <= 1.001) return undefined;
-
-    const widthPercent = Number((previewRowWidthBoost * 100).toFixed(2));
-    const marginLeftPercent = Number(
-      (((previewRowWidthBoost - 1) * 100) / 2).toFixed(2),
-    );
-    return {
-      width: `${widthPercent}%`,
-      marginLeft: `-${marginLeftPercent}%`,
-    };
-  }, [previewRowWidthBoost]);
 
   return (
     <div
       ref={componentRef}
-      className="relative flex flex-col gap-4 px-4 pb-4 transition-all duration-300 ease-in-out"
+      className="relative flex flex-col gap-4 px-4 pb-4 transition-colors duration-300 ease-in-out"
     >
 
       {quickAddMenu && (
@@ -2975,7 +2913,7 @@ export default function DoubaoImageCreatorLayout({
 
       {/* Preview */}
 
-      <div className={previewRowClassName} style={previewRowStyle}>
+      <div className={previewRowClassName}>
         {referenceHandleMeta && (
           <div className="absolute left-0 top-1/2 z-[1200] hidden -translate-y-1/2 lg:block">
             <div ref={leftHandleMotionRef}>

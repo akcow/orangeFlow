@@ -2,6 +2,10 @@
   "name": "langflow",
   "version": "1.7.0",
   "private": true,
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0 <23",
+    "npm": ">=10 <12"
+  },
   "dependencies": {
     "@chakra-ui/number-input": "^2.1.2",
     "@headlessui/react": "^2.0.4",
@@ -33,12 +37,12 @@
     "ag-grid-community": "^32.0.2",
     "ag-grid-react": "^32.0.2",
     "ansi-to-html": "^0.7.2",
-    "axios": "^1.7.4",
+    "axios": "^1.13.4",
     "base64-js": "^1.5.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
-    "dompurify": "^3.2.4",
+    "dompurify": "^3.2.7",
     "dotenv": "^16.4.5",
     "elkjs": "^0.9.3",
     "emoji-regex": "^10.3.0",
@@ -48,7 +52,7 @@
     "framer-motion": "^11.2.10",
     "fuse.js": "^7.0.0",
     "i18next": "^24.2.1",
-    "lodash": "^4.17.21",
+    "lodash": "^4.17.23",
     "lucide-react": "^0.503.0",
     "moment": "^2.30.1",
     "moment-timezone": "^0.5.48",
@@ -56,7 +60,7 @@
     "openseadragon": "^4.1.1",
     "p-debounce": "^4.0.0",
     "pako": "^2.1.0",
-    "playwright": "^1.52.0",
+    "playwright": "^1.55.1",
     "pretty-ms": "^9.1.0",
     "react": "^18.3.1",
     "react-ace": "^11.0.1",
@@ -71,11 +75,10 @@
     "react-laag": "^2.0.5",
     "react-markdown": "^8.0.7",
     "react-pdf": "^9.0.0",
-    "react-router-dom": "^6.23.1",
+    "react-router-dom": "^6.30.2",
     "react-sortablejs": "^6.1.4",
-    "react-syntax-highlighter": "^15.6.1",
     "reactflow": "^11.11.3",
-    "rehype-mathjax": "^4.0.3",
+    "rehype-katex": "^7.0.1",
     "rehype-raw": "^6.1.1",
     "remark-gfm": "3.0.1",
     "remark-math": "^6.0.0",
@@ -107,7 +110,7 @@
     "lint:types": "npx @biomejs/biome lint --diagnostic-level=error",
     "lint:types:staged": "npx @biomejs/biome lint --staged --diagnostic-level=error",
     "check-format": "npx @biomejs/biome check",
-    "type-check": "tsc --noEmit --pretty --project tsconfig.json && vite"
+    "type-check": "tsc --noEmit --pretty --project tsconfig.json"
   },
   "browserslist": {
     "production": [
@@ -125,9 +128,8 @@
   "devDependencies": {
     "@biomejs/biome": "2.1.1",
     "@jest/types": "^30.0.1",
-    "@modelcontextprotocol/server-everything": "^0.6.2",
-    "@playwright/test": "^1.52.0",
-    "@swc/cli": "^0.5.2",
+    "@modelcontextprotocol/server-everything": "^2026.1.26",
+    "@playwright/test": "^1.55.1",
     "@swc/core": "^1.6.1",
     "@tailwindcss/typography": "^0.5.13",
     "@testing-library/jest-dom": "^6.4.6",
@@ -140,8 +142,10 @@
     "@types/react-dom": "^18.3.0",
     "@types/sortablejs": "^1.15.8",
     "@types/uuid": "^9.0.8",
-    "@vitejs/plugin-react-swc": "^3.7.0",
+    "@vitejs/plugin-react-swc": "^4.3.0",
     "autoprefixer": "^10.4.19",
+    "browserslist": "^4.28.1",
+    "caniuse-lite": "^1.0.30001780",
     "jest": "^30.0.3",
     "jest-environment-jsdom": "^30.0.2",
     "jest-junit": "^16.0.0",
@@ -151,6 +155,28 @@
     "ts-jest": "^29.4.0",
     "typescript": "^5.4.5",
     "ua-parser-js": "^1.0.38",
-    "vite": "^5.4.21"
+    "update-browserslist-db": "^1.2.3",
+    "vite": "^6.4.1"
+  },
+  "overrides": {
+    "diff": "^5.2.2",
+    "glob": {
+      "minimatch": "^9.0.7"
+    },
+    "jake": {
+      "minimatch": "^3.1.4",
+      "filelist": {
+        "minimatch": "^5.1.8"
+      }
+    },
+    "js-yaml": "^4.1.1",
+    "lodash": "^4.17.23",
+    "lodash-es": "^4.17.23",
+    "rollup": "^4.59.0",
+    "svelte": "^5.53.5",
+    "tar-fs": "^2.1.4",
+    "test-exclude": {
+      "minimatch": "^3.1.4"
+    }
   }
 }

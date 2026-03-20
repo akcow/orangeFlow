@@ -66,6 +66,8 @@ MODEL_NAME_ALIASES: dict[str, str] = {
     "doubao-seedance-1.5-pro 251215": "seedance 1.5 pro",
     "doubao-seedance-1-0-pro-250528": "seedance 1.0 pro",
     "doubao-seedance-1.0-pro 250528": "seedance 1.0 pro",
+    "doubao-seedream-5-0-260128": "seedream 5.0 lite",
+    "doubao-seedream-5-0-lite-260128": "seedream 5.0 lite",
     "doubao-seedream-5-0-lite": "seedream 5.0 lite",
     "doubao-seedream-5.0-lite": "seedream 5.0 lite",
     "doubao-seedream-4-5-251128": "seedream 4.5",

@@ -963,7 +963,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             !containerStyle && "aspect-square",
             // Single preview container for image creator (avoid nested frames inside the renderer).
             cn(
-              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-all duration-200 ease-in-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
+              "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-[background-color,border-color,box-shadow] duration-200 ease-in-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
               // backdrop-filter can force repaints during transform/layout changes; disable it only while animating.
               isRatioTransitioning && "dark:backdrop-blur-none",
               // Keep selected shadow/ring visible during the ratio animation so the selection

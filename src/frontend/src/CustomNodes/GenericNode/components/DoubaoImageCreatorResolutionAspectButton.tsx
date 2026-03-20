@@ -19,7 +19,7 @@ type ResolutionAspectButtonProps = {
   widthClass?: string;
 };
 
-const RESOLUTION_LABEL_ORDER = ["512px", "1K", "2K", "4K", "Auto"] as const;
+const RESOLUTION_LABEL_ORDER = ["512px", "1K", "2K", "3K", "4K", "Auto"] as const;
 const RESOLUTION_ALLOWED = new Set<string>(RESOLUTION_LABEL_ORDER);
 
 function parseAspectRatio(value: string): { w: number; h: number } | null {
@@ -423,9 +423,9 @@ export default function DoubaoImageCreatorResolutionAspectButton({
             )}
           </div>
 
-          {supportsGeminiFeatureButtons && (multiTurnFieldVisible || onlineSearchFieldVisible) && (
+          {(multiTurnFieldVisible || onlineSearchFieldVisible) && (
             <div className="space-y-4">
-              {multiTurnFieldVisible && (
+              {supportsGeminiFeatureButtons && multiTurnFieldVisible && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium text-[#2E3150] dark:text-white/90">
                     多轮对话

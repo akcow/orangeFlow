@@ -88,6 +88,27 @@ jest.mock("@/controllers/API/queries/notifications", () => ({
   }),
 }));
 
+jest.mock("@/controllers/API/queries/credits", () => ({
+  __esModule: true,
+  useGetAdminCreditUsersQuery: () => ({
+    data: {
+      total_count: 0,
+      users: [],
+    },
+    isLoading: false,
+    refetch: jest.fn(),
+  }),
+  useGetAdminUserCreditLedgerQuery: () => ({
+    data: [],
+    isLoading: false,
+    refetch: jest.fn(),
+  }),
+  usePostAdjustUserCredits: () => ({
+    mutate: jest.fn(),
+    isPending: false,
+  }),
+}));
+
 jest.mock("@/controllers/API/queries/teams", () => ({
   __esModule: true,
   useGetTeamsQuery: () => ({
@@ -250,6 +271,8 @@ function renderPage() {
   return render(
     <AuthContext.Provider
       value={{
+        accessToken: "token",
+        login: () => {},
         userData: {
           id: "root",
           username: "root",
@@ -261,6 +284,13 @@ function renderPage() {
           create_at: new Date(),
           updated_at: new Date(),
         },
+        setUserData: () => {},
+        authenticationErrorCount: 0,
+        apiKey: null,
+        setApiKey: () => {},
+        storeApiKey: () => {},
+        getUser: () => {},
+        clearAuthSession: () => {},
       }}
     >
       <AdminPage />

@@ -1,6 +1,6 @@
 import { type ReactFlowState, useStore, useUpdateNodeInternals } from "@xyflow/react";
 import { cloneDeep } from "lodash";
-import { type CSSProperties, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useShallow } from "zustand/react/shallow";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
@@ -106,7 +106,7 @@ function DoubaoImageCreatorTopBar({
   const motionRef = useRef<HTMLDivElement | null>(null);
   const motionAnimRef = useRef<Animation | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!motionStart?.token) return;
     const el = motionRef.current;
     if (!el) return;
@@ -137,7 +137,7 @@ function DoubaoImageCreatorTopBar({
     }
   }, [motionStart?.token]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = motionRef.current;
     if (!el) return;
     // After the preview layout commits, the node position may jump (bottom-anchored correction).
@@ -404,7 +404,7 @@ function DoubaoVideoGeneratorTopBar({
   const motionRef = useRef<HTMLDivElement | null>(null);
   const motionAnimRef = useRef<Animation | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!motionStart?.token) return;
     const el = motionRef.current;
     if (!el) return;
@@ -435,7 +435,7 @@ function DoubaoVideoGeneratorTopBar({
     }
   }, [motionStart?.token]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = motionRef.current;
     if (!el) return;
     motionAnimRef.current?.cancel();
@@ -794,7 +794,7 @@ function GenericNode({
   // the title visually "jumps" only at the end.
   const titleMotionRef = useRef<HTMLDivElement | null>(null);
   const titleMotionAnimRef = useRef<Animation | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!persistentPreviewMotionStart?.token) return;
     const el = titleMotionRef.current;
     if (!el) return;
@@ -823,7 +823,7 @@ function GenericNode({
     };
   }, [persistentPreviewMotionStart?.token]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = titleMotionRef.current;
     if (!el) return;
     titleMotionAnimRef.current?.cancel();

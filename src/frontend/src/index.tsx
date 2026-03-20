@@ -7,6 +7,7 @@ import "./style/index.css";
 // @ts-ignore
 import "./App.css";
 import "./style/applies.css";
+import "katex/dist/katex.min.css";
 
 import "./i18n";
 

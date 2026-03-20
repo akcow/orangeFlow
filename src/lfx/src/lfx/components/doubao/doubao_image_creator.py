@@ -69,15 +69,29 @@ class DoubaoImageCreator(Component):
     name = "DoubaoImageCreator"
 
     MODEL_CATALOG = {
+        "Seedream 5.0 Lite (260128)": {
+            "model_id": "doubao-seedream-5-0-260128",
+            "min_area": 3_686_400,
+            "max_area": 10_404_496,
+            "max_reference_images": 14,
+            "max_total_images": 15,
+            "supports_google_search": True,
+            "resolution_options": ["2K（推荐）", "3K"],
+            "output_format": "png",
+        },
         "Seedream 4.5 · 旗舰 (251128)": {
             "model_id": "doubao-seedream-4-5-251128",
             "min_area": 3_686_400,
             "max_area": 16_777_216,
+            "max_total_images": 15,
+            "resolution_options": ["2K（推荐）", "4K（超清）"],
         },
         "Seedream 4.0 · 灵动 (250828)": {
             "model_id": "doubao-seedream-4-0-250828",
             "min_area": 921_600,
             "max_area": 16_777_216,
+            "max_total_images": 15,
+            "resolution_options": ["1K（草稿）", "2K（推荐）", "4K（超清）"],
         },
         "Nano Banana 2": {
             "provider": "gemini",
@@ -177,6 +191,7 @@ class DoubaoImageCreator(Component):
         "512px（预览）": 512,
         "1K（草稿）": 1280,
         "2K（推荐）": 2048,
+        "3K": 3072,
         "4K（超清）": 4096,
     }
     DEFAULT_RESOLUTION_OPTIONS = ["1K（草稿）", "2K（推荐）", "4K（超清）"]
@@ -426,8 +441,8 @@ class DoubaoImageCreator(Component):
             name="image_count",
             display_name="生成张数",
             value=1,
-            range_spec=RangeSpec(min=1, max=6, step=1),
-            info="组图生成上限 6 张，超过 1 张时自动开启组图模式。",
+            range_spec=RangeSpec(min=1, max=15, step=1),
+            info="生成张数上限会随当前模型动态调整；超过 1 张时自动进入组图生成模式。",
         ),
         FileInput(
             name="reference_images",
@@ -515,6 +530,8 @@ class DoubaoImageCreator(Component):
         is_kling_o3 = model_value == "kling O3"
         is_kling_v3 = model_value == "kling V3"
         is_kling = is_kling_o1 or is_kling_o3 or is_kling_v3 or model_value.lower().startswith("kling")
+        supports_google_search = bool(model_meta.get("supports_google_search"))
+        model_resolution_options = list(model_meta.get("resolution_options") or [])
 
         # Helper: restore a field back to its static definition (keeps current value).
         def _restore_field_defaults(field: str) -> None:
@@ -607,17 +624,33 @@ class DoubaoImageCreator(Component):
                     else "kling O1/O3：支持 21:9；UI 的 adaptive 会映射为上游的 auto。"
                 )
 
-            # Image count: 1-9.
+            image_count_limit = self._resolve_image_count_limit(model_meta)
+            # Image count: dynamically constrained by the selected model.
             if "image_count" in build_config:
-                build_config["image_count"]["range_spec"] = {"min": 1, "max": 9, "step": 1, "step_type": "int"}
+                build_config["image_count"]["range_spec"] = {
+                    "min": 1,
+                    "max": image_count_limit,
+                    "step": 1,
+                    "step_type": "int",
+                }
                 try:
                     cnt = int(build_config["image_count"].get("value") or 1)
                 except Exception:
                     cnt = 1
-                build_config["image_count"]["value"] = max(1, min(cnt, 9))
-                build_config["image_count"]["info"] = (
-                    "kling O1/O3：生成张数范围 1-9；kling O3 当生成张数 > 1 时会按文档自动启用组图模式（series_amount）。"
-                )
+                build_config["image_count"]["value"] = max(1, min(cnt, image_count_limit))
+                if is_kling:
+                    build_config["image_count"]["info"] = (
+                        "kling O1/O3：生成张数范围 1-9；kling O3 当生成张数 > 1 时会按文档自动启用组图模式（series_amount）。"
+                    )
+                elif int(model_meta.get("max_total_images") or 0):
+                    build_config["image_count"]["info"] = (
+                        f"当前模型最多生成 {image_count_limit} 张；参考图数量 + 生成张数合计不能超过 "
+                        f"{int(model_meta.get('max_total_images') or image_count_limit)} 张。"
+                    )
+                else:
+                    build_config["image_count"]["info"] = (
+                        f"当前模型生成张数范围 1-{image_count_limit}；超过 1 张时自动进入组图生成模式。"
+                    )
 
             # Reference images: jpg/jpeg/png only.
             if "reference_images" in build_config:
@@ -664,9 +697,6 @@ class DoubaoImageCreator(Component):
             if provider == "gemini":
                 if "enable_multi_turn" in build_config:
                     build_config["enable_multi_turn"]["show"] = bool(model_meta.get("supports_multi_turn"))
-                if "enable_google_search" in build_config:
-                    build_config["enable_google_search"]["show"] = bool(model_meta.get("supports_google_search"))
-
                 if "resolution" in build_config:
                     resolution_options = list(self.DEFAULT_RESOLUTION_OPTIONS)
                     if bool(model_meta.get("supports_512px_image_size")):
@@ -678,6 +708,31 @@ class DoubaoImageCreator(Component):
                             "2K（推荐）" if "2K（推荐）" in resolution_options else resolution_options[0]
                         )
                         build_config["resolution"]["value"] = default_resolution
+            else:
+                if "enable_multi_turn" in build_config:
+                    build_config["enable_multi_turn"]["show"] = False
+
+            if "enable_google_search" in build_config:
+                build_config["enable_google_search"]["show"] = supports_google_search
+                if supports_google_search and provider == "gemini":
+                    build_config["enable_google_search"]["info"] = (
+                        "仅 Nano Banana 2 / Nano Banana Pro 支持。启用后会在 generateContent payload 中追加"
+                        " `tools=[{google_search:{}}]`，并自动切到 `responseModalities=[\"TEXT\",\"IMAGE\"]`。"
+                    )
+                elif supports_google_search:
+                    build_config["enable_google_search"]["info"] = (
+                        "仅 Seedream 5.0 Lite 支持。启用后会在 Ark 图片请求中透传"
+                        " `tools=[{\"type\":\"web_search\"}]`。"
+                    )
+
+            if model_resolution_options and "resolution" in build_config:
+                build_config["resolution"]["options"] = model_resolution_options
+                current_value = str(build_config["resolution"].get("value") or "").strip()
+                if current_value not in set(model_resolution_options):
+                    default_resolution = (
+                        "2K（推荐）" if "2K（推荐）" in model_resolution_options else model_resolution_options[0]
+                    )
+                    build_config["resolution"]["value"] = default_resolution
 
         return build_config
 
@@ -798,7 +853,7 @@ class DoubaoImageCreator(Component):
             resolution = self.resolution or "2K（推荐）"
             aspect_ratio = self.aspect_ratio or "1:1"
             image_count = int(self.image_count or 1)
-            image_count = max(1, min(image_count, 9 if is_kling else 6))
+            image_count = max(1, min(image_count, self._resolve_image_count_limit(model_meta)))
             max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
             reference_payloads, reference_meta = self._prepare_reference_images(
                 max_reference_images=max_refs,
@@ -1208,7 +1263,7 @@ class DoubaoImageCreator(Component):
             resolution = self.resolution or "2K（推荐）"
             aspect_ratio = self.aspect_ratio or "adaptive"
             image_count = int(self.image_count or 1)
-            image_count = max(1, min(image_count, 6))
+            image_count = max(1, min(image_count, self._resolve_image_count_limit(model_meta)))
 
             # Qwen Image Edit supports 1-3 input images. Our tool uses 1 by default.
             reference_payloads, reference_meta = self._prepare_reference_images(
@@ -1513,9 +1568,27 @@ class DoubaoImageCreator(Component):
             resolution = self.resolution or "2K（推荐）"
             aspect_ratio = self.aspect_ratio or "1:1"
             image_count = int(self.image_count or 1)
-            image_count = max(1, min(image_count, 6))
-            size_info = self._resolve_size(model_meta, resolution, aspect_ratio)
-            reference_payloads, reference_meta = self._prepare_reference_images()
+            image_count = max(1, min(image_count, self._resolve_image_count_limit(model_meta)))
+            max_refs = int(model_meta.get("max_reference_images") or self.MAX_REFERENCE_IMAGES)
+            reference_payloads, reference_meta = self._prepare_reference_images(max_reference_images=max_refs)
+            self._validate_image_request_limits(
+                model_meta=model_meta,
+                reference_payloads=reference_payloads,
+                image_count=image_count,
+            )
+            has_reference_images = bool(reference_payloads)
+            adaptive_ratio = str(aspect_ratio or "").strip().lower() == "adaptive"
+            size_info = (
+                self._resolve_adaptive_size_from_reference(
+                    model_meta=model_meta,
+                    resolution_key=resolution,
+                    reference_payloads=reference_payloads,
+                    provider="ark",
+                    has_reference_images=has_reference_images,
+                )
+                if adaptive_ratio and has_reference_images
+                else self._resolve_size(model_meta, resolution, aspect_ratio)
+            )
         except ValueError as exc:
             return self._error(str(exc))
 
@@ -1545,10 +1618,20 @@ class DoubaoImageCreator(Component):
         }
 
         extra_body: dict[str, Any] = {}
+        output_format = str(model_meta.get("output_format") or "").strip().lower()
+        enable_google_search = bool(model_meta.get("supports_google_search")) and bool(
+            getattr(self, "enable_google_search", False)
+        )
         try:
             supported = set(inspect.signature(client.images.generate).parameters)
         except (TypeError, ValueError):  # pragma: no cover
             supported = set()
+
+        if output_format:
+            if "output_format" in supported:
+                request_kwargs["output_format"] = output_format
+            else:
+                extra_body["output_format"] = output_format
 
         if image_count > 1:
             sequential_options: Any
@@ -1572,6 +1655,9 @@ class DoubaoImageCreator(Component):
                 request_kwargs["image"] = reference_payloads
             else:
                 extra_body["image"] = reference_payloads
+
+        if enable_google_search:
+            extra_body["tools"] = [{"type": "web_search"}]
 
         if extra_body:
             request_kwargs["extra_body"] = extra_body
@@ -1680,11 +1766,24 @@ class DoubaoImageCreator(Component):
             from langflow.gateway.client import images_generations
 
             extra_body: dict[str, Any] = {"watermark": False}
+            output_format = str(model_meta.get("output_format") or "").strip().lower()
+            enable_google_search = bool(model_meta.get("supports_google_search")) and bool(
+                getattr(self, "enable_google_search", False)
+            )
+            self._validate_image_request_limits(
+                model_meta=model_meta,
+                reference_payloads=reference_payloads,
+                image_count=image_count,
+            )
+            if output_format:
+                extra_body["output_format"] = output_format
             if image_count > 1:
                 extra_body["sequential_image_generation"] = "auto"
                 extra_body["sequential_image_generation_options"] = {"max_images": int(image_count)}
             if reference_payloads:
                 extra_body["image"] = reference_payloads
+            if enable_google_search:
+                extra_body["tools"] = [{"type": "web_search"}]
 
             self.status = "Submitting image generation task (gateway)..."
             response = images_generations(
@@ -3739,6 +3838,27 @@ class DoubaoImageCreator(Component):
             "ratio": ratio_key,
             "base_resolution": resolution_key,
         }
+
+    def _validate_image_request_limits(
+        self,
+        *,
+        model_meta: dict[str, Any],
+        reference_payloads: list[str],
+        image_count: int,
+    ) -> None:
+        max_total_images = int(model_meta.get("max_total_images") or 0)
+        if max_total_images and len(reference_payloads) + int(image_count) > max_total_images:
+            raise ValueError(f"参考图数量 + 生成张数不能超过 {max_total_images}。")
+
+    @staticmethod
+    def _resolve_image_count_limit(model_meta: dict[str, Any]) -> int:
+        provider = str(model_meta.get("provider") or "").strip().lower()
+        if provider == "kling":
+            return 9
+        max_total_images = int(model_meta.get("max_total_images") or 0)
+        if max_total_images > 0:
+            return max_total_images
+        return 6
 
     def _calculate_dimensions(self, base: int, ratio: tuple[int, int]) -> tuple[int, int]:
         rw, rh = ratio

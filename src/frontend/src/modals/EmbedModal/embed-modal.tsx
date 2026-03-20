@@ -1,12 +1,8 @@
 import { useState } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import {
-  oneDark,
-  oneLight,
-} from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { t } from "@/i18n/t";
 import { useDarkStore } from "@/stores/darkStore";
 import IconComponent from "../../components/common/genericIconComponent";
+import { CodeBlock } from "../../components/ui/code-block";
 import { Button } from "../../components/ui/button";
 import getWidgetCode from "../apiModal/utils/get-widget-code";
 import BaseModal from "../baseModal";
@@ -84,15 +80,14 @@ export default function EmbedModal({
               />
             )}
           </Button>
-          <SyntaxHighlighter
+          <CodeBlock
+            code={embedCode}
             showLineNumbers={true}
             wrapLongLines={true}
             language="html"
-            style={isDark ? oneDark : oneLight}
+            themeMode={isDark ? "dark" : "light"}
             className="!mt-0 h-full w-full overflow-scroll !rounded-b-md border border-border text-left !custom-scroll"
-          >
-            {embedCode}
-          </SyntaxHighlighter>
+          />
         </div>
       </BaseModal.Content>
     </BaseModal>

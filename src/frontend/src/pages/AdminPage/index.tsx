@@ -1282,7 +1282,7 @@ export default function AdminPage() {
                   </TableHeader>
                   {!isPending && (
                     <TableBody>
-                      {filterUserList.map((user: UserInputType, rowIndex) => {
+                      {filterUserList.map((user, rowIndex) => {
                         const creditUser = adminCreditUserMap.get(user.id ?? "");
 
                         return (
@@ -1332,7 +1332,7 @@ export default function AdminPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 px-2 text-xs"
-                                onClick={() => openCreditDialog(user as Users)}
+                                onClick={() => openCreditDialog(user)}
                               >
                                 {"积分"}
                               </Button>

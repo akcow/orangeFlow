@@ -96,7 +96,7 @@ describe("DoubaoPreviewPanel", () => {
     expect(screen.getByText("暂无生成结果")).toBeInTheDocument();
   });
 
-  test("uses a larger persistent frame for 21:9 in image creator mode", () => {
+  test("uses aspect-ratio padding geometry for 21:9 image creator preview", async () => {
     (useDoubaoPreview as jest.Mock).mockReturnValue({
       preview: null,
       isBuilding: false,
@@ -104,7 +104,7 @@ describe("DoubaoPreviewPanel", () => {
       lastUpdated: undefined,
     });
 
-    const { container } = render(
+    render(
       <DoubaoPreviewPanel
         nodeId={mockNodeId}
         componentName={mockComponentName}
@@ -113,8 +113,29 @@ describe("DoubaoPreviewPanel", () => {
       />,
     );
 
-    // `min-h-[320px]` is applied only for 21:9 to avoid an overly short preview frame.
-    expect(container.querySelector('[class*="min-h-[320px]"]')).not.toBeNull();
+    const frame = await screen.findByTestId("doubao-preview-frame");
+    expect(frame).toHaveStyle({ paddingBottom: "42.86%" });
+  });
+
+  test("persistent image creator frame does not use transition-all", async () => {
+    (useDoubaoPreview as jest.Mock).mockReturnValue({
+      preview: null,
+      isBuilding: false,
+      rawMessage: null,
+      lastUpdated: undefined,
+    });
+
+    render(
+      <DoubaoPreviewPanel
+        nodeId={mockNodeId}
+        componentName={mockComponentName}
+        appearance="imageCreator"
+        aspectRatio="16:9"
+      />,
+    );
+
+    const frame = await screen.findByTestId("doubao-preview-frame");
+    expect(frame.className).not.toContain("transition-all");
   });
 
   test("renders building state when isBuilding is true", () => {

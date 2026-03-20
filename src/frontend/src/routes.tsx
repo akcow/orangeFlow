@@ -26,36 +26,37 @@ import { CustomRoutesStorePages } from "./customization/utils/custom-routes-stor
 import { AppAuthenticatedPage } from "./pages/AppAuthenticatedPage";
 import { AppInitPage } from "./pages/AppInitPage";
 import { AppWrapperPage } from "./pages/AppWrapperPage";
-import TVPage from "./pages/Community/TVPage";
-import TVPublishPage from "./pages/Community/TVPublishPage";
-import WorkflowsPage from "./pages/Community/WorkflowsPage";
-import FlowPage from "./pages/FlowPage";
-import HomeLandingPage from "./pages/HomeLandingPage";
-import LoginPage from "./pages/LoginPage";
-import FilesPage from "./pages/MainPage/pages/filesPage";
-import HomePage from "./pages/MainPage/pages/homePage";
-import KnowledgePage from "./pages/MainPage/pages/knowledgePage";
-import CollectionPage from "./pages/MainPage/pages/main-page";
-import ProfilePage from "./pages/ProfilePage";
-import SettingsPage from "./pages/SettingsPage";
-import ApiKeysPage from "./pages/SettingsPage/pages/ApiKeysPage";
-import GeneralPage from "./pages/SettingsPage/pages/GeneralPage";
-import MessagesPage from "./pages/SettingsPage/pages/messagesPage";
-import ModelConfigPage from "./pages/SettingsPage/pages/ModelConfigPage";
-import ProviderCredentialsPage from "./pages/SettingsPage/pages/ProviderCredentialsPage";
-import ShortcutsPage from "./pages/SettingsPage/pages/ShortcutsPage";
-import ViewPage from "./pages/ViewPage";
 
 const AdminPage = lazy(() => import("./pages/AdminPage"));
+const AdminCreditsPage = lazy(() => import("./pages/AdminPage/CreditsPage"));
 const LoginAdminPage = lazy(() => import("./pages/AdminPage/LoginPage"));
 const AdminCommunityPage = lazy(
   () => import("./pages/AdminPage/CommunityPage"),
 );
+const ApiKeysPage = lazy(() => import("./pages/SettingsPage/pages/ApiKeysPage"));
+const CollectionPage = lazy(() => import("./pages/MainPage/pages/main-page"));
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
-
+const FilesPage = lazy(() => import("./pages/MainPage/pages/filesPage"));
+const FlowPage = lazy(() => import("./pages/FlowPage"));
+const GeneralPage = lazy(() => import("./pages/SettingsPage/pages/GeneralPage"));
+const HomeLandingPage = lazy(() => import("./pages/HomeLandingPage"));
+const HomePage = lazy(() => import("./pages/MainPage/pages/homePage"));
+const KnowledgePage = lazy(() => import("./pages/MainPage/pages/knowledgePage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const MessagesPage = lazy(() => import("./pages/SettingsPage/pages/messagesPage"));
+const ModelConfigPage = lazy(() => import("./pages/SettingsPage/pages/ModelConfigPage"));
 const PlaygroundPage = lazy(() => import("./pages/Playground"));
-
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const ProviderCredentialsPage = lazy(
+  () => import("./pages/SettingsPage/pages/ProviderCredentialsPage"),
+);
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const SignUp = lazy(() => import("./pages/SignUpPage"));
+const ShortcutsPage = lazy(() => import("./pages/SettingsPage/pages/ShortcutsPage"));
+const TVPage = lazy(() => import("./pages/Community/TVPage"));
+const TVPublishPage = lazy(() => import("./pages/Community/TVPublishPage"));
+const ViewPage = lazy(() => import("./pages/ViewPage"));
+const WorkflowsPage = lazy(() => import("./pages/Community/WorkflowsPage"));
 
 const router = createBrowserRouter(
   createRoutesFromElements([
@@ -186,6 +187,14 @@ const router = createBrowserRouter(
                 <Route path="account">
                   <Route path="delete" element={<DeleteAccountPage />}></Route>
                 </Route>
+                <Route
+                  path="admin/credits"
+                  element={
+                    <ProtectedAdminRoute>
+                      <AdminCreditsPage />
+                    </ProtectedAdminRoute>
+                  }
+                />
                 <Route
                   path="admin"
                   element={

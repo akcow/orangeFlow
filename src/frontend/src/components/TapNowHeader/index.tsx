@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, HelpCircle, LogOut, Settings, Shield, User } from "lucide-react";
+import { Bell, ChevronDown, CircleDollarSign, HelpCircle, LogOut, Settings, Shield, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,7 @@ export const TapNowHeader = ({
   const lang = isZh ? "CN" : "EN";
   const username = userData?.nickname || userData?.username || (isZh ? "\u7528\u6237" : "User");
   const userInitial = username.slice(0, 1).toUpperCase();
+  const isSuperuser = !!userData?.is_superuser;
   const canReview = !!(userData?.is_superuser || userData?.is_reviewer);
   const hasPersistentUnread = persistentNotifications.some(
     (item) => !item.read_at,
@@ -274,6 +275,19 @@ export const TapNowHeader = ({
                   </div>
                   <span>{isZh ? "\u6211\u7684\u901a\u77e5" : "My Notifications"}</span>
                 </DropdownMenuItem>
+                {isSuperuser && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setIsAvatarMenuOpen(false);
+                      navigate("/admin/credits");
+                    }}
+                    data-testid="avatar-credit-management-menu-item"
+                    className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-white hover:bg-[#2D2D30] focus:bg-[#2D2D30]"
+                  >
+                    <CircleDollarSign className="h-4 w-4 text-[#A0A0A0]" />
+                    <span>{isZh ? "\u79ef\u5206\u7ba1\u7406" : "Credit Management"}</span>
+                  </DropdownMenuItem>
+                )}
                 {canReview && (
                   <DropdownMenuItem
                     onClick={() => {
