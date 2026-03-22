@@ -82,16 +82,8 @@ export async function toRenderableImageSource(
     if (converted) return converted;
     return { url: sanitized };
   }
-  try {
-    const response = await fetch(sanitized);
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    return {
-      url: objectUrl,
-      revoke: () => URL.revokeObjectURL(objectUrl),
-    };
-  } catch (_e) {
-    // Fallback to the original source if conversion fails.
-    return { url: sanitized };
-  }
+
+  // Keep normal image URLs unchanged. Fetching them into blob URLs can mask backend
+  // error payloads as opaque object URLs and causes valid remote JPG previews to fail.
+  return { url: sanitized };
 }
