@@ -6,7 +6,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
-from langflow.schema.serialize import UUIDstr
+
 
 if TYPE_CHECKING:
     from langflow.services.database.models.api_key.model import ApiKey
@@ -23,7 +23,7 @@ class UserOptin(BaseModel):
 
 
 class User(SQLModel, table=True):  # type: ignore[call-arg]
-    id: UUIDstr = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     username: str = Field(index=True, unique=True)
     nickname: str = Field(index=True, unique=True)
     password: str = Field()

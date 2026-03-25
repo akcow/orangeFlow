@@ -178,9 +178,14 @@ class FlowBase(SQLModel):
         if v is None:
             return v
         if isinstance(v, datetime):
+            if v.tzinfo is None:
+                return v.replace(tzinfo=timezone.utc)
             return v
 
-        return datetime.fromisoformat(v)
+        parsed = datetime.fromisoformat(v)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
 
 
 class Flow(FlowBase, table=True):  # type: ignore[call-arg]

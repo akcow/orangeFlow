@@ -615,6 +615,8 @@ def get_project_data(project):
         updated_at_datetime = datetime.now(tz=timezone.utc)
     else:
         updated_at_datetime = datetime.fromisoformat(project_updated_at)
+        if updated_at_datetime.tzinfo is None:
+            updated_at_datetime = updated_at_datetime.replace(tzinfo=timezone.utc)
     project_data = project.get("data")
     project_icon = project.get("icon")
     project_icon = demojize(project_icon) if project_icon and purely_emoji(project_icon) else project_icon

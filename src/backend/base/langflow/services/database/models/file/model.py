@@ -3,11 +3,9 @@ from uuid import UUID, uuid4
 
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
-from langflow.schema.serialize import UUIDstr
-
 
 class File(SQLModel, table=True):  # type: ignore[call-arg]
-    id: UUIDstr = Field(default_factory=uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="user.id")
     name: str = Field(nullable=False)
     path: str = Field(nullable=False)

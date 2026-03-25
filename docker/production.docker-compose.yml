@@ -8,8 +8,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "${LANGFLOW_BIND_ADDRESS:-0.0.0.0}:${LANGFLOW_PORT:-7860}:7860"
+    # ports:
+    #   - "${LANGFLOW_BIND_ADDRESS:-0.0.0.0}:${LANGFLOW_PORT:-7860}:7860"
     environment:
       LANGFLOW_DATABASE_URL: "postgresql://${POSTGRES_USER:-orangeflow}:${POSTGRES_PASSWORD:-change-this-password}@postgres:5432/${POSTGRES_DB:-orangeflow}"
       LANGFLOW_CONFIG_DIR: /app/orangeflow_config
@@ -116,6 +116,21 @@ services:
         mc alias set local http://minio:9000 "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-change-this-minio-password}" &&
         mc mb --ignore-existing local/"${MINIO_BUCKET:-orangeflow-assets}" || true
     restart: "no"
+    networks:
+      - orangeflow-network
+
+  nginx:
+    image: nginx:latest
+    container_name: orangeflow-nginx
+    restart: unless-stopped
+    ports:
+      # 将宿主机的 7860 端口映射到 Nginx 的 HTTPS 443 端口
+      - "${LANGFLOW_BIND_ADDRESS:-0.0.0.0}:${LANGFLOW_PORT:-7860}:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - orangeflow
     networks:
       - orangeflow-network
 
