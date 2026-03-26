@@ -86,6 +86,7 @@ const LAST_FRAME_FIELD = "last_frame_image" as const;
 const ASPECT_RATIO_FIELD = "aspect_ratio";
 const AUDIO_INPUT_FIELD = "audio_input";
 const ENABLE_AUDIO_FIELD = "enable_audio";
+const USER_UPLOAD_VIDEO_EXTENSIONS = ["mp4", "mov", "webm"];
 const DEFAULT_ASPECT_RATIO_OPTIONS = [
   "16:9",
   "4:3",
@@ -989,6 +990,7 @@ export default function DoubaoVideoGeneratorLayout({
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
   const setNodes = useFlowStore((state) => state.setNodes);
+  const setNode = useFlowStore((state) => state.setNode);
   const setEdges = useFlowStore((state) => state.setEdges);
   const onConnect = useFlowStore((state) => state.onConnect);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
@@ -2887,6 +2889,98 @@ export default function DoubaoVideoGeneratorLayout({
     setFirstFrameDialogOpen(true);
   }, [isFirstFrameUploadPending]);
 
+  const triggerTopBarUpload = useCallback(async () => {
+    if (!currentFlowId) {
+      setErrorData({
+        title: "无法上传视频",
+        list: ["请先保存当前工作流后再上传。"],
+      });
+      return;
+    }
+
+    const uploadTemplate = templates?.["UserUploadVideo"];
+    if (!uploadTemplate) {
+      setErrorData({
+        title: "无法切换为视频资源上传组件",
+        list: ["未加载到“上传视频（UserUploadVideo）”模板。"],
+      });
+      return;
+    }
+
+    const files = await createFileUpload({
+      multiple: false,
+      accept: USER_UPLOAD_VIDEO_EXTENSIONS.map((ext) => `.${ext}`).join(","),
+    });
+    const file = files[0];
+    if (!file) return;
+
+    try {
+      validateFileSize(file);
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorData({ title: error.message });
+      }
+      return;
+    }
+
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    if (!ext || !USER_UPLOAD_VIDEO_EXTENSIONS.includes(ext)) {
+      setErrorData({
+        title: "文件格式不支持",
+        list: [USER_UPLOAD_VIDEO_EXTENSIONS.map((item) => item.toUpperCase()).join(", ")],
+      });
+      return;
+    }
+
+    try {
+      const response = await uploadFirstFrameFile({ file, id: currentFlowId });
+      const serverPath = String((response as { file_path?: string } | undefined)?.file_path ?? "").trim();
+      if (!serverPath) {
+        throw new Error("Missing file_path");
+      }
+
+      takeSnapshot();
+      setNode(data.id, (oldNode) => {
+        if (oldNode.type !== "genericNode") return oldNode;
+
+        const nextTemplate = cloneDeep(uploadTemplate);
+        if ((nextTemplate as any)?.template?.file) {
+          (nextTemplate as any).template.file.value = file.name;
+          (nextTemplate as any).template.file.file_path = serverPath;
+        }
+
+        return {
+          ...oldNode,
+          data: {
+            ...(oldNode.data as NodeDataType),
+            id: data.id,
+            type: "UserUploadVideo",
+            selected_output: undefined,
+            selected_output_type: undefined,
+            output_types: undefined,
+            node: nextTemplate as NodeDataType["node"],
+          },
+        };
+      });
+    } catch (error: any) {
+      setErrorData({
+        title: "上传失败",
+        list: [
+          error?.response?.data?.detail ?? error?.message ?? "网络异常，稍后再试或检查后端日志。",
+        ],
+      });
+    }
+  }, [
+    currentFlowId,
+    data.id,
+    setErrorData,
+    setNode,
+    takeSnapshot,
+    templates,
+    uploadFirstFrameFile,
+    validateFileSize,
+  ]);
+
   // Keep parity with the image creator: allow external UI (node top bar) to trigger the upload dialog.
   useEffect(() => {
     const listener = (event: Event) => {
@@ -4550,6 +4644,7 @@ export default function DoubaoVideoGeneratorLayout({
               appearance="videoGenerator"
               referenceImages={normalizedFirstFramePreviews}
               onRequestUpload={openFirstFrameDialog}
+              onRequestTopBarUpload={triggerTopBarUpload}
               onSuggestionClick={handlePreviewSuggestionClick}
               onActionsChange={onPreviewActionsChange}
               aspectRatio={

@@ -49,7 +49,16 @@ def test_connectivity(host: str) -> dict[str, Any]:
     return results
 
 
-def test_flow_endpoint(host: str, api_key: str, flow_id: str) -> dict[str, Any]:
+def _build_auth_headers(*, api_key: str | None = None, access_token: str | None = None) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    elif api_key:
+        headers["x-api-key"] = api_key
+    return headers
+
+
+def test_flow_endpoint(host: str, flow_id: str, *, api_key: str | None = None, access_token: str | None = None) -> dict[str, Any]:
     """Test a flow execution request."""
     print("🎯 Testing flow execution")
 
@@ -69,7 +78,7 @@ def test_flow_endpoint(host: str, api_key: str, flow_id: str) -> dict[str, Any]:
             "input_type": "chat",
             "tweaks": {},
         }
-        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        headers = _build_auth_headers(api_key=api_key, access_token=access_token)
 
         start_time = time.time()
         with httpx.Client(timeout=60.0) as client:
@@ -106,7 +115,14 @@ def test_flow_endpoint(host: str, api_key: str, flow_id: str) -> dict[str, Any]:
     return results
 
 
-def run_load_simulation(host: str, api_key: str, flow_id: str, num_requests: int = 10) -> dict[str, Any]:
+def run_load_simulation(
+    host: str,
+    flow_id: str,
+    *,
+    api_key: str | None = None,
+    access_token: str | None = None,
+    num_requests: int = 10,
+) -> dict[str, Any]:
     """Run a small load simulation to test performance."""
     print(f"⚡ Running mini load test ({num_requests} requests)")
 
@@ -126,7 +142,7 @@ def run_load_simulation(host: str, api_key: str, flow_id: str, num_requests: int
         "input_type": "chat",
         "tweaks": {},
     }
-    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+    headers = _build_auth_headers(api_key=api_key, access_token=access_token)
 
     for i in range(num_requests):
         try:
@@ -175,6 +191,7 @@ def main():
     parser = argparse.ArgumentParser(description="Diagnose remote Langflow instance")
     parser.add_argument("--host", required=True, help="Langflow host URL")
     parser.add_argument("--api-key", help="API key for flow execution")
+    parser.add_argument("--access-token", help="JWT access token for flow execution")
     parser.add_argument("--flow-id", help="Flow ID for testing")
     parser.add_argument("--load-test", type=int, default=0, help="Number of requests for mini load test")
     parser.add_argument("--output", help="Save results to JSON file")
@@ -189,15 +206,26 @@ def main():
 
     # Test flow execution if credentials provided
     flow_results = None
-    if args.api_key and args.flow_id:
-        flow_results = test_flow_endpoint(args.host, args.api_key, args.flow_id)
+    if (args.api_key or args.access_token) and args.flow_id:
+        flow_results = test_flow_endpoint(
+            args.host,
+            args.flow_id,
+            api_key=args.api_key,
+            access_token=args.access_token,
+        )
     else:
         print("⚠️  Skipping flow test (no API key or flow ID provided)")
 
     # Run mini load test if requested
     load_results = None
-    if args.load_test > 0 and args.api_key and args.flow_id:
-        load_results = run_load_simulation(args.host, args.api_key, args.flow_id, args.load_test)
+    if args.load_test > 0 and (args.api_key or args.access_token) and args.flow_id:
+        load_results = run_load_simulation(
+            args.host,
+            args.flow_id,
+            api_key=args.api_key,
+            access_token=args.access_token,
+            num_requests=args.load_test,
+        )
 
     # Summary
     print("\n" + "=" * 60)

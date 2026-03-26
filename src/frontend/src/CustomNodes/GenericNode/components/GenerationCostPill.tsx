@@ -1,5 +1,5 @@
 import { CircleDollarSign } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useGetCreditEstimateQuery } from "@/controllers/API/queries/credits";
 import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
@@ -30,6 +30,7 @@ const ESTIMATE_FIELDS_BY_COMPONENT: Record<string, string[]> = {
 };
 
 const DEFAULT_LABEL = "暂不可估算";
+const LOADING_LABEL = "估算中...";
 
 function pickEstimateField(field: any) {
   if (!field || typeof field !== "object") return field;
@@ -50,16 +51,16 @@ export default function GenerationCostPill({
 }: GenerationCostPillProps) {
   const enabled = CHARGEABLE_COMPONENTS.has(String(data.type || ""));
   const estimateFields = ESTIMATE_FIELDS_BY_COMPONENT[String(data.type || "")] ?? [];
-  const payload = useMemo(() => {
-    if (!enabled) return {};
-    const template = data.node?.template ?? {};
-    const estimateTemplate = estimateFields.reduce<Record<string, any>>((acc, fieldName) => {
-      if (template[fieldName] !== undefined) {
-        acc[fieldName] = pickEstimateField(template[fieldName]);
-      }
-      return acc;
-    }, {});
-    return {
+  const template = data.node?.template ?? {};
+  const estimateTemplate = estimateFields.reduce<Record<string, any>>((acc, fieldName) => {
+    if (template[fieldName] !== undefined) {
+      acc[fieldName] = pickEstimateField(template[fieldName]);
+    }
+    return acc;
+  }, {});
+
+  const payload = enabled
+    ? {
       vertex_id: data.id,
       node_payload: {
         id: data.id,
@@ -71,30 +72,23 @@ export default function GenerationCostPill({
           },
         },
       },
-    };
-  }, [data.id, data.node?.template, data.type, enabled, estimateFields]);
+    }
+    : {};
 
-  const { data: estimate, isLoading } = useGetCreditEstimateQuery(payload, {
+  const { data: estimate, isLoading, isFetching } = useGetCreditEstimateQuery(payload, {
     enabled,
   });
 
-  const nextStableLabel = useMemo(() => {
+  const label = useMemo(() => {
     if (!enabled) return DEFAULT_LABEL;
+    if (isLoading || isFetching) return LOADING_LABEL;
     if (estimate?.billing_mode === "usage_based") return "按输出结算";
     if (estimate?.billing_mode === "estimated" && typeof estimate.estimated_credits === "number") {
       return `${estimate.estimated_credits}`;
     }
     if (estimate?.billing_mode === "unavailable") return DEFAULT_LABEL;
-    if (isLoading) return null;
     return DEFAULT_LABEL;
-  }, [enabled, estimate, isLoading]);
-
-  const [stableLabel, setStableLabel] = useState<string>(nextStableLabel ?? DEFAULT_LABEL);
-
-  useEffect(() => {
-    if (!nextStableLabel) return;
-    setStableLabel((current) => (current === nextStableLabel ? current : nextStableLabel));
-  }, [nextStableLabel]);
+  }, [enabled, estimate, isFetching, isLoading]);
 
   return (
     <div
@@ -109,7 +103,7 @@ export default function GenerationCostPill({
         className="flex min-w-0 flex-1 items-center gap-2 px-3 text-sm font-medium text-white/88"
       >
         <CircleDollarSign className="h-[23px] w-[23px] shrink-0 text-amber-300" />
-        <span className="truncate whitespace-nowrap">{stableLabel}</span>
+        <span className="truncate whitespace-nowrap">{label}</span>
       </div>
       {children}
     </div>

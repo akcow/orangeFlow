@@ -612,7 +612,6 @@ export const URL_EXCLUDED_FROM_ERROR_RETRIES = [
   `${BASE_URL_API}custom_component`,
   `${BASE_URL_API}validate/prompt`,
   `${BASE_URL_API}/login`,
-  `${BASE_URL_API}api_key/store`,
 ];
 
 export const skipNodeUpdate = [

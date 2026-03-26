@@ -20,7 +20,6 @@ from langflow.schema.dotdict import dotdict
 from langflow.schema.graph import Tweaks
 from langflow.schema.schema import InputType, OutputType, OutputValue
 from langflow.serialization.serialization import get_max_items_length, get_max_text_length, serialize
-from langflow.services.database.models.api_key.model import ApiKeyRead
 from langflow.services.database.models.base import orjson_dumps
 from langflow.services.database.models.flow.model import FlowCreate, FlowRead
 from langflow.services.database.models.user.model import UserRead
@@ -229,32 +228,10 @@ class UsersResponse(BaseModel):
     users: list[UserRead]
 
 
-class ApiKeyResponse(BaseModel):
-    id: str
-    api_key: str
-    name: str
-    created_at: str
-    last_used_at: str
-
-
-class ApiKeysResponse(BaseModel):
-    total_count: int
-    user_id: UUID
-    api_keys: list[ApiKeyRead]
-
-
-class CreateApiKeyRequest(BaseModel):
-    name: str
-
-
 class Token(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str
-
-
-class ApiKeyCreateRequest(BaseModel):
-    api_key: str
 
 
 class VerticesOrderResponse(BaseModel):

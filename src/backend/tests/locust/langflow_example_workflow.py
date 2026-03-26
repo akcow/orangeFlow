@@ -158,12 +158,18 @@ def main():
             # Set environment variables for the load test
             env = os.environ.copy()
             env["LANGFLOW_HOST"] = creds["host"]
-            env["API_KEY"] = creds["api_key"]
             env["FLOW_ID"] = creds["flow_id"]
+            if creds.get("access_token"):
+                env["ACCESS_TOKEN"] = creds["access_token"]
+            elif creds.get("api_key"):
+                env["API_KEY"] = creds["api_key"]
 
             print("   🔧 Setting environment variables:")
             print(f"      LANGFLOW_HOST={creds['host']}")
-            print(f"      API_KEY={creds['api_key'][:20]}...")
+            if creds.get("access_token"):
+                print(f"      ACCESS_TOKEN={creds['access_token'][:20]}...")
+            elif creds.get("api_key"):
+                print(f"      API_KEY={creds['api_key'][:20]}...")
             print(f"      FLOW_ID={creds['flow_id']}")
 
         except Exception as e:

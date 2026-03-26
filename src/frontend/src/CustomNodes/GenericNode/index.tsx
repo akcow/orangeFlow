@@ -53,6 +53,8 @@ function DoubaoImageCreatorTopBar({
   nodeId,
   isOpen,
   setOpen,
+  onUpload,
+  hasRenderablePreview,
   onOpenPreview,
   onDownload,
   canDownload,
@@ -78,6 +80,8 @@ function DoubaoImageCreatorTopBar({
   nodeId: string;
   isOpen: boolean;
   setOpen: (open: boolean) => void;
+  onUpload: () => void;
+  hasRenderablePreview: boolean;
   onOpenPreview: () => void;
   onDownload: () => void;
   canDownload: boolean;
@@ -155,13 +159,6 @@ function DoubaoImageCreatorTopBar({
     return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
   }, [canvasZoom]);
 
-  const handleUpload = useCallback(() => {
-    const uploadEvent = new CustomEvent("doubao-preview-upload", {
-      detail: { nodeId },
-    });
-    window.dispatchEvent(uploadEvent);
-  }, [nodeId]);
-
   return (
     <div
       ref={motionRef}
@@ -182,6 +179,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="重绘"
           disabled={!canRepaint}
           onClick={onRepaint}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canRepaint
@@ -199,6 +197,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="擦除"
           disabled={!canErase}
           onClick={onErase}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canErase
@@ -216,6 +215,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="增强"
           disabled={!canEnhance}
           onClick={onEnhance}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canEnhance
@@ -233,6 +233,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="抠图"
           disabled={!canCutout}
           onClick={onCutout}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canCutout
@@ -250,6 +251,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="多角度"
           disabled={!canMultiAngleCamera}
           onClick={onMultiAngleCamera}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canMultiAngleCamera
@@ -267,6 +269,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="扩图"
           disabled={!canOutpaint}
           onClick={onOutpaint}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canOutpaint
@@ -278,7 +281,7 @@ function DoubaoImageCreatorTopBar({
           <span>扩图</span>
         </button>
 
-        <div className="mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15" />
+        <div className={cn("mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15", !hasRenderablePreview && "hidden")} />
 
         <OutputModal
           open={isOpen}
@@ -303,6 +306,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="标注"
           disabled={!canAnnotate}
           onClick={onAnnotate}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 w-10 items-center justify-center rounded-full transition",
             canAnnotate
@@ -317,8 +321,12 @@ function DoubaoImageCreatorTopBar({
           type="button"
           title="上传"
           aria-label="上传"
-          onClick={handleUpload}
-          className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+          onClick={onUpload}
+          hidden
+          className={cn(
+            "hidden",
+            "flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10",
+          )}
         >
           <ForwardedIconComponent name="Upload" className="h-5 w-5" />
         </button>
@@ -328,6 +336,7 @@ function DoubaoImageCreatorTopBar({
           title="放大"
           aria-label="放大"
           onClick={onOpenPreview}
+          hidden={!hasRenderablePreview}
           className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
         >
           <ForwardedIconComponent name="Maximize2" className="h-5 w-5" />
@@ -339,6 +348,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="裁剪"
           disabled={!canCrop}
           onClick={onCrop}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 w-10 items-center justify-center rounded-full transition",
             canCrop
@@ -355,6 +365,7 @@ function DoubaoImageCreatorTopBar({
           aria-label="下载"
           disabled={!canDownload}
           onClick={onDownload}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 w-10 items-center justify-center rounded-full transition",
             canDownload
@@ -374,6 +385,8 @@ function DoubaoVideoGeneratorTopBar({
   isOpen,
   setOpen,
   isViduUpscaleNode,
+  onUpload,
+  hasRenderablePreview,
   onVideoUpscale,
   canVideoUpscale,
   onClip,
@@ -388,6 +401,8 @@ function DoubaoVideoGeneratorTopBar({
   isOpen: boolean;
   setOpen: (open: boolean) => void;
   isViduUpscaleNode?: boolean;
+  onUpload: () => void;
+  hasRenderablePreview: boolean;
   onVideoUpscale?: () => void;
   canVideoUpscale?: boolean;
   onClip?: () => void;
@@ -451,13 +466,6 @@ function DoubaoVideoGeneratorTopBar({
     return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
   }, [canvasZoom]);
 
-  const handleUpload = useCallback(() => {
-    const uploadEvent = new CustomEvent("doubao-preview-upload", {
-      detail: { nodeId },
-    });
-    window.dispatchEvent(uploadEvent);
-  }, [nodeId]);
-
   return (
     <div
       ref={motionRef}
@@ -479,6 +487,7 @@ function DoubaoVideoGeneratorTopBar({
             aria-label="高清"
             disabled={!canVideoUpscale}
             onClick={onVideoUpscale}
+            hidden={!hasRenderablePreview}
             className={cn(
               "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
               canVideoUpscale
@@ -497,6 +506,7 @@ function DoubaoVideoGeneratorTopBar({
           aria-label="剪辑"
           disabled={!canClip}
           onClick={onClip}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition whitespace-nowrap",
             canClip
@@ -508,7 +518,7 @@ function DoubaoVideoGeneratorTopBar({
           <span>剪辑</span>
         </button>
 
-        <div className="mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15" />
+        <div className={cn("mx-1 h-6 w-px bg-[#E3E8F5] dark:bg-white/15", !hasRenderablePreview && "hidden")} />
 
         <OutputModal
           open={isOpen}
@@ -532,8 +542,12 @@ function DoubaoVideoGeneratorTopBar({
             type="button"
             title="上传"
             aria-label="上传"
-            onClick={handleUpload}
-            className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+            onClick={onUpload}
+            hidden
+            className={cn(
+              "hidden",
+              "flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10",
+            )}
           >
             <ForwardedIconComponent name="Upload" className="h-5 w-5" />
           </button>
@@ -544,6 +558,7 @@ function DoubaoVideoGeneratorTopBar({
           title="放大"
           aria-label="放大"
           onClick={onOpenPreview}
+          hidden={!hasRenderablePreview}
           className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
         >
           <ForwardedIconComponent name="Maximize2" className="h-5 w-5" />
@@ -555,6 +570,7 @@ function DoubaoVideoGeneratorTopBar({
           aria-label="下载"
           disabled={!canDownload}
           onClick={onDownload}
+          hidden={!hasRenderablePreview}
           className={cn(
             "flex h-10 w-10 items-center justify-center rounded-full transition",
             canDownload
@@ -564,6 +580,123 @@ function DoubaoVideoGeneratorTopBar({
         >
           <ForwardedIconComponent name="Download" className="h-5 w-5" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function DoubaoUploadOnlyTopBar({
+  nodeId,
+  isOpen,
+  setOpen,
+  outputName,
+  onUpload,
+  showUpload = true,
+  motionStart,
+  motionCommitToken,
+}: {
+  nodeId: string;
+  isOpen: boolean;
+  setOpen: (open: boolean) => void;
+  outputName: "image" | "video";
+  onUpload?: () => void;
+  showUpload?: boolean;
+  motionStart?: {
+    token: number;
+    motion: { deltaTopPx: number; durationMs: number; easing: string };
+  } | null;
+  motionCommitToken?: number;
+}) {
+  const motionRef = useRef<HTMLDivElement | null>(null);
+  const motionAnimRef = useRef<Animation | null>(null);
+
+  useLayoutEffect(() => {
+    if (!motionStart?.token) return;
+    const el = motionRef.current;
+    if (!el) return;
+
+    motionAnimRef.current?.cancel();
+    motionAnimRef.current = null;
+
+    const { deltaTopPx, durationMs, easing } = motionStart.motion;
+    if (typeof el.animate === "function") {
+      const anim = el.animate(
+        [{ transform: "translateY(0px)" }, { transform: `translateY(${deltaTopPx}px)` }],
+        { duration: durationMs, easing, fill: "both" },
+      );
+      motionAnimRef.current = anim;
+      anim.onfinish = () => {
+        el.style.transform = `translateY(${deltaTopPx}px)`;
+        try {
+          anim.cancel();
+        } catch {
+          // ignore
+        }
+        if (motionAnimRef.current === anim) motionAnimRef.current = null;
+      };
+      anim.oncancel = () => {
+        if (motionAnimRef.current === anim) motionAnimRef.current = null;
+      };
+      return;
+    }
+  }, [motionStart?.token]);
+
+  useLayoutEffect(() => {
+    const el = motionRef.current;
+    if (!el) return;
+    motionAnimRef.current?.cancel();
+    motionAnimRef.current = null;
+    el.style.transform = "";
+  }, [motionCommitToken]);
+
+  const canvasZoom = useStore((s: ReactFlowState) => s.transform[2]);
+  const inverseZoom = useMemo(() => {
+    const MIN_FIXED_UI_ZOOM = 0.57;
+    const zoom = canvasZoom || 1;
+    return 1 / Math.max(zoom, MIN_FIXED_UI_ZOOM);
+  }, [canvasZoom]);
+
+  return (
+    <div
+      ref={motionRef}
+      className="pointer-events-none absolute left-0 right-0 top-0 z-[1500] flex w-full items-center justify-center px-4"
+    >
+      <div
+        className={cn(
+          "pointer-events-auto flex items-center gap-2 rounded-full border border-[#E3E8F5] bg-white/95 px-4 py-2.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)]",
+          "dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_12px_30px_rgba(0,0,0,0.28)]",
+          "transform-gpu origin-top scale-[var(--inv-zoom)] translate-y-[calc(-100%*var(--inv-zoom))]",
+        )}
+        style={{ "--inv-zoom": inverseZoom } as CSSProperties}
+      >
+        <OutputModal
+          open={isOpen}
+          setOpen={setOpen}
+          disabled={false}
+          nodeId={nodeId}
+          outputName={outputName}
+        >
+          <button
+            type="button"
+            title="Logs"
+            aria-label="Logs"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+          >
+            <ForwardedIconComponent name="FileText" className="h-5 w-5" />
+          </button>
+        </OutputModal>
+
+        {showUpload && (
+          <button
+            type="button"
+            title="Upload"
+            aria-label="Upload"
+            onClick={onUpload}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#3C4258] transition hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-white/10"
+          >
+            <ForwardedIconComponent name="Upload" className="h-5 w-5" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1434,36 +1567,50 @@ function GenericNode({
             (isDoubaoImageCreator || isUserUploadImage) &&
             selected && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
-                <DoubaoImageCreatorTopBar
-                  nodeId={data.id}
-                  isOpen={isImageCreatorLogsOpen}
-                  setOpen={setImageCreatorLogsOpen}
-                  onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
-                  onDownload={() => imageCreatorPreviewActions?.download()}
-                  canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
-                  onAnnotate={() => imageCreatorPreviewActions?.enterAnnotate()}
-                  canAnnotate={Boolean(imageCreatorPreviewActions?.canAnnotate)}
-                  onRepaint={() => imageCreatorPreviewActions?.enterRepaint()}
-                  canRepaint={Boolean(imageCreatorPreviewActions?.canRepaint)}
-                  onErase={() => imageCreatorPreviewActions?.enterErase()}
-                  canErase={Boolean(imageCreatorPreviewActions?.canErase)}
-                  onEnhance={() => imageCreatorPreviewActions?.enterEnhance()}
-                  canEnhance={Boolean(imageCreatorPreviewActions?.canEnhance)}
-                  onCutout={() => imageCreatorPreviewActions?.runCutout()}
-                  canCutout={Boolean(imageCreatorPreviewActions?.canCutout)}
-                  onCrop={() => imageCreatorPreviewActions?.enterCrop()}
-                  canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
-                  onMultiAngleCamera={() =>
-                    imageCreatorPreviewActions?.enterMultiAngleCamera()
-                  }
-                  canMultiAngleCamera={Boolean(
-                    imageCreatorPreviewActions?.canMultiAngleCamera,
-                  )}
-                  onOutpaint={() => imageCreatorPreviewActions?.enterOutpaint()}
-                  canOutpaint={Boolean(imageCreatorPreviewActions?.canOutpaint)}
-                  motionStart={persistentPreviewMotionStart}
-                  motionCommitToken={persistentPreviewMotionCommitToken}
-                />
+                {imageCreatorPreviewActions?.hasRenderablePreview ? (
+                  <DoubaoImageCreatorTopBar
+                    nodeId={data.id}
+                    isOpen={isImageCreatorLogsOpen}
+                    setOpen={setImageCreatorLogsOpen}
+                    onUpload={() => imageCreatorPreviewActions?.requestTopBarUpload()}
+                    hasRenderablePreview={true}
+                    onOpenPreview={() => imageCreatorPreviewActions?.openPreview()}
+                    onDownload={() => imageCreatorPreviewActions?.download()}
+                    canDownload={Boolean(imageCreatorPreviewActions?.canDownload)}
+                    onAnnotate={() => imageCreatorPreviewActions?.enterAnnotate()}
+                    canAnnotate={Boolean(imageCreatorPreviewActions?.canAnnotate)}
+                    onRepaint={() => imageCreatorPreviewActions?.enterRepaint()}
+                    canRepaint={Boolean(imageCreatorPreviewActions?.canRepaint)}
+                    onErase={() => imageCreatorPreviewActions?.enterErase()}
+                    canErase={Boolean(imageCreatorPreviewActions?.canErase)}
+                    onEnhance={() => imageCreatorPreviewActions?.enterEnhance()}
+                    canEnhance={Boolean(imageCreatorPreviewActions?.canEnhance)}
+                    onCutout={() => imageCreatorPreviewActions?.runCutout()}
+                    canCutout={Boolean(imageCreatorPreviewActions?.canCutout)}
+                    onCrop={() => imageCreatorPreviewActions?.enterCrop()}
+                    canCrop={Boolean(imageCreatorPreviewActions?.canCrop)}
+                    onMultiAngleCamera={() =>
+                      imageCreatorPreviewActions?.enterMultiAngleCamera()
+                    }
+                    canMultiAngleCamera={Boolean(
+                      imageCreatorPreviewActions?.canMultiAngleCamera,
+                    )}
+                    onOutpaint={() => imageCreatorPreviewActions?.enterOutpaint()}
+                    canOutpaint={Boolean(imageCreatorPreviewActions?.canOutpaint)}
+                    motionStart={persistentPreviewMotionStart}
+                    motionCommitToken={persistentPreviewMotionCommitToken}
+                  />
+                ) : (
+                  <DoubaoUploadOnlyTopBar
+                    nodeId={data.id}
+                    isOpen={isImageCreatorLogsOpen}
+                    setOpen={setImageCreatorLogsOpen}
+                    outputName="image"
+                    onUpload={() => imageCreatorPreviewActions?.requestTopBarUpload()}
+                    motionStart={persistentPreviewMotionStart}
+                    motionCommitToken={persistentPreviewMotionCommitToken}
+                  />
+                )}
               </div>
             )}
           {showNode &&
@@ -1477,21 +1624,36 @@ function GenericNode({
                   videoGeneratorPreviewActions?.canDownload,
               )) && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
-              <DoubaoVideoGeneratorTopBar
-                nodeId={data.id}
-                isOpen={isVideoGeneratorLogsOpen}
-                setOpen={setVideoGeneratorLogsOpen}
-                isViduUpscaleNode={isViduUpscaleVideoNode}
-                onVideoUpscale={() => videoGeneratorPreviewActions?.runVideoUpscale()}
-                canVideoUpscale={Boolean(videoGeneratorPreviewActions?.canVideoUpscale)}
-                onClip={() => videoGeneratorPreviewActions?.enterClip()}
-                canClip={Boolean(videoGeneratorPreviewActions?.canClip)}
-                onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
-                onDownload={() => videoGeneratorPreviewActions?.download()}
-                canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
-                motionStart={persistentPreviewMotionStart}
-                motionCommitToken={persistentPreviewMotionCommitToken}
-              />
+              {videoGeneratorPreviewActions?.hasRenderablePreview ? (
+                <DoubaoVideoGeneratorTopBar
+                  nodeId={data.id}
+                  isOpen={isVideoGeneratorLogsOpen}
+                  setOpen={setVideoGeneratorLogsOpen}
+                  isViduUpscaleNode={isViduUpscaleVideoNode}
+                  onUpload={() => videoGeneratorPreviewActions?.requestTopBarUpload()}
+                  hasRenderablePreview={true}
+                  onVideoUpscale={() => videoGeneratorPreviewActions?.runVideoUpscale()}
+                  canVideoUpscale={Boolean(videoGeneratorPreviewActions?.canVideoUpscale)}
+                  onClip={() => videoGeneratorPreviewActions?.enterClip()}
+                  canClip={Boolean(videoGeneratorPreviewActions?.canClip)}
+                  onOpenPreview={() => videoGeneratorPreviewActions?.openPreview()}
+                  onDownload={() => videoGeneratorPreviewActions?.download()}
+                  canDownload={Boolean(videoGeneratorPreviewActions?.canDownload)}
+                  motionStart={persistentPreviewMotionStart}
+                  motionCommitToken={persistentPreviewMotionCommitToken}
+                />
+              ) : (
+                <DoubaoUploadOnlyTopBar
+                  nodeId={data.id}
+                  isOpen={isVideoGeneratorLogsOpen}
+                  setOpen={setVideoGeneratorLogsOpen}
+                  outputName="video"
+                  onUpload={() => videoGeneratorPreviewActions?.requestTopBarUpload()}
+                  showUpload={!isViduUpscaleVideoNode}
+                  motionStart={persistentPreviewMotionStart}
+                  motionCommitToken={persistentPreviewMotionCommitToken}
+                />
+              )}
             </div>
           )}
           {showNode &&

@@ -68,7 +68,7 @@ type SidebarItem = {
   icon: typeof CircleDollarSign;
 };
 
-const EXCHANGE_RATE = 10;
+const EXCHANGE_RATE = 100;
 const MIN_TOPUP_CREDITS = 500;
 const MAX_TOPUP_CREDITS = 500_000;
 const TOPUP_STEP = 100;
@@ -291,7 +291,7 @@ function TeamSettingsPanel({
                 {member.role === "owner" ? (
                   <>
                     <div className="flex items-center justify-between text-sm text-[#39BFFF]">
-                      <span>{isZh ? "无额度限制" : "Unlimited quota"}</span>
+                      <span>{isZh ? "无限额限制" : "Unlimited quota"}</span>
                       <Infinity className="h-4 w-4" />
                     </div>
                     <div className="h-2 rounded-full bg-white/8">
@@ -359,7 +359,7 @@ function TeamBenefitsPanel({
             <div className="text-[18px] font-semibold text-white">{isZh ? "积分余额" : "Credit Balance"}: {formatCredits(currentBalance)}</div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-white/38">
               <span>{isZh ? "当前汇率" : "Current Rate"}</span>
-              <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-white/55">{`${isZh ? "¥1 = 10 积分" : "¥1 = 10 credits"}`}</span>
+              <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-white/55">{`¥1 = ${EXCHANGE_RATE} ${isZh ? "积分" : "credits"}`}</span>
               <span>{isZh ? "升级套餐，解锁更高充值汇率" : "Upgrade the plan to unlock a better recharge rate"}</span>
             </div>
           </div>

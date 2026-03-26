@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
     git \
+    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -16,17 +16,6 @@ import type { StoreComponentResponse } from "../../types/store";
 export const getAppVersions = customGetAppVersions;
 export const getLatestVersion = customGetLatestVersion;
 
-export async function createApiKey(name: string) {
-  try {
-    const res = await api.post(`${BASE_URL_API}api_key/`, { name });
-    if (res.status === 200) {
-      return res.data;
-    }
-  } catch (error) {
-    throw error;
-  }
-}
-
 /**
  * Saves a new flow to the database.
  *

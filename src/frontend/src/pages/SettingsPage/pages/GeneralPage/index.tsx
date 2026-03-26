@@ -6,14 +6,12 @@ import {
   SAVE_ERROR_ALERT,
   SAVE_SUCCESS_ALERT,
 } from "@/constants/alerts_constants";
-import { usePostAddApiKey } from "@/controllers/API/queries/api-keys";
 import { useResetPassword } from "@/controllers/API/queries/auth";
 import { CustomTermsLinks } from "@/customization/components/custom-terms-links";
 import useAuthStore from "@/stores/authStore";
 import { CONTROL_PATCH_USER_STATE } from "../../../../constants/constants";
 import { AuthContext } from "../../../../contexts/authContext";
 import useAlertStore from "../../../../stores/alertStore";
-import { useStoreStore } from "../../../../stores/storeStore";
 import type {
   inputHandlerEventType,
   patchUserInputStateType,
@@ -34,12 +32,6 @@ export const GeneralPage = () => {
   const { userData } = useContext(AuthContext);
   const { password, cnfPassword } = inputState;
   const autoLogin = useAuthStore((state) => state.autoLogin);
-
-  const { storeApiKey } = useContext(AuthContext);
-  const setHasApiKey = useStoreStore((state) => state.updateHasApiKey);
-  const setValidApiKey = useStoreStore((state) => state.updateValidApiKey);
-  const setLoadingApiKey = useStoreStore((state) => state.updateLoadingApiKey);
-
   const { mutate: mutateResetPassword } = useResetPassword();
 
   const handlePatchPassword = () => {
@@ -72,32 +64,6 @@ export const GeneralPage = () => {
   };
 
   useScrollToElement(scrollId);
-
-  const { mutate } = usePostAddApiKey({
-    onSuccess: () => {
-      setSuccessData({ title: "API key saved successfully" });
-      setHasApiKey(true);
-      setValidApiKey(true);
-      setLoadingApiKey(false);
-      handleInput({ target: { name: "apikey", value: "" } });
-    },
-    onError: (error) => {
-      setErrorData({
-        title: "API key save error",
-        list: [(error as any)?.response?.data?.detail],
-      });
-      setHasApiKey(false);
-      setValidApiKey(false);
-      setLoadingApiKey(false);
-    },
-  });
-
-  const _handleSaveKey = (apikey: string) => {
-    if (apikey) {
-      mutate({ key: apikey });
-      storeApiKey(apikey);
-    }
-  };
 
   function handleInput({
     target: { name, value },

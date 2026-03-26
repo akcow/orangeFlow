@@ -59,15 +59,19 @@ def test_single_request(host):
     import httpx
 
     api_key = os.getenv("API_KEY")
+    access_token = os.getenv("ACCESS_TOKEN")
     flow_id = os.getenv("FLOW_ID")
 
-    if not api_key or not flow_id:
+    if (not api_key and not access_token) or not flow_id:
         print("⚠️  Missing API_KEY or FLOW_ID for test request")
         return False
 
     print("\n🧪 Testing single request before load test...")
     print(f"   Flow ID: {flow_id}")
-    print(f"   API Key: {api_key[:20]}...")
+    if access_token:
+        print(f"   Access Token: {access_token[:20]}...")
+    else:
+        print(f"   API Key: {api_key[:20]}...")
 
     # First, test basic connectivity
     print("   🔗 Testing basic connectivity...")
@@ -94,7 +98,11 @@ def test_single_request(host):
             "input_type": "chat",
             "tweaks": {},
         }
-        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json"}
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+        else:
+            headers["x-api-key"] = api_key
 
         with httpx.Client(timeout=30.0) as client:
             response = client.post(url, json=payload, headers=headers)
@@ -174,7 +182,7 @@ def run_locust_test(args):
     locust_file = Path(__file__).parent / "langflow_locustfile.py"
 
     # Check for required environment variables
-    if not os.getenv("API_KEY"):
+    if not os.getenv("ACCESS_TOKEN") and not os.getenv("API_KEY"):
         print("❌ API_KEY environment variable not found!")
         print("Run langflow_setup_test.py first to create test credentials.")
         sys.exit(1)
@@ -227,7 +235,10 @@ def run_locust_test(args):
     print(f"Users: {args.users}")
     print(f"Duration: {args.duration}s")
     print(f"Shape: {args.shape or 'default'}")
-    print(f"API Key: {env.get('API_KEY', 'N/A')[:20]}...")
+    if env.get("ACCESS_TOKEN"):
+        print(f"Access Token: {env['ACCESS_TOKEN'][:20]}...")
+    else:
+        print(f"API Key: {env.get('API_KEY', 'N/A')[:20]}...")
     print(f"Flow ID: {env.get('FLOW_ID', 'N/A')}")
     if args.html:
         print(f"HTML Report: {args.html}")

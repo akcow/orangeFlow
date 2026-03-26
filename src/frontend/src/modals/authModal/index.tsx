@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
-import { CustomLink } from "@/customization/components/custom-link";
 import type { AuthSettingsType } from "@/types/mcp";
 import { AUTH_METHODS_ARRAY } from "@/utils/mcpUtils";
 import { toSpaceCase } from "@/utils/stringManipulation";
@@ -162,19 +161,22 @@ const AuthModal = ({
               {authType === "apikey" && (
                 <span className="flex flex-col items-start gap-1 text-mmd text-muted-foreground">
                   <p>
-                    {t("Create a key in")}{" "}
-                    <CustomLink
-                      className="text-accent-pink-foreground underline inline-block"
-                      to="/settings/api-keys"
-                    >
-                      {t("Settings")}
-                    </CustomLink>{" "}
-                    {t("and include it in the")}{" "}
+                    {t("API key authentication is no longer configured from settings.")}{" "}
+                    {t("If you keep using API key auth for an MCP server, provide the key directly in the")}{" "}
                     <span className="font-semibold">
                       {t("install JSON")}
                     </span>
-                    {t(". Or, create a key automatically from the")}{" "}
-                    <span className="font-semibold">{t("JSON tab")}</span>.
+                    .
+                  </p>
+                  <p>
+                    {t("Otherwise, prefer")}{" "}
+                    <span className="font-semibold">{t("OAuth")}</span>{" "}
+                    {t("or")}{" "}
+                    <span className="font-semibold">{t("None")}</span>{" "}
+                    {t("depending on your deployment model.")}{" "}
+                    {t("The")}{" "}
+                    <span className="font-semibold">{t("JSON tab")}</span>{" "}
+                    {t("can still be used to supply credentials manually.")}
                   </p>
                   {autoInstall && (
                     <p>

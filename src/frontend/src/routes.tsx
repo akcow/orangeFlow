@@ -33,7 +33,6 @@ const LoginAdminPage = lazy(() => import("./pages/AdminPage/LoginPage"));
 const AdminCommunityPage = lazy(
   () => import("./pages/AdminPage/CommunityPage"),
 );
-const ApiKeysPage = lazy(() => import("./pages/SettingsPage/pages/ApiKeysPage"));
 const CollectionPage = lazy(() => import("./pages/MainPage/pages/main-page"));
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
 const FilesPage = lazy(() => import("./pages/MainPage/pages/filesPage"));
@@ -44,7 +43,6 @@ const HomePage = lazy(() => import("./pages/MainPage/pages/homePage"));
 const KnowledgePage = lazy(() => import("./pages/MainPage/pages/knowledgePage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const MessagesPage = lazy(() => import("./pages/SettingsPage/pages/messagesPage"));
-const ModelConfigPage = lazy(() => import("./pages/SettingsPage/pages/ModelConfigPage"));
 const PlaygroundPage = lazy(() => import("./pages/Playground"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 const ProviderCredentialsPage = lazy(
@@ -165,12 +163,10 @@ const router = createBrowserRouter(
                     index
                     element={<CustomNavigate replace to={"general"} />}
                   />
-                  <Route path="model-config" element={<ModelConfigPage />} />
                   <Route
                     path="provider-credentials"
                     element={<ProviderCredentialsPage />}
                   />
-                  <Route path="api-keys" element={<ApiKeysPage />} />
                   <Route
                     path="general/:scrollId?"
                     element={

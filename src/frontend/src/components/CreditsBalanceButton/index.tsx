@@ -11,6 +11,13 @@ type CreditsBalanceButtonProps = {
   compact?: boolean;
 };
 
+function formatBalanceLabel(balance: number) {
+  if (balance > 10_000) {
+    return `${Math.floor(balance / 1000)}K`;
+  }
+  return new Intl.NumberFormat("en-US").format(balance);
+}
+
 export function CreditsBalanceButton({
   className,
   compact = false,
@@ -20,7 +27,7 @@ export function CreditsBalanceButton({
   const openCreditsCenter = useCreditsCenterStore((state) => state.openCreditsCenter);
 
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
-  const balanceLabel = isLoading ? "--" : String(data?.balance ?? 0);
+  const balanceLabel = isLoading ? "--" : formatBalanceLabel(data?.balance ?? 0);
 
   return (
     <>

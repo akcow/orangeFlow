@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-import uuid
 from typing import Any
 
 import httpx
@@ -58,81 +57,20 @@ def _normalize_token(value: str | None) -> str | None:
     return v or None
 
 
-def _load_model_api_key_variable(*, user_id: str | None) -> str | None:
-    """Read MODEL_API_KEY from the Variables table (Settings -> Model Config page)."""
-
-    async def _fetch(resolved_user_id: str | None):
-        from langflow.services.deps import get_variable_service, session_scope
-        from langflow.services.database.models.variable.model import Variable
-        from sqlmodel import select
-
-        variable_service = get_variable_service()
-        async with session_scope() as session:
-            try:
-                # If no user_id is provided (e.g. in-process call without graph context),
-                # fall back to the single stored MODEL_API_KEY if it is unambiguous.
-                uid = None
-                if resolved_user_id:
-                    try:
-                        uid = uuid.UUID(str(resolved_user_id))
-                    except Exception:
-                        uid = resolved_user_id  # best-effort; may still work in some backends
-
-                if not uid:
-                    rows = list((await session.exec(select(Variable).where(Variable.name == "MODEL_API_KEY"))).all())
-                    if len(rows) == 1:
-                        uid = rows[0].user_id
-
-                if not uid:
-                    return None
-
-                return await variable_service.get_variable(user_id=uid, name="MODEL_API_KEY", field="", session=session)
-            except Exception:
-                return None
-
-    try:
-        return _normalize_token(_run_coro_sync(_fetch(user_id)))
-    except Exception:
-        return None
-
-
 def _require_valid_hosted_key(*, user_id: str | None) -> str:
     """
     Enforce the Hosted Gateway key requirement for custom components.
 
-    - The user enters the key on Settings -> Model Config page, stored as Variable MODEL_API_KEY.
-    - We validate it the same way as the public gateway endpoints do (env master key or DB api keys).
+    Settings-managed MODEL_API_KEY variables and user-generated API keys were
+    retired, so gateway access now relies exclusively on the server-side
+    HOSTED_GATEWAY_KEY environment variable.
     """
-    token = _load_model_api_key_variable(user_id=user_id) or _normalize_token(os.getenv("HOSTED_GATEWAY_KEY"))
+    del user_id
+    token = _normalize_token(os.getenv("HOSTED_GATEWAY_KEY"))
     if not token:
-        raise AuthError("未配置 API Key，请先在“设置 -> 模型配置”页面填写。")
-
-    # Master key (dev/ops) bypass.
-    expected = _normalize_token(os.getenv("HOSTED_GATEWAY_KEY"))
-    if expected and token == expected:
-        return token
-
-    async def _validate_db():
-        from langflow.services.deps import session_scope
-        from langflow.services.database.models.api_key.crud import check_key
-
-        async with session_scope() as session:
-            user = await check_key(session, token)
-            if not user:
-                return False
-            # If we know the caller user_id, require the key to belong to the same user.
-            if user_id:
-                try:
-                    if uuid.UUID(str(user_id)) != user.id:
-                        return False
-                except Exception:
-                    # If user_id isn't a UUID string, skip strict matching.
-                    pass
-            return True
-
-    ok = bool(_run_coro_sync(_validate_db()))
-    if not ok:
-        raise AuthError("API Key 无效、已过期或不属于当前用户，请在“设置 -> API Keys”重新生成后再填写。")
+        raise AuthError(
+            "Hosted gateway access is not configured. Set HOSTED_GATEWAY_KEY on the server before running this component."
+        )
     return token
 
 
@@ -209,7 +147,6 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
         elif provider_name == "veo":
             video_url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
         elif provider_name == "vidu":
-            # Vidu returns a list of creations with `url`.
             creations = result.get("creations") if isinstance(result.get("creations"), list) else []
             if creations:
                 first = creations[0] if isinstance(creations[0], dict) else {}
@@ -221,14 +158,16 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
             if isinstance(videos, list) and videos:
                 first = videos[0] if isinstance(videos[0], dict) else {}
                 video_url = first.get("url") if isinstance(first.get("url"), str) else None
-        if isinstance(video_url, str) and video_url.strip():
-            normalized["data"] = {"url": video_url.strip()}
+        elif provider_name == "doubao":
+            video_url = result.get("video_url") if isinstance(result.get("video_url"), str) else None
+
+        if video_url:
+            normalized["video_url"] = video_url
 
     return normalized
 
 
-def videos_content(*, video_id: str, user_id: str | None = None) -> tuple[bytes, str | None]:
-    """Fetch video bytes for providers that expose a separate content endpoint (currently Veo only)."""
+def videos_content(*, video_id: str, user_id: str | None = None) -> bytes:
     _require_valid_hosted_key(user_id=user_id)
     decoded = decode_task_id(video_id)
     if not decoded.provider:
@@ -238,20 +177,18 @@ def videos_content(*, video_id: str, user_id: str | None = None) -> tuple[bytes,
     raw_id = decoded.raw_id
 
     if provider_name != "veo":
-        raise ValueError(f"video content fetch not supported for provider: {provider_name!r}")
+        raise ValueError("Only Veo content download is supported by the sync gateway client.")
 
     _n, provider = resolve_provider("veo-3.1-generate-preview")
+    url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
 
-    async def _fetch():
-        url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
-        headers = {"Authorization": f"Bearer {provider.api_key}"}
-        timeout = httpx.Timeout(60.0, connect=20.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            return resp.content, resp.headers.get("Content-Type")
+    headers = {}
+    if provider.api_key:
+        headers["x-goog-api-key"] = provider.api_key
 
-    return _run_coro_sync(_fetch())
+    response = httpx.get(url, headers=headers, timeout=120.0)
+    response.raise_for_status()
+    return response.content
 
 
 def audio_speech(*, model: str, input: str, voice: str, user_id: str | None = None, **kwargs) -> bytes:

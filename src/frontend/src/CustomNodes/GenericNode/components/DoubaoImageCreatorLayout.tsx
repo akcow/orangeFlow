@@ -90,6 +90,7 @@ const LAST_FRAME_FIELD = "last_frame_image";
 const MULTI_TURN_FIELD = "enable_multi_turn";
 const ONLINE_SEARCH_FIELD = "enable_google_search";
 const MAX_REFERENCE_IMAGES = 14;
+const USER_UPLOAD_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"];
 
 // Keep this local to avoid cross-module coupling issues. This layout only needs image_count formatting.
 function formatImageCountValue(value: unknown): string {
@@ -580,6 +581,7 @@ export default function DoubaoImageCreatorLayout({
       : "";
   const disableRun = !hasAnyConnection && isPromptEmpty;
   const setNodes = useFlowStore((state) => state.setNodes);
+  const setNode = useFlowStore((state) => state.setNode);
   const setEdges = useFlowStore((state) => state.setEdges);
   const onConnect = useFlowStore((state) => state.onConnect);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
@@ -1793,6 +1795,99 @@ export default function DoubaoImageCreatorLayout({
     if (isReferenceUploadPending) return;
     setUploadDialogOpen(true);
   }, [isReferenceUploadPending]);
+
+  const triggerTopBarUpload = useCallback(async () => {
+    if (!currentFlowId) {
+      setErrorData({
+        title: "无法上传图片",
+        list: ["请先保存当前工作流后再上传。"],
+      });
+      return;
+    }
+
+    const uploadTemplate = templates?.["UserUploadImage"];
+    if (!uploadTemplate) {
+      setErrorData({
+        title: "无法切换为图片资源上传组件",
+        list: ["未加载到“上传图片（UserUploadImage）”模板。"],
+      });
+      return;
+    }
+
+    const files = await createFileUpload({
+      multiple: false,
+      accept: USER_UPLOAD_IMAGE_EXTENSIONS.map((ext) => `.${ext}`).join(","),
+    });
+    const file = files[0];
+    if (!file) return;
+
+    try {
+      validateFileSize(file);
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorData({ title: error.message });
+      }
+      return;
+    }
+
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    if (!ext || !USER_UPLOAD_IMAGE_EXTENSIONS.includes(ext)) {
+      setErrorData({
+        title: INVALID_FILE_ALERT,
+        list: [USER_UPLOAD_IMAGE_EXTENSIONS.map((item) => item.toUpperCase()).join(", ")],
+      });
+      return;
+    }
+
+    try {
+      const response = await uploadReferenceFile({ file, id: currentFlowId });
+      const serverPath = String((response as { file_path?: string } | undefined)?.file_path ?? "").trim();
+      if (!serverPath) {
+        throw new Error("Missing file_path");
+      }
+
+      takeSnapshot();
+      setNode(data.id, (oldNode) => {
+        if (oldNode.type !== "genericNode") return oldNode;
+
+        const nextTemplate = cloneDeep(uploadTemplate);
+        if ((nextTemplate as any)?.template?.file) {
+          (nextTemplate as any).template.file.value = file.name;
+          (nextTemplate as any).template.file.file_path = serverPath;
+        }
+
+        return {
+          ...oldNode,
+          data: {
+            ...(oldNode.data as NodeDataType),
+            id: data.id,
+            type: "UserUploadImage",
+            selected_output: undefined,
+            selected_output_type: undefined,
+            output_types: undefined,
+            node: nextTemplate as APIClassType,
+          },
+        };
+      });
+    } catch (error) {
+      console.error(CONSOLE_ERROR_MSG, error);
+      setErrorData({
+        title: "上传失败",
+        list: [
+          extractErrorDetail(error) ?? "网络异常，稍后再试或检查后端日志。",
+        ],
+      });
+    }
+  }, [
+    currentFlowId,
+    data.id,
+    setErrorData,
+    setNode,
+    takeSnapshot,
+    templates,
+    uploadReferenceFile,
+    validateFileSize,
+  ]);
 
   const requestUploadDialogForNode = useCallback((nodeId: string) => {
     const uploadEvent = new CustomEvent("doubao-preview-upload", {
@@ -3027,6 +3122,7 @@ export default function DoubaoImageCreatorLayout({
             appearance="imageCreator"
             referenceImages={[]}
             onRequestUpload={openUploadDialog}
+            onRequestTopBarUpload={triggerTopBarUpload}
             onSuggestionClick={handlePreviewSuggestionClickWithVideo}
             onActionsChange={handlePreviewActionsChange}
             aspectRatio={String(

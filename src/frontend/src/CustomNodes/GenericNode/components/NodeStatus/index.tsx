@@ -15,14 +15,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-// ... (keep existing imports)
-
-
 import { Button } from "@/components/ui/button";
 import { ICON_STROKE_WIDTH } from "@/constants/constants";
 import { BuildStatus } from "@/constants/enums";
 import { usePostTemplateValue } from "@/controllers/API/queries/nodes/use-post-template-value";
-import { useGetGlobalVariables } from "@/controllers/API/queries/variables";
 import { track } from "@/customization/utils/analytics";
 import { customOpenNewTab } from "@/customization/utils/custom-open-new-tab";
 import useAlertStore from "@/stores/alertStore";
@@ -303,27 +299,10 @@ export default function NodeStatus({
   const stopLatestChainForNode = useFlowStore(
     (state) => state.stopLatestChainForNode,
   );
-
   const navigate = useNavigate();
-  const { data: globalVariables } = useGetGlobalVariables();
   const [showKeyModal, setShowKeyModal] = useState(false);
 
   const handleClickRun = () => {
-    const modulePath = ((data.node as any)?.metadata?.module ?? "") as string;
-    const isLfxCustomNode =
-      typeof modulePath === "string" && modulePath.startsWith("lfx.");
-
-    const hasApiKey = globalVariables?.some((v) => {
-      if (v.name !== "MODEL_API_KEY") return false;
-      const raw = typeof v.value === "string" ? v.value.trim() : "";
-      return Boolean(raw) && !raw.startsWith("****");
-    });
-
-    if (isLfxCustomNode && !hasApiKey) {
-      setShowKeyModal(true);
-      return;
-    }
-
     if (BuildStatus.BUILDING === buildStatus) {
       stopLatestChainForNode(nodeId_);
       return;
@@ -426,7 +405,7 @@ export default function NodeStatus({
             <Button variant="outline" onClick={() => setShowKeyModal(false)}>
               取消
             </Button>
-            <Button onClick={() => navigate("/settings/model-config")}>
+            <Button onClick={() => navigate("/settings/provider-credentials")}>
               去填写
             </Button>
           </DialogFooter>

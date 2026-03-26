@@ -2,7 +2,6 @@
 from fastapi import APIRouter
 
 from langflow.api.v1 import (
-    api_key_router,
     canvas_assistant_router,
     chat_router,
     community_router,
@@ -18,8 +17,8 @@ from langflow.api.v1 import (
     monitor_router,
     notifications_router,
     openai_responses_router,
-    provider_credentials_router,
     projects_router,
+    provider_credentials_router,
     starter_projects_router,
     store_router,
     teams_router,
@@ -50,7 +49,6 @@ router_v1.include_router(validate_router)
 router_v1.include_router(store_router)
 router_v1.include_router(flows_router)
 router_v1.include_router(users_router)
-router_v1.include_router(api_key_router)
 router_v1.include_router(login_router)
 router_v1.include_router(variables_router)
 router_v1.include_router(files_router)

@@ -23,11 +23,11 @@ from langflow.services.database.models.credit.model import (
 from langflow.services.database.models.user.model import User
 
 DEFAULT_INITIAL_CREDITS = int(os.getenv("LANGFLOW_CREDITS_INITIAL_BALANCE", "100"))
-DEFAULT_IMAGE_CREDITS_COST = int(os.getenv("LANGFLOW_CREDITS_DEFAULT_IMAGE_COST", "10"))
-DEFAULT_VIDEO_CREDITS_COST = int(os.getenv("LANGFLOW_CREDITS_DEFAULT_VIDEO_COST", "30"))
+DEFAULT_IMAGE_CREDITS_COST = int(os.getenv("LANGFLOW_CREDITS_DEFAULT_IMAGE_COST", "100"))
+DEFAULT_VIDEO_CREDITS_COST = int(os.getenv("LANGFLOW_CREDITS_DEFAULT_VIDEO_COST", "300"))
 DEFAULT_TEXT_CREDITS_COST = int(os.getenv("LANGFLOW_CREDITS_DEFAULT_TEXT_COST", "0"))
 
-CREDITS_PER_RMB = Decimal("10")
+CREDITS_PER_RMB = Decimal("100")
 SALES_PRICE_MULTIPLIER = Decimal("1.2")
 CREDIT_MULTIPLIER = CREDITS_PER_RMB * SALES_PRICE_MULTIPLIER
 MILLION = Decimal("1000000")
@@ -79,6 +79,13 @@ MODEL_NAME_ALIASES: dict[str, str] = {
     "kling-video-01": "kling o1",
     "kling-v3-omni": "kling o3",
     "kling-v3": "kling v3",
+    "wan 2.6 t2v": "wan2.6-t2v",
+    "wan 2.6 i2v": "wan2.6-i2v",
+    "wan 2.6 i2v flash": "wan2.6-i2v-flash",
+    "wan 2.6 r2v": "wan2.6-r2v",
+    "wan 2.6 r2v flash": "wan2.6-r2v-flash",
+    "wan 2.5 t2v preview": "wan2.5-t2v-preview",
+    "wan 2.5 i2v preview": "wan2.5-i2v-preview",
 }
 
 CHARGEABLE_COMPONENT_RESOURCE_TYPES: dict[str, CreditResourceType] = {
@@ -93,35 +100,61 @@ DEFAULT_PRICING_RULES: list[tuple[CreditResourceType, str, str, str, int]] = [
         "DoubaoImageCreator",
         "seedream 5.0 lite",
         "Seedream 5.0 Lite",
-        3,
+        26,
     ),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "seedream 4.5", "Seedream 4.5", 3),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "seedream 4.0", "Seedream 4.0", 2),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "nano banana 2", "Nano Banana 2", 1),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "nano banana pro", "Nano Banana Pro", 2),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "wan2.6", "Wan 2.6", 2),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "wan2.5", "Wan 2.5", 2),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "kling o1", "Kling O1", 2),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "kling o3", "Kling O3", 2),
-    (CreditResourceType.IMAGE, "DoubaoImageCreator", "kling v3", "Kling V3", 2),
-    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "seedance 1.5 pro", "Seedance 1.5 Pro", 1),
-    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "seedance 1.0 pro", "Seedance 1.0 Pro", 1),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "seedream 4.5", "Seedream 4.5", 30),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "seedream 4.0", "Seedream 4.0", 24),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "nano banana 2", "Nano Banana 2", 12),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "nano banana pro", "Nano Banana Pro", 18),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "wan2.6", "Wan 2.6", 24),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "wan2.5", "Wan 2.5", 24),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "kling o1", "Kling O1", 24),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "kling o3", "Kling O3", 24),
+    (CreditResourceType.IMAGE, "DoubaoImageCreator", "kling v3", "Kling V3", 24),
+    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "seedance 1.5 pro", "Seedance 1.5 Pro", 10),
+    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "seedance 1.0 pro", "Seedance 1.0 Pro", 10),
     (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "wan2.6", "Wan 2.6", DEFAULT_VIDEO_CREDITS_COST),
     (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "wan2.5", "Wan 2.5", DEFAULT_VIDEO_CREDITS_COST),
     (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "veo3.1", "Veo 3.1", DEFAULT_VIDEO_CREDITS_COST),
     (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "veo3.1-fast", "Veo 3.1 Fast", DEFAULT_VIDEO_CREDITS_COST),
     (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "sora-2", "Sora 2", DEFAULT_VIDEO_CREDITS_COST),
     (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "sora-2-pro", "Sora 2 Pro", DEFAULT_VIDEO_CREDITS_COST),
-    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "kling o1", "Kling O1", 7),
-    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "kling o3", "Kling O3", 10),
-    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "kling v3", "Kling V3", 10),
-    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "viduq2-pro", "Vidu Q2 Pro", 3),
-    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "viduq3-pro", "Vidu Q3 Pro", 5),
+    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "kling o1", "Kling O1", 72),
+    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "kling o3", "Kling O3", 96),
+    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "kling v3", "Kling V3", 96),
+    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "viduq2-pro", "Vidu Q2 Pro", 30),
+    (CreditResourceType.VIDEO, "DoubaoVideoGenerator", "viduq3-pro", "Vidu Q3 Pro", 53),
     (CreditResourceType.TEXT, "TextCreation", "deepseek-chat", "DeepSeek Chat", DEFAULT_TEXT_CREDITS_COST),
     (CreditResourceType.TEXT, "TextCreation", "deepseek-reasoner", "DeepSeek Reasoner", DEFAULT_TEXT_CREDITS_COST),
     (CreditResourceType.TEXT, "TextCreation", "gemini-3-pro-preview", "Gemini 3 Pro", DEFAULT_TEXT_CREDITS_COST),
     (CreditResourceType.TEXT, "TextCreation", "gemini-3-flash-preview", "Gemini 3 Flash", DEFAULT_TEXT_CREDITS_COST),
 ]
+
+LEGACY_DEFAULT_PRICING_RULE_COSTS: dict[tuple[str, str], int] = {
+    ("DoubaoImageCreator", "seedream 5.0 lite"): 3,
+    ("DoubaoImageCreator", "seedream 4.5"): 3,
+    ("DoubaoImageCreator", "seedream 4.0"): 2,
+    ("DoubaoImageCreator", "nano banana 2"): 1,
+    ("DoubaoImageCreator", "nano banana pro"): 2,
+    ("DoubaoImageCreator", "wan2.6"): 2,
+    ("DoubaoImageCreator", "wan2.5"): 2,
+    ("DoubaoImageCreator", "kling o1"): 2,
+    ("DoubaoImageCreator", "kling o3"): 2,
+    ("DoubaoImageCreator", "kling v3"): 2,
+    ("DoubaoVideoGenerator", "seedance 1.5 pro"): 1,
+    ("DoubaoVideoGenerator", "seedance 1.0 pro"): 1,
+    ("DoubaoVideoGenerator", "wan2.6"): 30,
+    ("DoubaoVideoGenerator", "wan2.5"): 30,
+    ("DoubaoVideoGenerator", "veo3.1"): 30,
+    ("DoubaoVideoGenerator", "veo3.1-fast"): 30,
+    ("DoubaoVideoGenerator", "sora-2"): 30,
+    ("DoubaoVideoGenerator", "sora-2-pro"): 30,
+    ("DoubaoVideoGenerator", "kling o1"): 7,
+    ("DoubaoVideoGenerator", "kling o3"): 10,
+    ("DoubaoVideoGenerator", "kling v3"): 10,
+    ("DoubaoVideoGenerator", "viduq2-pro"): 3,
+    ("DoubaoVideoGenerator", "viduq3-pro"): 5,
+}
 
 DEFAULT_PRICING_RULE_INDEX: dict[tuple[str, str], tuple[CreditResourceType, str, str, str, int]] = {
     (component_key, model_key): (resource_type, component_key, model_key, display_name, credits_cost)
@@ -502,11 +535,98 @@ def _calculate_vidu_q2_cost_price(template: dict[str, Any] | None) -> Decimal | 
     return total
 
 
+def _detect_wan_video_mode(model_key: str, template: dict[str, Any] | None) -> str | None:
+    if "-r2v" in model_key:
+        return "r2v"
+    if "-i2v" in model_key:
+        return "i2v"
+    if "-t2v" in model_key:
+        return "t2v"
+    first_frame_field = _get_template_field(template, "first_frame_image")
+    if _contains_video_file(first_frame_field):
+        return "r2v"
+    if _has_file_entries(first_frame_field):
+        return "i2v"
+    return "t2v"
+
+
+def _resolve_wan_enable_audio(model_key: str, mode: str, template: dict[str, Any] | None) -> bool:
+    raw_enable_audio = _extract_template_raw_value(template, "enable_audio")
+    if raw_enable_audio not in (None, ""):
+        return _coerce_bool(raw_enable_audio)
+    # Generic `wan2.6` / `wan2.5` nodes in the current frontend do not always carry an
+    # explicit audio flag for every mode. When it is omitted, default to the official
+    # non-flash tier so we do not accidentally undercharge silent flash prices.
+    if mode in {"i2v", "r2v"} and (
+        model_key in {"wan2.6", "wan2.5"} or model_key.endswith("-i2v") or model_key.endswith("-r2v")
+    ):
+        return True
+    return False
+
+
+def _calculate_wan_video_cost_price(model_key: str, template: dict[str, Any] | None) -> Decimal | None:
+    family = "wan2.6" if model_key.startswith("wan2.6") else "wan2.5" if model_key.startswith("wan2.5") else None
+    if family is None:
+        return None
+
+    resolution = _normalize_video_resolution(_extract_template_raw_value(template, "resolution"))
+    duration = max(_coerce_int(_extract_template_raw_value(template, "duration"), default=5), 1)
+    mode = _detect_wan_video_mode(model_key, template)
+    if mode is None:
+        return None
+    enable_audio = _resolve_wan_enable_audio(model_key, mode, template)
+
+    if family == "wan2.6":
+        if mode == "t2v":
+            rate_map = {
+                "720p": Decimal("0.6"),
+                "1080p": Decimal("1.0"),
+            }
+        elif mode in {"i2v", "r2v"}:
+            is_flash_variant = model_key.endswith("-flash") or (model_key == "wan2.6" and not enable_audio)
+            if is_flash_variant:
+                rate_map = (
+                    {
+                        "720p": Decimal("0.3"),
+                        "1080p": Decimal("0.5"),
+                    }
+                    if enable_audio
+                    else {
+                        "720p": Decimal("0.15"),
+                        "1080p": Decimal("0.25"),
+                    }
+                )
+            else:
+                if not enable_audio and model_key != "wan2.6":
+                    return None
+                rate_map = {
+                    "720p": Decimal("0.6"),
+                    "1080p": Decimal("1.0"),
+                }
+        else:
+            return None
+    else:
+        if mode == "r2v":
+            return None
+        rate_map = {
+            "480p": Decimal("0.3"),
+            "720p": Decimal("0.6"),
+            "1080p": Decimal("1.0"),
+        }
+
+    rate = rate_map.get(resolution)
+    if rate is None:
+        return None
+    return rate * duration
+
+
 def _calculate_video_cost_price(component_key: str, model_key: str, template: dict[str, Any] | None) -> Decimal | None:
     if component_key != "DoubaoVideoGenerator":
         return None
     if model_key in {"seedance 1.5 pro", "seedance 1.0 pro"}:
         return _calculate_seedance_cost_price(model_key, template)
+    if model_key.startswith("wan2."):
+        return _calculate_wan_video_cost_price(model_key, template)
     if model_key in {"kling o1", "kling o3", "kling v3"}:
         return _calculate_kling_video_cost_price(model_key, template)
     if model_key == "viduq3-pro":
@@ -658,7 +778,6 @@ async def ensure_default_pricing_rules(session: AsyncSession) -> None:
         if (component_key, model_key) not in existing_rule_map
     ]
 
-    legacy_default_costs = {DEFAULT_IMAGE_CREDITS_COST, DEFAULT_VIDEO_CREDITS_COST}
     updated_existing = False
     for resource_type, component_key, model_key, display_name, credits_cost in DEFAULT_PRICING_RULES:
         existing_rule = existing_rule_map.get((component_key, model_key))
@@ -671,7 +790,8 @@ async def ensure_default_pricing_rules(session: AsyncSession) -> None:
         if existing_rule.display_name != display_name:
             existing_rule.display_name = display_name
             rule_changed = True
-        if existing_rule.credits_cost in legacy_default_costs and existing_rule.credits_cost != credits_cost:
+        legacy_cost = LEGACY_DEFAULT_PRICING_RULE_COSTS.get((component_key, model_key))
+        if legacy_cost is not None and existing_rule.credits_cost == legacy_cost and existing_rule.credits_cost != credits_cost:
             existing_rule.credits_cost = credits_cost
             rule_changed = True
         if rule_changed:

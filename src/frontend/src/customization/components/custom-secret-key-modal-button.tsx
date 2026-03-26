@@ -1,5 +1,3 @@
-import { getModalPropsApiKey } from "@/pages/SettingsPage/pages/ApiKeysPage/helpers/get-modal-props";
-
 export const SecretKeyModalButton = ({
   userId,
   modalProps,
@@ -7,6 +5,8 @@ export const SecretKeyModalButton = ({
   userId: string;
   modalProps;
 }): JSX.Element => {
+  void userId;
+  void modalProps;
   return <></>;
 };
 

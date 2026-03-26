@@ -277,6 +277,8 @@ export type DoubaoPreviewPanelActions = {
   openPreview: () => void;
   download: () => void;
   canDownload: boolean;
+  requestTopBarUpload: () => void;
+  hasRenderablePreview: boolean;
   enterAnnotate: () => void;
   canAnnotate: boolean;
   isAnnotateOpen: boolean;
@@ -314,6 +316,7 @@ type Props = {
   appearance?: DoubaoPreviewAppearance;
   referenceImages?: DoubaoReferenceImage[];
   onRequestUpload?: () => void;
+  onRequestTopBarUpload?: () => void;
   onSuggestionClick?: (label: string) => void;
   onActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
   aspectRatio?: string;
@@ -358,6 +361,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       appearance = "default",
       referenceImages = [],
       onRequestUpload,
+      onRequestTopBarUpload,
       onSuggestionClick,
       onActionsChange,
       aspectRatio,
@@ -1400,11 +1404,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         ? referenceGallery
         : null;
 
-    const hasRenderablePreview =
+    const hasRenderablePreview = Boolean(
       hasGeneratedImagePreview ||
-      hasReferencePreview ||
-      hasVideoPreview ||
-      hasAudioPreview;
+        hasReferencePreview ||
+        hasVideoPreview ||
+        hasAudioPreview,
+    );
     const shouldShowWaveLoading = isMinimal && isBuilding;
     const emptyPreviewBuildingState = isBuilding && !shouldShowWaveLoading;
     const handleRetryFailedBuild = useCallback(() => {
@@ -2941,6 +2946,10 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
         openPreview: openModal,
         download: handleDownload,
         canDownload: Boolean(downloadInfo),
+        requestTopBarUpload: () => {
+          (onRequestTopBarUpload ?? onRequestUpload)?.();
+        },
+        hasRenderablePreview,
         enterAnnotate,
         canAnnotate,
         isAnnotateOpen,
@@ -2983,6 +2992,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       canClip,
       canVideoUpscale,
       downloadInfo,
+      hasRenderablePreview,
       enterAnnotate,
       enterRepaint,
       runRepaint,
@@ -3004,6 +3014,8 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
       isMultiAngleCameraOpen,
       isClipOpen,
       onActionsChange,
+      onRequestTopBarUpload,
+      onRequestUpload,
       openModal,
     ]);
 

@@ -19,7 +19,8 @@ Usage:
 Environment Variables:
     - LANGFLOW_HOST: Base URL for the Langflow server (default: http://localhost:7860)
     - FLOW_ID: Flow ID to test (required)
-    - API_KEY: API key for authentication (required)
+    - ACCESS_TOKEN: JWT access token for authentication (preferred)
+    - API_KEY: API key for authentication (fallback)
     - MIN_WAIT: Minimum wait time between requests in ms (default: 2000)
     - MAX_WAIT: Maximum wait time between requests in ms (default: 5000)
     - REQUEST_TIMEOUT: Request timeout in seconds (default: 30.0)
@@ -368,11 +369,14 @@ class BaseLangflowUser(FastHttpUser):
     def on_start(self):
         """Called when a user starts before any task is scheduled."""
         # Get credentials from environment variables
+        self.access_token = os.getenv("ACCESS_TOKEN")
         self.api_key = os.getenv("API_KEY")
         self.flow_id = os.getenv("FLOW_ID")
 
-        if not self.api_key:
-            raise ValueError("API_KEY environment variable is required. Run setup_langflow_test.py first.")
+        if not self.access_token and not self.api_key:
+            raise ValueError(
+                "ACCESS_TOKEN or API_KEY environment variable is required. Run setup_langflow_test.py first."
+            )
 
         if not self.flow_id:
             raise ValueError("FLOW_ID environment variable is required. Run setup_langflow_test.py first.")
@@ -398,10 +402,13 @@ class BaseLangflowUser(FastHttpUser):
         }
 
         headers = {
-            "x-api-key": self.api_key,
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        else:
+            headers["x-api-key"] = self.api_key
 
         self.request_count += 1
         endpoint = f"/api/v1/run/{self.flow_id}?stream=false"

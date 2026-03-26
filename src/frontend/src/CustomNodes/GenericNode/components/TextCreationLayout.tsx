@@ -1427,6 +1427,8 @@ export default function TextCreationLayout({
       openPreview,
       download: noopDownload,
       canDownload: false,
+      requestTopBarUpload: noopEnter,
+      hasRenderablePreview: false,
       enterAnnotate: noopEnter,
       canAnnotate: false,
       isAnnotateOpen: false,

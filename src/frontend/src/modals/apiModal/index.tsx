@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { CustomAPIGenerator } from "@/customization/components/custom-api-generator";
-import { CustomLink } from "@/customization/components/custom-link";
 import useSaveFlow from "@/hooks/flows/use-save-flow";
 import { t } from "@/i18n/t";
 import useAuthStore from "@/stores/authStore";
@@ -113,15 +112,9 @@ export default function ApiModal({
         <BaseModal.Header
           description={
             <span className="pr-2">
-              {t("API access requires an API key. You can")}{" "}
-              <CustomLink
-                to="/settings/api-keys"
-                className="text-accent-pink-foreground"
-              >
-                {" "}
-                {t("create an API key")}
-              </CustomLink>{" "}
-              {t("in settings.")}
+              {t(
+                "API access is managed through your authenticated account. Configure the endpoint name and input schema here.",
+              )}
             </span>
           }
         >

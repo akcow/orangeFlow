@@ -22,7 +22,6 @@ const initialValue: AuthContextType = {
   authenticationErrorCount: 0,
   setApiKey: () => {},
   apiKey: null,
-  storeApiKey: () => {},
   getUser: () => {},
   clearAuthSession: () => {},
 };
@@ -53,9 +52,9 @@ export function AuthProvider({ children }): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    const apiKey = cookieManager.get(LANGFLOW_API_TOKEN);
-    if (apiKey) {
-      setApiKey(apiKey);
+    const storedApiKey = cookieManager.get(LANGFLOW_API_TOKEN);
+    if (storedApiKey) {
+      setApiKey(storedApiKey);
     }
   }, []);
 
@@ -152,10 +151,6 @@ export function AuthProvider({ children }): React.ReactElement {
     setTimeout(verifyAndProceed, 50);
   }
 
-  function storeApiKey(apikey: string) {
-    setApiKey(apikey);
-  }
-
   function clearAuthSession() {
     cookieManager.clearAuthCookies();
     localStorage.removeItem(LANGFLOW_ACCESS_TOKEN);
@@ -178,7 +173,6 @@ export function AuthProvider({ children }): React.ReactElement {
         authenticationErrorCount: 0,
         setApiKey,
         apiKey,
-        storeApiKey,
         getUser,
         clearAuthSession,
       }}

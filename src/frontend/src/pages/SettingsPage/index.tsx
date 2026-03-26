@@ -12,6 +12,7 @@ import useAuthStore from "@/stores/authStore";
 import { useStoreStore } from "@/stores/storeStore";
 import ForwardedIconComponent from "../../components/common/genericIconComponent";
 import PageLayout from "../../components/common/pageLayout";
+
 export default function SettingsPage(): JSX.Element {
   const autoLogin = useAuthStore((state) => state.autoLogin);
   const hasStore = useStoreStore((state) => state.hasStore);
@@ -38,19 +39,7 @@ export default function SettingsPage(): JSX.Element {
     });
   }
 
-
   sidebarNavItems.push(
-    {
-      title: "模型配置",
-      href: "/settings/model-config",
-      icon: (
-        <ForwardedIconComponent
-          name="Settings2"
-          className="w-4 flex-shrink-0 justify-start stroke-[1.5]"
-        />
-      ),
-    },
-
     {
       title: t("Shortcuts"),
       href: "/settings/shortcuts",
@@ -75,8 +64,8 @@ export default function SettingsPage(): JSX.Element {
 
   // TODO: Remove this on cleanup
   if (!ENABLE_DATASTAX_LANGFLOW) {
-    const langflowItems = CustomStoreSidebar(true, ENABLE_LANGFLOW_STORE);
-    sidebarNavItems.splice(2, 0, ...langflowItems);
+    const langflowItems = CustomStoreSidebar(ENABLE_LANGFLOW_STORE);
+    sidebarNavItems.splice(1, 0, ...langflowItems);
   }
 
   return (

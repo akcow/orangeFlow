@@ -1,12 +1,10 @@
 import { Route } from "react-router-dom";
-import { StoreGuard } from "@/components/authorization/storeGuard";
-import StoreApiKeyPage from "@/pages/SettingsPage/pages/StoreApiKeyPage";
-import StorePage from "@/pages/StorePage";
+import { CustomNavigate } from "@/customization/components/custom-navigate";
 
 export const CustomRoutesStore = () => {
   return (
     <>
-      <Route path="store" element={<StoreApiKeyPage />} />
+      <Route path="store" element={<CustomNavigate replace to="/store" />} />
     </>
   );
 };

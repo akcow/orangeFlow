@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo } from "react";
+import { useMemo } from "react";
 import type {
   CreditEstimate,
   CreditEstimatePayload,
@@ -16,26 +16,25 @@ export const useGetCreditEstimateQuery: useQueryFunctionType<
   const { query } = UseRequestProcessor();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const payloadKey = useMemo(() => JSON.stringify(payload ?? {}), [payload]);
-  const deferredPayloadKey = useDeferredValue(payloadKey);
-  const deferredPayload = useMemo(
-    () => JSON.parse(deferredPayloadKey || "{}") as CreditEstimatePayload,
-    [deferredPayloadKey],
+  const requestPayload = useMemo(
+    () => JSON.parse(payloadKey || "{}") as CreditEstimatePayload,
+    [payloadKey],
   );
 
   const getCreditEstimate = async (): Promise<CreditEstimate | null> => {
-    if (!deferredPayload?.node_payload) {
+    if (!requestPayload?.node_payload) {
       return null;
     }
-    const res = await api.post(`${getURL("CREDITS")}/estimate`, deferredPayload);
+    const res = await api.post(`${getURL("CREDITS")}/estimate`, requestPayload);
     return res.data;
   };
 
   return query(
-    ["credits", "estimate", deferredPayloadKey],
+    ["credits", "estimate", payloadKey],
     getCreditEstimate,
     {
       refetchOnWindowFocus: false,
-      enabled: isAuthenticated && Boolean(deferredPayload?.node_payload) && (options?.enabled ?? true),
+      enabled: isAuthenticated && Boolean(requestPayload?.node_payload) && (options?.enabled ?? true),
       ...options,
     },
   );
