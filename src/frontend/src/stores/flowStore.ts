@@ -34,20 +34,25 @@ import type {
 } from "../types/zustand/flow";
 import { buildFlowVerticesWithFallback } from "../utils/buildUtils";
 import {
+  canAddImageRole,
+  getDoubaoVideoGenerationMode,
+  getDoubaoVideoModelName,
+  getImageRoleCounts,
+  getImageRoleLimits,
+  getImageRoleLimitsForGenerationMode,
+  IMAGE_ROLE_FIELD,
+  IMAGE_ROLE_TARGET,
+  pickImageRoleForNewEdge,
+} from "../utils/flowMediaUtils";
+import { getConnectedSubgraph } from "../utils/flowGraphUtils";
+import {
   buildPositionDictionary,
   checkChatInput,
   cleanEdges,
   detectBrokenEdgesEdges,
-  getConnectedSubgraph,
-  getDoubaoVideoModelName,
   getHandleId,
-  canAddImageRole,
-  getImageRoleCounts,
-  getImageRoleLimits,
   getNodeId,
-  IMAGE_ROLE_FIELD,
-  IMAGE_ROLE_TARGET,
-  pickImageRoleForNewEdge,
+  registerReactflowUtilsStoreBridge,
   scapedJSONStringfy,
   scapeJSONParse,
   unselectAllNodesEdges,
@@ -574,6 +579,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       currentFlow: flow,
       positionDictionary: {},
       rightClickedNodeId: null,
+      lineageHighlightedEdgeIds: [],
     });
   },
   setFlowState: (flowState) => {
@@ -1181,6 +1187,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       edges: [],
       flowState: undefined,
       getFilterEdge: [],
+      lineageHighlightedEdgeIds: [],
     });
   },
   setFilterEdge: (newState) => {
@@ -1197,6 +1204,18 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
   rightClickedNodeId: null,
   setRightClickedNodeId: (nodeId) => {
     set({ rightClickedNodeId: nodeId });
+  },
+  lineageHighlightedEdgeIds: [],
+  setLineageHighlightedEdgeIds: (edgeIds) => {
+    set((state) => {
+      if (
+        state.lineageHighlightedEdgeIds.length === edgeIds.length &&
+        state.lineageHighlightedEdgeIds.every((edgeId, index) => edgeId === edgeIds[index])
+      ) {
+        return state;
+      }
+      return { lineageHighlightedEdgeIds: edgeIds };
+    });
   },
   onConnect: (connection) => {
     const _dark = useDarkStore.getState().dark;
@@ -1521,6 +1540,9 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       const isLastFrameEdge =
         targetFieldName === "last_frame_image" &&
         targetNode?.data?.type === IMAGE_ROLE_TARGET;
+      const targetGenerationMode = targetNode
+        ? getDoubaoVideoGenerationMode(targetNode)
+        : "text";
       let imageRole: "first" | "reference" | "last" | undefined;
       let videoReferType: "base" | "feature" | undefined;
       const requestedRoleRaw =
@@ -1554,11 +1576,13 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       if (isLastFrameEdge) {
         imageRole = requestedRole === "last" ? requestedRole : "last";
       } else if (isVideoBridgeEdge) {
-        // Default to feature reference for incoming video-source connections.
-        videoReferType = "feature";
+        videoReferType = targetGenerationMode === "video_edit" ? "base" : "feature";
       } else if (isRoleEdge) {
         const modelName = getDoubaoVideoModelName(targetNode);
-        const limits = getImageRoleLimits(modelName);
+        const limits =
+          targetGenerationMode === "text"
+            ? getImageRoleLimits(modelName)
+            : getImageRoleLimitsForGenerationMode(modelName, targetGenerationMode);
         const counts = getImageRoleCounts(oldEdges, connection.target!, targetNode);
         if (hasIncomingVideoSourceEdge) {
           const maxReference = limits.maxReference ?? limits.maxTotal;
@@ -1572,6 +1596,35 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
             return oldEdges;
           }
           imageRole = "reference";
+        } else if (
+          targetGenerationMode === "reference_image" ||
+          targetGenerationMode === "reference_video" ||
+          targetGenerationMode === "video_edit"
+        ) {
+          if (!canAddImageRole("reference", counts, limits)) {
+            setErrorData({
+              title: "Connection limit reached",
+              list: [
+                "The selected generation mode has reached its reference image limit.",
+              ],
+            });
+            return oldEdges;
+          }
+          imageRole = "reference";
+        } else if (
+          targetGenerationMode === "first_frame" ||
+          targetGenerationMode === "first_last_frame"
+        ) {
+          if (!canAddImageRole("first", counts, limits)) {
+            setErrorData({
+              title: "Connection limit reached",
+              list: [
+                "The selected generation mode only supports one first-frame image.",
+              ],
+            });
+            return oldEdges;
+          }
+          imageRole = "first";
         } else if (requestedRole && canAddImageRole(requestedRole, counts, limits)) {
           imageRole = requestedRole;
         } else {
@@ -2007,6 +2060,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       positionDictionary: {},
       componentsToUpdate: [],
       rightClickedNodeId: null,
+      lineageHighlightedEdgeIds: [],
       buildControllers: [],
       buildChains: {},
       activeBuildChainsByNode: {},
@@ -2057,5 +2111,11 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     set({ stopNodeId: nodeId });
   },
 }));
+
+registerReactflowUtilsStoreBridge({
+  deleteEdge: (id) => useFlowStore.getState().deleteEdge(id),
+  getEdges: () => useFlowStore.getState().edges,
+  getNodes: () => useFlowStore.getState().nodes,
+});
 
 export default useFlowStore;

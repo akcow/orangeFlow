@@ -6,23 +6,7 @@ import {
 } from "../customization/config-constants";
 import { customDefaultShortcuts } from "../customization/constants";
 import type { languageMap } from "../types/components";
-
-const getEnvVar = (key: string, defaultValue: any = undefined) => {
-  // In Vite/Browser builds, `process.env` may exist as an empty shim.
-  // Only prefer it when the key is actually present; otherwise fall through to import.meta.env.
-  if (
-    typeof process !== "undefined" &&
-    process.env &&
-    Object.hasOwn(process.env, key)
-  ) {
-    return process.env[key] ?? defaultValue;
-  }
-  try {
-    return new Function(`return import.meta.env?.${key}`)() ?? defaultValue;
-  } catch {
-    return defaultValue;
-  }
-};
+import { getEnvVar, isEnvVarEnabled } from "../utils/env";
 
 /**
  * invalid characters for flow name
@@ -944,8 +928,7 @@ export const POLLING_MESSAGES = {
 export const BUILD_POLLING_INTERVAL = 25;
 
 export const IS_AUTO_LOGIN =
-  !getEnvVar("LANGFLOW_AUTO_LOGIN") ||
-  String(getEnvVar("LANGFLOW_AUTO_LOGIN"))?.toLowerCase() !== "false";
+  isEnvVarEnabled("LANGFLOW_AUTO_LOGIN");
 
 export const AUTO_LOGIN_RETRY_DELAY = 2000;
 export const AUTO_LOGIN_MAX_RETRY_DELAY = 60000;

@@ -20,6 +20,7 @@ const BASE_HANDLE_STYLES = {
   background: "transparent",
   border: "none",
 } as const;
+const PLUS_HANDLE_HITBOX_SIZE = 88;
 
 const HandleContent = memo(function HandleContent({
   isNullHandle,
@@ -634,6 +635,14 @@ const HandleRenderComponent = memo(function HandleRenderComponent({
         style={{
           ...BASE_HANDLE_STYLES,
           ...(handleStyle ?? {}),
+          width:
+            uiVariant === "plus"
+              ? `${PLUS_HANDLE_HITBOX_SIZE}px`
+              : (handleStyle?.width ?? BASE_HANDLE_STYLES.width),
+          height:
+            uiVariant === "plus"
+              ? `${PLUS_HANDLE_HITBOX_SIZE}px`
+              : (handleStyle?.height ?? BASE_HANDLE_STYLES.height),
           // Preview "+" handles need to sit above the node body so the canvas can detect them via elementFromPoint.
           zIndex: uiVariant === "plus" ? 999 : BASE_HANDLE_STYLES.zIndex,
           pointerEvents: shouldAllowPointerEvents ? "auto" : "none",

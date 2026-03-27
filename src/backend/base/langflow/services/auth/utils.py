@@ -142,11 +142,13 @@ async def ws_api_key_security(
 
 
 async def get_current_user(
+    request: Request,
     token: Annotated[str, Security(oauth2_login)],
     query_param: Annotated[str, Security(api_key_query)],
     header_param: Annotated[str, Security(api_key_header)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> User:
+    token = token or request.cookies.get("access_token_lf")
     if token:
         return await get_current_user_by_jwt(token, db)
     user = await api_key_security(query_param, header_param)
@@ -582,6 +584,7 @@ def decrypt_api_key(encrypted_api_key: str, settings_service: SettingsService):
 
 # MCP-specific authentication functions that always behave as if skip_auth_auto_login is True
 async def get_current_user_mcp(
+    request: Request,
     token: Annotated[str, Security(oauth2_login)],
     query_param: Annotated[str, Security(api_key_query)],
     header_param: Annotated[str, Security(api_key_header)],
@@ -595,6 +598,7 @@ async def get_current_user_mcp(
       username lookup using the configured superuser credentials
     - Otherwise, it validates the provided API key (from query param or header)
     """
+    token = token or request.cookies.get("access_token_lf")
     if token:
         return await get_current_user_by_jwt(token, db)
 

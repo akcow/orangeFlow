@@ -344,8 +344,8 @@ export function DoubaoParameterButton({
                     key={optionValue}
                     value={optionValue}
                     className={cn(
-                      "group mb-1 rounded-xl border border-transparent py-2.5 pl-3.5 pr-2 text-sm transition-all duration-200 ease-out [&>span:first-child]:hidden",
-                      "hover:translate-x-[1px] hover:bg-accent/45 focus:translate-x-[1px] focus:bg-accent/45",
+                      "group mb-1 min-h-[74px] rounded-xl border border-transparent py-2.5 pl-3.5 pr-2 text-sm transition-colors duration-150 ease-out [&>span:first-child]:hidden",
+                      "hover:bg-accent/45 focus:bg-accent/45",
                     )}
                     onMouseEnter={() => {
                       setHoveredModelOption(optionValue);
@@ -354,28 +354,30 @@ export function DoubaoParameterButton({
                       setHoveredModelOption(optionValue);
                     }}
                   >
-                    <div className="flex w-full gap-2.5">
+                    <div className="flex w-full items-center gap-2.5">
                       <span
-                          className={cn(
-                            "mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background/70 transition-transform duration-200",
-                            isHovering && "scale-[1.03]",
-                          )}
+                        className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background/70"
                       >
                         <ForwardedIconComponent
                           name={iconName}
                           className="h-4 w-4 text-muted-foreground"
                         />
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-foreground">
+                      <span className="relative min-w-0 flex-1 self-stretch">
+                        <span
+                          className={cn(
+                            "absolute inset-x-0 block truncate font-medium text-foreground transition-[top,transform] duration-150 ease-out",
+                            isHovering ? "top-0 translate-y-0" : "top-1/2 -translate-y-1/2",
+                          )}
+                        >
                           {optionLabel}
                         </span>
                         <span
                           className={cn(
-                            "mt-0.5 block overflow-hidden text-xs leading-5 text-muted-foreground transition-[max-height,opacity,transform,margin] duration-200 ease-out",
+                            "pointer-events-none absolute inset-x-0 top-[26px] block h-5 overflow-hidden text-xs leading-5 text-muted-foreground transition-opacity duration-150 ease-out",
                             isHovering
-                              ? "max-h-10 opacity-100 translate-y-0"
-                              : "max-h-0 opacity-0 -translate-y-1",
+                              ? "opacity-100"
+                              : "opacity-0",
                           )}
                         >
                           <span className="doubao-model-desc-marquee-mask">
@@ -462,7 +464,7 @@ export function formatControlValue(name: string, value: unknown): string {
       .replaceAll("\u7075\u52a8", "")
       .replace(/\s+/g, " ")
       .trim();
-    const display = cleaned.replace(/[\u00B7\u2022.\-|£ü]+$/u, "").trim();
+    const display = cleaned.replace(/[\u00B7\u2022.\-|\uFF5C]+$/u, "").trim();
     return display;
   }
 

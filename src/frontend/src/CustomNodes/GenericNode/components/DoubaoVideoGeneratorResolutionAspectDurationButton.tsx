@@ -1,5 +1,5 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import ShadTooltip from "@/components/common/shadTooltipComponent";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
@@ -7,12 +7,13 @@ import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
 import { formatControlValue, type DoubaoControlConfig } from "./DoubaoParameterButton";
 import useFlowStore from "@/stores/flowStore";
-import { scapeJSONParse } from "@/utils/reactflowUtils";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useUpdateNodeInternals } from "@xyflow/react";
 
 type Props = {
   data: NodeDataType;
+  generationModeConfig?: DoubaoControlConfig | null;
+  onGenerationModeSelect?: (value: string | number) => void;
   aspectRatioConfig?: DoubaoControlConfig | null;
   resolutionConfig?: DoubaoControlConfig | null;
   durationConfig?: DoubaoControlConfig | null;
@@ -53,8 +54,23 @@ function resolveEffectiveValue(
   return visible[0] ?? baseValue;
 }
 
+function formatGenerationModeLabel(value: unknown): string {
+  const labels: Record<string, string> = {
+    text: "文生视频",
+    first_frame: "首帧",
+    first_last_frame: "首尾帧",
+    reference_image: "参考",
+    reference_video: "参考视频",
+    video_edit: "视频编辑",
+  };
+  const key = String(value ?? "").trim();
+  return labels[key] ?? key;
+}
+
 export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   data,
+  generationModeConfig,
+  onGenerationModeSelect,
   aspectRatioConfig,
   resolutionConfig,
   durationConfig,
@@ -63,6 +79,11 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
   disabled = false,
   widthClass,
 }: Props) {
+  const { handleOnNewValue: handleGenerationModeChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "generation_mode",
+  });
   const { handleOnNewValue: handleAspectRatioChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
@@ -99,8 +120,6 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     name: "kling_shot_type",
   });
 
-  const edges = useFlowStore((state) => state.edges);
-  const nodes = useFlowStore((state) => state.nodes);
   const setNode = useFlowStore((state) => state.setNode);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const updateNodeInternals = useUpdateNodeInternals();
@@ -159,116 +178,29 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
       () => updateNodeInternals(data.id),
     );
   };
-
-  const getTargetFieldName = useMemo(() => {
-    return (edge: any) => {
-      const targetHandle =
-        edge.data?.targetHandle ?? (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
-      return targetHandle?.fieldName ?? targetHandle?.name;
-    };
-  }, []);
-
-  const hasFirstFrameEdge = useMemo(() => {
-    return edges.some((edge) => edge.target === data.id && getTargetFieldName(edge) === "first_frame_image");
-  }, [data.id, edges, getTargetFieldName]);
-
-  const hasLastFrameEdge = useMemo(() => {
-    return edges.some((edge) => edge.target === data.id && getTargetFieldName(edge) === "last_frame_image");
-  }, [data.id, edges, getTargetFieldName]);
-
-  const hasReferenceVideoEdge = useMemo(() => {
-    return edges.some((edge) => {
-      if (edge.target !== data.id) return false;
-      if (getTargetFieldName(edge) !== "first_frame_image") return false;
-      const edgeVideoReferType = edge.data?.videoReferType;
-      if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
-      const sourceNode = nodes.find((node) => node.id === edge.source);
-      return sourceNode?.data?.type === "DoubaoVideoGenerator";
-    });
-  }, [data.id, edges, getTargetFieldName, nodes]);
-
-  const firstFrameField = template?.first_frame_image ?? null;
-  const lastFrameField = template?.last_frame_image ?? null;
-
-  const hasFirstFrameValue = useMemo(() => {
-    const values = firstFrameField?.value;
-    const filePaths = firstFrameField?.file_path;
-    const anyNonEmpty = (v: any) => {
-      if (v === undefined || v === null) return false;
-      if (typeof v === "string") return v.trim().length > 0;
-      if (typeof v === "object") {
-        const maybeUrl = v?.url ?? v?.image_url ?? v?.video_url ?? v?.value;
-        if (typeof maybeUrl === "string" && maybeUrl.trim()) return true;
-      }
-      return false;
-    };
-    if (Array.isArray(values) && values.some(anyNonEmpty)) return true;
-    if (anyNonEmpty(values)) return true;
-    if (Array.isArray(filePaths) && filePaths.some(anyNonEmpty)) return true;
-    if (anyNonEmpty(filePaths)) return true;
-    return false;
-  }, [firstFrameField]);
-
-  const hasLastFrameValue = useMemo(() => {
-    const values = lastFrameField?.value;
-    const filePaths = lastFrameField?.file_path;
-    const anyNonEmpty = (v: any) => {
-      if (v === undefined || v === null) return false;
-      if (typeof v === "string") return v.trim().length > 0;
-      if (typeof v === "object") {
-        const maybeUrl = v?.url ?? v?.image_url ?? v?.value;
-        if (typeof maybeUrl === "string" && maybeUrl.trim()) return true;
-      }
-      return false;
-    };
-    if (Array.isArray(values) && values.some(anyNonEmpty)) return true;
-    if (anyNonEmpty(values)) return true;
-    if (Array.isArray(filePaths) && filePaths.some(anyNonEmpty)) return true;
-    if (anyNonEmpty(filePaths)) return true;
-    return false;
-  }, [lastFrameField]);
-
-  const hasVideoInFirstFrameValue = useMemo(() => {
-    const candidates: any[] = [];
-    if (Array.isArray(firstFrameField?.file_path)) candidates.push(...firstFrameField.file_path);
-    else if (firstFrameField?.file_path) candidates.push(firstFrameField.file_path);
-    if (Array.isArray(firstFrameField?.value)) candidates.push(...firstFrameField.value);
-    else if (firstFrameField?.value) candidates.push(firstFrameField.value);
-
-    const looksLikeVideo = (raw: any): boolean => {
-      if (!raw) return false;
-      if (typeof raw === "string") {
-        const s = raw.trim().toLowerCase();
-        if (s.startsWith("data:video/")) return true;
-        const path = s.split("?", 1)[0].split("#", 1)[0];
-        return (
-          path.endsWith(".mp4") ||
-          path.endsWith(".mov") ||
-          path.endsWith(".avi") ||
-          path.endsWith(".webm") ||
-          path.endsWith(".mp_")
-        );
-      }
-      if (typeof raw === "object") {
-        const nested = (raw as any).video_url ?? (raw as any).url ?? (raw as any).file_path ?? (raw as any).path ?? (raw as any).value;
-        return looksLikeVideo(nested);
-      }
-      return false;
-    };
-
-    return candidates.some(looksLikeVideo);
-  }, [firstFrameField]);
-
-  const hasFirstFrameAny = hasFirstFrameValue || hasFirstFrameEdge;
-  const hasLastFrameAny = hasLastFrameValue || hasLastFrameEdge;
-  const hasReferenceVideoAny = hasVideoInFirstFrameValue || hasReferenceVideoEdge;
-  const isText2VideoMode = Boolean(isVidu && !hasFirstFrameAny && !hasLastFrameAny && !hasReferenceVideoAny);
-  const shouldLockAspectToAdaptive = Boolean(isVidu && (hasFirstFrameAny || hasLastFrameAny) && !hasReferenceVideoAny);
+  const selectedGenerationMode = useMemo(() => {
+    const raw = generationModeConfig?.value ?? generationModeConfig?.template?.value ?? "";
+    return String(raw ?? "").trim() || "text";
+  }, [
+    generationModeConfig?.value,
+    generationModeConfig?.template?.value,
+  ]);
+  const isText2VideoMode = Boolean(isVidu && selectedGenerationMode === "text");
+  const isReferenceVideoMode = Boolean(isVidu && selectedGenerationMode === "reference_video");
+  const shouldLockAspectToAdaptive = Boolean(
+    isVidu &&
+      (selectedGenerationMode === "first_frame" ||
+        selectedGenerationMode === "first_last_frame"),
+  );
   const viduIsRecField = template?.vidu_is_rec ?? null;
   const viduAudioField = template?.vidu_audio ?? null;
   const viduIsRecValue = Boolean(viduIsRecField?.value ?? viduIsRecField?.default ?? false);
   const viduAudioValue = Boolean(viduAudioField?.value ?? viduAudioField?.default ?? true);
 
+  const generationMode = useMemo(
+    () => buildOptionSets(generationModeConfig),
+    [generationModeConfig],
+  );
   const aspectRatio = useMemo(() => {
     const base = buildOptionSets(aspectRatioConfig);
     if (!isVidu) return base;
@@ -278,69 +210,20 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
       return { visible, enabledSet: new Set(visible), disabledSet: new Set<string>() };
     }
 
-    if (hasReferenceVideoAny || isText2VideoMode) {
+    if (isReferenceVideoMode || isText2VideoMode) {
       const visible = ["16:9", "9:16", "4:3", "3:4", "1:1"];
       return { visible, enabledSet: new Set(visible), disabledSet: new Set<string>() };
     }
 
     return base;
-  }, [aspectRatioConfig, hasReferenceVideoAny, isText2VideoMode, isVidu, shouldLockAspectToAdaptive]);
+  }, [aspectRatioConfig, isReferenceVideoMode, isText2VideoMode, isVidu, shouldLockAspectToAdaptive]);
   const resolution = useMemo(() => buildOptionSets(resolutionConfig), [resolutionConfig]);
   const duration = useMemo(() => buildOptionSets(durationConfig), [durationConfig]);
 
-  // Keep values valid when constraints change (mirrors DoubaoParameterButton behavior).
-  useEffect(() => {
-    if (!aspectRatioConfig) return;
-    if (!aspectRatio.visible.length) return;
-    const stored = aspectRatioConfig.template?.value ?? aspectRatioConfig.value;
-    const storedString = stored === undefined || stored === null ? "" : String(stored);
-    if (!storedString) return;
-    if (aspectRatio.enabledSet.has(storedString)) return;
-    handleAspectRatioChange({ value: aspectRatio.visible[0] }, { skipSnapshot: true });
-  }, [
-    aspectRatio.enabledSet,
-    aspectRatio.visible,
-    aspectRatioConfig?.template?.value,
-    aspectRatioConfig?.value,
-    handleAspectRatioChange,
-  ]);
-
-  useEffect(() => {
-    if (!resolutionConfig) return;
-    if (!resolution.visible.length) return;
-    const stored = resolutionConfig.template?.value ?? resolutionConfig.value;
-    const storedString = stored === undefined || stored === null ? "" : String(stored);
-    if (!storedString) return;
-    if (resolution.enabledSet.has(storedString)) return;
-    handleResolutionChange({ value: resolution.visible[0] }, { skipSnapshot: true });
-  }, [
-    resolution.enabledSet,
-    resolution.visible,
-    resolutionConfig?.template?.value,
-    resolutionConfig?.value,
-    handleResolutionChange,
-  ]);
-
-  useEffect(() => {
-    if (!durationConfig) return;
-    if (!duration.visible.length) return;
-    const stored = durationConfig.template?.value ?? durationConfig.value;
-    const storedString = stored === undefined || stored === null ? "" : String(stored);
-    if (!storedString) return;
-    const storedNumber = Number(storedString);
-    if (duration.enabledSet.has(storedString)) return;
-    if (Number.isFinite(storedNumber) && duration.enabledSet.has(String(storedNumber))) return;
-    const next = duration.visible[0];
-    if (next === undefined) return;
-    handleDurationChange({ value: Number(next) }, { skipSnapshot: true });
-  }, [
-    duration.enabledSet,
-    duration.visible,
-    durationConfig?.template?.value,
-    durationConfig?.value,
-    handleDurationChange,
-  ]);
-
+  const effectiveGenerationModeValue = useMemo(
+    () => resolveEffectiveValue(generationModeConfig, generationMode.visible, generationMode.enabledSet),
+    [generationMode.enabledSet, generationMode.visible, generationModeConfig],
+  );
   const effectiveAspectRatioValue = useMemo(
     () => resolveEffectiveValue(aspectRatioConfig, aspectRatio.visible, aspectRatio.enabledSet),
     [aspectRatioConfig, aspectRatio.enabledSet, aspectRatio.visible],
@@ -360,6 +243,9 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
       : aspectRatioConfig
         ? formatControlValue("aspect_ratio", effectiveAspectRatioValue)
         : "";
+  const generationModeLabel = generationModeConfig
+    ? formatGenerationModeLabel(effectiveGenerationModeValue)
+    : "";
   const resolutionLabel = resolutionConfig
     ? formatControlValue("resolution", effectiveResolutionValue)
     : "";
@@ -369,7 +255,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
 
   const audioEnabled = Boolean(enableAudioField?.value ?? enableAudioField?.default ?? true);
 
-  const triggerLabel = [aspectRatioLabel, resolutionLabel, durationLabel]
+  const triggerLabel = [generationModeLabel, aspectRatioLabel, resolutionLabel, durationLabel]
     .filter(Boolean)
     .join(" · ") || "未选择";
 
@@ -392,7 +278,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
     ...aspectOptionsRaw.filter((opt) => opt.isAdaptive),
     ...aspectOptionsRaw.filter((opt) => !opt.isAdaptive),
   ];
-  const currentAspectRaw = String(aspectRatioConfig?.value ?? aspectRatioConfig?.template?.value ?? "");
+  const currentAspectRaw = String(effectiveAspectRatioValue ?? "");
 
   const resolutionOptions = resolutionConfig
     ? resolution.visible.map((opt) => ({
@@ -401,7 +287,7 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
         label: formatControlValue("resolution", opt),
       }))
     : [];
-  const currentResolutionRaw = String(resolutionConfig?.value ?? resolutionConfig?.template?.value ?? "");
+  const currentResolutionRaw = String(effectiveResolutionValue ?? "");
 
   const durationOptions = durationConfig
     ? duration.visible
@@ -409,12 +295,18 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
         .filter((n) => Number.isFinite(n))
         .sort((a, b) => a - b)
     : [];
-  const currentDuration = Number(durationConfig?.value ?? durationConfig?.template?.value ?? "");
+  const currentDuration = Number(effectiveDurationValue ?? "");
 
   const supportsAudioUi = showAudioToggle && enableAudioField;
-  const supportsViduRecUi = Boolean(isVidu && shouldLockAspectToAdaptive && Boolean(viduIsRecField));
+  const supportsViduRecUi = Boolean(
+    isVidu && selectedGenerationMode === "first_frame" && Boolean(viduIsRecField),
+  );
   // Requirement: hide Vidu audio toggle in text2video mode.
-  const supportsViduAudioUi = Boolean(isVidu && !isText2VideoMode && Boolean(viduAudioField));
+  const supportsViduAudioUi = Boolean(
+    isVidu &&
+      (selectedGenerationMode === "first_frame" || selectedGenerationMode === "first_last_frame") &&
+      Boolean(viduAudioField),
+  );
   const showAudioIcon = supportsAudioUi || supportsViduAudioUi;
   const audioIconEnabled = supportsAudioUi ? audioEnabled : viduAudioValue;
 
@@ -491,6 +383,50 @@ export default function DoubaoVideoGeneratorResolutionAspectDurationButton({
         }}
       >
         <div className="space-y-4">
+          {generationModeConfig && generationMode.visible.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-[#2E3150] dark:text-white/90">
+                生成方式
+              </div>
+              <div className="rounded-full bg-[#EEF2FF] p-1 dark:bg-white/10">
+                <div
+                  className="grid gap-1"
+                  style={{
+                    gridTemplateColumns: `repeat(${Math.max(generationMode.visible.length, 1)}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {generationMode.visible.map((opt) => {
+                    const raw = String(opt);
+                    const selected = raw === String(effectiveGenerationModeValue ?? "");
+                    return (
+                      <button
+                        key={raw}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return;
+                          if (onGenerationModeSelect) {
+                            onGenerationModeSelect(opt);
+                            return;
+                          }
+                          handleGenerationModeChange({ value: opt });
+                        }}
+                        className={cn(
+                          "min-w-0 rounded-full px-3 py-2 text-center text-sm font-medium transition",
+                          selected
+                            ? "bg-[#2E7BFF] text-white shadow-[0_10px_20px_rgba(46,123,255,0.25)]"
+                            : "text-[#2E3150] hover:bg-white/70 dark:text-white/90 dark:hover:bg-white/10",
+                          disabled && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        {formatGenerationModeLabel(opt)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
           {aspectRatioConfig && (
             <div className="space-y-2">
               <div className="text-sm font-medium text-[#2E3150] dark:text-white/90">

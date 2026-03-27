@@ -1,5 +1,5 @@
 import { cloneDeep } from "lodash";
-import { type ReactFlowState, useStore } from "@xyflow/react";
+import { type ReactFlowState, useStore, useUpdateNodeInternals } from "@xyflow/react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import DoubaoPreviewPanel, { type DoubaoPreviewPanelActions, type DoubaoReferenceImage } from "./DoubaoPreviewPanel";
 import MediaReferencePromptInput from "@/components/MediaReferencePromptInput";
@@ -22,13 +22,18 @@ import { useUtilityStore } from "@/stores/utilityStore";
 import { useTypesStore } from "@/stores/typesStore";
 import { track } from "@/customization/utils/analytics";
 import {
+  getAvailableVideoGenerationModes,
+  getImageRoleLimitsForGenerationMode,
+  getImageRoleLimits,
+  normalizeAvailableVideoGenerationMode,
+  resolveEdgeImageRole,
+  type EdgeImageRole,
+} from "@/utils/flowMediaUtils";
+import {
   findLastNode,
   getNodeId,
-  getImageRoleLimits,
-  resolveEdgeImageRole,
   scapedJSONStringfy,
   scapeJSONParse,
-  type EdgeImageRole,
 } from "@/utils/reactflowUtils";
 import { getNodeOutputColors } from "@/CustomNodes/helpers/get-node-output-colors";
 import { getNodeOutputColorsName } from "@/CustomNodes/helpers/get-node-output-colors-name";
@@ -70,6 +75,7 @@ import type { KlingElement } from "@/stores/klingElementsStore";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "flex-none basis-[170px]" },
+  { name: "generation_mode", icon: "SlidersHorizontal", widthClass: "basis-[150px]" },
   { name: "resolution", icon: "Monitor", widthClass: "basis-[140px]" },
   { name: "aspect_ratio", icon: "RectangleHorizontal", widthClass: "basis-[150px]" },
   { name: "duration", icon: "Timer", widthClass: "basis-[110px]" },
@@ -271,6 +277,14 @@ function resolvePreferredOrFirstEnabledOption(
   }
   return enabledOptions[0];
 }
+
+function areControlValuesEquivalent(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === undefined || left === null) return right === undefined || right === null;
+  if (right === undefined || right === null) return false;
+  return String(left) === String(right);
+}
+
 const DEFAULT_FIRST_FRAME_EXTENSIONS = [
   "png",
   "jpg",
@@ -451,6 +465,8 @@ export default function DoubaoVideoGeneratorLayout({
   const klingElementApplied = isKlingModel && selectedKlingElementIds.length > 0;
   const isViduModel = normalizedModelName.toLowerCase().startsWith("vidu");
   const isViduQ2Pro = normalizedModelName === "viduq2-pro";
+  const nodes = useFlowStore((state) => state.nodes);
+  const edges = useFlowStore((state) => state.edges);
   const klingReferType = String(
     template.kling_video_refer_type?.value ??
     template.kling_video_refer_type?.default ??
@@ -459,13 +475,53 @@ export default function DoubaoVideoGeneratorLayout({
   )
     .trim()
     .toLowerCase();
+  const upstreamGenerationInputProfile = useMemo(() => {
+    let hasImageUpstream = false;
+    let hasVideoUpstream = false;
+
+    edges.forEach((edge) => {
+      if (edge.target !== data.id) return;
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      if (fieldName !== FIRST_FRAME_FIELD && fieldName !== LAST_FRAME_FIELD) return;
+
+      const sourceType = String(
+        nodes.find((node) => node.id === edge.source)?.data?.type ?? "",
+      );
+      if (sourceType === "DoubaoImageCreator" || sourceType === "UserUploadImage") {
+        hasImageUpstream = true;
+      }
+      if (sourceType === "DoubaoVideoGenerator" || sourceType === "UserUploadVideo") {
+        hasVideoUpstream = true;
+      }
+    });
+
+    return { hasImageUpstream, hasVideoUpstream };
+  }, [LAST_FRAME_FIELD, FIRST_FRAME_FIELD, data.id, edges, nodes]);
+  const availableGenerationModes = useMemo(
+    () =>
+      getAvailableVideoGenerationModes(normalizedModelName, upstreamGenerationInputProfile),
+    [normalizedModelName, upstreamGenerationInputProfile],
+  );
+  const selectedGenerationMode = normalizeAvailableVideoGenerationMode(
+    normalizedModelName,
+    template.generation_mode?.value ??
+      template.generation_mode?.default ??
+      template.generation_mode?.options?.[0],
+    availableGenerationModes,
+  );
   const roleLimits = useMemo(
-    () => getImageRoleLimits(normalizedModelName),
-    [normalizedModelName],
+    () => getImageRoleLimitsForGenerationMode(normalizedModelName, selectedGenerationMode),
+    [normalizedModelName, selectedGenerationMode],
   );
   const supportsReferenceRole = roleLimits.allowedRoles.includes("reference");
   const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
-  const allowLastFrame = (modelLimits?.enableLastFrame ?? true) && !(isKlingModel && klingReferType === "base");
+  const allowLastFrame =
+    selectedGenerationMode === "first_last_frame" &&
+    (modelLimits?.enableLastFrame ?? true) &&
+    !(isKlingModel && klingReferType === "base");
   const veoReferenceLimit = isVeoFast ? 0 : VEO_REFERENCE_IMAGE_LIMIT;
   const firstFrameMaxUploads = isSoraModel
     ? 1
@@ -987,13 +1043,12 @@ export default function DoubaoVideoGeneratorLayout({
   );
   const eventDeliveryConfig = useUtilityStore((state) => state.eventDelivery);
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
-  const nodes = useFlowStore((state) => state.nodes);
-  const edges = useFlowStore((state) => state.edges);
   const setNodes = useFlowStore((state) => state.setNodes);
   const setNode = useFlowStore((state) => state.setNode);
   const setEdges = useFlowStore((state) => state.setEdges);
   const onConnect = useFlowStore((state) => state.onConnect);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
+  const updateNodeInternals = useUpdateNodeInternals();
   const templates = useTypesStore((state) => state.templates);
   const typeData = useTypesStore((state) => state.data);
   const { handleNodeClass } = useHandleNodeClass(data.id);
@@ -1230,28 +1285,7 @@ export default function DoubaoVideoGeneratorLayout({
     [handleKlingMultiPromptChange],
   );
 
-  const hasIncomingVideoBridge = useMemo(() => {
-    return edges.some((edge) => {
-      if (edge.target !== data.id) return false;
-      let parsedTargetHandle: any = null;
-      if (edge.data?.targetHandle) {
-        parsedTargetHandle = edge.data.targetHandle;
-      } else if (edge.targetHandle) {
-        try {
-          parsedTargetHandle = scapeJSONParse(edge.targetHandle);
-        } catch {
-          parsedTargetHandle = null;
-        }
-      }
-      const targetHandle = parsedTargetHandle;
-      const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
-      if (fieldName !== FIRST_FRAME_FIELD) return false;
-      const edgeVideoReferType = edge.data?.videoReferType;
-      if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
-      const sourceNode = nodes.find((node) => node.id === edge.source);
-      return sourceNode?.data?.type === "DoubaoVideoGenerator" || sourceNode?.data?.type === "UserUploadVideo";
-    });
-  }, [edges, nodes, data.id]);
+  const hasIncomingVideoBridge = upstreamGenerationInputProfile.hasVideoUpstream;
 
   const supportsRoleLast = roleLimits.allowedRoles.includes("last");
   const hasRoleLastEdge = useMemo(() => {
@@ -1327,56 +1361,31 @@ export default function DoubaoVideoGeneratorLayout({
 
   const wanMode = useMemo(() => {
     if (!isWanModel) return null;
+    if (selectedGenerationMode === "reference_video") return "r2v";
+    if (selectedGenerationMode === "first_frame") return "i2v";
     if (hasReferenceVideosValue) return "r2v";
     if (hasFirstFrameEdge || hasFirstFrameValue) return "i2v";
     return "t2v";
-  }, [hasFirstFrameEdge, hasFirstFrameValue, hasReferenceVideosValue, isWanModel]);
+  }, [
+    hasFirstFrameEdge,
+    hasFirstFrameValue,
+    hasReferenceVideosValue,
+    isWanModel,
+    selectedGenerationMode,
+  ]);
 
   // "参考图生视频" mode: a single incoming reference-role edge (no first/last, no tail-frame).
   // When active, the model dropdown should only show models that support the "reference" role.
-  const isReferenceVideoMode = useMemo(() => {
-    const getTargetFieldName = (edge: EdgeType) => {
-      const targetHandle =
-        edge.data?.targetHandle ??
-        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
-      return targetHandle?.fieldName ?? targetHandle?.name;
-    };
-
-    const incomingFrameEdges = edges.filter((edge) => {
-      if (edge.target !== data.id) return false;
-      if (getTargetFieldName(edge) !== FIRST_FRAME_FIELD) return false;
-      const videoReferType = edge.data?.videoReferType;
-      if (videoReferType === "base" || videoReferType === "feature") return false;
-      const sourceNode = nodes.find((node) => node.id === edge.source);
-      const sourceType = sourceNode?.data?.type;
-      if (sourceType === "DoubaoVideoGenerator" || sourceType === "UserUploadVideo") {
-        return false;
-      }
-      return true;
-    });
-    if (!incomingFrameEdges.length) return false;
-
-    const totalRoleEdges = incomingFrameEdges.length;
-    const roles = incomingFrameEdges.map((edge) => resolveEdgeImageRole(edge, totalRoleEdges));
-    const hasReference = roles.includes("reference");
-    const hasFirst = roles.includes("first");
-    const hasLast = roles.includes("last");
-    if (!hasReference || hasFirst || hasLast) return false;
-
-    const hasDedicatedLastEdge = edges.some((edge) => {
-      if (edge.target !== data.id) return false;
-      return getTargetFieldName(edge) === LAST_FRAME_FIELD;
-    });
-    if (hasDedicatedLastEdge || hasLastFrameValue) return false;
-
-    return true;
-  }, [FIRST_FRAME_FIELD, LAST_FRAME_FIELD, data.id, edges, hasLastFrameValue, nodes]);
+  const isReferenceVideoMode = selectedGenerationMode === "reference_image";
 
   const isFirstLastFrameMode = Boolean(
-    forceFirstLastFrameMode || hasLastFrameEdge || hasLastFrameValue,
+    selectedGenerationMode === "first_last_frame" ||
+      forceFirstLastFrameMode ||
+      hasLastFrameEdge ||
+      hasLastFrameValue,
   );
   const shouldShowLastFrameHandle = isVeoModel
-    ? Boolean(hasLastFrameEdge)
+    ? Boolean(allowLastFrame || hasLastFrameEdge)
     : Boolean(allowLastFrame || hasLastFrameEdge);
 
   // If the user has set a tail frame, automatically prevent Wan model selection (Wan doesn't support tail frames).
@@ -1568,14 +1577,9 @@ export default function DoubaoVideoGeneratorLayout({
     const selectedDurationValue = Number(
       template.duration?.value ?? template.duration?.default ?? template.duration?.options?.[0] ?? 8,
     );
-    const veoEntries = isVeoModel ? collectFirstFrameEntries(firstFrameField) : [];
     const klingHasVideoInput = isKlingModel
       ? hasVideoInFileInput(firstFrameField) || hasIncomingVideoBridge
       : false;
-    const viduHasVideoInput = isViduQ2Pro
-      ? hasVideoInFileInput(firstFrameField) || hasIncomingVideoBridge
-      : false;
-    const viduHasLastFrameAny = Boolean(isViduQ2Pro && (hasLastFrameEdge || hasLastFrameValue));
     return CONTROL_FIELDS.map((field) => {
       const templateField = template[field.name];
       if (!templateField) return null;
@@ -1590,16 +1594,21 @@ export default function DoubaoVideoGeneratorLayout({
 
       // Kling: resolution is not a supported knob in the upstream API.
       if (isKlingModel && field.name === "resolution") return null;
-      // Kling: duration is ignored for video editing (refer_type=base).
-      if (isKlingModel && field.name === "duration" && klingReferType === "base") return null;
-      // Kling: aspect_ratio is irrelevant for video editing (refer_type=base).
-      if (isKlingModel && field.name === "aspect_ratio" && klingReferType === "base") return null;
+      // Kling: duration / aspect_ratio are irrelevant for video editing.
+      if (isKlingModel && field.name === "duration" && selectedGenerationMode === "video_edit") return null;
+      if (isKlingModel && field.name === "aspect_ratio" && selectedGenerationMode === "video_edit") return null;
 
       let options: Array<string | number> = Array.isArray(templateField.options)
         ? templateField.options
         : [];
       let value = templateField.value;
       let disabledOptions: Array<string | number> | undefined;
+
+      if (field.name === "generation_mode") {
+        options = availableGenerationModes;
+        value = selectedGenerationMode;
+        disabledOptions = [];
+      }
 
       // Backward-compat: some saved flows persist gateway model ids instead of display names.
       if (field.name === "model_name") {
@@ -1623,11 +1632,11 @@ export default function DoubaoVideoGeneratorLayout({
         const rangeOptions = buildRangeOptions(templateField);
         options = rangeOptions.length ? rangeOptions : DEFAULT_DURATION_OPTIONS;
 
-        // Vidu q2-pro duration is mode-dependent; infer mode from current inputs so the UI exposes 0=auto only in r2v.
+        // Vidu q2-pro duration is mode-dependent.
         if (isViduQ2Pro) {
-          if (viduHasVideoInput) {
+          if (selectedGenerationMode === "reference_video") {
             options = Array.from({ length: 11 }, (_, idx) => idx); // 0..10
-          } else if (viduHasLastFrameAny) {
+          } else if (selectedGenerationMode === "first_last_frame") {
             options = Array.from({ length: 8 }, (_, idx) => idx + 1); // 1..8
           } else {
             options = Array.from({ length: 10 }, (_, idx) => idx + 1); // 1..10
@@ -1675,7 +1684,10 @@ export default function DoubaoVideoGeneratorLayout({
           // - kling O1: keep historical UI constraint (some t2v/首帧场景仅 5/10)
           let allowedDurations: number[] = [];
           if (isKlingO3 || isKlingV3) {
-            const max = klingHasVideoInput ? 10 : 15;
+            const max =
+              selectedGenerationMode === "reference_video" || selectedGenerationMode === "video_edit"
+                ? 10
+                : 15;
             allowedDurations = Array.from({ length: max - 2 }, (_, idx) => idx + 3); // 3..max
           } else {
             const localEntries = collectFirstFrameEntries(firstFrameField);
@@ -1745,12 +1757,8 @@ export default function DoubaoVideoGeneratorLayout({
 
         if (isVeoModel) {
           const baseAllowed = [4, 6, 8];
-          const hasFirst =
-            veoEntries.some((entry) => entry.role === "first") || veoEntries.length === 1;
-          const hasReference = veoEntries.some((entry) => entry.role === "reference");
-          const hasLast = Boolean(hasLastFrameEdge || hasLastFrameValue);
-          const isReferenceMode = Boolean(hasReference && !hasFirst && !hasLast);
-          const isInterpolationMode = Boolean(hasFirst && hasLast);
+          const isReferenceMode = selectedGenerationMode === "reference_image";
+          const isInterpolationMode = selectedGenerationMode === "first_last_frame";
           // 只有在参考图模式或插值模式时才必须使用 8 秒
           // 1080p 的限制由后端处理，不在前端强制禁用
           const mustBeEight = isReferenceMode || isInterpolationMode;
@@ -1816,11 +1824,7 @@ export default function DoubaoVideoGeneratorLayout({
           }
         }
         if (isVeoModel) {
-          const hasFirst =
-            veoEntries.some((entry) => entry.role === "first") || veoEntries.length === 1;
-          const hasReference = veoEntries.some((entry) => entry.role === "reference");
-          const hasLast = Boolean(hasLastFrameEdge || hasLastFrameValue);
-          const isReferenceMode = Boolean(hasReference && !hasFirst && !hasLast);
+          const isReferenceMode = selectedGenerationMode === "reference_image";
           const allowed = isReferenceMode
             ? new Set<string>(["16:9"])
             : new Set<string>(["16:9", "9:16"]);
@@ -1912,6 +1916,7 @@ export default function DoubaoVideoGeneratorLayout({
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
   }, [
+    availableGenerationModes,
     disableSoraModelSelectionAfterFrameActions,
     firstFrameField,
     hasIncomingVideoBridge,
@@ -1926,6 +1931,7 @@ export default function DoubaoVideoGeneratorLayout({
     isWanModel,
     modelLimits,
     normalizedModelName,
+    selectedGenerationMode,
     template,
     wanMode,
     data.id,
@@ -1933,9 +1939,148 @@ export default function DoubaoVideoGeneratorLayout({
   ]);
 
   const modelNameConfig = controlConfigs.find((config) => config.name === "model_name");
+  const generationModeConfig = controlConfigs.find((config) => config.name === "generation_mode");
   const resolutionConfig = controlConfigs.find((config) => config.name === "resolution");
   const aspectRatioConfig = controlConfigs.find((config) => config.name === "aspect_ratio");
   const durationConfig = controlConfigs.find((config) => config.name === "duration");
+
+  const handleGenerationModeSelect = useCallback(
+    (nextValue: string | number) => {
+      const normalizedNextMode = normalizeAvailableVideoGenerationMode(
+        normalizedModelName,
+        nextValue,
+        availableGenerationModes,
+      );
+      const pendingTemplateUpdates: Array<{ name: string; value: string | number }> = [
+        { name: "generation_mode", value: normalizedNextMode },
+      ];
+
+      if (isKlingModel && template.kling_video_refer_type) {
+        pendingTemplateUpdates.push({
+          name: "kling_video_refer_type",
+          value: normalizedNextMode === "video_edit" ? "base" : "feature",
+        });
+      }
+
+      takeSnapshot();
+      setNode(
+        data.id,
+        (oldNode) => {
+          const currentNode = (oldNode.data as any)?.node ?? {};
+          const currentTemplate = (currentNode.template ?? {}) as Record<string, any>;
+          const nextTemplate: Record<string, any> = { ...currentTemplate };
+
+          pendingTemplateUpdates.forEach(({ name, value }) => {
+            const existingField = nextTemplate[name];
+            if (!existingField) return;
+            nextTemplate[name] = {
+              ...existingField,
+              value,
+            };
+          });
+
+          return {
+            ...oldNode,
+            data: {
+              ...(oldNode.data as any),
+              node: {
+                ...currentNode,
+                template: nextTemplate,
+              },
+            },
+          } as any;
+        },
+        true,
+        () => updateNodeInternals(data.id),
+      );
+    },
+    [
+      availableGenerationModes,
+      data.id,
+      isKlingModel,
+      normalizedModelName,
+      setNode,
+      takeSnapshot,
+      template,
+      updateNodeInternals,
+    ],
+  );
+
+  useEffect(() => {
+    const pendingTemplateUpdates: Array<{ name: string; value: string | number }> = [];
+    const syncableConfigs = [
+      generationModeConfig,
+      aspectRatioConfig,
+      resolutionConfig,
+      durationConfig,
+    ].filter(Boolean) as DoubaoControlConfig[];
+
+    syncableConfigs.forEach((config) => {
+      const nextValue = config.value;
+      if (nextValue === undefined) return;
+      const currentValue = template[config.name]?.value;
+      if (areControlValuesEquivalent(currentValue, nextValue)) return;
+      pendingTemplateUpdates.push({ name: config.name, value: nextValue });
+    });
+
+    if (isKlingModel && template.kling_video_refer_type) {
+      const desiredReferType = selectedGenerationMode === "video_edit" ? "base" : "feature";
+      const currentReferType =
+        template.kling_video_refer_type?.value ??
+        template.kling_video_refer_type?.default ??
+        "feature";
+      if (!areControlValuesEquivalent(currentReferType, desiredReferType)) {
+        pendingTemplateUpdates.push({
+          name: "kling_video_refer_type",
+          value: desiredReferType,
+        });
+      }
+    }
+
+    if (!pendingTemplateUpdates.length) return;
+
+    setNode(
+      data.id,
+      (oldNode) => {
+        const currentNode = (oldNode.data as any)?.node ?? {};
+        const currentTemplate = (currentNode.template ?? {}) as Record<string, any>;
+        const nextTemplate: Record<string, any> = { ...currentTemplate };
+
+        pendingTemplateUpdates.forEach(({ name, value }) => {
+          const existingField = nextTemplate[name];
+          if (!existingField) return;
+          nextTemplate[name] = {
+            ...existingField,
+            value,
+          };
+        });
+
+        return {
+          ...oldNode,
+          data: {
+            ...(oldNode.data as any),
+            node: {
+              ...currentNode,
+              template: nextTemplate,
+            },
+          },
+        } as any;
+      },
+      true,
+      () => updateNodeInternals(data.id),
+    );
+  }, [
+    aspectRatioConfig,
+    data.id,
+    durationConfig,
+    generationModeConfig,
+    isKlingModel,
+    resolutionConfig,
+    selectedGenerationMode,
+    setNode,
+    template,
+    updateNodeInternals,
+  ]);
 
   // Reset config params to defaults when model changes
   const prevNormalizedModelNameRef = useRef<string | undefined>(undefined);
@@ -5086,6 +5231,8 @@ export default function DoubaoVideoGeneratorLayout({
                   (aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingMultiShotModel)) ? (
                   <DoubaoVideoGeneratorResolutionAspectDurationButton
                     data={data}
+                    generationModeConfig={generationModeConfig}
+                    onGenerationModeSelect={handleGenerationModeSelect}
                     aspectRatioConfig={aspectRatioConfig}
                     resolutionConfig={resolutionConfig}
                     durationConfig={durationConfig}

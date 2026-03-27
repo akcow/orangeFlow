@@ -3,6 +3,7 @@ from langflow.services.auth.utils import get_password_hash
 from langflow.services.database.models.user import User
 from langflow.services.deps import session_scope
 from sqlalchemy.exc import IntegrityError
+from uuid import uuid4
 
 
 @pytest.fixture
@@ -44,3 +45,25 @@ async def test_login_unsuccessful_wrong_password(client, test_user, async_sessio
     response = await client.post("api/v1/login", data={"username": "testuser", "password": "wrongpassword"})
     assert response.status_code == 401
     assert response.json()["detail"] == "Incorrect username or password"
+
+
+async def test_login_cookie_auth_can_access_protected_route(client):
+    username = f"cookie-{uuid4().hex}@example.com"
+    password = "testpassword"
+    user = User(
+        username=username,
+        nickname=username,
+        password=get_password_hash(password),
+        is_active=True,
+        is_superuser=False,
+    )
+    async with session_scope() as session:
+        session.add(user)
+        await session.commit()
+
+    login_response = await client.post("api/v1/login", data={"username": username, "password": password})
+    assert login_response.status_code == 200
+
+    response = await client.get("api/v1/users/whoami")
+    assert response.status_code == 200
+    assert response.json()["username"] == username

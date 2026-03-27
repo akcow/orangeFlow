@@ -108,6 +108,36 @@ class DoubaoVideoGenerator(Component):
         "vidu-video-upscale": "vidu-upscale",
     }
 
+    VIDEO_GENERATION_MODE_OPTIONS = {
+        "default": ["text", "first_frame"],
+        "seedance": ["text", "first_frame", "first_last_frame"],
+        "wan2.5": ["text", "first_frame"],
+        "wan2.6": ["text", "first_frame", "reference_video"],
+        "veo3.1": ["text", "first_frame", "first_last_frame", "reference_image"],
+        "veo3.1-fast": ["text", "first_frame", "first_last_frame"],
+        "sora-2": ["text", "reference_image"],
+        "sora-2-pro": ["text", "reference_image"],
+        "kling o1": [
+            "text",
+            "first_frame",
+            "first_last_frame",
+            "reference_image",
+            "reference_video",
+            "video_edit",
+        ],
+        "kling o3": [
+            "text",
+            "first_frame",
+            "first_last_frame",
+            "reference_image",
+            "reference_video",
+            "video_edit",
+        ],
+        "kling v3": ["text", "first_frame", "first_last_frame"],
+        "viduq3-pro": ["text", "first_frame"],
+        "viduq2-pro": ["text", "first_frame", "first_last_frame", "reference_video"],
+    }
+
     MODEL_LIMITS = {
         "Seedance 1.5 pro": {
             "resolutions": ["480p", "720p", "1080p"],
@@ -285,6 +315,15 @@ class DoubaoVideoGenerator(Component):
             required=True,
             real_time_refresh=True,
             info="选择视频创作模型，UI显示模型名称，API调用使用对应的端点ID。",
+        ),
+        DropdownInput(
+            name="generation_mode",
+            display_name="生成方式",
+            options=["text", "first_frame", "first_last_frame"],
+            value="text",
+            required=False,
+            real_time_refresh=True,
+            info="不同模型支持的生成方式不同；选择后将按该模式解释输入素材。",
         ),
         MultilineInput(
             name="prompt",
@@ -777,6 +816,16 @@ class DoubaoVideoGenerator(Component):
         is_kling = model_value.lower().startswith("kling")
         is_vidu = self._is_vidu_model(model_value)
         refer_type = str((build_config.get("kling_video_refer_type") or {}).get("value") or "feature").strip().lower()
+        supported_generation_modes = self._get_supported_generation_modes(model_value)
+        generation_mode = self._normalize_generation_mode(
+            model_value,
+            (build_config.get("generation_mode") or {}).get("value"),
+        )
+
+        if "generation_mode" in build_config:
+            build_config["generation_mode"]["show"] = not self._is_vidu_upscale_model(model_value)
+            build_config["generation_mode"]["options"] = supported_generation_modes
+            build_config["generation_mode"]["value"] = generation_mode
 
         # Helper to restore a field back to its static definition (keeps current value).
         def _restore_field_defaults(field: str) -> None:
@@ -792,6 +841,7 @@ class DoubaoVideoGenerator(Component):
             model_lower = model_value.strip().lower()
             is_v3 = model_lower in {"kling v3", "kling-v3"}
             is_o3 = model_lower in {"kling o3", "kling-v3-omni"}
+            refer_type = "base" if generation_mode == "video_edit" else "feature"
 
             # kling V3 is image-only. Hide video-edit/reference-video controls and forbid video uploads.
             if is_v3:
@@ -824,7 +874,7 @@ class DoubaoVideoGenerator(Component):
             # Aspect ratio: only 16:9 / 9:16 / 1:1.
             if "aspect_ratio" in build_config:
                 # Video editing mode outputs with the input video's aspect; this knob is irrelevant.
-                build_config["aspect_ratio"]["show"] = is_v3 or (refer_type != "base")
+                build_config["aspect_ratio"]["show"] = is_v3 or (generation_mode != "video_edit")
                 build_config["aspect_ratio"]["options"] = list(self.KLING_SUPPORTED_RATIOS)
                 # Clear metadata to avoid stale icons/labels.
                 build_config["aspect_ratio"]["options_metadata"] = []
@@ -838,7 +888,7 @@ class DoubaoVideoGenerator(Component):
             # Duration: O1=3-10; O3=3-15 (video-reference mode may further restrict to 3-10).
             if "duration" in build_config:
                 # If user selected video editing (base), duration is ignored by upstream.
-                build_config["duration"]["show"] = is_v3 or (refer_type != "base")
+                build_config["duration"]["show"] = is_v3 or (generation_mode != "video_edit")
                 max_dur = 15 if (is_o3 or is_v3) else 10
                 # Frontend expects `range_spec` (snake_case).
                 build_config["duration"]["range_spec"] = {"min": 3, "max": max_dur, "step": 1, "step_type": "int"}
@@ -893,6 +943,8 @@ class DoubaoVideoGenerator(Component):
             if is_vidu_upscale:
                 if "model_name" in build_config:
                     build_config["model_name"]["show"] = False
+                if "generation_mode" in build_config:
+                    build_config["generation_mode"]["show"] = False
                 if "prompt" in build_config:
                     build_config["prompt"]["show"] = False
                 if "resolution" in build_config:
@@ -1005,24 +1057,7 @@ class DoubaoVideoGenerator(Component):
 
             if "aspect_ratio" in build_config:
                 build_config["aspect_ratio"]["show"] = True
-                ff_cfg = build_config.get("first_frame_image") or {}
-                ff_value = ff_cfg.get("value")
-                ff_paths = ff_cfg.get("file_path")
-                lf_cfg = build_config.get("last_frame_image") or {}
-                lf_value = lf_cfg.get("value")
-                lf_paths = lf_cfg.get("file_path")
-
-                has_first_frame = _has_any(ff_value) or _has_any(ff_paths)
-                has_last_frame = _has_any(lf_value) or _has_any(lf_paths)
-                has_reference_videos = _has_video(ff_value) or _has_video(ff_paths)
-
-                # Inference (Mode A):
-                # - videos exist -> reference2video
-                # - last frame exists -> start-end2video
-                # - first frame exists -> img2video
-                # - no frames -> text2video
-                is_reference_mode = bool(is_vidu_q2_pro and has_reference_videos)
-                should_force_adaptive_ratio = bool((has_first_frame or has_last_frame) and not is_reference_mode)
+                should_force_adaptive_ratio = generation_mode in {"first_frame", "first_last_frame"}
                 build_config["aspect_ratio"]["options_metadata"] = []
                 if should_force_adaptive_ratio:
                     build_config["aspect_ratio"]["options"] = ["adaptive"]
@@ -1046,8 +1081,8 @@ class DoubaoVideoGenerator(Component):
                 # Mode detection uses the same helper as aspect_ratio above (best-effort, local values only).
                 ff_cfg = build_config.get("first_frame_image") or {}
                 lf_cfg = build_config.get("last_frame_image") or {}
-                has_last_frame = bool(_has_any(lf_cfg.get("value")) or _has_any(lf_cfg.get("file_path")))
-                has_reference_videos = bool(_has_video(ff_cfg.get("value")) or _has_video(ff_cfg.get("file_path")))
+                has_last_frame = generation_mode == "first_last_frame"
+                has_reference_videos = generation_mode == "reference_video"
 
                 if is_vidu_q3:
                     min_dur, max_dur = 1, 16
@@ -1079,7 +1114,7 @@ class DoubaoVideoGenerator(Component):
                     build_config["last_frame_image"]["show"] = False
                     build_config["last_frame_image"]["info"] = "Vidu q3-pro 不支持首尾帧（start-end2video）。"
                 else:
-                    build_config["last_frame_image"]["show"] = True
+                    build_config["last_frame_image"]["show"] = generation_mode == "first_last_frame"
 
             # Wan-specific audio switch is irrelevant for Vidu.
             if "enable_audio" in build_config:
@@ -1145,6 +1180,39 @@ class DoubaoVideoGenerator(Component):
                 _restore_field_defaults(field)
 
         return build_config
+
+    @classmethod
+    def _get_supported_generation_modes(cls, model_name: str) -> list[str]:
+        normalized = str(model_name or "").strip()
+        normalized_lower = normalized.lower()
+        if "seedance" in normalized_lower or "seedream" in normalized_lower or "即梦" in normalized:
+            return list(cls.VIDEO_GENERATION_MODE_OPTIONS["seedance"])
+        if normalized_lower in cls.VIDEO_GENERATION_MODE_OPTIONS:
+            return list(cls.VIDEO_GENERATION_MODE_OPTIONS[normalized_lower])
+        return list(cls.VIDEO_GENERATION_MODE_OPTIONS["default"])
+
+    @classmethod
+    def _get_default_generation_mode(cls, model_name: str) -> str:
+        supported = cls._get_supported_generation_modes(model_name)
+        return supported[0] if supported else "text"
+
+    @classmethod
+    def _normalize_generation_mode(cls, model_name: str, raw_mode: Any) -> str:
+        candidate = str(raw_mode or "").strip()
+        supported = cls._get_supported_generation_modes(model_name)
+        if candidate in supported:
+            return candidate
+        return cls._get_default_generation_mode(model_name)
+
+    def _get_explicit_generation_mode(self, model_name: str) -> str | None:
+        raw_mode = getattr(self, "generation_mode", None)
+        if raw_mode is None:
+            return None
+        candidate = str(raw_mode or "").strip()
+        if not candidate:
+            return None
+        supported = self._get_supported_generation_modes(model_name)
+        return candidate if candidate in supported else None
 
     @staticmethod
     def _is_vidu_model(model_name: str) -> bool:
@@ -1248,19 +1316,32 @@ class DoubaoVideoGenerator(Component):
                         first_image = url
                         break
 
-            # Mode A routing.
-            has_reference_videos = bool(is_q2_pro and reference_videos)
-            if has_reference_videos:
+            explicit_generation_mode = self._get_explicit_generation_mode(model_name)
+            if explicit_generation_mode == "text" and (
+                first_image or last_image or reference_images or reference_videos
+            ):
+                explicit_generation_mode = None
+            if explicit_generation_mode == "reference_video":
                 mode = "reference2video"
-            elif is_q3:
-                mode = "img2video" if first_image else "text2video"
+            elif explicit_generation_mode == "first_last_frame":
+                mode = "start-end2video"
+            elif explicit_generation_mode == "first_frame":
+                mode = "img2video"
+            elif explicit_generation_mode == "text":
+                mode = "text2video"
             else:
-                if last_image:
-                    mode = "start-end2video"
-                elif first_image:
-                    mode = "img2video"
+                has_reference_videos = bool(is_q2_pro and reference_videos)
+                if has_reference_videos:
+                    mode = "reference2video"
+                elif is_q3:
+                    mode = "img2video" if first_image else "text2video"
                 else:
-                    mode = "text2video"
+                    if last_image:
+                        mode = "start-end2video"
+                    elif first_image:
+                        mode = "img2video"
+                    else:
+                        mode = "text2video"
 
             # Validate aspect_ratio usage.
             if mode in {"text2video", "reference2video"} and aspect_ratio.lower() == "adaptive":
@@ -4009,6 +4090,7 @@ class DoubaoVideoGenerator(Component):
 
             if is_v3:
                 # V-series (kling-v3): only supports text2video/image2video (no reference video / video editing).
+                explicit_generation_mode = self._get_explicit_generation_mode(str(getattr(self, "model_name", "") or ""))
                 entries = self._collect_multimodal_inputs("first_frame_image")
                 has_video = False
                 for entry in entries:
@@ -4056,6 +4138,17 @@ class DoubaoVideoGenerator(Component):
                             if u:
                                 tail_url = u
                                 break
+
+                if explicit_generation_mode == "text" and (first_url or tail_url):
+                    explicit_generation_mode = None
+
+                if explicit_generation_mode == "text":
+                    first_url = None
+                    tail_url = None
+                elif explicit_generation_mode == "first_frame":
+                    tail_url = None
+                elif explicit_generation_mode == "first_last_frame" and (not first_url or not tail_url):
+                    return self._error("kling V3 首尾帧模式需要同时提供首帧和尾帧图片。")
 
                 # Enforce V-series media shape: only 1 primary image + optional tail image.
                 primary_images: list[str] = []
@@ -4209,6 +4302,53 @@ class DoubaoVideoGenerator(Component):
             media = self._collect_kling_media()
             image_list = media["image_list"]
             video_list = media["video_list"]
+            explicit_generation_mode = self._get_explicit_generation_mode(str(getattr(self, "model_name", "") or ""))
+            if explicit_generation_mode == "text" and (image_list or video_list):
+                explicit_generation_mode = None
+
+            if explicit_generation_mode == "text":
+                image_list = []
+                video_list = []
+                refer_type = "feature"
+            elif explicit_generation_mode == "first_frame":
+                first_only = next((item for item in image_list if item.get("type") == "first_frame"), None)
+                if first_only is None and image_list:
+                    first_only = {**image_list[0], "type": "first_frame"}
+                if first_only is None:
+                    return self._error("kling O1/O3 首帧模式需要提供至少 1 张图片。")
+                image_list = [first_only]
+                video_list = []
+                refer_type = "feature"
+            elif explicit_generation_mode == "first_last_frame":
+                first_only = next((item for item in image_list if item.get("type") == "first_frame"), None)
+                last_only = next((item for item in image_list if item.get("type") == "end_frame"), None)
+                if first_only is None and image_list:
+                    first_only = {**image_list[0], "type": "first_frame"}
+                if first_only is None or last_only is None:
+                    return self._error("kling O1/O3 首尾帧模式需要同时提供首帧和尾帧图片。")
+                image_list = [first_only, last_only]
+                video_list = []
+                refer_type = "feature"
+            elif explicit_generation_mode == "reference_image":
+                if not image_list:
+                    return self._error("kling O1/O3 参考模式需要提供至少 1 张参考图片。")
+                image_list = [{k: v for k, v in item.items() if k != "type"} for item in image_list]
+                video_list = []
+                refer_type = "feature"
+            elif explicit_generation_mode == "reference_video":
+                if not video_list:
+                    return self._error("kling O1/O3 参考视频模式需要提供 1 段参考视频。")
+                image_list = [{k: v for k, v in item.items() if k != "type"} for item in image_list]
+                refer_type = "feature"
+            elif explicit_generation_mode == "video_edit":
+                if not video_list:
+                    return self._error("kling O1/O3 视频编辑模式需要提供 1 段待编辑视频。")
+                image_list = [{k: v for k, v in item.items() if k != "type"} for item in image_list]
+                refer_type = "base"
+
+            if video_list:
+                for item in video_list:
+                    item["refer_type"] = refer_type
 
             if refer_type == "base" and not video_list:
                 return self._error("kling O1/O3：选择视频编辑（refer_type=base）时必须提供一段参考视频（mp4/mov）。")
@@ -4391,11 +4531,27 @@ class DoubaoVideoGenerator(Component):
                     resolved_img_url = url
 
             img_url = resolved_img_url or fallback_img_url
+            explicit_generation_mode = self._get_explicit_generation_mode(model_name)
+            if explicit_generation_mode == "text" and (
+                img_url or reference_video_urls or reference_image_urls
+            ):
+                explicit_generation_mode = None
 
             if reference_video_urls and model_name != "wan2.6":
                 return self._error("wan2.5 does not support reference-video (r2v). Use wan2.6 or remove reference video.")
 
-            if reference_video_urls:
+            if explicit_generation_mode == "reference_video":
+                if model_name != "wan2.6":
+                    return self._error("wan2.5 does not support reference-video (r2v). Use wan2.6 or remove reference video.")
+                dashscope_model = "wan2.6-r2v"
+                mode = "r2v"
+            elif explicit_generation_mode == "first_frame":
+                dashscope_model = "wan2.6-i2v" if model_name == "wan2.6" else "wan2.5-i2v-preview"
+                mode = "i2v"
+            elif explicit_generation_mode == "text":
+                dashscope_model = "wan2.6-t2v" if model_name == "wan2.6" else "wan2.5-t2v-preview"
+                mode = "t2v"
+            elif reference_video_urls:
                 dashscope_model = "wan2.6-r2v"
                 mode = "r2v"
             elif img_url:
@@ -4404,6 +4560,11 @@ class DoubaoVideoGenerator(Component):
             else:
                 dashscope_model = "wan2.6-t2v" if model_name == "wan2.6" else "wan2.5-t2v-preview"
                 mode = "t2v"
+
+            if mode == "i2v" and not img_url:
+                return self._error("Wan 图生视频模式需要提供首帧图片。")
+            if mode == "r2v" and not reference_video_urls:
+                return self._error("Wan 参考视频模式需要提供至少 1 段参考视频。")
 
             duration = self._enforce_wan_duration(model=dashscope_model, duration=duration)
 
@@ -4478,6 +4639,7 @@ class DoubaoVideoGenerator(Component):
             first_frame_url = None
             last_frame_url = None
             reference_images: list[str] = []
+            all_image_urls: list[str] = []
             skipped_video_inputs = 0
             first_frame_raw = getattr(self, "first_frame_image", None)
             if first_frame_raw:
@@ -4491,6 +4653,7 @@ class DoubaoVideoGenerator(Component):
                     if kind == "video" or self._is_video_url(str(url)):
                         skipped_video_inputs += 1
                         continue
+                    all_image_urls.append(str(url))
                     if role == "first" and not first_frame_url:
                         first_frame_url = url
                     elif role == "last" and not last_frame_url:
@@ -4507,6 +4670,27 @@ class DoubaoVideoGenerator(Component):
                             skipped_video_inputs += 1
                         else:
                             last_frame_url = candidate_last
+
+            explicit_generation_mode = self._get_explicit_generation_mode(str(getattr(self, "model_name", "") or ""))
+            if explicit_generation_mode == "text" and (all_image_urls or last_frame_url):
+                explicit_generation_mode = None
+            if explicit_generation_mode == "reference_image":
+                first_frame_url = None
+                last_frame_url = None
+                reference_images = all_image_urls[:3]
+            elif explicit_generation_mode == "first_frame":
+                first_frame_url = first_frame_url or (all_image_urls[0] if all_image_urls else None)
+                last_frame_url = None
+                reference_images = []
+            elif explicit_generation_mode == "first_last_frame":
+                first_frame_url = first_frame_url or (all_image_urls[0] if all_image_urls else None)
+                if not last_frame_url and len(all_image_urls) > 1:
+                    last_frame_url = all_image_urls[1]
+                reference_images = []
+            elif explicit_generation_mode == "text":
+                first_frame_url = None
+                last_frame_url = None
+                reference_images = []
 
             if skipped_video_inputs:
                 self.status = (

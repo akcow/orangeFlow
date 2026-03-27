@@ -1,53 +1,60 @@
 import * as Form from "@radix-ui/react-form";
-import { useQueryClient } from "@tanstack/react-query";
 import { useContext, useState } from "react";
-import LangflowLogo from "@/assets/LangflowLogo.svg?react";
-import { useLoginUser } from "@/controllers/API/queries/auth";
-import { useSanitizeRedirectUrl } from "@/hooks/use-sanitize-redirect-url";
-import { t } from "@/i18n/t";
-import InputComponent from "../../components/core/parameterRenderComponent/components/inputComponent";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { SIGNIN_ERROR_ALERT } from "../../constants/alerts_constants";
-import { CONTROL_LOGIN_STATE } from "../../constants/constants";
-import { AuthContext } from "../../contexts/authContext";
-import useAlertStore from "../../stores/alertStore";
 import { ChevronDown } from "lucide-react";
+import IconComponent from "@/components/common/genericIconComponent";
+import InputComponent from "@/components/core/parameterRenderComponent/components/inputComponent";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useTranslation } from "react-i18next";
-import { cn } from "@/utils/utils";
+import { Input } from "@/components/ui/input";
+import { useLoginUser } from "@/controllers/API/queries/auth";
+import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
+import { useSanitizeRedirectUrl } from "@/hooks/use-sanitize-redirect-url";
+import { t } from "@/i18n/t";
+import { SIGNIN_ERROR_ALERT } from "../../constants/alerts_constants";
+import { CONTROL_LOGIN_STATE } from "../../constants/constants";
+import { AuthContext } from "../../contexts/authContext";
+import useAlertStore from "../../stores/alertStore";
 import type { LoginType } from "../../types/api";
 import type {
   inputHandlerEventType,
   loginInputStateType,
 } from "../../types/components";
-import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
-import IconComponent from "@/components/common/genericIconComponent";
+import { cn } from "../../utils/utils";
+import { useTranslation } from "react-i18next";
 
 export default function LoginPage(): JSX.Element {
   const [inputState, setInputState] =
     useState<loginInputStateType>(CONTROL_LOGIN_STATE);
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const [iconLoadFailed, setIconLoadFailed] = useState(false);
+  const [wordmarkLoadFailed, setWordmarkLoadFailed] = useState(false);
 
-  const { password, username } = inputState;
+  const { username, password } = inputState;
 
   useSanitizeRedirectUrl();
 
   const navigate = useCustomNavigate();
   const { login, clearAuthSession } = useContext(AuthContext);
   const setErrorData = useAlertStore((state) => state.setErrorData);
-
+  const { mutate, isPending } = useLoginUser();
   const { i18n } = useTranslation();
-  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
-  const [iconLoadFailed, setIconLoadFailed] = useState(false);
-  const [wordmarkLoadFailed, setWordmarkLoadFailed] = useState(false);
-  const [isSignTransitioning, setIsSignTransitioning] = useState(false);
+
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
   const lang = isZh ? "CN" : "EN";
+  const title = isZh ? "登录" : "Sign in";
+  const subtitle = isZh ? "登录到 OrangeFlow" : "Sign in to OrangeFlow";
+  const emailPlaceholder = isZh ? "邮箱地址" : "Email address";
+  const usernameRequired = isZh
+    ? "请输入邮箱地址"
+    : "Please enter your email address";
+  const usernameInvalid = isZh
+    ? "请输入有效的邮箱地址"
+    : "Please enter a valid email address";
 
   const changeLanguage = (nextLang: "zh-CN" | "en") => {
     void i18n.changeLanguage(nextLang);
@@ -62,9 +69,6 @@ export default function LoginPage(): JSX.Element {
     setInputState((prev) => ({ ...prev, [name]: value }));
   }
 
-  const { mutate, isPending } = useLoginUser();
-  const queryClient = useQueryClient();
-
   function signIn() {
     const user: LoginType = {
       username: username.trim(),
@@ -73,30 +77,20 @@ export default function LoginPage(): JSX.Element {
 
     mutate(user, {
       onSuccess: (data) => {
-        setIsSignTransitioning(true);
         clearAuthSession();
         login(data.access_token, "login", data.refresh_token);
-        // 立即主动跳转，不等 ProtectedLoginRoute 被动重定向
-        navigate("/home", { replace: true });
       },
       onError: (error) => {
-        setIsSignTransitioning(false);
         setErrorData({
           title: SIGNIN_ERROR_ALERT,
-          list: [error["response"]?.["data"]?.["detail"] ?? "登录失败"],
+          list: [error["response"]?.["data"]?.["detail"] ?? "Sign in failed"],
         });
       },
     });
   }
 
-  // 登录成功过渡中，保持黑屏不要闪白
-  if (isSignTransitioning) {
-    return <div className="flex h-screen w-full items-center justify-center bg-black" />;
-  }
-
   return (
     <div className="relative flex h-screen w-full flex-col items-center justify-center bg-black text-white">
-      {/* 顶部返回 Logo 导航 */}
       <div className="absolute left-6 top-6 flex items-center gap-2">
         <button
           type="button"
@@ -115,7 +109,9 @@ export default function LoginPage(): JSX.Element {
           )}
 
           {wordmarkLoadFailed ? (
-            <span className="text-[17px] font-semibold tracking-wide text-white">OrangeFlow</span>
+            <span className="text-[17px] font-semibold tracking-wide text-white">
+              OrangeFlow
+            </span>
           ) : (
             <img
               src="/branding/tapnow-wordmark.png?v=20260305"
@@ -127,9 +123,11 @@ export default function LoginPage(): JSX.Element {
         </button>
       </div>
 
-      {/* 右上角多语言切换 */}
       <div className="absolute right-6 top-6 flex items-center">
-        <DropdownMenu open={isLanguageMenuOpen} onOpenChange={setIsLanguageMenuOpen}>
+        <DropdownMenu
+          open={isLanguageMenuOpen}
+          onOpenChange={setIsLanguageMenuOpen}
+        >
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -144,7 +142,10 @@ export default function LoginPage(): JSX.Element {
               />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="border-white/10 bg-[#111] text-white">
+          <DropdownMenuContent
+            align="end"
+            className="border-white/10 bg-[#111] text-white"
+          >
             <DropdownMenuItem
               onClick={() => changeLanguage("zh-CN")}
               className="cursor-pointer hover:bg-white/10 focus:bg-white/10"
@@ -163,75 +164,68 @@ export default function LoginPage(): JSX.Element {
 
       <Form.Root
         onSubmit={(event) => {
-          if (password === "" || isPending || isSignTransitioning) {
-            event.preventDefault();
+          event.preventDefault();
+          if (password === "" || isPending) {
             return;
           }
-          setIsSignTransitioning(true);
           signIn();
-          event.preventDefault();
         }}
         className="w-full max-w-[400px] px-6"
       >
         <div className="flex flex-col items-center">
           <h1 className="mb-2 text-3xl font-semibold tracking-tight">
-            登录
+            {title}
           </h1>
-          <p className="mb-8 text-[14px] text-white/50">
-            欢迎回到 OrangeFlow
-          </p>
+          <p className="mb-8 text-[14px] text-white/50">{subtitle}</p>
 
           <div className="w-full space-y-4">
             <Form.Field name="username" className="w-full">
               <Form.Control asChild>
-                <div className="relative">
-                  <Input
-                    type="text"
-                    onChange={({ target: { value } }) => {
-                      handleInput({ target: { name: "username", value } });
-                    }}
-                    value={username}
-                    className="h-[52px] w-full rounded-2xl border-white/10 bg-white/5 px-4 text-white placeholder:text-white/30 hover:border-white/20 focus:border-white/30"
-                    required
-                    placeholder="邮箱或管理员账号"
-                  />
-                  {username && (
-                    <div className="absolute right-4 top-[17px] text-[12px] font-medium text-[#209CEE]">
-                      编辑
-                    </div>
-                  )}
-                </div>
+                <Input
+                  type="text"
+                  onChange={({ target: { value } }) => {
+                    handleInput({ target: { name: "username", value } });
+                  }}
+                  value={username}
+                  className="h-[52px] w-full rounded-2xl border-white/10 bg-white/5 px-4 text-white placeholder:text-white/30 hover:border-white/20 focus:border-white/30"
+                  required
+                  placeholder={emailPlaceholder}
+                />
               </Form.Control>
-              <Form.Message match="valueMissing" className="mt-1 text-xs text-red-500">
-                请输入您的账号或邮箱
+              <Form.Message
+                match="valueMissing"
+                className="mt-1 text-xs text-red-500"
+              >
+                {usernameRequired}
               </Form.Message>
-              <Form.Message 
+              <Form.Message
                 match={(value) => {
                   if (!value) return false;
                   if (value.toLowerCase() === "admin") return false;
                   return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-                }} 
+                }}
                 className="mt-1 text-xs text-red-500"
               >
-                请输入有效的邮箱地址
+                {usernameInvalid}
               </Form.Message>
             </Form.Field>
 
             <Form.Field name="password" className="w-full">
-              <div className="relative">
-                <InputComponent
-                  onChange={(value) => {
-                    handleInput({ target: { name: "password", value } });
-                  }}
-                  value={password}
-                  isForm
-                  password={true}
-                  required
-                  placeholder={t("Password")}
-                  className="h-[52px] w-full rounded-2xl border-white/10 bg-white/5 px-4 text-white placeholder:text-white/30 hover:border-white/20 focus:border-white/30"
-                />
-              </div>
-              <Form.Message className="mt-1 text-xs text-red-500" match="valueMissing">
+              <InputComponent
+                onChange={(value) => {
+                  handleInput({ target: { name: "password", value } });
+                }}
+                value={password}
+                isForm
+                password={true}
+                required
+                placeholder={t("Password")}
+                className="h-[52px] w-full rounded-2xl border-white/10 bg-white/5 px-4 text-white placeholder:text-white/30 hover:border-white/20 focus:border-white/30"
+              />
+              <Form.Message
+                className="mt-1 text-xs text-red-500"
+                match="valueMissing"
+              >
                 {t("Please enter your password")}
               </Form.Message>
             </Form.Field>
@@ -241,9 +235,9 @@ export default function LoginPage(): JSX.Element {
             <Form.Submit asChild>
               <Button
                 unstyled
-                className="inline-flex h-[52px] w-full items-center justify-center rounded-2xl bg-blue-600 text-[15px] font-medium text-white shadow-lg shadow-blue-500/20 transition-colors hover:bg-blue-700 disabled:opacity-70 disabled:pointer-events-none"
+                className="inline-flex h-[52px] w-full items-center justify-center rounded-2xl bg-blue-600 text-[15px] font-medium text-white shadow-lg shadow-blue-500/20 transition-colors hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-70"
                 type="submit"
-                disabled={isPending || isSignTransitioning}
+                disabled={isPending}
               >
                 {t("Sign in")}
               </Button>
@@ -251,9 +245,11 @@ export default function LoginPage(): JSX.Element {
           </div>
 
           <div className="my-8 flex w-full items-center">
-            <div className="h-[1px] flex-1 bg-white/10"></div>
-            <div className="px-4 text-[13px] text-white/40">或</div>
-            <div className="h-[1px] flex-1 bg-white/10"></div>
+            <div className="h-[1px] flex-1 bg-white/10" />
+            <div className="px-4 text-[13px] text-white/40">
+              {isZh ? "或者" : "Or"}
+            </div>
+            <div className="h-[1px] flex-1 bg-white/10" />
           </div>
 
           <div className="w-full">
@@ -261,23 +257,20 @@ export default function LoginPage(): JSX.Element {
               unstyled
               className="inline-flex h-[52px] w-full items-center justify-center rounded-2xl border border-white/10 bg-transparent text-[15px] font-medium text-white transition-colors hover:bg-white/5"
               type="button"
-              onClick={() => {
-                // UI 占位，等待接入真实 OAuth
-              }}
             >
               <IconComponent name="Chrome" className="mr-2 h-5 w-5" />
-              使用 Google 继续
+              {isZh ? "使用 Google 登录" : "Continue with Google"}
             </Button>
           </div>
 
           <div className="mt-8 text-center text-[13px] text-white/40">
-            还未拥有账户？{" "}
+            {isZh ? "还没有账号？" : "Don't have an account?"}{" "}
             <button
               type="button"
               onClick={() => navigate("/signup")}
               className="text-white hover:underline"
             >
-              立刻注册
+              {isZh ? "立即注册" : "Sign up"}
             </button>
           </div>
         </div>

@@ -160,7 +160,8 @@ async def refresh_token(
 
 @router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie("refresh_token_lf")
-    response.delete_cookie("access_token_lf")
-    response.delete_cookie("apikey_tkn_lflw")
+    auth_settings = get_settings_service().auth_settings
+    response.delete_cookie("refresh_token_lf", path="/", domain=auth_settings.COOKIE_DOMAIN)
+    response.delete_cookie("access_token_lf", path="/", domain=auth_settings.COOKIE_DOMAIN)
+    response.delete_cookie("apikey_tkn_lflw", path="/", domain=auth_settings.COOKIE_DOMAIN)
     return {"message": "Logout successful"}

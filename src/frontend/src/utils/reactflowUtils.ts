@@ -29,7 +29,6 @@ import {
 import { INCOMPLETE_LOOP_ERROR_ALERT } from "@/constants/alerts_constants";
 import { customDownloadFlow } from "@/customization/utils/custom-reactFlowUtils";
 import { t } from "@/i18n/t";
-import useFlowStore from "@/stores/flowStore";
 import getFieldTitle from "../CustomNodes/utils/get-field-title";
 import {
   INPUT_TYPES,
@@ -67,7 +66,28 @@ import { createRandomKey, toTitleCase } from "./utils";
 
 const uid = new ShortUniqueId();
 
+type ReactflowUtilsStoreBridge = {
+  deleteEdge: (id: string) => void;
+  getEdges: () => EdgeType[];
+  getNodes: () => AllNodeType[];
+};
+
+var reactflowUtilsStoreBridge: ReactflowUtilsStoreBridge | null = null;
+
+export function registerReactflowUtilsStoreBridge(
+  bridge: ReactflowUtilsStoreBridge,
+): void {
+  reactflowUtilsStoreBridge = bridge;
+}
+
 export type EdgeImageRole = "first" | "reference" | "last";
+export type VideoGenerationMode =
+  | "text"
+  | "first_frame"
+  | "first_last_frame"
+  | "reference_image"
+  | "reference_video"
+  | "video_edit";
 
 export const IMAGE_ROLE_FIELD = "first_frame_image";
 export const IMAGE_ROLE_TARGET = "DoubaoVideoGenerator";
@@ -91,12 +111,177 @@ type ImageRoleLimits = {
   maxReference?: number;
 };
 
+const VIDEO_GENERATION_MODE_OPTIONS: Record<string, VideoGenerationMode[]> = {
+  default: ["text", "first_frame"],
+  seedance: ["text", "first_frame", "first_last_frame"],
+  "wan2.5": ["text", "first_frame"],
+  "wan2.6": ["text", "first_frame", "reference_video"],
+  "veo3.1": ["text", "first_frame", "first_last_frame", "reference_image"],
+  "veo3.1-fast": ["text", "first_frame", "first_last_frame"],
+  "sora-2": ["text", "reference_image"],
+  "sora-2-pro": ["text", "reference_image"],
+  "kling o1": [
+    "text",
+    "first_frame",
+    "first_last_frame",
+    "reference_image",
+    "reference_video",
+    "video_edit",
+  ],
+  "kling o3": [
+    "text",
+    "first_frame",
+    "first_last_frame",
+    "reference_image",
+    "reference_video",
+    "video_edit",
+  ],
+  "kling v3": ["text", "first_frame", "first_last_frame"],
+  "viduq3-pro": ["text", "first_frame"],
+  "viduq2-pro": ["text", "first_frame", "first_last_frame", "reference_video"],
+};
+
 export function getDoubaoVideoModelName(node?: AllNodeType): string {
   const template = node?.data?.node?.template ?? {};
   const modelField = template?.model_name;
   const value =
     modelField?.value ?? modelField?.default ?? modelField?.options?.[0] ?? "";
   return String(value ?? "").trim();
+}
+
+export function getSupportedVideoGenerationModes(
+  modelName: string,
+): VideoGenerationMode[] {
+  const normalized = String(modelName ?? "").trim();
+  const normalizedLower = normalized.toLowerCase();
+
+  if (
+    normalizedLower.includes("seedance") ||
+    normalizedLower.includes("seedream") ||
+    normalized.includes("鍗虫ⅵ")
+  ) {
+    return [...VIDEO_GENERATION_MODE_OPTIONS.seedance];
+  }
+
+  const direct = VIDEO_GENERATION_MODE_OPTIONS[normalizedLower];
+  if (direct) return [...direct];
+
+  return [...VIDEO_GENERATION_MODE_OPTIONS.default];
+}
+
+export function getAvailableVideoGenerationModes(
+  modelName: string,
+  inputProfile: {
+    hasImageUpstream: boolean;
+    hasVideoUpstream: boolean;
+  },
+): VideoGenerationMode[] {
+  const supported = getSupportedVideoGenerationModes(modelName);
+
+  if (inputProfile.hasVideoUpstream) {
+    const videoModes = new Set<VideoGenerationMode>([
+      "reference_video",
+      "video_edit",
+    ]);
+    return supported.filter((mode) => videoModes.has(mode));
+  }
+
+  if (inputProfile.hasImageUpstream) {
+    const imageModes = new Set<VideoGenerationMode>([
+      "first_frame",
+      "first_last_frame",
+      "reference_image",
+    ]);
+    return supported.filter((mode) => imageModes.has(mode));
+  }
+
+  return supported.filter((mode) => mode === "text");
+}
+
+export function getDefaultVideoGenerationMode(
+  modelName: string,
+): VideoGenerationMode {
+  return getSupportedVideoGenerationModes(modelName)[0] ?? "text";
+}
+
+export function normalizeAvailableVideoGenerationMode(
+  modelName: string,
+  mode: unknown,
+  availableModes: VideoGenerationMode[],
+): VideoGenerationMode {
+  const normalizedMode =
+    typeof mode === "string" ? (mode.trim() as VideoGenerationMode) : "";
+  if (availableModes.includes(normalizedMode)) {
+    return normalizedMode;
+  }
+  return availableModes[0] ?? getDefaultVideoGenerationMode(modelName);
+}
+
+export function normalizeVideoGenerationMode(
+  modelName: string,
+  mode: unknown,
+): VideoGenerationMode {
+  const normalizedMode =
+    typeof mode === "string" ? (mode.trim() as VideoGenerationMode) : "";
+  const supported = getSupportedVideoGenerationModes(modelName);
+  if (supported.includes(normalizedMode)) {
+    return normalizedMode;
+  }
+  return getDefaultVideoGenerationMode(modelName);
+}
+
+export function getDoubaoVideoGenerationMode(
+  node?: AllNodeType,
+): VideoGenerationMode {
+  const template = node?.data?.node?.template ?? {};
+  const modeField = template?.generation_mode;
+  const rawMode =
+    modeField?.value ?? modeField?.default ?? modeField?.options?.[0] ?? "";
+  return normalizeVideoGenerationMode(getDoubaoVideoModelName(node), rawMode);
+}
+
+export function getImageRoleLimitsForGenerationMode(
+  modelName: string,
+  generationMode: unknown,
+): ImageRoleLimits {
+  const normalizedMode = normalizeVideoGenerationMode(modelName, generationMode);
+  const normalizedModel = String(modelName ?? "").trim().toLowerCase();
+  const baseLimits = getImageRoleLimits(modelName);
+
+  if (normalizedMode === "text") {
+    return { allowedRoles: [], maxTotal: 0, maxReference: 0 };
+  }
+
+  if (normalizedMode === "first_frame" || normalizedMode === "first_last_frame") {
+    return { allowedRoles: ["first"], maxTotal: 1, maxReference: 0 };
+  }
+
+  if (normalizedMode === "reference_image") {
+    const maxReference = baseLimits.maxReference ?? baseLimits.maxTotal;
+    return {
+      allowedRoles: ["reference"],
+      maxTotal: maxReference,
+      maxReference,
+    };
+  }
+
+  if (normalizedMode === "reference_video" || normalizedMode === "video_edit") {
+    let maxReference = baseLimits.maxReference ?? baseLimits.maxTotal;
+    if (normalizedModel === "viduq2-pro") {
+      maxReference = 4;
+    } else if (normalizedModel === "wan2.6") {
+      maxReference = 5;
+    } else if (normalizedModel.startsWith("kling")) {
+      maxReference = 4;
+    }
+    return {
+      allowedRoles: ["reference"],
+      maxTotal: maxReference,
+      maxReference,
+    };
+  }
+
+  return baseLimits;
 }
 
 export function getImageRoleLimits(modelName: string): ImageRoleLimits {
@@ -638,12 +823,12 @@ export function clearHandlesFromAdvancedFields(
   }
 
   try {
-    const flowStore = useFlowStore.getState();
-    const { edges, deleteEdge } = flowStore;
+    const edges = reactflowUtilsStoreBridge?.getEdges() ?? [];
+    const deleteEdge = reactflowUtilsStoreBridge?.deleteEdge;
 
     const connectedEdges = edges.filter((edge) => edge.target === componentId);
 
-    if (connectedEdges.length === 0) {
+    if (!deleteEdge || connectedEdges.length === 0) {
       return;
     }
 
@@ -873,8 +1058,8 @@ export function isValidConnection(
     return false;
   }
 
-  const nodesArray = nodes || useFlowStore.getState().nodes;
-  const edgesArray = edges || useFlowStore.getState().edges;
+  const nodesArray = nodes || reactflowUtilsStoreBridge?.getNodes() || [];
+  const edgesArray = edges || reactflowUtilsStoreBridge?.getEdges() || [];
 
   // Some nodes use a single visible "+" input bubble for UX. For type-safety, we may need to
   // reinterpret what that drop means based on the source type.
@@ -2198,7 +2383,7 @@ export function expandGroupNode(
 ) {
   const idsMap = updateIds(flow!.data!);
   updateProxyIdsOnTemplate(template, idsMap);
-  const flowEdges = useFlowStore.getState().edges;
+  const flowEdges = reactflowUtilsStoreBridge?.getEdges() ?? [];
   updateEdgesIds(flowEdges, idsMap);
   const gNodes: AllNodeType[] = cloneDeep(flow?.data?.nodes!);
   const gEdges = cloneDeep(flow!.data!.edges);
@@ -2298,10 +2483,8 @@ export function expandGroupNode(
       }
     }
   });
-  const filteredNodes = [
-    ...useFlowStore.getState().nodes.filter((n) => n.id !== id),
-    ...gNodes,
-  ];
+  const currentNodes = reactflowUtilsStoreBridge?.getNodes() ?? [];
+  const filteredNodes = [...currentNodes.filter((n) => n.id !== id), ...gNodes];
   const filteredEdges = [
     ...flowEdges.filter((e) => e.target !== id && e.source !== id),
     ...gEdges,
@@ -2861,4 +3044,26 @@ export function getConnectedSubgraph(
     nodes: resultNodes,
     edges: resultEdges,
   };
+}
+
+export function getLineageHighlightedEdgeIds(
+  selectedNodeIds: string[],
+  nodes: AllNodeType[],
+  edges: EdgeType[],
+): string[] {
+  if (selectedNodeIds.length === 0) {
+    return [];
+  }
+
+  const highlightedEdgeIds = new Set<string>();
+
+  for (const nodeId of selectedNodeIds) {
+    const upstream = getConnectedSubgraph(nodeId, nodes, edges, "upstream");
+    const downstream = getConnectedSubgraph(nodeId, nodes, edges, "downstream");
+
+    upstream.edges.forEach((edge) => highlightedEdgeIds.add(edge.id));
+    downstream.edges.forEach((edge) => highlightedEdgeIds.add(edge.id));
+  }
+
+  return Array.from(highlightedEdgeIds);
 }

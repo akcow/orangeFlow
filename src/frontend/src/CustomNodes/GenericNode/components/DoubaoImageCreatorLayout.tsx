@@ -32,16 +32,18 @@ import useFlowStore from "@/stores/flowStore";
 import { useUtilityStore } from "@/stores/utilityStore";
 import { track } from "@/customization/utils/analytics";
 import {
-  findLastNode,
   getDoubaoVideoModelName,
   getImageRoleLimits,
-  getNodeId,
   IMAGE_ROLE_FIELD,
   IMAGE_ROLE_TARGET,
   resolveEdgeImageRole,
+  type EdgeImageRole,
+} from "@/utils/flowMediaUtils";
+import {
+  findLastNode,
+  getNodeId,
   scapeJSONParse,
   scapedJSONStringfy,
-  type EdgeImageRole,
 } from "@/utils/reactflowUtils";
 import HandleRenderComponent from "./handleRenderComponent";
 import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors";

@@ -8,12 +8,16 @@ import {
 } from "@/constants/constants";
 import type { AuthStoreType } from "@/types/zustand/auth";
 import { getCookiesInstance } from "@/utils/cookie-manager";
+import {
+  getSessionStorage,
+  removeSessionStorage,
+} from "@/utils/session-storage-util";
 
 const cookies = getCookiesInstance();
 const useAuthStore = create<AuthStoreType>((set, get) => ({
   isAdmin: false,
-  isAuthenticated: !!cookies.get(LANGFLOW_ACCESS_TOKEN),
-  accessToken: cookies.get(LANGFLOW_ACCESS_TOKEN) ?? null,
+  isAuthenticated: false,
+  accessToken: getSessionStorage(LANGFLOW_ACCESS_TOKEN) ?? null,
   userData: null,
   autoLogin: null,
   apiKey: cookies.get(LANGFLOW_API_TOKEN),
@@ -29,6 +33,7 @@ const useAuthStore = create<AuthStoreType>((set, get) => ({
     set({ authenticationErrorCount }),
 
   logout: async () => {
+    removeSessionStorage(LANGFLOW_ACCESS_TOKEN);
     localStorage.removeItem(LANGFLOW_ACCESS_TOKEN);
     localStorage.removeItem(LANGFLOW_API_TOKEN);
     localStorage.removeItem(LANGFLOW_REFRESH_TOKEN);

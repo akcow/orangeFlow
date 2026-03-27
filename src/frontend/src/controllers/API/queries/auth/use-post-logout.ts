@@ -22,10 +22,11 @@ export const useLogout: useMutationFunctionType<undefined, void> = (
   const isAutoLoginEnv = IS_AUTO_LOGIN;
 
   async function logoutUser(): Promise<any> {
+    const currentAutoLogin = useAuthStore.getState().autoLogin;
     const autoLogin =
-      useAuthStore.getState().autoLogin ||
-      getAuthCookie(cookies, LANGFLOW_AUTO_LOGIN_OPTION) === "auto" ||
-      isAutoLoginEnv;
+      currentAutoLogin ??
+      (getAuthCookie(cookies, LANGFLOW_AUTO_LOGIN_OPTION) === "auto" ||
+        isAutoLoginEnv);
 
     if (autoLogin) {
       return {};

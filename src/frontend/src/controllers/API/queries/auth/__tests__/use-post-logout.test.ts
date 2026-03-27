@@ -11,14 +11,15 @@ const mockQueryClient = {
 };
 const mockGetAuthCookie = jest.fn();
 const mockApiPost = jest.fn();
+const mockAuthState = { autoLogin: false as boolean | null | undefined };
+let mockIsAutoLoginEnv = false;
 
 jest.mock("@/stores/authStore", () => {
-  const mockState = { autoLogin: false };
   const mockStore = jest.fn((selector: any) => {
     if (selector.toString().includes("logout")) return mockLogout;
     return false;
   }) as any;
-  mockStore.getState = jest.fn(() => mockState);
+  mockStore.getState = jest.fn(() => mockAuthState);
   return mockStore;
 });
 
@@ -75,7 +76,9 @@ jest.mock("react-cookie", () => ({
 
 jest.mock("@/constants/constants", () => ({
   ...jest.requireActual("@/constants/constants"),
-  IS_AUTO_LOGIN: false, // Override to disable auto login for testing
+  get IS_AUTO_LOGIN() {
+    return mockIsAutoLoginEnv;
+  },
   LANGFLOW_AUTO_LOGIN_OPTION: "auto_login_lf",
 }));
 
@@ -88,6 +91,8 @@ import { useLogout } from "../use-post-logout";
 describe("logout functionality", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthState.autoLogin = false;
+    mockIsAutoLoginEnv = false;
     mockGetAuthCookie.mockReturnValue(null);
   });
 
@@ -130,6 +135,7 @@ describe("logout functionality", () => {
 
   describe("logout behavior with auto login enabled", () => {
     it("should skip API call when auto login is enabled via cookie", async () => {
+      mockAuthState.autoLogin = undefined;
       mockGetAuthCookie.mockReturnValue("auto");
 
       const logoutMutation = useLogout();
@@ -139,6 +145,7 @@ describe("logout functionality", () => {
     });
 
     it("should still reset stores even when skipping API call", async () => {
+      mockAuthState.autoLogin = undefined;
       mockGetAuthCookie.mockReturnValue("auto");
 
       const logoutMutation = useLogout();
@@ -146,6 +153,19 @@ describe("logout functionality", () => {
 
       expect(mockLogout).toHaveBeenCalled();
       expect(mockResetFlowState).toHaveBeenCalled();
+    });
+
+    it("should honor explicit manual-login state over auto-login env", async () => {
+      mockIsAutoLoginEnv = true;
+      mockAuthState.autoLogin = false;
+      mockApiPost.mockResolvedValue({ data: { success: true } });
+
+      const logoutMutation = useLogout();
+      await logoutMutation.mutate();
+
+      expect(mockApiPost).toHaveBeenCalledWith(
+        expect.stringContaining("logout"),
+      );
     });
   });
 

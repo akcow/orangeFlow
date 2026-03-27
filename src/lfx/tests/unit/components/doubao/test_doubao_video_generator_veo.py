@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import types
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,6 +9,7 @@ import pytest
 import requests
 
 from lfx.components.doubao.doubao_video_generator import DoubaoVideoGenerator
+from lfx.schema.data import Data
 
 
 @dataclass
@@ -53,6 +56,42 @@ def _mock_veo_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
     monkeypatch.setattr(requests, "post", _post)
     monkeypatch.setattr(requests, "get", _get)
+    return captured
+
+
+@pytest.fixture
+def _mock_veo_gateway(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    captured: list[dict[str, Any]] = []
+
+    def _videos_create(*, model: str, prompt: str, user_id: str | None = None, **kwargs):
+        captured.append({"model": model, "prompt": prompt, "user_id": user_id, **kwargs})
+        return {"id": "veo_task_123"}
+
+    def _videos_status(*, video_id: str, user_id: str | None = None):
+        assert video_id == "veo_task_123"
+        return {
+            "status": "completed",
+            "data": {"url": "https://cdn.example.com/video.mp4"},
+            "provider_response": {},
+        }
+
+    def _videos_content(*, video_id: str, user_id: str | None = None):
+        assert video_id == "veo_task_123"
+        return b"\x00\x01", "video/mp4"
+
+    client = types.ModuleType("langflow.gateway.client")
+    client.videos_create = _videos_create  # type: ignore[attr-defined]
+    client.videos_status = _videos_status  # type: ignore[attr-defined]
+    client.videos_content = _videos_content  # type: ignore[attr-defined]
+    gateway = types.ModuleType("langflow.gateway")
+    gateway.client = client  # type: ignore[attr-defined]
+    langflow = types.ModuleType("langflow")
+    langflow.gateway = gateway  # type: ignore[attr-defined]
+
+    sys.modules["langflow"] = langflow
+    sys.modules["langflow.gateway"] = gateway
+    sys.modules["langflow.gateway.client"] = client
+
     return captured
 
 
@@ -116,6 +155,24 @@ def test_veo_reference_images_switch_fast_to_standard_and_force_8s(_mock_veo_req
     assert payload["metadata"]["resolution"] == "720p"
     assert payload["metadata"]["referenceImages"][0]["image"]["bytesBase64Encoded"] == "https://example.com/ref.jpg"
     assert result.data["model"]["requested_model_id"] == "veo-3.1-fast-generate-preview"
+
+
+def test_veo_generation_mode_reference_image_overrides_default_first_frame(_mock_veo_gateway: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="VEO3.1",
+        generation_mode="reference_image",
+        duration=4,
+        aspect_ratio="16:9",
+        resolution="720p",
+        first_frame_image=[{"url": "https://example.com/ref.jpg"}],
+    )
+    result = component._build_video_veo_gateway(prompt="p", endpoint_id="veo-3.1-generate-preview")
+    assert result.type == "video"
+    payload = _mock_veo_gateway[0]
+    assert "images" not in payload["extra_body"]["veo_payload"]
+    metadata = payload["extra_body"]["veo_payload"]["metadata"]
+    assert metadata["durationSeconds"] == 8
+    assert metadata["referenceImages"][0]["image"]["bytesBase64Encoded"] == "https://example.com/ref.jpg"
 
 
 def test_veo_interpolation_forces_8s(_mock_veo_requests: list[dict[str, Any]]):

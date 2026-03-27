@@ -1,23 +1,24 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
+import { RouteTransition } from "@/components/common/route-transition";
 import SideBarFoldersButtonsComponent from "@/components/core/folderSidebarComponent/components/sideBarFolderButtons";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { useDeleteFolders } from "@/controllers/API/queries/folders";
 import { useGetRefreshFlowsQuery } from "@/controllers/API/queries/flows/use-get-refresh-flows-query";
+import { useDeleteFolders } from "@/controllers/API/queries/folders";
 import CustomEmptyPageCommunity from "@/customization/components/custom-empty-page";
 import CustomLoader from "@/customization/components/custom-loader";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import { t } from "@/i18n/t";
 import useAlertStore from "@/stores/alertStore";
+import useAuthStore from "@/stores/authStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
-import useAuthStore from "@/stores/authStore";
 import ModalsComponent from "../components/modalsComponent";
-import EmptyPageCommunity from "./empty-page";
 
 export default function CollectionPage(): JSX.Element {
   const [openDeleteFolderModal, setOpenDeleteFolderModal] = useState(false);
+  const location = useLocation();
   const setFolderToEdit = useFolderStore((state) => state.setFolderToEdit);
   const navigate = useCustomNavigate();
   const flows = useFlowsManagerStore((state) => state.flows);
@@ -98,7 +99,12 @@ export default function CollectionPage(): JSX.Element {
             className={`relative mx-auto flex h-full w-full flex-col overflow-hidden`}
           >
             {flows?.length !== examples?.length || folders?.length > 1 ? (
-              <Outlet />
+              <RouteTransition
+                transitionKey={location.pathname}
+                className="flex h-full w-full flex-col overflow-hidden"
+              >
+                <Outlet />
+              </RouteTransition>
             ) : (
               <CustomEmptyPageCommunity />
             )}

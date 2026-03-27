@@ -14,12 +14,16 @@ import type { EdgeDataType } from "@/types/flow";
 import { BuildStatus } from "@/constants/enums";
 import {
   canUpdateImageRole,
+  getDoubaoVideoGenerationMode,
   getDoubaoVideoModelName,
   getImageRoleCounts,
   getImageRoleLimits,
+  getImageRoleLimitsForGenerationMode,
   IMAGE_ROLE_FIELD,
   IMAGE_ROLE_TARGET,
   resolveEdgeImageRole,
+} from "@/utils/flowMediaUtils";
+import {
   scapeJSONParse,
 } from "@/utils/reactflowUtils";
 
@@ -102,6 +106,9 @@ export function DefaultEdge({
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const getNode = useFlowStore((state) => state.getNode);
   const setErrorData = useAlertStore((state) => state.setErrorData);
+  const isLineageHighlighted = useFlowStore((state) =>
+    state.lineageHighlightedEdgeIds.includes(id),
+  );
 
   const sourceNode = getNode(source);
   const targetNode = getNode(target);
@@ -151,8 +158,15 @@ export function DefaultEdge({
     (isFirstFrameField || isLastFrameField) &&
     targetNode?.data?.type === IMAGE_ROLE_TARGET;
   const modelName = getDoubaoVideoModelName(targetNode);
+  const generationMode =
+    targetNode?.data?.type === IMAGE_ROLE_TARGET
+      ? getDoubaoVideoGenerationMode(targetNode)
+      : null;
   const isKlingModel = modelName.toLowerCase().startsWith("kling");
-  const roleLimits = getImageRoleLimits(modelName);
+  const roleLimits =
+    targetNode?.data?.type === IMAGE_ROLE_TARGET && generationMode
+      ? getImageRoleLimitsForGenerationMode(modelName, generationMode)
+      : getImageRoleLimits(modelName);
   const isSoraModel =
     roleLimits.allowedRoles.length === 1 &&
     roleLimits.allowedRoles[0] === "reference";
@@ -182,16 +196,41 @@ export function DefaultEdge({
     ? IMAGE_ROLE_OPTIONS.filter((option) => option.value === fixedRole)
     : IMAGE_ROLE_OPTIONS.filter((option) => roleLimits.allowedRoles.includes(option.value));
 
+  const generationModeVideoReferType: VideoReferType | null = isVideoBridgeEdge
+    ? generationMode === "video_edit"
+      ? "base"
+      : "feature"
+    : null;
   const currentVideoReferType: VideoReferType =
-    edgeData?.videoReferType === "base" || edgeData?.videoReferType === "feature"
+    generationModeVideoReferType ??
+    (edgeData?.videoReferType === "base" || edgeData?.videoReferType === "feature"
       ? edgeData.videoReferType
-      : videoReferLimits.fallback;
+      : videoReferLimits.fallback);
   const normalizedVideoReferType: VideoReferType = videoReferLimits.allowedRoles.includes(
     currentVideoReferType,
   )
     ? currentVideoReferType
     : videoReferLimits.fallback;
   const videoRoleOptions = VIDEO_ROLE_OPTIONS;
+  const useNodeGenerationMode =
+    targetNode?.data?.type === IMAGE_ROLE_TARGET && (isRoleEdge || isVideoBridgeEdge);
+  const staticRoleLabel = isVideoBridgeEdge
+    ? generationMode === "video_edit"
+      ? "视频编辑"
+      : "参考视频"
+    : isLastFrameField
+      ? "尾帧"
+      : generationMode === "reference_image" ||
+          generationMode === "reference_video" ||
+          generationMode === "video_edit"
+        ? "参考"
+        : generationMode === "first_frame" || generationMode === "first_last_frame"
+          ? "首帧"
+          : normalizedRole === "last"
+            ? "尾帧"
+            : normalizedRole === "reference"
+              ? "参考"
+              : "首帧";
 
   useEffect(() => {
     if (!isRoleEdge || !fixedRole) return;
@@ -306,6 +345,7 @@ export function DefaultEdge({
   const targetType = targetNode?.data?.type;
   const sourceType = sourceNode?.data?.type;
   const pathForRender = targetHandleObject?.output_types ? edgePathLoop : edgePath;
+  const isEdgeEmphasized = selected || isLineageHighlighted;
   const isMediaTargetNode =
     targetType === "DoubaoImageCreator" || targetType === "DoubaoVideoGenerator";
   const isMediaInputEdge =
@@ -466,6 +506,8 @@ export function DefaultEdge({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       data-doubao-running-wave={showRunningWave ? "true" : "false"}
+      data-lineage-highlighted={isLineageHighlighted ? "true" : "false"}
+      data-edge-emphasized={isEdgeEmphasized ? "true" : "false"}
     >
       <BaseEdge
         path={pathForRender}
@@ -508,30 +550,34 @@ export function DefaultEdge({
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
               >
-                <select
-                  aria-label="Edge role selector"
-                  value={normalizedRole}
-                  disabled={Boolean(isLocked)}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) =>
-                    handleRoleChange(event.target.value as EdgeImageRole)
-                  }
-                  className="cursor-pointer bg-transparent text-base leading-none outline-none"
-                >
-                  {roleOptions.map((option) => (
-                    <option
-                      key={option.value}
-                      value={option.value}
-                      className="bg-popover text-popover-foreground"
-                      disabled={
-                        !fixedRole && !roleLimits.allowedRoles.includes(option.value)
-                      }
-                    >
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                {useNodeGenerationMode ? (
+                  <span>{staticRoleLabel}</span>
+                ) : (
+                  <select
+                    aria-label="Edge role selector"
+                    value={normalizedRole}
+                    disabled={Boolean(isLocked)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) =>
+                      handleRoleChange(event.target.value as EdgeImageRole)
+                    }
+                    className="cursor-pointer bg-transparent text-base leading-none outline-none"
+                  >
+                    {roleOptions.map((option) => (
+                      <option
+                        key={option.value}
+                        value={option.value}
+                        className="bg-popover text-popover-foreground"
+                        disabled={
+                          !fixedRole && !roleLimits.allowedRoles.includes(option.value)
+                        }
+                      >
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
             ) : isVideoBridgeEdge ? (
               <label
@@ -539,28 +585,32 @@ export function DefaultEdge({
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
               >
-                <select
-                  aria-label="Video refer type selector"
-                  value={normalizedVideoReferType}
-                  disabled={Boolean(isLocked)}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) =>
-                    handleVideoReferTypeChange(event.target.value as VideoReferType)
-                  }
-                  className="cursor-pointer bg-transparent text-base leading-none outline-none"
-                >
-                  {videoRoleOptions.map((option) => (
-                    <option
-                      key={option.value}
-                      value={option.value}
-                      className="bg-popover text-popover-foreground"
-                      disabled={!videoReferLimits.allowedRoles.includes(option.value)}
-                    >
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                {useNodeGenerationMode ? (
+                  <span>{staticRoleLabel}</span>
+                ) : (
+                  <select
+                    aria-label="Video refer type selector"
+                    value={normalizedVideoReferType}
+                    disabled={Boolean(isLocked)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) =>
+                      handleVideoReferTypeChange(event.target.value as VideoReferType)
+                    }
+                    className="cursor-pointer bg-transparent text-base leading-none outline-none"
+                  >
+                    {videoRoleOptions.map((option) => (
+                      <option
+                        key={option.value}
+                        value={option.value}
+                        className="bg-popover text-popover-foreground"
+                        disabled={!videoReferLimits.allowedRoles.includes(option.value)}
+                      >
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
             ) : null}
             {!isLocked && (selected || hovered) ? (

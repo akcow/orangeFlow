@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { ReactNode, useContext } from "react";
 
 // Mock all dependencies
@@ -34,17 +34,26 @@ jest.mock("@/utils/utils", () => ({
   ),
 }));
 
-jest.mock("@/utils/local-storage-util", () => ({
-  setLocalStorage: jest.fn(),
+const mockGetSessionStorage = jest.fn();
+const mockSetSessionStorage = jest.fn();
+const mockRemoveSessionStorage = jest.fn();
+const mockSessionStorageState: Record<string, string | null> = {};
+
+jest.mock("@/utils/session-storage-util", () => ({
+  getSessionStorage: (...args) => mockGetSessionStorage(...args),
+  setSessionStorage: (...args) => mockSetSessionStorage(...args),
+  removeSessionStorage: (...args) => mockRemoveSessionStorage(...args),
 }));
 
 const mockSetIsAuthenticated = jest.fn();
 const mockSetIsAdmin = jest.fn();
+const mockSetAccessToken = jest.fn();
 
 const mockAuthStore = (selector: any) => {
   const state = {
     setIsAuthenticated: mockSetIsAuthenticated,
     setIsAdmin: mockSetIsAdmin,
+    setAccessToken: mockSetAccessToken,
   };
   return selector ? selector(state) : state;
 };
@@ -52,6 +61,7 @@ const mockAuthStore = (selector: any) => {
 (mockAuthStore as any).getState = () => ({
   setIsAuthenticated: mockSetIsAuthenticated,
   setIsAdmin: mockSetIsAdmin,
+  setAccessToken: mockSetAccessToken,
 });
 
 jest.mock("@/stores/authStore", () => ({
@@ -115,6 +125,18 @@ describe("AuthContext - Login Fix for Race Condition", () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     mockCookiesInstance.get.mockReturnValue(null);
+    Object.keys(mockSessionStorageState).forEach((key) => {
+      delete mockSessionStorageState[key];
+    });
+    mockGetSessionStorage.mockImplementation(
+      (key) => mockSessionStorageState[key] ?? null,
+    );
+    mockSetSessionStorage.mockImplementation((key, value) => {
+      mockSessionStorageState[key] = value;
+    });
+    mockRemoveSessionStorage.mockImplementation((key) => {
+      delete mockSessionStorageState[key];
+    });
   });
 
   afterEach(() => {
@@ -143,12 +165,6 @@ describe("AuthContext - Login Fix for Race Condition", () => {
         create_at: new Date(),
         updated_at: new Date(),
       };
-
-      // Mock cookie getter to return the access token
-      mockCookiesInstance.get.mockImplementation((name) => {
-        if (name === "access_token_lf") return accessToken;
-        return null;
-      });
 
       // Track when setIsAuthenticated is called
       let authSetCallCount = 0;
@@ -208,12 +224,6 @@ describe("AuthContext - Login Fix for Race Condition", () => {
         updated_at: new Date(),
       };
 
-      // Mock cookie getter to return the access token
-      mockCookiesInstance.get.mockImplementation((name) => {
-        if (name === "access_token_lf") return accessToken;
-        return null;
-      });
-
       // Start login
       act(() => {
         result.current.login(accessToken, "login");
@@ -244,16 +254,10 @@ describe("AuthContext - Login Fix for Race Condition", () => {
       expect(mockSetIsAuthenticated).toHaveBeenCalledWith(true);
     });
 
-    it("should still set isAuthenticated even if getUser fails", async () => {
+    it("should clear auth state and avoid authentication when getUser fails", async () => {
       const { result } = renderHook(() => useTestContext(), { wrapper });
 
       const accessToken = "test_access_token";
-
-      // Mock cookie getter to return the access token
-      mockCookiesInstance.get.mockImplementation((name) => {
-        if (name === "access_token_lf") return accessToken;
-        return null;
-      });
 
       // Start login
       act(() => {
@@ -279,8 +283,9 @@ describe("AuthContext - Login Fix for Race Condition", () => {
         getVarsCallback();
       });
 
-      // Should still set isAuthenticated (fail-safe behavior)
-      expect(mockSetIsAuthenticated).toHaveBeenCalledWith(true);
+      expect(mockSetIsAuthenticated).not.toHaveBeenCalledWith(true);
+      expect(mockRemoveSessionStorage).toHaveBeenCalledWith("access_token_lf");
+      expect(mockSetAccessToken).toHaveBeenCalledWith(null);
     });
 
     it("should handle cookies being set synchronously before API calls", async () => {
@@ -289,18 +294,16 @@ describe("AuthContext - Login Fix for Race Condition", () => {
       const accessToken = "test_access_token";
       const refreshToken = "test_refresh_token";
 
-      // Mock cookie getter to return the access token
-      mockCookiesInstance.get.mockImplementation((name) => {
-        if (name === "access_token_lf") return accessToken;
-        return null;
-      });
-
       act(() => {
         result.current.login(accessToken, "login", refreshToken);
       });
 
       // Verify cookies were set BEFORE mutations started
-      expect(mockCookiesInstance.set).toHaveBeenCalledTimes(3); // access, auto_login, refresh
+      expect(mockCookiesInstance.set).toHaveBeenCalledTimes(1); // auto_login only
+      expect(mockSetSessionStorage).toHaveBeenCalledWith(
+        "access_token_lf",
+        accessToken,
+      );
 
       // Advance timers to trigger the verifyAndProceed function
       act(() => {
@@ -326,12 +329,6 @@ describe("AuthContext - Login Fix for Race Condition", () => {
         create_at: new Date(),
         updated_at: new Date(),
       };
-
-      // Mock cookie getter to return the access token
-      mockCookiesInstance.get.mockImplementation((name) => {
-        if (name === "access_token_lf") return accessToken;
-        return null;
-      });
 
       // Login
       act(() => {
@@ -374,22 +371,16 @@ describe("AuthContext - Login Fix for Race Condition", () => {
         result.current.login(accessToken, "login", refreshToken);
       });
 
-      // Verify all cookies were set (with options parameter)
-      expect(mockCookiesInstance.set).toHaveBeenCalledWith(
+      expect(mockSetSessionStorage).toHaveBeenCalledWith(
         "access_token_lf",
         accessToken,
-        expect.any(Object),
       );
       expect(mockCookiesInstance.set).toHaveBeenCalledWith(
         "auto_login_lf",
         "login",
         expect.any(Object),
       );
-      expect(mockCookiesInstance.set).toHaveBeenCalledWith(
-        "refresh_token_lf",
-        refreshToken,
-        expect.any(Object),
-      );
+      expect(mockCookiesInstance.set).toHaveBeenCalledTimes(1);
     });
 
     it("should not set refresh token cookie if not provided", () => {
@@ -399,13 +390,9 @@ describe("AuthContext - Login Fix for Race Condition", () => {
         result.current.login("access_token_123", "login");
       });
 
-      // Should only set access_token and auto_login cookies
-      const setCallArgs = mockCookiesInstance.set.mock.calls.map(
-        (call) => call[0],
-      );
-
-      expect(setCallArgs).toContain("access_token_lf");
+      const setCallArgs = mockCookiesInstance.set.mock.calls.map((call) => call[0]);
       expect(setCallArgs).toContain("auto_login_lf");
+      expect(setCallArgs).not.toContain("access_token_lf");
       expect(setCallArgs).not.toContain("refresh_token_lf");
     });
   });
@@ -426,19 +413,13 @@ describe("AuthContext - Login Fix for Race Condition", () => {
         updated_at: new Date(),
       };
 
-      // Mock cookie getter to return the access token
-      mockCookiesInstance.get.mockImplementation((name) => {
-        if (name === "access_token_lf") return accessToken;
-        return null;
-      });
-
       // Step 1: Start login
       act(() => {
         result.current.login(accessToken, "login", refreshToken);
       });
 
-      // Verify cookies set
-      expect(mockCookiesInstance.set).toHaveBeenCalledTimes(3);
+      // Verify only frontend-owned auth cookie is set
+      expect(mockCookiesInstance.set).toHaveBeenCalledTimes(1);
 
       // Verify isAuthenticated NOT set yet
       expect(mockSetIsAuthenticated).not.toHaveBeenCalled();
@@ -479,14 +460,31 @@ describe("AuthContext - Login Fix for Race Condition", () => {
   });
 
   describe("Edge Cases", () => {
-    it("should handle rapid multiple login calls", async () => {
+    it("should reject incomplete login bootstrap when whoami returns no user", async () => {
       const { result } = renderHook(() => useTestContext(), { wrapper });
 
-      // Mock cookie getter to return tokens
-      mockCookiesInstance.get.mockImplementation((name) => {
-        if (name === "access_token_lf") return "token3"; // Last token set
-        return null;
+      const accessToken = "token-without-user";
+
+      act(() => {
+        result.current.login(accessToken, "login");
       });
+
+      act(() => {
+        jest.advanceTimersByTime(50);
+      });
+
+      act(() => {
+        const getUserCallback = mockMutateLoggedUser.mock.calls[0][1].onSuccess;
+        getUserCallback(undefined);
+      });
+
+      expect(mockSetIsAuthenticated).not.toHaveBeenCalledWith(true);
+      expect(mockRemoveSessionStorage).toHaveBeenCalledWith("access_token_lf");
+      expect(mockSetAccessToken).toHaveBeenCalledWith(null);
+    });
+
+    it("should handle rapid multiple login calls", async () => {
+      const { result } = renderHook(() => useTestContext(), { wrapper });
 
       // Rapidly call login multiple times
       act(() => {

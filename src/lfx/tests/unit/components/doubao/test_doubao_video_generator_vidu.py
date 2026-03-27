@@ -82,10 +82,32 @@ def test_vidu_img2video_is_rec_allows_empty_prompt(_mock_gateway: list[dict[str,
     assert extra["is_rec"] is True
 
 
+def test_vidu_generation_mode_first_last_routes_start_end(_mock_gateway: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="viduq2-pro",
+        generation_mode="first_last_frame",
+        prompt="",
+        duration=5,
+        aspect_ratio="adaptive",
+        resolution="720p",
+        first_frame_image=[{"url": "https://example.com/start.jpg"}],
+        last_frame_image={"url": "https://example.com/end.jpg"},
+        vidu_audio=True,
+    )
+    out = component.build_video()
+    assert out.type == "video"
+
+    payload = _mock_gateway[0]
+    extra = payload["extra_body"]
+    assert extra["images"] == ["https://example.com/start.jpg", "https://example.com/end.jpg"]
+    assert extra["audio"] is True
+
+
 def test_update_build_config_vidu_clamps_controls():
     component = DoubaoVideoGenerator()
     names = {
         "model_name",
+        "generation_mode",
         "resolution",
         "duration",
         "aspect_ratio",
@@ -116,6 +138,7 @@ def test_update_build_config_vidu_clamps_controls():
     build_config["model_name"]["value"] = "viduq3-pro"
     out = component.update_build_config(build_config, "viduq3-pro", "model_name")
 
+    assert out["generation_mode"]["options"] == ["text", "first_frame"]
     assert out["resolution"]["options"] == ["540p", "720p", "1080p"]
     assert out["duration"]["range_spec"]["min"] == 1
     assert out["duration"]["range_spec"]["max"] == 16
@@ -124,4 +147,3 @@ def test_update_build_config_vidu_clamps_controls():
     # These two are surfaced via the frontend "画面参数" dropdown, so keep them hidden in the default panel.
     assert out["vidu_audio"]["show"] is False
     assert out["vidu_is_rec"]["show"] is False
-

@@ -83,6 +83,25 @@ def test_wan_i2v_uses_img_url_and_i2v_model(_mock_gateway: list[dict[str, Any]])
     assert extra["resolution"] == "720P"
 
 
+def test_wan_generation_mode_text_keeps_legacy_media_inference(_mock_gateway: list[dict[str, Any]]):
+    component = DoubaoVideoGenerator(
+        model_name="wan2.6",
+        generation_mode="text",
+        prompt="p",
+        duration=10,
+        resolution="720p",
+        aspect_ratio="16:9",
+        first_frame_image=[{"url": "https://example.com/start.jpg"}],
+    )
+    out = component._build_video_wan_gateway(prompt="p", model_name="wan2.6")
+    assert out.type == "video"
+
+    payload = _mock_gateway[0]
+    assert payload["model"] == "wan2.6-i2v"
+    extra = payload["extra_body"]
+    assert extra["img_url"] == "https://example.com/start.jpg"
+
+
 def test_wan_r2v_prefers_public_url_for_uploaded_video(_mock_gateway: list[dict[str, Any]]):
     component = DoubaoVideoGenerator(
         model_name="wan2.6",

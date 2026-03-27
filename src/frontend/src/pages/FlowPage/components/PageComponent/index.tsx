@@ -38,7 +38,6 @@ import useAutoSaveFlow from "@/hooks/flows/use-autosave-flow";
 import useSaveFlow from "@/hooks/flows/use-save-flow";
 import useUploadFlow from "@/hooks/flows/use-upload-flow";
 import { useAddComponent } from "@/hooks/use-add-component";
-import { nodeColorsName } from "@/utils/styleUtils";
 import { isSupportedNodeTypes } from "@/utils/utils";
 import GenericNode from "../../../../CustomNodes/GenericNode";
 import { Link } from "react-router-dom";
@@ -73,6 +72,7 @@ import {
   GROUP_PADDING,
   isGroupContainerNode,
 } from "../../../../utils/groupingUtils";
+import { getLineageHighlightedEdgeIds } from "../../../../utils/flowGraphUtils";
 import {
   getNodeId,
   isValidConnection,
@@ -232,6 +232,9 @@ export default function Page({
   const onConnect = useFlowStore((state) => state.onConnect);
   const setRightClickedNodeId = useFlowStore(
     (state) => state.setRightClickedNodeId,
+  );
+  const setLineageHighlightedEdgeIds = useFlowStore(
+    (state) => state.setLineageHighlightedEdgeIds,
   );
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const updateCurrentFlow = useFlowStore((state) => state.updateCurrentFlow);
@@ -1239,6 +1242,19 @@ export default function Page({
     ],
   );
 
+  useEffect(() => {
+    const selectedNodeIds = nodes
+      .filter((node) => node.selected)
+      .map((node) => node.id);
+    const highlightedEdgeIds = getLineageHighlightedEdgeIds(
+      selectedNodeIds,
+      nodes,
+      edges,
+    );
+
+    setLineageHighlightedEdgeIds(highlightedEdgeIds);
+  }, [edges, nodes, setLineageHighlightedEdgeIds]);
+
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: AllNodeType) => {
       event.preventDefault();
@@ -1420,17 +1436,11 @@ export default function Page({
     ],
   );
 
-  const handleEdgeClick = (event, edge) => {
+  const handleEdgeClick = (event) => {
     if (isLocked) {
       event.preventDefault();
       event.stopPropagation();
-      return;
     }
-    const color =
-      nodeColorsName[edge?.data?.sourceHandle?.output_types[0]] || "cyan";
-
-    const accentColor = `hsl(var(--datatype-${color}))`;
-    reactFlowWrapper.current?.style.setProperty("--selected", accentColor);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -1640,7 +1650,7 @@ export default function Page({
               onSelectionEnd={view ? undefined : onSelectionEnd}
               onSelectionStart={view ? undefined : onSelectionStart}
               selectionMode={SelectionMode.Partial}
-              connectionRadius={30}
+              connectionRadius={110}
               edgeTypes={edgeTypes}
               connectionLineComponent={ConnectionLineComponent}
               onDragOver={view ? undefined : onDragOver}

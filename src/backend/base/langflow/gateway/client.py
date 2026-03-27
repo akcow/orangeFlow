@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 from typing import Any
 
 import httpx
 
-from langflow.gateway.errors import AuthError
 from langflow.gateway.router import resolve_provider
 from langflow.gateway.schemas import (
     AudioSpeechRequest,
@@ -42,42 +40,9 @@ def _run_coro_sync(coro):
     return result.get("value")
 
 
-def _normalize_token(value: str | None) -> str | None:
-    if not value:
-        return None
-    v = str(value).strip().strip("'").strip('"')
-    if not v:
-        return None
-    if v.lower().startswith("bearer "):
-        v = v.split(" ", 1)[1].strip()
-    # Never accept masked secrets persisted from UI.
-    if v.startswith("****"):
-        return None
-    v = "".join(v.split())
-    return v or None
-
-
-def _require_valid_hosted_key(*, user_id: str | None) -> str:
-    """
-    Enforce the Hosted Gateway key requirement for custom components.
-
-    Settings-managed MODEL_API_KEY variables and user-generated API keys were
-    retired, so gateway access now relies exclusively on the server-side
-    HOSTED_GATEWAY_KEY environment variable.
-    """
-    del user_id
-    token = _normalize_token(os.getenv("HOSTED_GATEWAY_KEY"))
-    if not token:
-        raise AuthError(
-            "Hosted gateway access is not configured. Set HOSTED_GATEWAY_KEY on the server before running this component."
-        )
-    return token
-
-
 def chat_completions(
     *, model: str, messages: list[dict[str, Any]], stream: bool = False, user_id: str | None = None, **kwargs
 ) -> dict[str, Any]:
-    _require_valid_hosted_key(user_id=user_id)
     provider_name, provider = resolve_provider(model)
     req = ChatCompletionRequest(model=model, messages=messages, stream=stream, **kwargs)
     out = _run_coro_sync(provider.chat_completion(req))
@@ -87,14 +52,12 @@ def chat_completions(
 
 
 def images_generations(*, model: str, prompt: str, user_id: str | None = None, **kwargs) -> dict[str, Any]:
-    _require_valid_hosted_key(user_id=user_id)
     _provider_name, provider = resolve_provider(model)
     req = ImageGenerationRequest(model=model, prompt=prompt, **kwargs)
     return _run_coro_sync(provider.image_generation(req))
 
 
 def videos_create(*, model: str, prompt: str, user_id: str | None = None, **kwargs) -> dict[str, Any]:
-    _require_valid_hosted_key(user_id=user_id)
     provider_name, provider = resolve_provider(model)
     req = VideoGenerationRequest(model=model, prompt=prompt, **kwargs)
     result = _run_coro_sync(provider.video_generation(req))
@@ -104,7 +67,6 @@ def videos_create(*, model: str, prompt: str, user_id: str | None = None, **kwar
 
 
 def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any]:
-    _require_valid_hosted_key(user_id=user_id)
     decoded = decode_task_id(video_id)
     if not decoded.provider:
         decoded = decode_task_id(f"doubao:{video_id}")
@@ -168,7 +130,6 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
 
 
 def videos_content(*, video_id: str, user_id: str | None = None) -> bytes:
-    _require_valid_hosted_key(user_id=user_id)
     decoded = decode_task_id(video_id)
     if not decoded.provider:
         decoded = decode_task_id(f"doubao:{video_id}")
@@ -192,7 +153,6 @@ def videos_content(*, video_id: str, user_id: str | None = None) -> bytes:
 
 
 def audio_speech(*, model: str, input: str, voice: str, user_id: str | None = None, **kwargs) -> bytes:
-    _require_valid_hosted_key(user_id=user_id)
     _provider_name, provider = resolve_provider(model)
     req = AudioSpeechRequest(model=model, input=input, voice=voice, **kwargs)
     return _run_coro_sync(provider.audio_speech(req))

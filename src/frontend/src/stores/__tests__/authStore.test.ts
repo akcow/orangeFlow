@@ -15,6 +15,7 @@ jest.mock("react-cookie", () => ({
 jest.mock("@/constants/constants", () => ({
   LANGFLOW_ACCESS_TOKEN: "langflow_access_token",
   LANGFLOW_API_TOKEN: "langflow_api_token",
+  LANGFLOW_REFRESH_TOKEN: "langflow_refresh_token",
 }));
 
 // Mock the darkStore to avoid import.meta issues
@@ -51,6 +52,9 @@ describe("useAuthStore", () => {
   beforeEach(() => {
     // Clear all mocks before each test
     jest.clearAllMocks();
+
+    sessionStorage.clear();
+    localStorage.clear();
 
     // Set default cookie values
     mockCookies.get.mockImplementation((key) => {
@@ -89,10 +93,43 @@ describe("useAuthStore", () => {
       expect(result.current.authenticationErrorCount).toBe(0);
     });
 
-    it("should simulate authenticated state from cookies", () => {
+    it("should restore access token from sessionStorage only", () => {
+      sessionStorage.setItem("langflow_access_token", "session-token");
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const reloadedStore = require("../authStore").default;
+        const state = reloadedStore.getState();
+
+        expect(state.accessToken).toBe("session-token");
+        expect(state.isAuthenticated).toBe(false);
+      });
+    });
+
+    it("should not mark user as authenticated from cookies alone", () => {
+      mockCookies.get.mockImplementation((key) => {
+        switch (key) {
+          case "langflow_access_token":
+            return "cookie-token";
+          case "langflow_api_token":
+            return "test-api-key";
+          default:
+            return null;
+        }
+      });
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const reloadedStore = require("../authStore").default;
+        const state = reloadedStore.getState();
+
+        expect(state.isAuthenticated).toBe(false);
+        expect(state.accessToken).toBeNull();
+        expect(state.apiKey).toBe("test-api-key");
+      });
+    });
+
+    it("should simulate authenticated state after explicit store updates", () => {
       const { result } = renderHook(() => useAuthStore());
 
-      // Manually set authenticated state to simulate cookie behavior
       act(() => {
         result.current.setIsAuthenticated(true);
         result.current.setAccessToken("test-access-token");

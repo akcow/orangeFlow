@@ -100,14 +100,64 @@ describe("GenerationCostPill", () => {
     );
   });
 
-  it("shows a loading label during refetch instead of keeping the previous estimate", () => {
-    mockUseGetCreditEstimateQuery.mockReturnValue({
-      data: {
-        billing_mode: "estimated",
-        estimated_credits: 12,
+  it("keeps the previous estimate visible during refetch to avoid flicker", () => {
+    mockUseGetCreditEstimateQuery
+      .mockReturnValueOnce({
+        data: {
+          billing_mode: "estimated",
+          estimated_credits: 12,
+        },
+        isLoading: false,
+        isFetching: false,
+      })
+      .mockReturnValueOnce({
+        data: {
+          billing_mode: "estimated",
+          estimated_credits: 12,
+        },
+        isLoading: false,
+        isFetching: true,
+      });
+
+    const data = {
+      id: "node-1",
+      type: "DoubaoImageCreator",
+      node: {
+        template: {
+          model_name: { value: "Model A" },
+          resolution: { value: "1024x1024" },
+          image_count: { value: 1 },
+        },
       },
-      isLoading: false,
-      isFetching: true,
+    } as any;
+
+    const { rerender } = render(
+      <GenerationCostPill
+        data={data}
+      >
+        <button type="button">Run</button>
+      </GenerationCostPill>,
+    );
+
+    expect(screen.getByText("12")).toBeInTheDocument();
+
+    rerender(
+      <GenerationCostPill
+        data={data}
+      >
+        <button type="button">Run</button>
+      </GenerationCostPill>,
+    );
+
+    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.queryByText("估算中...")).not.toBeInTheDocument();
+  });
+
+  it("shows a loading label only before the first estimate arrives", () => {
+    mockUseGetCreditEstimateQuery.mockReturnValue({
+      data: null,
+      isLoading: true,
+      isFetching: false,
     });
 
     render(

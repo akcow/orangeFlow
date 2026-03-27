@@ -1,26 +1,36 @@
 // Refresh token functionality tests
 
 // Mock all dependencies before imports
-const mockCookieManagerSet = jest.fn();
+const mockSetSessionStorage = jest.fn();
+const mockSetAccessToken = jest.fn();
+const mockAuthState = { autoLogin: false as boolean | null | undefined };
+let mockIsAutoLoginEnv = true;
+let mockMutateOptions: { retry?: number } | undefined;
 
-jest.mock("@/utils/cookie-manager", () => ({
-  cookieManager: {
-    set: mockCookieManagerSet,
-    get: jest.fn(),
-    remove: jest.fn(),
-    getCookies: jest.fn(),
-    clearAuthCookies: jest.fn(),
+jest.mock("@/constants/constants", () => ({
+  get IS_AUTO_LOGIN() {
+    return mockIsAutoLoginEnv;
   },
-  getCookiesInstance: jest.fn(() => ({
-    get: jest.fn(),
-    set: jest.fn(),
-    remove: jest.fn(),
-  })),
+  LANGFLOW_ACCESS_TOKEN: "access_token_lf",
+}));
+
+jest.mock("@/utils/session-storage-util", () => ({
+  setSessionStorage: (...args) => mockSetSessionStorage(...args),
 }));
 
 jest.mock(
   "@/stores/authStore",
-  () => jest.fn((selector) => false), // autoLogin = false
+  () =>
+    Object.assign(
+      jest.fn((selector) =>
+        selector ? selector(mockAuthState) : false,
+      ),
+      {
+        getState: () => ({
+          setAccessToken: mockSetAccessToken,
+        }),
+      },
+    ),
 );
 
 jest.mock("@/controllers/API/api", () => ({
@@ -31,11 +41,14 @@ jest.mock("@/controllers/API/api", () => ({
 
 jest.mock("@/controllers/API/services/request-processor", () => ({
   UseRequestProcessor: jest.fn(() => ({
-    mutate: jest.fn((key, fn, options) => ({
-      mutate: async () => {
-        return await fn();
-      },
-    })),
+    mutate: jest.fn((key, fn, options) => {
+      mockMutateOptions = options;
+      return {
+        mutate: async () => {
+          return await fn();
+        },
+      };
+    }),
   })),
 }));
 
@@ -46,10 +59,13 @@ const mockApiPost = require("@/controllers/API/api").api.post;
 describe("refresh token functionality", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthState.autoLogin = false;
+    mockIsAutoLoginEnv = true;
+    mockMutateOptions = undefined;
   });
 
   describe("successful token refresh", () => {
-    it("should call refresh API and set new refresh token cookie", async () => {
+    it("should call refresh API and update the in-memory/session token", async () => {
       const mockRefreshResponse = {
         access_token: "new-access-token",
         refresh_token: "new-refresh-token",
@@ -64,9 +80,10 @@ describe("refresh token functionality", () => {
       expect(mockApiPost).toHaveBeenCalledWith(
         expect.stringContaining("refresh"),
       );
-      expect(mockCookieManagerSet).toHaveBeenCalledWith(
-        "refresh_token_lf",
-        "new-refresh-token",
+      expect(mockSetAccessToken).toHaveBeenCalledWith("new-access-token");
+      expect(mockSetSessionStorage).toHaveBeenCalledWith(
+        "access_token_lf",
+        "new-access-token",
       );
       expect(result).toEqual(mockRefreshResponse);
     });
@@ -108,12 +125,13 @@ describe("refresh token functionality", () => {
         // Expected to throw
       }
 
-      expect(mockCookieManagerSet).not.toHaveBeenCalled();
+      expect(mockSetSessionStorage).not.toHaveBeenCalled();
+      expect(mockSetAccessToken).not.toHaveBeenCalled();
     });
   });
 
-  describe("cookie management", () => {
-    it("should use cookieManager for setting refresh token", async () => {
+  describe("access token storage", () => {
+    it("should update access token storage after refresh", async () => {
       const mockRefreshResponse = {
         access_token: "access-token",
         refresh_token: "refresh-token-xyz",
@@ -125,14 +143,15 @@ describe("refresh token functionality", () => {
       const refreshMutation = useRefreshAccessToken();
       await refreshMutation.mutate();
 
-      expect(mockCookieManagerSet).toHaveBeenCalledTimes(1);
-      expect(mockCookieManagerSet).toHaveBeenCalledWith(
-        "refresh_token_lf",
-        "refresh-token-xyz",
+      expect(mockSetAccessToken).toHaveBeenCalledTimes(1);
+      expect(mockSetAccessToken).toHaveBeenCalledWith("access-token");
+      expect(mockSetSessionStorage).toHaveBeenCalledWith(
+        "access_token_lf",
+        "access-token",
       );
     });
 
-    it("should set refresh token cookie before returning response", async () => {
+    it("should persist refreshed access token before returning response", async () => {
       const mockRefreshResponse = {
         access_token: "access-token",
         refresh_token: "refresh-token-abc",
@@ -144,12 +163,46 @@ describe("refresh token functionality", () => {
       const refreshMutation = useRefreshAccessToken();
       const response = await refreshMutation.mutate();
 
-      // Verify cookie was set before response was returned
-      expect(mockCookieManagerSet).toHaveBeenCalledWith(
-        "refresh_token_lf",
-        "refresh-token-abc",
+      expect(mockSetAccessToken).toHaveBeenCalledWith("access-token");
+      expect(mockSetSessionStorage).toHaveBeenCalledWith(
+        "access_token_lf",
+        "access-token",
       );
       expect(response).toEqual(mockRefreshResponse);
+    });
+  });
+
+  describe("retry policy", () => {
+    it("should honor explicit manual-login state over auto-login env", () => {
+      mockAuthState.autoLogin = false;
+      mockIsAutoLoginEnv = true;
+      mockMutateOptions = undefined;
+      jest.resetModules();
+
+      jest.isolateModules(() => {
+        const {
+          useRefreshAccessToken: isolatedUseRefreshAccessToken,
+        } = require("../use-post-refresh-access");
+        isolatedUseRefreshAccessToken();
+      });
+
+      expect(mockMutateOptions?.retry).toBe(2);
+    });
+
+    it("should fall back to env when store state is undefined", () => {
+      mockAuthState.autoLogin = undefined;
+      mockIsAutoLoginEnv = true;
+      mockMutateOptions = undefined;
+      jest.resetModules();
+
+      jest.isolateModules(() => {
+        const {
+          useRefreshAccessToken: isolatedUseRefreshAccessToken,
+        } = require("../use-post-refresh-access");
+        isolatedUseRefreshAccessToken();
+      });
+
+      expect(mockMutateOptions?.retry).toBe(0);
     });
   });
 });

@@ -21,6 +21,7 @@ import { useLogout, useRefreshAccessToken } from "./queries/auth";
 // Create a new Axios instance
 const api: AxiosInstance = axios.create({
   baseURL: baseURL,
+  withCredentials: true,
 });
 function ApiInterceptor() {
   const autoLogin = useAuthStore((state) => state.autoLogin);
@@ -79,6 +80,8 @@ function ApiInterceptor() {
         nextConfig.headers = normalizeHeaders(nextConfig.headers);
 
         if (!isExternalURL(url)) {
+          nextConfig.credentials ??= "include";
+
           if (accessToken && !isAuthorizedURL(nextConfig?.url)) {
             nextConfig.headers["Authorization"] = `Bearer ${accessToken}`;
           }
@@ -280,14 +283,20 @@ function ApiInterceptor() {
       const accessToken = customGetAccessToken();
 
       if (!accessToken) {
-        throw new Error("Access token not found in cookies");
+        const originalHeaders = originalRequest.headers as
+          | Record<string, string>
+          | undefined;
+        if (originalHeaders) {
+          delete originalHeaders.Authorization;
+        }
+      } else {
+        // Modify headers in originalRequest
+        originalRequest.headers = {
+          ...(originalRequest.headers as Record<string, string>),
+          Authorization: `Bearer ${accessToken}`,
+        };
       }
-
-      // Modify headers in originalRequest
-      originalRequest.headers = {
-        ...(originalRequest.headers as Record<string, string>), // Cast to suppress TypeScript error
-        Authorization: `Bearer ${accessToken}`,
-      };
+      originalRequest.withCredentials = true;
 
       const response = await axios.request(originalRequest);
       return response.data; // Or handle the response as needed
@@ -339,6 +348,7 @@ async function performStreamingRequest({
     method: method,
     headers: headers,
     signal: buildController.signal,
+    credentials: "include" as const,
   };
   if (body) {
     params["body"] = JSON.stringify(body);

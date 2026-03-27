@@ -563,10 +563,58 @@ def setup_static_files(app: FastAPI, static_files_dir: Path) -> None:
         return FileResponse(path, headers={"Cache-Control": "no-store"})
 
 
+def _frontend_dir_mtime(path: Path) -> float:
+    """Return the newest file mtime under a frontend build directory."""
+    if not path.exists():
+        return 0.0
+
+    newest = 0.0
+    for child in path.rglob("*"):
+        if child.is_file():
+            newest = max(newest, child.stat().st_mtime)
+    return newest
+
+
+def _resolve_repo_frontend_build(frontend_path: Path) -> Path | None:
+    """Return the repo frontend build dir when running from a source checkout.
+
+    In local development it is possible for `langflow/frontend` to lag behind
+    `src/frontend/build`, which causes the backend to serve stale hashed chunks.
+    Prefer the newer repo build when it exists so runtime assets always match the
+    latest successful frontend build.
+    """
+    try:
+        repo_root = frontend_path.parents[4]
+    except IndexError:
+        return None
+
+    repo_build = repo_root / "src" / "frontend" / "build"
+    if not (repo_build / "index.html").exists():
+        return None
+    return repo_build
+
+
 def get_static_files_dir():
     """Get the static files directory relative to Langflow's main.py file."""
     frontend_path = Path(__file__).parent
-    return frontend_path / "frontend"
+    bundled_frontend = frontend_path / "frontend"
+    repo_frontend_build = _resolve_repo_frontend_build(frontend_path)
+
+    if repo_frontend_build is None:
+        return bundled_frontend
+
+    bundled_index = bundled_frontend / "index.html"
+    if not bundled_index.exists():
+        logger.info("Using repo frontend build because bundled frontend is missing.")
+        return repo_frontend_build
+
+    repo_mtime = _frontend_dir_mtime(repo_frontend_build)
+    bundled_mtime = _frontend_dir_mtime(bundled_frontend)
+    if repo_mtime > bundled_mtime:
+        logger.info("Using repo frontend build because it is newer than bundled frontend.")
+        return repo_frontend_build
+
+    return bundled_frontend
 
 
 def setup_app(static_files_dir: Path | None = None, *, backend_only: bool = False) -> FastAPI:

@@ -1,4 +1,5 @@
-import { Outlet, type To } from "react-router-dom";
+import { Outlet, type To, useLocation } from "react-router-dom";
+import { RouteTransition } from "@/components/common/route-transition";
 import SideBarButtonsComponent from "@/components/core/sidebarComponent";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { CustomStoreSidebar } from "@/customization/components/custom-store-sidebar";
@@ -14,6 +15,7 @@ import ForwardedIconComponent from "../../components/common/genericIconComponent
 import PageLayout from "../../components/common/pageLayout";
 
 export default function SettingsPage(): JSX.Element {
+  const location = useLocation();
   const autoLogin = useAuthStore((state) => state.autoLogin);
   const hasStore = useStoreStore((state) => state.hasStore);
 
@@ -78,7 +80,12 @@ export default function SettingsPage(): JSX.Element {
         <SideBarButtonsComponent items={sidebarNavItems} />
         <main className="flex flex-1 overflow-hidden">
           <div className="flex flex-1 flex-col overflow-x-hidden pt-1 md:pl-12 lg:pl-24">
-            <Outlet />
+            <RouteTransition
+              transitionKey={location.pathname}
+              className="flex flex-1 flex-col overflow-x-hidden"
+            >
+              <Outlet />
+            </RouteTransition>
           </div>
         </main>
       </SidebarProvider>

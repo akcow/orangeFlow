@@ -1,5 +1,5 @@
 import { CircleDollarSign } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useGetCreditEstimateQuery } from "@/controllers/API/queries/credits";
 import type { NodeDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
@@ -79,21 +79,43 @@ export default function GenerationCostPill({
     enabled,
   });
 
-  const label = useMemo(() => {
+  const stableLabelRef = useRef(DEFAULT_LABEL);
+
+  const resolvedLabel = useMemo(() => {
     if (!enabled) return DEFAULT_LABEL;
-    if (isLoading || isFetching) return LOADING_LABEL;
     if (estimate?.billing_mode === "usage_based") return "按输出结算";
     if (estimate?.billing_mode === "estimated" && typeof estimate.estimated_credits === "number") {
       return `${estimate.estimated_credits}`;
     }
     if (estimate?.billing_mode === "unavailable") return DEFAULT_LABEL;
     return DEFAULT_LABEL;
-  }, [enabled, estimate, isFetching, isLoading]);
+  }, [enabled, estimate]);
+
+  useEffect(() => {
+    if (!enabled) {
+      stableLabelRef.current = DEFAULT_LABEL;
+      return;
+    }
+    if (!isLoading && !isFetching) {
+      stableLabelRef.current = resolvedLabel;
+    }
+  }, [enabled, isFetching, isLoading, resolvedLabel]);
+
+  const label = useMemo(() => {
+    if (!enabled) return DEFAULT_LABEL;
+    if (isLoading) {
+      return stableLabelRef.current !== DEFAULT_LABEL ? stableLabelRef.current : LOADING_LABEL;
+    }
+    if (isFetching) {
+      return stableLabelRef.current;
+    }
+    return resolvedLabel;
+  }, [enabled, isFetching, isLoading, resolvedLabel]);
 
   return (
     <div
       className={cn(
-        "ml-auto flex h-[52px] w-[150px] items-center gap-1 rounded-full border border-white/14 p-1",
+        "ml-auto flex h-[52px] w-[165px] items-center gap-1 rounded-full border border-white/14 p-1",
         "bg-[linear-gradient(180deg,rgba(18,20,26,0.96),rgba(38,42,51,0.92))]",
         "shadow-[0_10px_30px_rgba(255,255,255,0.08),0_14px_40px_rgba(0,0,0,0.32)] backdrop-blur-md",
         className,
@@ -103,7 +125,12 @@ export default function GenerationCostPill({
         className="flex min-w-0 flex-1 items-center gap-2 px-3 text-sm font-medium text-white/88"
       >
         <CircleDollarSign className="h-[23px] w-[23px] shrink-0 text-amber-300" />
-        <span className="truncate whitespace-nowrap">{label}</span>
+        <span
+          key={label}
+          className="truncate whitespace-nowrap tabular-nums animate-in fade-in-0 duration-150 ease-out"
+        >
+          {label}
+        </span>
       </div>
       {children}
     </div>

@@ -164,6 +164,8 @@ export type FlowStoreType = {
   getFilterComponent: string;
   rightClickedNodeId: string | null;
   setRightClickedNodeId: (nodeId: string | null) => void;
+  lineageHighlightedEdgeIds: string[];
+  setLineageHighlightedEdgeIds: (edgeIds: string[]) => void;
   onConnect: (connection: Connection) => void;
   unselectAll: () => void;
   playgroundPage: boolean;

@@ -126,25 +126,28 @@ body {
   outline: none !important;
 }
 
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke: var(--selected) !important;
-  stroke-width: 2px !important;
-}
 .react-flow__controls-button svg {
   fill: none !important;
 }
 
 .react-flow__edge .react-flow__edge-path {
-  transition: color;
   stroke: var(--connection) !important;
-  transition-duration: 150ms;
   stroke-width: 2px !important;
+  opacity: 0.92;
+  transition:
+    stroke 180ms ease,
+    stroke-width 180ms ease,
+    opacity 180ms ease,
+    filter 180ms ease;
 }
 .react-flow__connection path {
-  transition: color;
   stroke: var(--connection) !important;
-  transition-duration: 150ms;
   stroke-width: 2px !important;
+  transition:
+    stroke 180ms ease,
+    stroke-width 180ms ease,
+    opacity 180ms ease,
+    filter 180ms ease;
 }
 
 .react-flow__edge.running .react-flow__edge-path {
@@ -171,6 +174,15 @@ body {
   stroke-width: 2px !important;
   opacity: 0.85;
   stroke-dasharray: 7 6;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge [data-edge-emphasized="true"] .react-flow__edge-path,
+.react-flow__edge [data-lineage-highlighted="true"] .react-flow__edge-path {
+  stroke: hsl(var(--foreground)) !important;
+  stroke-width: 4px !important;
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.28));
 }
 
 @keyframes doubao-clip-hint-snap {
