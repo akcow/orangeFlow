@@ -106,7 +106,7 @@ jobs:
       # PyPI publishing moved to after cross-platform testing
 
       - name: Upload LFX Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dist-nightly-lfx
           path: src/lfx/dist
@@ -189,7 +189,7 @@ jobs:
       # PyPI publishing moved to after cross-platform testing
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dist-nightly-base
           path: src/backend/base/dist
@@ -262,7 +262,7 @@ jobs:
       # PyPI publishing moved to after cross-platform testing
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dist-nightly-main
           path: dist

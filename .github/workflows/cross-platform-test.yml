@@ -56,12 +56,12 @@ jobs:
       - name: Build main package
         run: make build_langflow args="--wheel"
       - name: Upload base artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: adhoc-dist-base
           path: src/backend/base/dist
       - name: Upload main artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: adhoc-dist-main
           path: dist
