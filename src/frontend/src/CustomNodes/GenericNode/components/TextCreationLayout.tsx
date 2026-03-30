@@ -81,13 +81,6 @@ type Props = {
   onPreviewActionsChange?: (actions: DoubaoPreviewPanelActions) => void;
 };
 
-const SUGGESTIONS = [
-  { icon: "PencilLine", label: "自己编写内容" },
-  { icon: "Clapperboard", label: "文字生成视频" },
-  { icon: "Sparkles", label: "图片反推提示词" },
-  { icon: "Music", label: "文字生成音乐" },
-];
-
 export default function TextCreationLayout({
   data,
   types,
@@ -1357,75 +1350,20 @@ export default function TextCreationLayout({
   };
 
   const renderPreviewContent = () => {
-    if (isEditing || previewText.trim()) {
-      return (
-        <div className="relative h-full">
-          <Textarea
-            className={cn(
-              // Keep the preview frame "single-layer": the outer container provides the frame.
-              "h-full min-h-0 resize-none rounded-2xl border border-transparent",
-              "bg-transparent p-0 text-lg text-foreground outline-none ring-0 focus-visible:ring-0",
-              "dark:text-slate-100",
-            )}
-            value={previewText}
-            onChange={(e) => handlePreviewInput(e.target.value)}
-            placeholder="在此直接编写或查看生成内容"
-          />
-        </div>
-      );
-    }
     return (
-      <div
-        className={cn(
-          // Keep the preview frame "single-layer": avoid extra inner frames.
-          "relative flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-sm text-muted-foreground",
-          "dark:text-slate-200",
-        )}
-      >
-        <div className="w-full space-y-2 text-left">
-          <div className="text-xs font-semibold text-foreground dark:text-white">
-            尝试：
-          </div>
-          <div className="grid w-full gap-2 text-xs sm:grid-cols-2">
-            {SUGGESTIONS.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (item.label === "自己编写内容") {
-                    setIsEditing(true);
-                    return;
-                  }
-                  if (item.label === "文字生成视频") {
-                    handleCreateVideoNode();
-                    return;
-                  }
-                  if (item.label === "文字生成音乐") {
-                    handleCreateAudioNode();
-                    return;
-                  }
-                  if (item.label === "图片反推提示词") {
-                    handleCreateImageUpstreamNode();
-                    return;
-                  }
-                }}
-                className={cn(
-                  "flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80",
-                  "px-3 py-2 text-foreground shadow-sm transition hover:border-slate-300 hover:bg-white",
-                  "dark:border-white/20 dark:bg-neutral-800/90 dark:backdrop-blur-2xl dark:text-slate-100",
-                )}
-              >
-                <ForwardedIconComponent
-                  name={item.icon}
-                  className="h-4 w-4 text-muted-foreground"
-                />
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="relative h-full">
+        <Textarea
+          className={cn(
+            // Keep the preview frame "single-layer": the outer container provides the frame.
+            "h-full min-h-0 resize-none rounded-2xl border border-transparent",
+            "bg-transparent p-0 text-2xl text-foreground outline-none ring-0 focus-visible:ring-0",
+            "dark:text-slate-100",
+            "nowheel nodrag",
+          )}
+          value={previewText}
+          onChange={(e) => handlePreviewInput(e.target.value)}
+          placeholder="在此直接编写或查看生成内容"
+        />
       </div>
     );
   };

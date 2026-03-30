@@ -957,15 +957,12 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const previewFrameClassName = cn(
       "relative flex",
       isMinimal
-        ? appearance === "imageCreator" || appearance === "videoGenerator"
-          ? cn(
+        ? cn(
             "w-full max-w-full",
             minimalAspectClass,
-            // Fallback to aspect-square if no style is applied and no specific ratio class? 
-            // Actually, if we remove aspect-square, it might collapse if empty. 
-            // We should ensure a default aspect ratio exists if the computed one is missing.
+            // Fallback to aspect-square if no style is applied and no specific ratio class?
             !containerStyle && "aspect-square",
-            // Single preview container for image creator (avoid nested frames inside the renderer).
+            // Single preview container for all creator types (avoid nested frames inside the renderer).
             cn(
               "overflow-hidden rounded-[16px] border border-[#DDE3F6] bg-[#F7F8FD] p-0 shadow-none transition-[background-color,border-color,box-shadow] duration-200 ease-in-out [contain:layout_paint] hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:hover:border-white/20 dark:hover:shadow-[0_18px_45px_rgba(0,0,0,0.30)]",
               // backdrop-filter can force repaints during transform/layout changes; disable it only while animating.
@@ -976,14 +973,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
               "border-violet-500 ring-2 ring-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.15)] scale-[1.01] dark:border-violet-500/50 dark:ring-violet-500/30 dark:shadow-[0_0_20px_rgba(139,92,246,0.2)]",
             ),
           )
-          : cn(
-            "w-full max-w-full",
-            minimalAspectClass,
-            cn(
-              "rounded-[20px] border border-[#E6E9F4] bg-gradient-to-b from-white to-[#F7F8FD] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition-all duration-200 ease-in-out dark:border-white/20 dark:bg-neutral-800/90 dark:bg-gradient-to-b dark:from-white/5 dark:to-white/0 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:shadow-[0_15px_40px_rgba(0,0,0,0.30)]",
-              isNodeSelected && "border-violet-500 ring-2 ring-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.15)] scale-[1.01] dark:border-violet-500/50 dark:ring-violet-500/30 dark:shadow-[0_0_20px_rgba(139,92,246,0.2)]",
-            ),
-          )
         : "min-h-[320px] overflow-hidden rounded-3xl border border-dashed border-muted-foreground/30 p-3 dark:border-white/10 transition-all duration-200 ease-in-out",
       panelClass,
       !isMinimal && isNodeSelected && "border-violet-500 ring-2 ring-violet-500/20 shadow-[0_0_20px_rgba(139,92,246,0.15)] scale-[1.01] dark:border-violet-500/50 dark:ring-violet-500/30 dark:shadow-[0_0_20px_rgba(139,92,246,0.2)]",
@@ -992,10 +981,7 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
     const previewSurfaceClassName = cn(
       "flex items-center justify-center",
       isMinimal
-        ? appearance === "imageCreator" || appearance === "videoGenerator"
-          // Use absolute positioning to fill the padding-bottom created space
-          ? "absolute inset-0 bg-transparent"
-          : "h-full w-full rounded-[16px] bg-[#F9FAFE] dark:bg-neutral-800/80 dark:backdrop-blur-xl"
+        ? "absolute inset-0 bg-transparent"
         : "h-full w-full min-h-[320px]",
     );
 
@@ -4731,9 +4717,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             kind={kind}
             appearance={appearance}
             modelName={selectedModelName}
-            onUploadClick={onRequestUpload}
-            onSuggestionClick={handleSuggestionClick}
-            disabledSuggestions={disabledSuggestions}
           />
         }
       >
@@ -4771,9 +4754,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
             kind={kind}
             appearance={appearance}
             modelName={selectedModelName}
-            onUploadClick={onRequestUpload}
-            onSuggestionClick={handleSuggestionClick}
-            disabledSuggestions={disabledSuggestions}
           />
         )}
       </Suspense>
@@ -4786,9 +4766,6 @@ const DoubaoPreviewPanel = forwardRef<HTMLDivElement, Props>(
           kind={kind}
           appearance={appearance}
           modelName={selectedModelName}
-          onUploadClick={onRequestUpload}
-          onSuggestionClick={handleSuggestionClick}
-          disabledSuggestions={disabledSuggestions}
         />
       )
     );
@@ -6118,68 +6095,27 @@ function EmptyPreview({
   isBuilding,
   kind,
   appearance = "default",
-  onUploadClick,
-  onSuggestionClick,
-  disabledSuggestions,
   modelName,
 }: {
   isBuilding: boolean;
   kind: "image" | "video" | "audio";
   appearance?: "default" | "imageCreator" | "videoGenerator" | "audioCreator";
-  onUploadClick?: () => void;
-  onSuggestionClick?: (label: string) => void;
-  disabledSuggestions?: string[];
   modelName?: string;
 }) {
-  const renderSuggestionButtons = (
-    items: Array<{ label: string; icon: string; disabled?: boolean }>,
-  ) => (
-    <div className="w-full max-w-[520px] space-y-2 text-left">
-      <div className="text-xs font-semibold text-[#444A63] dark:text-slate-200">
-        尝试：
-      </div>
-      <div className="grid w-full gap-2 text-xs sm:grid-cols-2">
-        {items.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            disabled={Boolean(isBuilding || item.disabled)}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-[#3C4258] shadow-sm transition dark:border-white/10 dark:bg-white/5 dark:text-slate-100",
-              isBuilding || item.disabled
-                ? "cursor-not-allowed opacity-60"
-                : "hover:border-slate-300 hover:bg-white dark:hover:border-white/20",
-            )}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (isBuilding || item.disabled) return;
-              onSuggestionClick?.(item.label);
-            }}
-          >
-            <ForwardedIconComponent
-              name={item.icon}
-              className="h-4 w-4 text-muted-foreground"
-            />
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
   const isMinimal =
     appearance === "imageCreator" ||
     appearance === "videoGenerator" ||
     appearance === "audioCreator";
-  const uploadLinkLabel =
-    appearance === "videoGenerator"
-      ? disabledSuggestions?.length
-        ? "暂无结果，上传参考图"
-        : "暂无结果，上传图片作为视频封面"
-      : "暂无结果，请上传图片";
 
   if (isMinimal) {
+    // 简约图标占位符设计
+    const placeholderConfig = {
+      imageCreator: "Image",
+      videoGenerator: "Play",
+      audioCreator: "Music",
+    };
+
+    // vidu-upscale 特殊处理
     if (appearance === "videoGenerator") {
       const normalizedModel = String(modelName ?? "").trim().toLowerCase();
       if (normalizedModel === "vidu-upscale") {
@@ -6191,101 +6127,19 @@ function EmptyPreview({
           </div>
         );
       }
-      const isViduModel = normalizedModel.startsWith("vidu");
-      const hideStartEndSuggestion = normalizedModel === "viduq3-pro";
-      const suggestions = [
-        {
-          label: "首帧生成视频",
-          icon: "Clapperboard",
-          disabled: disabledSuggestions?.includes("首帧生成视频"),
-        },
-        // Vidu q3-pro does not support start-end2video; hide the action entirely (q2-pro supports it).
-        ...(!isViduModel || !hideStartEndSuggestion
-          ? [
-            {
-              label: "首尾帧生成视频",
-              icon: "Clapperboard",
-              disabled: disabledSuggestions?.includes("首尾帧生成视频"),
-            },
-          ]
-          : []),
-      ];
-      return (
-        // The persistent preview frame (outer container) already provides border/radius/bg.
-        // Keep this empty state frameless to avoid a nested square/rounded container.
-        <div className="flex h-full min-h-[220px] w-full flex-col justify-center p-5 text-center text-sm text-[#646B81] dark:text-slate-300">
-          <div className="flex w-full justify-center">
-            {renderSuggestionButtons(suggestions)}
-          </div>
-          <div className="mt-5">
-            {isBuilding ? (
-              <p className="text-base font-medium text-[#4B5168] dark:text-slate-100">
-                生成中，将自动刷新
-              </p>
-            ) : (
-              onUploadClick && (
-                <button
-                  type="button"
-                  className="text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff]"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onUploadClick();
-                  }}
-                >
-                  {uploadLinkLabel}
-                </button>
-              )
-            )}
-          </div>
-        </div>
-      );
     }
 
-    if (appearance === "audioCreator") {
-      const suggestions = [
-        { label: "上传本地音频", icon: "Upload" as const },
-        { label: "音频转视频", icon: "Music" as const },
-      ];
-      return (
-        <div className="flex h-full min-h-[220px] w-full flex-col justify-center rounded-[16px] border border-dashed border-[#DDE3F6] bg-[#F7F8FD] p-5 text-center text-sm text-[#646B81] transition-colors duration-200 dark:border-white/20 dark:bg-neutral-800/80 dark:backdrop-blur-2xl dark:ring-1 dark:ring-white/10 dark:text-slate-300">
-          <div className="flex w-full justify-center">
-            {renderSuggestionButtons(suggestions)}
-          </div>
-          <p className="mt-4 text-base font-medium text-[#4B5168] dark:text-slate-100">
-            {isBuilding ? "生成中，将自动刷新" : "暂无生成结果"}
-          </p>
-        </div>
-      );
-    }
+    const iconName =
+      placeholderConfig[appearance as keyof typeof placeholderConfig] ||
+      placeholderConfig.imageCreator;
 
-    const suggestions = [
-      { label: "以图生图", icon: "Wand2" },
-      { label: "参考图生视频", icon: "Clapperboard" },
-      { label: "首帧图生视频", icon: "Clapperboard" },
-      { label: "图片换背景", icon: "Eraser" },
-    ];
     return (
-      <div className="flex h-full w-full flex-col justify-center p-5 text-center text-sm text-[#646B81] dark:text-slate-300">
-        <div className="flex w-full justify-center">
-          {renderSuggestionButtons(suggestions)}
-        </div>
-        <button
-          type="button"
-          className="mt-4 text-base font-medium text-[#1B66FF] hover:underline dark:text-[#7da6ff] dark:hover:text-[#a6c4ff]"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (onUploadClick) {
-              onUploadClick();
-              return;
-            }
-            const uploadEvent = new CustomEvent("doubao-preview-upload");
-            window.dispatchEvent(uploadEvent);
-          }}
-        >
-          {isBuilding ? "生成中，将自动刷新" : uploadLinkLabel}
-        </button>
+      <div className="flex h-full min-h-[220px] w-full items-center justify-center overflow-hidden rounded-[16px] bg-[#1E1E1E] dark:bg-[#1E1E1E]">
+        <ForwardedIconComponent
+          name={iconName}
+          className="h-16 w-16 text-[#3A3A3A]"
+          strokeWidth={2.5}
+        />
       </div>
     );
   }
