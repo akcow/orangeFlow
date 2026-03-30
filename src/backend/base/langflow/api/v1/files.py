@@ -9,6 +9,7 @@ from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import unquote, quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Request
@@ -284,8 +285,11 @@ def _build_inline_response(
     request: Request | None = None,
 ):
     file_size = len(file_content)
+    encoded_file_name = quote(file_name)
+    ascii_file_name = file_name.encode('ascii', 'replace').decode('ascii')
+    
     base_headers = {
-        "Content-Disposition": f"inline; filename={file_name} filename*=UTF-8''{file_name}",
+        "Content-Disposition": f"inline; filename=\"{ascii_file_name}\"; filename*=utf-8''{encoded_file_name}",
         "Content-Length": str(file_size),
     }
 
@@ -336,16 +340,23 @@ async def download_file(
     file_name: str, flow_id: UUID, storage_service: Annotated[StorageService, Depends(get_storage_service)]
 ):
     flow_id_str = str(flow_id)
+    # URL decode the file_name to handle encoded characters (e.g., Chinese characters)
+    decoded_file_name = unquote(file_name)
 
     try:
-        file_content = await storage_service.get_file(flow_id=flow_id_str, file_name=file_name)
-        content_type = _resolve_content_type(file_name, file_content)
+        file_content = await storage_service.get_file(flow_id=flow_id_str, file_name=decoded_file_name)
+        content_type = _resolve_content_type(decoded_file_name, file_content)
+        
+        encoded_file_name = quote(decoded_file_name)
+        ascii_file_name = decoded_file_name.encode('ascii', 'replace').decode('ascii')
         headers = {
-            "Content-Disposition": f"attachment; filename={file_name} filename*=UTF-8''{file_name}",
+            "Content-Disposition": f"attachment; filename=\"{ascii_file_name}\"; filename*=utf-8''{encoded_file_name}",
             "Content-Type": "application/octet-stream",
             "Content-Length": str(len(file_content)),
         }
         return StreamingResponse(BytesIO(file_content), media_type=content_type, headers=headers)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {decoded_file_name}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -363,18 +374,22 @@ async def media_file(
     which breaks `<video>` preview in browsers. This endpoint keeps the correct media type and uses `inline`.
     """
     flow_id_str = str(flow_id)
+    # URL decode the file_name to handle encoded characters (e.g., Chinese characters)
+    decoded_file_name = unquote(file_name)
 
     try:
-        file_content = await storage_service.get_file(flow_id=flow_id_str, file_name=file_name)
-        content_type = _resolve_content_type(file_name, file_content)
+        file_content = await storage_service.get_file(flow_id=flow_id_str, file_name=decoded_file_name)
+        content_type = _resolve_content_type(decoded_file_name, file_content)
         if not (content_type.startswith("video") or content_type.startswith("audio")):
             raise HTTPException(status_code=400, detail=f"Content type {content_type} is not previewable media")
         return _build_inline_response(
-            file_name=file_name,
+            file_name=decoded_file_name,
             file_content=file_content,
             content_type=content_type,
             request=request,
         )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {decoded_file_name}") from e
     except HTTPException:
         raise
     except Exception as e:
@@ -393,23 +408,31 @@ async def download_public_file(
     if not secret_key:
         raise HTTPException(status_code=500, detail="Public file access is not configured.")
 
+    # URL decode the file_name to handle encoded characters (e.g., Chinese characters)
+    decoded_file_name = unquote(file_name)
+
     if not verify_public_file_token(
         secret_key=secret_key,
         token=token,
         flow_id=str(flow_id),
-        file_name=file_name,
+        file_name=decoded_file_name,
     ):
         raise HTTPException(status_code=403, detail="Invalid or expired token.")
 
     try:
-        file_content = await storage_service.get_file(flow_id=str(flow_id), file_name=file_name)
-        content_type = _resolve_content_type(file_name, file_content)
+        file_content = await storage_service.get_file(flow_id=str(flow_id), file_name=decoded_file_name)
+        content_type = _resolve_content_type(decoded_file_name, file_content)
+        
+        encoded_file_name = quote(decoded_file_name)
+        ascii_file_name = decoded_file_name.encode('ascii', 'replace').decode('ascii')
         headers = {
-            "Content-Disposition": f"attachment; filename={file_name} filename*=UTF-8''{file_name}",
+            "Content-Disposition": f"attachment; filename=\"{ascii_file_name}\"; filename*=utf-8''{encoded_file_name}",
             "Content-Type": "application/octet-stream",
             "Content-Length": str(len(file_content)),
         }
         return StreamingResponse(BytesIO(file_content), media_type=content_type, headers=headers)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {decoded_file_name}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -427,23 +450,28 @@ async def download_public_inline_file(
     if not secret_key:
         raise HTTPException(status_code=500, detail="Public file access is not configured.")
 
+    # URL decode the file_name to handle encoded characters (e.g., Chinese characters)
+    decoded_file_name = unquote(file_name)
+
     if not verify_public_file_token(
         secret_key=secret_key,
         token=token,
         flow_id=str(flow_id),
-        file_name=file_name,
+        file_name=decoded_file_name,
     ):
         raise HTTPException(status_code=403, detail="Invalid or expired token.")
 
     try:
-        file_content = await storage_service.get_file(flow_id=str(flow_id), file_name=file_name)
-        content_type = _resolve_content_type(file_name, file_content)
+        file_content = await storage_service.get_file(flow_id=str(flow_id), file_name=decoded_file_name)
+        content_type = _resolve_content_type(decoded_file_name, file_content)
         return _build_inline_response(
-            file_name=file_name,
+            file_name=decoded_file_name,
             file_content=file_content,
             content_type=content_type,
             request=request,
         )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {decoded_file_name}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -452,21 +480,27 @@ async def download_public_inline_file(
 async def download_image(file_name: str, flow_id: UUID, request: Request):
     storage_service = get_storage_service()
     flow_id_str = str(flow_id)
+    # URL decode the file_name to handle encoded characters (e.g., Chinese characters)
+    decoded_file_name = unquote(file_name)
 
     try:
-        file_content = await storage_service.get_file(flow_id=flow_id_str, file_name=file_name)
-        content_type = _resolve_content_type(file_name, file_content)
+        file_content = await storage_service.get_file(flow_id=flow_id_str, file_name=decoded_file_name)
+        content_type = _resolve_content_type(decoded_file_name, file_content)
         if not content_type.startswith("image"):
             raise HTTPException(
                 status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                 detail=f"Content type {content_type} is not an image",
             )
         return _build_inline_response(
-            file_name=file_name,
+            file_name=decoded_file_name,
             file_content=file_content,
             content_type=content_type,
             request=request,
         )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {decoded_file_name}") from e
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -531,9 +565,14 @@ async def delete_file(
     flow: Annotated[Flow, Depends(get_flow)],
     storage_service: Annotated[StorageService, Depends(get_storage_service)],
 ):
+    # URL decode the file_name to handle encoded characters (e.g., Chinese characters)
+    decoded_file_name = unquote(file_name)
+
     try:
-        await storage_service.delete_file(flow_id=str(flow.id), file_name=file_name)
+        await storage_service.delete_file(flow_id=str(flow.id), file_name=decoded_file_name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {decoded_file_name}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-    return {"message": f"File {file_name} deleted successfully"}
+    return {"message": f"File {decoded_file_name} deleted successfully"}

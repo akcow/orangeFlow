@@ -7,6 +7,7 @@ from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -329,10 +330,15 @@ async def download_file_by_path(
         raise HTTPException(status_code=500, detail=f"Error downloading file: {e}") from e
 
     byte_stream = byte_stream_generator(file_stream)
+    
+    file_basename = Path(file_name).name
+    encoded_file_name = quote(file_basename)
+    ascii_file_name = file_basename.encode('ascii', 'replace').decode('ascii')
+    
     return StreamingResponse(
         byte_stream,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{Path(file_name).name}"'},
+        headers={"Content-Disposition": f"attachment; filename=\"{ascii_file_name}\"; filename*=utf-8''{encoded_file_name}"},
     )
 
 
@@ -504,11 +510,14 @@ async def download_file(
         file_extension = Path(file.path).suffix
         filename_with_extension = f"{file.name}{file_extension}"
 
+        encoded_file_name = quote(filename_with_extension)
+        ascii_file_name = filename_with_extension.encode('ascii', 'replace').decode('ascii')
+
         # Return the file as a streaming response
         return StreamingResponse(
             byte_stream,
             media_type="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{filename_with_extension}"'},
+            headers={"Content-Disposition": f"attachment; filename=\"{ascii_file_name}\"; filename*=utf-8''{encoded_file_name}"},
         )
 
     except HTTPException:
