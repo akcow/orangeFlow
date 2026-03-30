@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 
 // Mock all the complex dependencies
 jest.mock("@xyflow/react", () => ({
-  addEdge: jest.fn(),
+  addEdge: jest.fn((edge, edges) => [...edges, edge]),
   applyEdgeChanges: jest.fn((changes, edges) => edges),
   applyNodeChanges: jest.fn((changes, nodes) => nodes),
 }));
@@ -32,6 +32,12 @@ jest.mock("@/customization/utils/analytics", () => ({
   track: jest.fn(),
   trackDataLoaded: jest.fn(),
   trackFlowBuild: jest.fn(),
+}));
+
+const mockCancelMutateTemplateDebounce = jest.fn();
+
+jest.mock("@/CustomNodes/helpers/mutate-template", () => ({
+  cancelMutateTemplateDebounce: mockCancelMutateTemplateDebounce,
 }));
 
 // Mock all store dependencies
@@ -106,6 +112,8 @@ describe("useFlowStore", () => {
     type: "genericNode",
     position: { x: 100, y: 100 },
     data: {
+      id: "node-1",
+      type: "TestNode",
       node: {
         display_name: "Test Node",
         icon: "test-icon",
@@ -122,6 +130,7 @@ describe("useFlowStore", () => {
   beforeEach(() => {
     // Clear all mocks
     jest.clearAllMocks();
+    mockCancelMutateTemplateDebounce.mockClear();
 
     // Reset store state to basics
     act(() => {
@@ -493,9 +502,489 @@ describe("useFlowStore", () => {
 
       // Just verify the method exists
       expect(typeof result.current.updateToolMode).toBe("function");
+    });
+  });
 
-      // Note: updateToolMode throws error if node doesn't exist, which is expected behavior
-      // We test that the method exists and can be called (error handling is part of the store logic)
+  describe("node updates", () => {
+    it("should ignore setNode when the node no longer exists", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      act(() => {
+        useFlowStore.setState({ nodes: [mockNode] });
+      });
+
+      expect(() => {
+        act(() => {
+          result.current.setNode("missing-node", mockNode);
+        });
+      }).not.toThrow();
+
+      expect(result.current.nodes).toEqual([mockNode]);
+    });
+
+    it("should cancel pending template mutations when deleting nodes", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      act(() => {
+        useFlowStore.setState({ nodes: [mockNode] });
+      });
+
+      act(() => {
+        result.current.deleteNode("node-1");
+      });
+
+      expect(mockCancelMutateTemplateDebounce).toHaveBeenCalledWith("node-1");
+      expect(result.current.nodes).toEqual([]);
+    });
+  });
+
+  describe("edge connection metadata", () => {
+    it("should stamp new connections with connectedAt metadata", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      const sourceHandle = JSON.stringify({
+        id: "node-1",
+        dataType: "UserUploadImage",
+        name: "image",
+        output_types: ["Data"],
+      });
+      const targetHandle = JSON.stringify({
+        id: "node-2",
+        fieldName: "reference_images",
+        inputTypes: ["Data"],
+        type: "file",
+      });
+
+      act(() => {
+        useFlowStore.setState({
+          nodes: [
+            {
+              ...mockNode,
+              data: {
+                ...mockNode.data,
+                type: "UserUploadImage",
+              },
+            } as AllNodeType,
+            {
+              id: "node-2",
+              type: "genericNode",
+              position: { x: 300, y: 100 },
+              data: {
+                id: "node-2",
+                type: "DoubaoImageCreator",
+                node: {
+                  display_name: "Image Creator",
+                  template: {
+                    reference_images: {
+                      input_types: ["Data"],
+                      type: "file",
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+          ],
+        });
+      });
+
+      act(() => {
+        result.current.onConnect({
+          source: "node-1",
+          target: "node-2",
+          sourceHandle,
+          targetHandle,
+        } as any);
+      });
+
+      expect(result.current.edges).toHaveLength(1);
+      expect(typeof result.current.edges[0]?.data?.connectedAt).toBe("number");
+    });
+
+    it("blocks a second image edge in first-frame mode", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      const targetHandle = JSON.stringify({
+        id: "video-node",
+        fieldName: "first_frame_image",
+        inputTypes: ["Data"],
+        type: "file",
+      });
+      const sourceHandleOne = JSON.stringify({
+        id: "image-node-1",
+        dataType: "UserUploadImage",
+        name: "image",
+        output_types: ["Data"],
+      });
+      const sourceHandleTwo = JSON.stringify({
+        id: "image-node-2",
+        dataType: "UserUploadImage",
+        name: "image",
+        output_types: ["Data"],
+      });
+
+      act(() => {
+        useFlowStore.setState({
+          nodes: [
+            {
+              id: "image-node-1",
+              type: "genericNode",
+              position: { x: 0, y: 0 },
+              data: {
+                id: "image-node-1",
+                type: "UserUploadImage",
+                node: {
+                  template: {
+                    file: {
+                      value: "image-1.png",
+                      file_path: "flow-id/image-1.png",
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+            {
+              id: "image-node-2",
+              type: "genericNode",
+              position: { x: 0, y: 120 },
+              data: {
+                id: "image-node-2",
+                type: "UserUploadImage",
+                node: {
+                  template: {
+                    file: {
+                      value: "image-2.png",
+                      file_path: "flow-id/image-2.png",
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+            {
+              id: "video-node",
+              type: "genericNode",
+              position: { x: 300, y: 100 },
+              data: {
+                id: "video-node",
+                type: "DoubaoVideoGenerator",
+                node: {
+                  display_name: "Video Creator",
+                  template: {
+                    model_name: { value: "VEO3.1" },
+                    generation_mode: { value: "first_frame" },
+                    first_frame_image: {
+                      input_types: ["Data"],
+                      type: "file",
+                      list: true,
+                    },
+                    last_frame_image: {
+                      input_types: ["Data"],
+                      type: "file",
+                      list: false,
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+          ],
+          edges: [
+            {
+              id: "edge-first",
+              source: "image-node-1",
+              target: "video-node",
+              sourceHandle: sourceHandleOne,
+              targetHandle,
+              data: {
+                sourceHandle: JSON.parse(sourceHandleOne),
+                targetHandle: JSON.parse(targetHandle),
+                imageRole: "first",
+                connectedAt: Date.now(),
+              },
+            } as EdgeType,
+          ],
+        });
+      });
+
+      act(() => {
+        result.current.onConnect({
+          source: "image-node-2",
+          target: "video-node",
+          sourceHandle: sourceHandleTwo,
+          targetHandle,
+        } as any);
+      });
+
+      expect(result.current.edges).toHaveLength(1);
+      expect(result.current.edges[0]?.source).toBe("image-node-1");
+    });
+
+    it("reroutes a visual upstream dropped onto prompt back to first_frame_image", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      const sourceHandle = JSON.stringify({
+        id: "image-node",
+        dataType: "UserUploadImage",
+        name: "image",
+        output_types: ["Data"],
+      });
+      const promptHandle = JSON.stringify({
+        id: "video-node",
+        fieldName: "prompt",
+        inputTypes: ["Message", "Data", "Text"],
+        type: "str",
+      });
+
+      act(() => {
+        useFlowStore.setState({
+          nodes: [
+            {
+              id: "image-node",
+              type: "genericNode",
+              position: { x: 0, y: 0 },
+              data: {
+                id: "image-node",
+                type: "UserUploadImage",
+                node: {
+                  template: {
+                    file: {
+                      value: "image-1.png",
+                      file_path: "flow-id/image-1.png",
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+            {
+              id: "video-node",
+              type: "genericNode",
+              position: { x: 300, y: 100 },
+              data: {
+                id: "video-node",
+                type: "DoubaoVideoGenerator",
+                node: {
+                  display_name: "Video Creator",
+                  template: {
+                    model_name: { value: "VEO3.1" },
+                    generation_mode: { value: "text" },
+                    first_frame_image: {
+                      input_types: ["Data"],
+                      type: "file",
+                      list: true,
+                    },
+                    prompt: {
+                      input_types: ["Message", "Data", "Text"],
+                      type: "str",
+                      list: false,
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+          ],
+        });
+      });
+
+      act(() => {
+        result.current.onConnect({
+          source: "image-node",
+          target: "video-node",
+          sourceHandle,
+          targetHandle: promptHandle,
+        } as any);
+      });
+
+      expect(result.current.edges).toHaveLength(1);
+      expect(result.current.edges[0]?.data?.targetHandle?.fieldName).toBe("first_frame_image");
+    });
+
+    it("accepts the first upstream video even when the stored mode is still text", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      const sourceHandle = JSON.stringify({
+        id: "video-source",
+        dataType: "UserUploadVideo",
+        name: "video",
+        output_types: ["Data"],
+      });
+      const targetHandle = JSON.stringify({
+        id: "video-node",
+        fieldName: "first_frame_image",
+        inputTypes: ["Data"],
+        type: "file",
+      });
+
+      act(() => {
+        useFlowStore.setState({
+          nodes: [
+            {
+              id: "video-source",
+              type: "genericNode",
+              position: { x: 0, y: 0 },
+              data: {
+                id: "video-source",
+                type: "UserUploadVideo",
+                node: {
+                  template: {
+                    file: {
+                      value: "video-1.mp4",
+                      file_path: "flow-id/video-1.mp4",
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+            {
+              id: "video-node",
+              type: "genericNode",
+              position: { x: 300, y: 100 },
+              data: {
+                id: "video-node",
+                type: "DoubaoVideoGenerator",
+                node: {
+                  display_name: "Video Creator",
+                  template: {
+                    model_name: { value: "wan2.6" },
+                    generation_mode: { value: "text" },
+                    first_frame_image: {
+                      input_types: ["Data"],
+                      type: "file",
+                      list: true,
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+          ],
+        });
+      });
+
+      act(() => {
+        result.current.onConnect({
+          source: "video-source",
+          target: "video-node",
+          sourceHandle,
+          targetHandle,
+        } as any);
+      });
+
+      expect(result.current.edges).toHaveLength(1);
+      expect(result.current.edges[0]?.data?.videoReferType).toBe("feature");
+    });
+
+    it("assigns the second image as the last frame in first_last_frame mode", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      const targetHandle = JSON.stringify({
+        id: "video-node",
+        fieldName: "first_frame_image",
+        inputTypes: ["Data"],
+        type: "file",
+      });
+      const sourceHandleOne = JSON.stringify({
+        id: "image-node-1",
+        dataType: "UserUploadImage",
+        name: "image",
+        output_types: ["Data"],
+      });
+      const sourceHandleTwo = JSON.stringify({
+        id: "image-node-2",
+        dataType: "UserUploadImage",
+        name: "image",
+        output_types: ["Data"],
+      });
+
+      act(() => {
+        useFlowStore.setState({
+          nodes: [
+            {
+              id: "image-node-1",
+              type: "genericNode",
+              position: { x: 0, y: 0 },
+              data: {
+                id: "image-node-1",
+                type: "UserUploadImage",
+                node: {
+                  template: {
+                    file: {
+                      value: "image-1.png",
+                      file_path: "flow-id/image-1.png",
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+            {
+              id: "image-node-2",
+              type: "genericNode",
+              position: { x: 0, y: 120 },
+              data: {
+                id: "image-node-2",
+                type: "UserUploadImage",
+                node: {
+                  template: {
+                    file: {
+                      value: "image-2.png",
+                      file_path: "flow-id/image-2.png",
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+            {
+              id: "video-node",
+              type: "genericNode",
+              position: { x: 300, y: 100 },
+              data: {
+                id: "video-node",
+                type: "DoubaoVideoGenerator",
+                node: {
+                  display_name: "Video Creator",
+                  template: {
+                    model_name: { value: "VEO3.1" },
+                    generation_mode: { value: "first_last_frame" },
+                    first_frame_image: {
+                      input_types: ["Data"],
+                      type: "file",
+                      list: true,
+                    },
+                    last_frame_image: {
+                      input_types: ["Data"],
+                      type: "file",
+                      list: false,
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+          ],
+          edges: [
+            {
+              id: "edge-first",
+              source: "image-node-1",
+              target: "video-node",
+              sourceHandle: sourceHandleOne,
+              targetHandle,
+              data: {
+                sourceHandle: JSON.parse(sourceHandleOne),
+                targetHandle: JSON.parse(targetHandle),
+                imageRole: "first",
+                connectedAt: Date.now(),
+              },
+            } as EdgeType,
+          ],
+        });
+      });
+
+      act(() => {
+        result.current.onConnect({
+          source: "image-node-2",
+          target: "video-node",
+          sourceHandle: sourceHandleTwo,
+          targetHandle,
+        } as any);
+      });
+
+      expect(result.current.edges).toHaveLength(2);
+      expect(result.current.edges[1]?.data?.imageRole).toBe("last");
     });
   });
 

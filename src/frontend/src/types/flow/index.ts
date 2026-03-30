@@ -99,6 +99,7 @@ export type EdgeType = Edge<EdgeDataType, "default">;
 export type EdgeDataType = {
   sourceHandle: sourceHandleType;
   targetHandle: targetHandleType;
+  connectedAt?: number;
   imageRole?: "first" | "reference" | "last";
   // Video-to-video upstream hint for DoubaoVideoGenerator -> DoubaoVideoGenerator edges.
   // Used to drive Kling O1 video_list.refer_type ("base"=edit, "feature"=feature reference).

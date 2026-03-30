@@ -54,11 +54,11 @@ export function DashboardWrapperPage() {
         ) : (
           <TapNowHeader centerContent={<FlowMenu />} dataTestId="app-header" />
         ))}
-      <div className="flex w-full flex-1 flex-row overflow-hidden">
+      <div className="flex w-full min-h-0 flex-1 flex-row overflow-hidden">
         <RouteTransition
           transitionKey={location.pathname}
           disabled={disableRouteTransition}
-          className="flex w-full flex-1 flex-row overflow-hidden"
+          className="flex w-full min-h-0 flex-1 flex-row overflow-hidden"
         >
           <Outlet />
         </RouteTransition>

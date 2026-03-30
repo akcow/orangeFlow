@@ -32,6 +32,7 @@ export const URLs = {
   MCP_SERVERS: `mcp/servers`,
   KNOWLEDGE_BASES: `knowledge_bases`,
   PROVIDER_CREDENTIALS: "provider-credentials",
+  PROVIDER_RELAYS: "provider-relays",
   COMMUNITY: "community",
   CREDITS: "credits",
   NOTIFICATIONS: "notifications",

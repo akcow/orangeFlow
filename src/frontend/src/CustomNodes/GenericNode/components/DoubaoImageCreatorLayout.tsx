@@ -94,6 +94,11 @@ const ONLINE_SEARCH_FIELD = "enable_google_search";
 const MAX_REFERENCE_IMAGES = 14;
 const USER_UPLOAD_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff"];
 
+type OrderedEdgeEntry = {
+  edge: EdgeType;
+  originalIndex: number;
+};
+
 // Keep this local to avoid cross-module coupling issues. This layout only needs image_count formatting.
 function formatImageCountValue(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -637,12 +642,26 @@ export default function DoubaoImageCreatorLayout({
   const upstreamReferenceFields = useMemo<InputFieldType[]>(() => {
     // Crop-result nodes should only preview their local crop image.
     if (data.cropPreviewOnly) return [];
-    const incomingEdges = edges?.filter(
-      (edge) => edge.target === data.id && edge.targetHandle,
-    );
+    const incomingEdges = (edges ?? [])
+      .map<OrderedEdgeEntry>((edge, originalIndex) => ({ edge, originalIndex }))
+      .filter(({ edge }) => edge.target === data.id && edge.targetHandle)
+      .sort((left, right) => {
+        const leftConnectedAt = left.edge.data?.connectedAt;
+        const rightConnectedAt = right.edge.data?.connectedAt;
+
+        if (
+          typeof leftConnectedAt === "number" &&
+          typeof rightConnectedAt === "number" &&
+          leftConnectedAt !== rightConnectedAt
+        ) {
+          return leftConnectedAt - rightConnectedAt;
+        }
+
+        return left.originalIndex - right.originalIndex;
+      });
     const collected: InputFieldType[] = [];
 
-    incomingEdges?.forEach((edge) => {
+    incomingEdges.forEach(({ edge }) => {
       // Crop tool creates a visual connection that should not contribute additional preview images.
       if ((edge.data as EdgeType["data"] & { cropLink?: boolean } | undefined)?.cropLink) return;
       try {
@@ -2012,6 +2031,7 @@ export default function DoubaoImageCreatorLayout({
       data: {
         sourceHandle: sourceHandle,
         targetHandle: targetHandle,
+        connectedAt: Date.now(),
       },
     } as EdgeType;
 
@@ -2282,6 +2302,7 @@ export default function DoubaoImageCreatorLayout({
       data: {
         sourceHandle: sourceHandle,
         targetHandle: targetHandle,
+        connectedAt: Date.now(),
       },
     } as EdgeType;
 
@@ -2451,6 +2472,7 @@ export default function DoubaoImageCreatorLayout({
       data: {
         sourceHandle: sourceHandle,
         targetHandle: targetHandle,
+        connectedAt: Date.now(),
         ...(imageRole ? { imageRole } : {}),
       },
     } as EdgeType;
@@ -2594,6 +2616,7 @@ export default function DoubaoImageCreatorLayout({
       data: {
         sourceHandle: sourceHandle,
         targetHandle: targetHandle,
+        connectedAt: Date.now(),
       },
     } as EdgeType;
 
@@ -3267,7 +3290,8 @@ export default function DoubaoImageCreatorLayout({
                       return (
                         <div
                           key={preview.id ?? `${previewSource}-${index}`}
-                          className="relative h-16 w-16 overflow-hidden rounded-xl border border-[#E2E7F5] bg-[#F4F6FB] dark:border-white/15 dark:bg-white/10"
+                          className="relative h-16 w-16 overflow-hidden rounded-2xl border border-[#D7DEEF] bg-[#F4F6FB] shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-white/10"
+                          title={preview.label ?? preview.fileName ?? `Image ${index + 1}`}
                         >
                           {previewSource ? (
                             <img
@@ -3276,15 +3300,15 @@ export default function DoubaoImageCreatorLayout({
                               className="h-full w-full object-cover"
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center text-[#7D85A8] dark:text-slate-300">
-                              <ForwardedIconComponent name="Image" className="h-4 w-4" />
+                            <div className="flex h-full w-full items-center justify-center text-[#6B7285] dark:text-slate-300">
+                              <ForwardedIconComponent name="Image" className="h-5 w-5" />
                             </div>
                           )}
-                          {index === 0 && promptReferencePreviews.length > 1 && (
-                            <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[#1B66FF] px-1 text-center text-[10px] font-semibold leading-5 text-white shadow">
-                              {promptReferencePreviews.length}
-                            </span>
-                          )}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-2 pb-1 pt-3">
+                            <div className="truncate text-[10px] font-medium text-white">
+                              {`Image ${index + 1}`}
+                            </div>
+                          </div>
                         </div>
                       );
                     })}

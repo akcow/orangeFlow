@@ -9,6 +9,7 @@ import {
 import { cloneDeep } from "lodash";
 import { create } from "zustand";
 import { checkCodeValidity } from "@/CustomNodes/helpers/check-code-validity";
+import { cancelMutateTemplateDebounce } from "@/CustomNodes/helpers/mutate-template";
 import { MISSED_ERROR_ALERT } from "@/constants/alerts_constants";
 import { BROKEN_EDGES_WARNING } from "@/constants/constants";
 import {
@@ -35,10 +36,10 @@ import type {
 import { buildFlowVerticesWithFallback } from "../utils/buildUtils";
 import {
   canAddImageRole,
+  getEffectiveDoubaoVideoGenerationMode,
   getDoubaoVideoGenerationMode,
   getDoubaoVideoModelName,
   getImageRoleCounts,
-  getImageRoleLimits,
   getImageRoleLimitsForGenerationMode,
   IMAGE_ROLE_FIELD,
   IMAGE_ROLE_TARGET,
@@ -857,13 +858,12 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     isUserChange: boolean = true,
     callback?: () => void,
   ) => {
-    if (!get().nodes.find((node) => node.id === id)) {
-      throw new Error("Node not found");
-    }
+    const currentNode = get().nodes.find((node) => node.id === id);
+    if (!currentNode) return;
 
     const newChange =
       typeof change === "function"
-        ? change(get().nodes.find((node) => node.id === id)!)
+        ? change(currentNode)
         : change;
 
     const newNodes = get().nodes.map((node) => {
@@ -900,6 +900,8 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     return get().nodes.find((node) => node.id === id);
   },
   deleteNode: (nodeId) => {
+    cancelMutateTemplateDebounce(nodeId);
+
     const { filteredNodes, deletedNode } = get().nodes.reduce<{
       filteredNodes: AllNodeType[];
       deletedNode: AllNodeType | null;
@@ -1066,7 +1068,8 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
     });
     get().setNodes(newNodes);
 
-    selection.edges.forEach((edge: EdgeType) => {
+    const pasteConnectionBaseTime = Date.now();
+    selection.edges.forEach((edge: EdgeType, index: number) => {
       const source = idsMap[edge.source];
       const target = idsMap[edge.target];
       const sourceHandleObject: sourceHandleType = scapeJSONParse(
@@ -1090,6 +1093,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       edge.data = {
         sourceHandle: sourceHandleObject,
         targetHandle: targetHandleObject,
+        connectedAt: pasteConnectionBaseTime + index,
         imageRole: edge.data?.imageRole,
         videoReferType: edge.data?.videoReferType,
       };
@@ -1258,6 +1262,10 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       let targetFieldName = targetHandle?.fieldName ?? targetHandle?.name;
       const resolvedSourceType =
         sourceNode?.data?.type ?? (sourceHandle?.dataType as string | undefined);
+      const isVisualSourceType = (() => {
+        const normalized = String(resolvedSourceType ?? "").trim().toLowerCase();
+        return normalized.includes("image") || normalized.includes("video");
+      })();
 
       // Prevent invalid semantic connections: audio output should not connect to image inputs.
       // If the user drops audio onto the video's "+" input bubble (which is the first_frame_image
@@ -1309,9 +1317,9 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         const promptField = targetNode?.data?.node?.template?.["prompt"];
         if (!promptField) {
           setErrorData({
-            title: 'Unsupported connection',
+            title: "不支持的连接",
             list: [
-              'TextCreation output cannot connect to first/last frame image inputs. Please connect it to the video prompt input.',
+              "TextCreation 输出不能连接到首帧/尾帧图片输入，请连接到视频提示词输入。",
             ],
           });
           return oldEdges;
@@ -1347,9 +1355,9 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         const promptField = targetNode?.data?.node?.template?.["prompt"];
         if (!promptField) {
           setErrorData({
-            title: "Unsupported connection",
+            title: "不支持的连接",
             list: [
-              "ProCamera output cannot connect to first/last frame image inputs. Please connect it to the video prompt input.",
+              "ProCamera 输出不能连接到首帧/尾帧图片输入，请连接到视频提示词输入。",
             ],
           });
           return oldEdges;
@@ -1372,6 +1380,39 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
           ...normalizedConnection,
           targetHandle: scapedJSONStringfy(targetHandle),
         };
+      }
+
+      // Root cause fix:
+      // When generation_mode is still "text", the first_frame_image handle may be temporarily
+      // rejected by pre-validation, while the hidden prompt handle still accepts generic Data.
+      // That causes visual upstreams to silently land on `prompt`, which in turn keeps the node
+      // stuck in text mode forever. If a visual source hits prompt, normalize it back to
+      // first_frame_image here so the downstream mode detection can recover.
+      if (
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        targetFieldName === "prompt" &&
+        isVisualSourceType
+      ) {
+        const firstFrameField = targetNode?.data?.node?.template?.[IMAGE_ROLE_FIELD];
+        if (firstFrameField) {
+          const inputTypes =
+            firstFrameField.input_types && firstFrameField.input_types.length > 0
+              ? firstFrameField.input_types
+              : ["Data"];
+          const resolvedType = firstFrameField.type ?? "file";
+          targetHandle = {
+            inputTypes,
+            type: resolvedType,
+            id: connection.target,
+            fieldName: IMAGE_ROLE_FIELD,
+            ...(firstFrameField.proxy ? { proxy: firstFrameField.proxy } : {}),
+          };
+          targetFieldName = IMAGE_ROLE_FIELD;
+          normalizedConnection = {
+            ...normalizedConnection,
+            targetHandle: scapedJSONStringfy(targetHandle),
+          };
+        }
       }
 
       const modelName = getDoubaoVideoModelName(targetNode);
@@ -1480,7 +1521,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
           resolvedSourceType === "UserUploadVideo" || sourceNode?.data?.type === IMAGE_ROLE_TARGET;
         if (isTargetKlingV3 && (connectingToFirstFrame || connectingToLastFrame) && isVideoSourceForKlingV3) {
           setErrorData({
-            title: "Unsupported connection",
+            title: "不支持的连接",
             list: ["kling V3：不支持参考视频/视频编辑输入，请连接图片（首帧/尾帧）或移除视频连接。"],
           });
           return oldEdges;
@@ -1533,16 +1574,20 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
           return oldEdges;
         }
       }
-      const isRoleEdge =
-        targetFieldName === IMAGE_ROLE_FIELD &&
-        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
-        !isVideoBridgeEdge;
+        const isRoleEdge =
+          targetFieldName === IMAGE_ROLE_FIELD &&
+          targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+          !isVideoBridgeEdge;
       const isLastFrameEdge =
         targetFieldName === "last_frame_image" &&
         targetNode?.data?.type === IMAGE_ROLE_TARGET;
       const targetGenerationMode = targetNode
         ? getDoubaoVideoGenerationMode(targetNode)
         : "text";
+      const effectiveTargetGenerationMode = targetNode
+        ? getEffectiveDoubaoVideoGenerationMode(targetNode, resolvedSourceType)
+        : "text";
+      const normalizedModelName = modelName.trim().toLowerCase();
       let imageRole: "first" | "reference" | "last" | undefined;
       let videoReferType: "base" | "feature" | undefined;
       const requestedRoleRaw =
@@ -1574,66 +1619,122 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       });
 
       if (isLastFrameEdge) {
+        if (isVideoSourceType(sourceNode?.data?.type)) {
+          setErrorData({
+            title: "不支持的连接",
+            list: ["尾帧输入仅支持图片素材，请连接图片创作组件或图片上传组件。"],
+          });
+          return oldEdges;
+        }
+        if (targetGenerationMode !== "first_last_frame") {
+          setErrorData({
+            title: "当前生成方式不支持尾帧",
+            list: ["请先切换到“首尾帧”生成方式后，再连接尾帧图片。"],
+          });
+          return oldEdges;
+        }
         imageRole = requestedRole === "last" ? requestedRole : "last";
       } else if (isVideoBridgeEdge) {
-        videoReferType = targetGenerationMode === "video_edit" ? "base" : "feature";
+        const maxVideoEdges = normalizedModelName === "viduq2-pro" ? 2 : 1;
+        const existingIncomingVideoEdges = oldEdges.filter((edge) => {
+          if (edge.target !== connection.target) return false;
+          let parsedTargetHandle: any = edge.data?.targetHandle;
+          if (!parsedTargetHandle && edge.targetHandle) {
+            try {
+              parsedTargetHandle = scapeJSONParse(edge.targetHandle);
+            } catch {
+              parsedTargetHandle = null;
+            }
+          }
+          const edgeTargetFieldName = parsedTargetHandle?.fieldName ?? parsedTargetHandle?.name;
+          if (edgeTargetFieldName !== IMAGE_ROLE_FIELD) return false;
+          const edgeVideoReferType = edge.data?.videoReferType;
+          if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
+          const src = get().nodes.find((node) => node.id === edge.source);
+          return isVideoSourceType(src?.data?.type);
+        }).length;
+        if (existingIncomingVideoEdges >= maxVideoEdges) {
+          setErrorData({
+            title: "参考视频数量已达上限",
+            list: [
+              maxVideoEdges > 1
+                ? `当前模型最多支持 ${maxVideoEdges} 段参考视频，请先删除多余连接后再试。`
+                : "当前模型最多支持 1 段参考视频，请先删除现有视频连接后再试。",
+            ],
+          });
+          return oldEdges;
+        }
+        videoReferType =
+          effectiveTargetGenerationMode === "video_edit" ? "base" : "feature";
       } else if (isRoleEdge) {
         const modelName = getDoubaoVideoModelName(targetNode);
-        const limits =
-          targetGenerationMode === "text"
-            ? getImageRoleLimits(modelName)
-            : getImageRoleLimitsForGenerationMode(modelName, targetGenerationMode);
+        const limits = getImageRoleLimitsForGenerationMode(
+          modelName,
+          effectiveTargetGenerationMode,
+        );
         const counts = getImageRoleCounts(oldEdges, connection.target!, targetNode);
         if (hasIncomingVideoSourceEdge) {
           const maxReference = limits.maxReference ?? limits.maxTotal;
           if (counts.reference >= maxReference) {
             setErrorData({
-              title: "Connection limit reached",
+              title: "连接数量已达上限",
               list: [
-                "The selected model has reached its reference image limit for this input.",
+                "当前模型在该输入口下的参考素材数量已达上限。",
               ],
             });
             return oldEdges;
           }
           imageRole = "reference";
         } else if (
-          targetGenerationMode === "reference_image" ||
-          targetGenerationMode === "reference_video" ||
-          targetGenerationMode === "video_edit"
+          effectiveTargetGenerationMode === "reference_image" ||
+          effectiveTargetGenerationMode === "reference_video" ||
+          effectiveTargetGenerationMode === "video_edit"
         ) {
           if (!canAddImageRole("reference", counts, limits)) {
             setErrorData({
-              title: "Connection limit reached",
+              title: "连接数量已达上限",
               list: [
-                "The selected generation mode has reached its reference image limit.",
+                "当前生成方式下，参考素材数量已达上限。",
               ],
             });
             return oldEdges;
           }
           imageRole = "reference";
-        } else if (
-          targetGenerationMode === "first_frame" ||
-          targetGenerationMode === "first_last_frame"
-        ) {
+        } else if (effectiveTargetGenerationMode === "first_frame") {
           if (!canAddImageRole("first", counts, limits)) {
             setErrorData({
-              title: "Connection limit reached",
+              title: "连接数量已达上限",
               list: [
-                "The selected generation mode only supports one first-frame image.",
+                "当前生成方式下仅支持 1 个首帧素材。",
               ],
             });
             return oldEdges;
           }
           imageRole = "first";
+        } else if (effectiveTargetGenerationMode === "first_last_frame") {
+          const nextRole =
+            requestedRole && canAddImageRole(requestedRole, counts, limits)
+              ? requestedRole
+              : pickImageRoleForNewEdge(limits, counts);
+          if (!nextRole) {
+            setErrorData({
+              title: "æ©ç‚´å¸´éä¼´å™ºå®¸èŒ¶æªæ¶“å©‡æªº",
+              list: [
+                "é¦–å°¾å¸§æ¨¡å¼æœ€å¤šæ”¯æŒ 2 å¼ å›¾ç‰‡ï¼Œç¬¬ 1 å¼ ä¸ºé¦–å¸§ï¼Œç¬¬ 2 å¼ ä¸ºå°¾å¸§ã€‚",
+              ],
+            });
+            return oldEdges;
+          }
+          imageRole = nextRole;
         } else if (requestedRole && canAddImageRole(requestedRole, counts, limits)) {
           imageRole = requestedRole;
         } else {
           const nextRole = pickImageRoleForNewEdge(limits, counts);
           if (!nextRole) {
             setErrorData({
-              title: "Connection limit reached",
+              title: "连接数量已达上限",
               list: [
-                "The selected model has reached its image limit for this input. Adjust edge roles or remove a connection.",
+                "当前模型在该输入口下的素材数量已达上限，请调整连接用途或删除多余连接。",
               ],
             });
             return oldEdges;
@@ -1642,12 +1743,41 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         }
       }
 
+      const shouldRouteLastRoleToDedicatedHandle =
+        imageRole === "last" &&
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        Boolean(targetNode?.data?.node?.template?.["last_frame_image"]) &&
+        !normalizedModelName.includes("seedance") &&
+        !normalizedModelName.includes("seedream") &&
+        targetFieldName !== "last_frame_image";
+      if (shouldRouteLastRoleToDedicatedHandle) {
+        const lastFrameField = targetNode?.data?.node?.template?.["last_frame_image"];
+        const inputTypes =
+          lastFrameField?.input_types && lastFrameField.input_types.length > 0
+            ? lastFrameField.input_types
+            : ["Data"];
+        const resolvedType = lastFrameField?.type ?? "file";
+        targetHandle = {
+          inputTypes,
+          type: resolvedType,
+          id: connection.target,
+          fieldName: "last_frame_image",
+          ...(lastFrameField?.proxy ? { proxy: lastFrameField.proxy } : {}),
+        };
+        targetFieldName = "last_frame_image";
+        normalizedConnection = {
+          ...normalizedConnection,
+          targetHandle: scapedJSONStringfy(targetHandle),
+        };
+      }
+
       newEdges = addEdge(
         {
           ...normalizedConnection,
           data: {
             targetHandle,
             sourceHandle,
+            connectedAt: Date.now(),
             ...(imageRole ? { imageRole } : {}),
             ...(videoReferType ? { videoReferType } : {}),
           },

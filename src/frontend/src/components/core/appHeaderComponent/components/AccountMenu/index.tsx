@@ -88,7 +88,7 @@ export const AccountMenu = () => {
               </span>
             </HeaderMenuItemButton>
 
-            {isAdmin && !autoLogin && (
+            {isAdmin && (
               <div>
                 <HeaderMenuItemButton
                   onClick={() => {

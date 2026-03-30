@@ -142,6 +142,13 @@ function resolveManualChunk(id: string) {
 
   if (
     isPackageMatch(normalizedId, [
+      "antd",
+      "@ant-design",
+      "@rc-component",
+      "rc-",
+      "@emotion/hash",
+      "@emotion/unitless",
+      "stylis",
       "@radix-ui",
       "@headlessui/react",
       "@chakra-ui",
@@ -155,7 +162,7 @@ function resolveManualChunk(id: string) {
       "@hookform/resolvers",
     ])
   ) {
-    return "vendor-ui";
+    return "vendor-app";
   }
 
   if (

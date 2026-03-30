@@ -96,6 +96,7 @@ export function getAvailableVideoGenerationModes(
   inputProfile: {
     hasImageUpstream: boolean;
     hasVideoUpstream: boolean;
+    hasVisualUpstream?: boolean;
   },
 ): VideoGenerationMode[] {
   const supported = getSupportedVideoGenerationModes(modelName);
@@ -115,6 +116,10 @@ export function getAvailableVideoGenerationModes(
       "reference_image",
     ]);
     return supported.filter((mode) => imageModes.has(mode));
+  }
+
+  if (inputProfile.hasVisualUpstream) {
+    return supported.filter((mode) => mode !== "text");
   }
 
   return supported.filter((mode) => mode === "text");
@@ -162,6 +167,41 @@ export function getDoubaoVideoGenerationMode(
   return normalizeVideoGenerationMode(getDoubaoVideoModelName(node), rawMode);
 }
 
+export function isLikelyVisualSourceType(nodeType?: string): boolean {
+  const normalized = String(nodeType ?? "").trim().toLowerCase();
+  return normalized.includes("image") || normalized.includes("video");
+}
+
+export function getPreferredVisualGenerationMode(
+  modelName: string,
+  sourceType?: string,
+): VideoGenerationMode | null {
+  const supported = getSupportedVideoGenerationModes(modelName);
+  const candidates: VideoGenerationMode[] = isLikelyVisualSourceType(sourceType) &&
+    String(sourceType ?? "").trim().toLowerCase().includes("video")
+    ? ["reference_video", "video_edit"]
+    : ["first_frame", "first_last_frame", "reference_image"];
+
+  return candidates.find((mode) => supported.includes(mode)) ?? null;
+}
+
+export function getEffectiveDoubaoVideoGenerationMode(
+  node: AllNodeType | undefined,
+  sourceType?: string,
+): VideoGenerationMode {
+  const currentMode = getDoubaoVideoGenerationMode(node);
+  const isVideoSource = isLikelyVisualSourceType(sourceType) && String(sourceType ?? "").trim().toLowerCase().includes("video");
+  if (isVideoSource) {
+    const preferred = getPreferredVisualGenerationMode(getDoubaoVideoModelName(node), sourceType);
+    if (preferred) return preferred;
+  }
+  if (currentMode !== "text") return currentMode;
+  return getPreferredVisualGenerationMode(
+    getDoubaoVideoModelName(node),
+    sourceType,
+  ) ?? currentMode;
+}
+
 export function getImageRoleLimitsForGenerationMode(
   modelName: string,
   generationMode: unknown,
@@ -174,8 +214,17 @@ export function getImageRoleLimitsForGenerationMode(
     return { allowedRoles: [], maxTotal: 0, maxReference: 0 };
   }
 
-  if (normalizedMode === "first_frame" || normalizedMode === "first_last_frame") {
+  if (normalizedMode === "first_frame") {
     return { allowedRoles: ["first"], maxTotal: 1, maxReference: 0 };
+  }
+
+  if (normalizedMode === "first_last_frame") {
+    const supportsLast = baseLimits.allowedRoles.includes("last");
+    return {
+      allowedRoles: supportsLast ? ["first", "last"] : ["first"],
+      maxTotal: supportsLast ? 2 : 1,
+      maxReference: 0,
+    };
   }
 
   if (normalizedMode === "reference_image") {
@@ -352,7 +401,10 @@ export function getImageRoleCounts(
     counts[role] += 1;
   });
   if (targetNode) {
-    const limits = getImageRoleLimits(getDoubaoVideoModelName(targetNode));
+    const limits = getImageRoleLimitsForGenerationMode(
+      getDoubaoVideoModelName(targetNode),
+      getDoubaoVideoGenerationMode(targetNode),
+    );
     const localCounts = getLocalImageRoleCounts(targetNode, limits);
     counts.total += localCounts.total;
     counts.first += localCounts.first;

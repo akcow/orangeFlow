@@ -69,7 +69,9 @@ class TextCreation(Component):
             display_name="文本预览",
             show=True,
             required=False,
-            value="",
+            value=[],
+            is_list=True,
+            list_add_label="Add More Draft Inputs",
             input_types=["Data"],
         ),
     ]

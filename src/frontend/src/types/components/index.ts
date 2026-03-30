@@ -419,6 +419,7 @@ export type UserManagementType = {
 export type loginInputStateType = {
   username: string;
   password: string;
+  rememberMe: boolean;
 };
 
 export type patchUserInputStateType = {

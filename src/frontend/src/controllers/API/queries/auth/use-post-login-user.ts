@@ -9,12 +9,17 @@ export const useLoginUser: useMutationFunctionType<undefined, LoginType> = (
 ) => {
   const { mutate, queryClient } = UseRequestProcessor();
 
-  async function loginUserFn({ password, username }: LoginType): Promise<any> {
+  async function loginUserFn({
+    password,
+    username,
+    remember_me,
+  }: LoginType): Promise<any> {
     const res = await api.post(
       `${getURL("LOGIN")}`,
       new URLSearchParams({
         username: username,
         password: password,
+        remember_me: remember_me ? "true" : "false",
       }).toString(),
       {
         headers: {

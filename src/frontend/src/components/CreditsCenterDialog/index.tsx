@@ -435,7 +435,7 @@ export function CreditsCenterDialog() {
       return;
     }
     if (key === "tutorial") {
-      window.open("https://docs.langflow.org", "_blank");
+      window.open("https://junxianjiaoyu.feishu.cn/wiki/Hd2kwH6tii6JgGkvjrmcG92ynGd", "_blank");
       return;
     }
     setNoticeData({ title: isZh ? "该入口暂时只保留展示。" : "This entry is display-only for now." });

@@ -27,12 +27,8 @@ import { AppAuthenticatedPage } from "./pages/AppAuthenticatedPage";
 import { AppInitPage } from "./pages/AppInitPage";
 import { AppWrapperPage } from "./pages/AppWrapperPage";
 
-const AdminPage = lazy(() => import("./pages/AdminPage"));
-const AdminCreditsPage = lazy(() => import("./pages/AdminPage/CreditsPage"));
+const AdminConsolePage = lazy(() => import("./pages/AdminPage/AdminConsolePage"));
 const LoginAdminPage = lazy(() => import("./pages/AdminPage/LoginPage"));
-const AdminCommunityPage = lazy(
-  () => import("./pages/AdminPage/CommunityPage"),
-);
 const CollectionPage = lazy(() => import("./pages/MainPage/pages/main-page"));
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
 const FilesPage = lazy(() => import("./pages/MainPage/pages/filesPage"));
@@ -187,7 +183,7 @@ const router = createBrowserRouter(
                   path="admin/credits"
                   element={
                     <ProtectedAdminRoute>
-                      <AdminCreditsPage />
+                      <AdminConsolePage />
                     </ProtectedAdminRoute>
                   }
                 />
@@ -195,7 +191,23 @@ const router = createBrowserRouter(
                   path="admin"
                   element={
                     <ProtectedAdminRoute>
-                      <AdminPage />
+                      <AdminConsolePage />
+                    </ProtectedAdminRoute>
+                  }
+                />
+                <Route
+                  path="admin/users"
+                  element={
+                    <ProtectedAdminRoute>
+                      <AdminConsolePage />
+                    </ProtectedAdminRoute>
+                  }
+                />
+                <Route
+                  path="admin/provider-relays"
+                  element={
+                    <ProtectedAdminRoute>
+                      <AdminConsolePage />
                     </ProtectedAdminRoute>
                   }
                 />
@@ -203,7 +215,7 @@ const router = createBrowserRouter(
                   path="admin/community"
                   element={
                     <ProtectedReviewRoute>
-                      <AdminCommunityPage />
+                      <AdminConsolePage />
                     </ProtectedReviewRoute>
                   }
                 />

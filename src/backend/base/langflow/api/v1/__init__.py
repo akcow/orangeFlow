@@ -14,6 +14,7 @@ from langflow.api.v1.monitor import router as monitor_router
 from langflow.api.v1.notifications import router as notifications_router
 from langflow.api.v1.openai_responses import router as openai_responses_router
 from langflow.api.v1.provider_credentials import router as provider_credentials_router
+from langflow.api.v1.provider_relays import router as provider_relays_router
 from langflow.api.v1.projects import router as projects_router
 from langflow.api.v1.starter_projects import router as starter_projects_router
 from langflow.api.v1.store import router as store_router
@@ -41,6 +42,7 @@ __all__ = [
     "openai_responses_router",
     "projects_router",
     "provider_credentials_router",
+    "provider_relays_router",
     "starter_projects_router",
     "store_router",
     "teams_router",

@@ -117,6 +117,11 @@ const INITIAL_NOTIFICATION_FORM: NotificationFormState = {
 
 type NotificationHistoryFilterType = "ANY" | AdminNotificationTargetType;
 
+type AdminPageProps = {
+  embedded?: boolean;
+  showAdminLinks?: boolean;
+};
+
 function formatDateLabel(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
@@ -243,7 +248,10 @@ function SelectableList({
   );
 }
 
-export default function AdminPage() {
+export default function AdminPage({
+  embedded = false,
+  showAdminLinks = true,
+}: AdminPageProps) {
   const navigate = useCustomNavigate();
   const { userData } = useContext(AuthContext);
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
@@ -789,14 +797,24 @@ export default function AdminPage() {
     <>
       {userData && (
         <>
-        <div className="admin-page-panel flex h-full flex-col pb-8">
-          <div className="main-page-nav-arrangement">
-            <span className="main-page-nav-title">
-              <IconComponent name="Shield" className="w-6" />
-              {ADMIN_HEADER_TITLE}
-            </span>
-          </div>
-          <span className="admin-page-description-text">{ADMIN_HEADER_DESCRIPTION}</span>
+        <div
+          className={
+            embedded
+              ? "flex min-h-0 w-full flex-col gap-4"
+              : "admin-page-panel flex h-full flex-col pb-8"
+          }
+        >
+          {!embedded ? (
+            <>
+              <div className="main-page-nav-arrangement">
+                <span className="main-page-nav-title">
+                  <IconComponent name="Shield" className="w-6" />
+                  {ADMIN_HEADER_TITLE}
+                </span>
+              </div>
+              <span className="admin-page-description-text">{ADMIN_HEADER_DESCRIPTION}</span>
+            </>
+          ) : null}
 
           {userData.is_superuser ? (
             <div className="grid gap-4 px-4 pb-4 pt-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
@@ -1203,7 +1221,7 @@ export default function AdminPage() {
             </div>
           ) : null}
 
-          <div className="flex w-full justify-between px-4">
+          <div className="flex w-full flex-wrap justify-between gap-3 px-4">
             <div className="flex w-96 items-center gap-4">
               <Input
                 placeholder={t("Search username or nickname")}
@@ -1227,6 +1245,11 @@ export default function AdminPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              {!embedded && (
+                <Button variant="secondary" onClick={() => navigate("/admin")}>
+                  {"\u4e2d\u540e\u53f0\u63a7\u5236\u53f0"}
+                </Button>
+              )}
               <UserManagementModal
                 title={t("New User")}
                 titleHeader={t("Add a new user")}
@@ -1241,9 +1264,19 @@ export default function AdminPage() {
                 <Button variant="primary">{t("New User")}</Button>
               </UserManagementModal>
 
-              <Button variant="secondary" onClick={() => navigate("/admin/community")}>
-                {"\u5185\u5bb9\u5ba1\u6838"}
-              </Button>
+              {!embedded && showAdminLinks && (
+                <>
+                  <Button variant="secondary" onClick={() => navigate("/admin/community")}>
+                    {"\u5185\u5bb9\u5ba1\u6838"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => navigate("/admin/provider-relays")}
+                  >
+                    {"\u4f9b\u5e94\u5546\u8def\u7531"}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 

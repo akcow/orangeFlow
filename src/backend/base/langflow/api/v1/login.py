@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from langflow.api.utils import DbSession
@@ -18,6 +18,57 @@ from langflow.services.database.models.user.crud import get_user_by_id
 from langflow.services.deps import get_settings_service, get_variable_service
 
 router = APIRouter(tags=["Login"])
+REMEMBER_ME_COOKIE = "remember_me_lf"
+
+
+def _parse_remember_me(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _get_cookie_expiry(remember_me: bool, expiry_seconds: int | None) -> int | None:
+    return expiry_seconds if remember_me else None
+
+
+def _set_remember_me_cookie(response: Response, *, remember_me: bool, auth_settings) -> None:
+    response.set_cookie(
+        REMEMBER_ME_COOKIE,
+        "true" if remember_me else "false",
+        httponly=False,
+        samesite=auth_settings.ACCESS_SAME_SITE,
+        secure=auth_settings.ACCESS_SECURE,
+        expires=_get_cookie_expiry(remember_me, auth_settings.REFRESH_TOKEN_EXPIRE_SECONDS),
+        domain=auth_settings.COOKIE_DOMAIN,
+    )
+
+
+def _set_auth_cookies(
+    response: Response,
+    *,
+    auth_settings,
+    tokens: dict[str, str],
+    remember_me: bool,
+) -> None:
+    response.set_cookie(
+        "refresh_token_lf",
+        tokens["refresh_token"],
+        httponly=auth_settings.REFRESH_HTTPONLY,
+        samesite=auth_settings.REFRESH_SAME_SITE,
+        secure=auth_settings.REFRESH_SECURE,
+        expires=_get_cookie_expiry(remember_me, auth_settings.REFRESH_TOKEN_EXPIRE_SECONDS),
+        domain=auth_settings.COOKIE_DOMAIN,
+    )
+    response.set_cookie(
+        "access_token_lf",
+        tokens["access_token"],
+        httponly=auth_settings.ACCESS_HTTPONLY,
+        samesite=auth_settings.ACCESS_SAME_SITE,
+        secure=auth_settings.ACCESS_SECURE,
+        expires=_get_cookie_expiry(remember_me, auth_settings.ACCESS_TOKEN_EXPIRE_SECONDS),
+        domain=auth_settings.COOKIE_DOMAIN,
+    )
+    _set_remember_me_cookie(response, remember_me=remember_me, auth_settings=auth_settings)
 
 
 @router.post("/login", response_model=Token)
@@ -25,8 +76,10 @@ async def login_to_get_access_token(
     response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: DbSession,
+    remember_me: Annotated[str | None, Form()] = None,
 ):
     auth_settings = get_settings_service().auth_settings
+    should_remember_me = _parse_remember_me(remember_me)
     try:
         user = await authenticate_user(form_data.username, form_data.password, db)
     except Exception as exc:
@@ -39,23 +92,11 @@ async def login_to_get_access_token(
 
     if user:
         tokens = await create_user_tokens(user_id=user.id, db=db, update_last_login=True)
-        response.set_cookie(
-            "refresh_token_lf",
-            tokens["refresh_token"],
-            httponly=auth_settings.REFRESH_HTTPONLY,
-            samesite=auth_settings.REFRESH_SAME_SITE,
-            secure=auth_settings.REFRESH_SECURE,
-            expires=auth_settings.REFRESH_TOKEN_EXPIRE_SECONDS,
-            domain=auth_settings.COOKIE_DOMAIN,
-        )
-        response.set_cookie(
-            "access_token_lf",
-            tokens["access_token"],
-            httponly=auth_settings.ACCESS_HTTPONLY,
-            samesite=auth_settings.ACCESS_SAME_SITE,
-            secure=auth_settings.ACCESS_SECURE,
-            expires=auth_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
-            domain=auth_settings.COOKIE_DOMAIN,
+        _set_auth_cookies(
+            response,
+            auth_settings=auth_settings,
+            tokens=tokens,
+            remember_me=should_remember_me,
         )
         response.set_cookie(
             "apikey_tkn_lflw",
@@ -129,26 +170,15 @@ async def refresh_token(
     auth_settings = get_settings_service().auth_settings
 
     token = request.cookies.get("refresh_token_lf")
+    remember_me = _parse_remember_me(request.cookies.get(REMEMBER_ME_COOKIE))
 
     if token:
         tokens = await create_refresh_token(token, db)
-        response.set_cookie(
-            "refresh_token_lf",
-            tokens["refresh_token"],
-            httponly=auth_settings.REFRESH_HTTPONLY,
-            samesite=auth_settings.REFRESH_SAME_SITE,
-            secure=auth_settings.REFRESH_SECURE,
-            expires=auth_settings.REFRESH_TOKEN_EXPIRE_SECONDS,
-            domain=auth_settings.COOKIE_DOMAIN,
-        )
-        response.set_cookie(
-            "access_token_lf",
-            tokens["access_token"],
-            httponly=auth_settings.ACCESS_HTTPONLY,
-            samesite=auth_settings.ACCESS_SAME_SITE,
-            secure=auth_settings.ACCESS_SECURE,
-            expires=auth_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
-            domain=auth_settings.COOKIE_DOMAIN,
+        _set_auth_cookies(
+            response,
+            auth_settings=auth_settings,
+            tokens=tokens,
+            remember_me=remember_me,
         )
         return tokens
     raise HTTPException(
@@ -164,4 +194,5 @@ async def logout(response: Response):
     response.delete_cookie("refresh_token_lf", path="/", domain=auth_settings.COOKIE_DOMAIN)
     response.delete_cookie("access_token_lf", path="/", domain=auth_settings.COOKIE_DOMAIN)
     response.delete_cookie("apikey_tkn_lflw", path="/", domain=auth_settings.COOKIE_DOMAIN)
+    response.delete_cookie(REMEMBER_ME_COOKIE, path="/", domain=auth_settings.COOKIE_DOMAIN)
     return {"message": "Logout successful"}

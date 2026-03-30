@@ -19,6 +19,7 @@ from langflow.api.v1 import (
     openai_responses_router,
     projects_router,
     provider_credentials_router,
+    provider_relays_router,
     starter_projects_router,
     store_router,
     teams_router,
@@ -63,6 +64,7 @@ router_v1.include_router(voice_mode_router)
 router_v1.include_router(mcp_projects_router)
 router_v1.include_router(openai_responses_router)
 router_v1.include_router(provider_credentials_router)
+router_v1.include_router(provider_relays_router)
 router_v1.include_router(notifications_router)
 
 router_v2.include_router(files_router_v2)

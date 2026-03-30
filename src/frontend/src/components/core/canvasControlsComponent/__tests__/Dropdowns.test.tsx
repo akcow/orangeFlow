@@ -41,7 +41,7 @@ jest.mock("@/components/common/genericIconComponent", () => ({
 jest.mock("@/constants/constants", () => ({
   __esModule: true,
   DATASTAX_DOCS_URL: "https://docs.datastax.com",
-  DOCS_URL: "https://docs.langflow.org",
+  DOCS_URL: "https://junxianjiaoyu.feishu.cn/wiki/Hd2kwH6tii6JgGkvjrmcG92ynGd",
 }));
 
 jest.mock("@/customization/feature-flags", () => ({

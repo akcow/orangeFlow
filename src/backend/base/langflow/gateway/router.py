@@ -29,6 +29,8 @@ from langflow.gateway.providers.qwen import QwenProvider
 from langflow.gateway.providers.kling import KlingProvider
 from langflow.gateway.providers.vidu import ViduProvider
 from langflow.gateway.providers.jimeng_visual import JimengVisualProvider
+from langflow.services.deps import get_settings_service
+from lfx.utils.provider_relays import get_matching_provider_relay
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
@@ -83,11 +85,73 @@ def _resolve_api_key(
     return None
 
 
-def resolve_provider(model: str) -> tuple[str, Any]:
+def _build_relay_provider(
+    provider_name: str,
+    *,
+    model: str,
+    service_type: str,
+    api_key: str,
+    base_url: str | None,
+) -> Any:
+    if provider_name == "openai":
+        return OpenAIProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "12api":
+        normalized_model = (model or "").strip().lower()
+        if normalized_model.startswith("sora"):
+            return SoraProvider(api_key=api_key, base_url=base_url)
+        if normalized_model.startswith("veo-") or service_type == "video":
+            return VeoProvider(api_key=api_key, base_url=base_url)
+        return GeminiProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "gemini":
+        return GeminiProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "doubao":
+        return DoubaoProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "dashscope":
+        return DashScopeProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "qwen":
+        return QwenProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "sora":
+        return SoraProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "veo":
+        return VeoProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "vidu":
+        return ViduProvider(api_key=api_key, base_url=base_url)
+    if provider_name == "kling":
+        return KlingProvider(api_key=api_key, base_url=base_url)
+    raise ModelNotFoundError(provider_name)
+
+
+def _resolve_provider_from_relay(model: str, *, service_type: str) -> tuple[str, Any] | None:
+    try:
+        settings_service = get_settings_service()
+        relay = get_matching_provider_relay(
+            model,
+            settings_service.settings.config_dir,
+            service_type=service_type,
+        )
+    except Exception:
+        return None
+
+    if relay is None or not relay.api_key:
+        return None
+    return relay.provider, _build_relay_provider(
+        relay.provider,
+        model=model,
+        service_type=service_type,
+        api_key=relay.api_key,
+        base_url=relay.base_url,
+    )
+
+
+def resolve_provider(model: str, service_type: str = "any") -> tuple[str, Any]:
     """Return (provider_name, provider_instance) for a given model id."""
     model = (model or "").strip()
     if not model:
         raise ModelNotFoundError(model)
+
+    relay_provider = _resolve_provider_from_relay(model, service_type=service_type)
+    if relay_provider is not None:
+        return relay_provider
 
     # Text models: OpenAI-compatible (OpenAI/DeepSeek).
     if model.startswith("deepseek"):
@@ -422,7 +486,7 @@ async def create_chat_completion(
     request: ChatCompletionRequest,
     token: str = Depends(get_hosted_key)
 ):
-    _provider_name, provider = resolve_provider(request.model)
+    _provider_name, provider = resolve_provider(request.model, service_type="text")
     result = await provider.chat_completion(request)
     if request.stream:
         # Providers return an async generator of SSE lines for streaming.
@@ -435,7 +499,7 @@ async def create_image_generation(
     request: ImageGenerationRequest,
     token: str = Depends(get_hosted_key)
 ):
-    _provider_name, provider = resolve_provider(request.model)
+    _provider_name, provider = resolve_provider(request.model, service_type="image")
     return await provider.image_generation(request)
 
 
@@ -468,7 +532,7 @@ async def create_video_generation(
         # For MVP, we might ignore or pass file path if adapter supports it.
         # DoubaoProvider would need 'image' in extra_body or similar.
     
-    provider_name, provider = resolve_provider(request.model)
+    provider_name, provider = resolve_provider(request.model, service_type="video")
     result = await provider.video_generation(request)
     # Normalize task id to be self-describing for status polling.
     if isinstance(result, dict) and result.get("id"):
@@ -489,17 +553,17 @@ async def get_video_status(
     provider_name = decoded.provider
     raw_id = decoded.raw_id
     if provider_name == "doubao":
-        _n, provider = resolve_provider("doubao-seedance-1-5-pro-251215")
+        _n, provider = resolve_provider("doubao-seedance-1-5-pro-251215", service_type="video")
     elif provider_name == "dashscope":
-        _n, provider = resolve_provider("wan2.6-t2v")
+        _n, provider = resolve_provider("wan2.6-t2v", service_type="video")
     elif provider_name == "sora":
-        _n, provider = resolve_provider("sora-2")
+        _n, provider = resolve_provider("sora-2", service_type="video")
     elif provider_name == "veo":
-        _n, provider = resolve_provider("veo-3.1-generate-preview")
+        _n, provider = resolve_provider("veo-3.1-generate-preview", service_type="video")
     elif provider_name == "vidu":
-        _n, provider = resolve_provider("viduq3-pro")
+        _n, provider = resolve_provider("viduq3-pro", service_type="video")
     elif provider_name == "kling":
-        _n, provider = resolve_provider("kling-video-o1")
+        _n, provider = resolve_provider("kling-video-o1", service_type="video")
     else:
         raise ModelNotFoundError(provider_name)
 
@@ -549,7 +613,7 @@ async def create_audio_speech(
     request: AudioSpeechRequest,
     token: str = Depends(get_hosted_key)
 ):
-    _provider_name, provider = resolve_provider(request.model)
+    _provider_name, provider = resolve_provider(request.model, service_type="audio")
     audio_content = await provider.audio_speech(request)
     return Response(content=audio_content, media_type="audio/mpeg")
     

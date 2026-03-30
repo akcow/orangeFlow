@@ -36,6 +36,10 @@ import {
 } from "@/constants/constants";
 import useAlertStore from "@/stores/alertStore";
 
+type AdminCreditsPageProps = {
+  embedded?: boolean;
+};
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
@@ -61,7 +65,9 @@ function getLedgerTitle(entry: CreditLedgerEntry, isZh: boolean) {
   return getLedgerTypeLabel(entry.entry_type, isZh);
 }
 
-export default function AdminCreditsPage() {
+export default function AdminCreditsPage({
+  embedded = false,
+}: AdminCreditsPageProps) {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
@@ -185,7 +191,9 @@ export default function AdminCreditsPage() {
   }
 
   return (
-    <div className="admin-page-panel flex h-full flex-col pb-8">
+    <div className={embedded ? "flex h-full flex-col pb-2" : "admin-page-panel flex h-full flex-col pb-8"}>
+      {!embedded && (
+        <>
       <div className="main-page-nav-arrangement">
         <span className="main-page-nav-title">
           <CircleDollarSign className="h-6 w-6" />
@@ -197,15 +205,17 @@ export default function AdminCreditsPage() {
           ? "先搜索并选择用户，再直接发放/扣减积分，同时查看该用户最近流水。"
           : "Search and select a user, then adjust credits directly and review recent ledger entries."}
       </span>
+        </>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4 pt-2">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Shield className="h-4 w-4" />
           <span>{isZh ? "仅超级管理员可见" : "Visible to superusers only"}</span>
         </div>
-        <Button variant="secondary" onClick={() => navigate("/admin")}>
+        {!embedded && <Button variant="secondary" onClick={() => navigate("/admin")}>
           {isZh ? "返回管理后台" : "Back to Admin"}
-        </Button>
+        </Button>}
       </div>
 
       <div className="grid gap-4 px-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.45fr)]">

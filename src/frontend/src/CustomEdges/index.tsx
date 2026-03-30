@@ -224,13 +224,15 @@ export function DefaultEdge({
           generationMode === "reference_video" ||
           generationMode === "video_edit"
         ? "参考"
-        : generationMode === "first_frame" || generationMode === "first_last_frame"
+        : generationMode === "first_frame" 
           ? "首帧"
-          : normalizedRole === "last"
-            ? "尾帧"
-            : normalizedRole === "reference"
-              ? "参考"
-              : "首帧";
+          : generationMode === "first_last_frame"
+            ? (normalizedRole === "last" ? "尾帧" : "首帧")
+            : normalizedRole === "last"
+              ? "尾帧"
+              : normalizedRole === "reference"
+                ? "参考"
+                : "首帧";
 
   useEffect(() => {
     if (!isRoleEdge || !fixedRole) return;
@@ -379,8 +381,8 @@ export function DefaultEdge({
     if (nextRole === currentRole) return;
     if (!roleLimits.allowedRoles.includes(nextRole)) {
       setErrorData({
-        title: "Role not supported",
-        list: ["The selected model does not support this image role."],
+        title: "连接用途不受支持",
+        list: ["当前模型不支持该图片用途。"],
       });
       return;
     }
@@ -396,25 +398,25 @@ export function DefaultEdge({
     if (nextRole === "reference") {
       if (!canUpdateImageRole(nextRole, counts, roleLimits)) {
         setErrorData({
-          title: "Reference limit reached",
+          title: "参考素材数量已达上限",
           list: [
-            "No more reference images are allowed for the selected model.",
+            "当前模型不允许继续添加参考素材。",
           ],
         });
         return;
       }
     } else if (hasSameRole && !canDemoteToReference) {
       setErrorData({
-        title: "Role limit reached",
+        title: "连接用途数量已达上限",
         list: [
-          "Another connection already uses this role, and no reference slots remain.",
+          "已有其他连接占用了该用途，且没有可回退的参考素材名额。",
         ],
       });
       return;
     } else if (!hasSameRole && !canUpdateImageRole(nextRole, counts, roleLimits)) {
       setErrorData({
-        title: "Role limit reached",
-        list: ["Another connection already uses this role."],
+        title: "连接用途数量已达上限",
+        list: ["已有其他连接占用了该用途。"],
       });
       return;
     }
@@ -457,8 +459,8 @@ export function DefaultEdge({
     if (!isVideoBridgeEdge) return;
     if (!videoReferLimits.allowedRoles.includes(next)) {
       setErrorData({
-        title: "Role not supported",
-        list: ["The selected model does not support this video role."],
+        title: "连接用途不受支持",
+        list: ["当前模型不支持该视频用途。"],
       });
       return;
     }

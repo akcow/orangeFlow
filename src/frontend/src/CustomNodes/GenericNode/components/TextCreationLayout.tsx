@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import MediaReferencePromptInput from "@/components/MediaReferencePromptInput";
+import type { MediaReferenceSuggestion } from "@/components/mediaReferencePromptUtils";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import RenderInputParameters from "./RenderInputParameters";
 import DoubaoQuickAddMenu from "./DoubaoQuickAddMenu";
@@ -44,10 +46,13 @@ import { getNodeInputColors } from "@/CustomNodes/helpers/get-node-input-colors"
 import { getNodeInputColorsName } from "@/CustomNodes/helpers/get-node-input-colors-name";
 import { computeAlignedNodeTopY } from "@/CustomNodes/helpers/previewCenterAlignment";
 import useHandleOnNewValue from "../../hooks/use-handle-new-value";
+import { parseDoubaoPreviewData } from "../../hooks/use-doubao-preview";
 import { useTextCreationPreview } from "../../hooks/use-text-creation-preview";
 import PromptModal from "@/modals/promptModal";
 import useHandleNodeClass from "@/CustomNodes/hooks/use-handle-node-class";
+import { sanitizePreviewDataUrl } from "./DoubaoPreviewPanel/helpers";
 import { generationPromptInputBusyClass } from "./promptGenerationStyles";
+import { BASE_URL_API } from "@/constants/constants";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "basis-[230px]" },
@@ -57,6 +62,15 @@ const PROMPT_FIELD = "prompt";
 const DRAFT_FIELD = "draft_text";
 const PREFERRED_OUTPUT = "text_output";
 const SENSITIVE_FIELDS: string[] = ["api_key"];
+const GEMINI_MODEL_PREFIX = "gemini-";
+
+type PromptMediaPreview = {
+  id: string;
+  kind: "image" | "video";
+  previewUrl?: string;
+  label: string;
+  fileName?: string;
+};
 
 type Props = {
   data: NodeDataType;
@@ -289,25 +303,6 @@ export default function TextCreationLayout({
 
   const promptField = template[PROMPT_FIELD];
   const draftField = template[DRAFT_FIELD];
-
-  // Image context is delivered through the existing left handle (draft_text).
-  const hasImageContext = useMemo(() => {
-    return edges.some((edge) => {
-      if (edge.target !== data.id) return false;
-      const targetHandle =
-        edge.data?.targetHandle ??
-        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
-      if (targetHandle?.fieldName !== DRAFT_FIELD) return false;
-
-      const sourceHandle =
-        edge.data?.sourceHandle ??
-        (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
-      if (sourceHandle?.name !== "image") return false;
-
-      const sourceNode = nodes.find((node) => node.id === edge.source);
-      return sourceNode?.data?.type === "DoubaoImageCreator";
-    });
-  }, [DRAFT_FIELD, data.id, edges, nodes]);
   const draftHandleMeta = useMemo(() => {
     if (!draftField) return null;
     const colors = getNodeInputColors(
@@ -342,17 +337,27 @@ export default function TextCreationLayout({
     nodeId: data.id,
     name: DRAFT_FIELD,
   });
+  const { handleOnNewValue: handleModelNameChange } = useHandleOnNewValue({
+    node: data.node!,
+    nodeId: data.id,
+    name: "model_name",
+  });
   const { handleOnNewValue: handlePromptChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
     name: PROMPT_FIELD,
   });
+  const draftPreviewValue = useMemo(
+    () => normalizeDraftTextValue(draftField?.value),
+    [draftField?.value],
+  );
+  const draftFieldIsList = Boolean(draftField?.list);
 
   const [previewText, setPreviewText] = useState<string>(
-    draftField?.value ?? "",
+    draftPreviewValue,
   );
   const [isEditing, setIsEditing] = useState<boolean>(
-    Boolean((draftField?.value ?? "").trim()),
+    Boolean(draftPreviewValue.trim()),
   );
   const [isPreviewModalOpen, setPreviewModalOpen] = useState(false);
   const [isRunHovering, setRunHovering] = useState(false);
@@ -363,6 +368,58 @@ export default function TextCreationLayout({
   const [promptCompositionValue, setPromptCompositionValue] = useState<string | null>(null);
   const promptValue = String(promptField?.value ?? "");
   const [promptDraftValue, setPromptDraftValue] = useState(promptValue);
+  const modelField = template.model_name;
+  const modelOptions = useMemo<Array<string | number>>(
+    () => (Array.isArray(modelField?.options) ? modelField.options : []),
+    [modelField?.options],
+  );
+  const firstGeminiModel = useMemo(
+    () =>
+      modelOptions.find((option) =>
+        isGeminiModelName(option),
+      ),
+    [modelOptions],
+  );
+
+  const upstreamPromptMedia = useMemo<PromptMediaPreview[]>(() => {
+    return dedupePromptMediaPreviews(
+      edges.flatMap((edge) => {
+        if (edge.target !== data.id) return [];
+        const targetHandle =
+          edge.data?.targetHandle ??
+          (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+        if (targetHandle?.fieldName !== DRAFT_FIELD) return [];
+
+        const sourceHandle =
+          edge.data?.sourceHandle ??
+          (edge.sourceHandle ? scapeJSONParse(edge.sourceHandle) : null);
+        if (sourceHandle?.name !== "image" && sourceHandle?.name !== "video") {
+          return [];
+        }
+
+        const sourceNode = nodes.find((node) => node.id === edge.source);
+        return resolvePromptMediaPreviewsFromNode(sourceNode);
+      }),
+    );
+  }, [DRAFT_FIELD, data.id, edges, nodes]);
+  const hasMediaContext = upstreamPromptMedia.length > 0;
+  const visiblePromptMedia = useMemo(
+    () => upstreamPromptMedia.slice(0, 6),
+    [upstreamPromptMedia],
+  );
+  const promptMediaSuggestions = useMemo<MediaReferenceSuggestion[]>(
+    () =>
+      upstreamPromptMedia.map((preview, index) => ({
+        id: preview.id,
+        kind: preview.kind,
+        index: index + 1,
+        label: `${preview.kind === "video" ? "Video" : "Image"} ${index + 1}`,
+        token: `{{${preview.kind === "video" ? "Video" : "Image"} ${index + 1}}}`,
+        sourceLabel: preview.label ?? preview.fileName,
+        previewUrl: preview.previewUrl,
+      })),
+    [upstreamPromptMedia],
+  );
 
   useEffect(() => {
     if (!showExpanded) {
@@ -377,8 +434,8 @@ export default function TextCreationLayout({
   const lastAppliedPreviewId = useRef<string | null>(null);
 
   useEffect(() => {
-    setPreviewText(draftField?.value ?? "");
-  }, [draftField?.value]);
+    setPreviewText(draftPreviewValue);
+  }, [draftPreviewValue]);
 
   useEffect(() => {
     if (!current?.text || current.id === lastAppliedPreviewId.current) return;
@@ -387,16 +444,18 @@ export default function TextCreationLayout({
     setIsEditing(true);
     if (
       draftField?.value !== undefined &&
-      current.text !== draftField.value
+      current.text !== draftPreviewValue
     ) {
-      handleDraftChange({ value: current.text });
+      handleDraftChange({
+        value: toDraftFieldValue(current.text, draftFieldIsList),
+      });
     }
     lastAppliedPreviewId.current = current.id;
-  }, [current, draftField?.value, handleDraftChange]);
+  }, [current, draftField?.value, draftFieldIsList, draftPreviewValue, handleDraftChange]);
 
   useEffect(() => {
-    setIsEditing(Boolean((draftField?.value ?? "").trim()));
-  }, [draftField?.value]);
+    setIsEditing(Boolean(draftPreviewValue.trim()));
+  }, [draftPreviewValue]);
 
   const buildFlow = useFlowStore((state) => state.buildFlow);
   const isGlobalBuilding = useFlowStore((state) => state.isBuilding);
@@ -425,6 +484,18 @@ export default function TextCreationLayout({
     if (isPromptFocused || isPromptComposing) return;
     setPromptDraftValue(promptValue);
   }, [isPromptComposing, isPromptFocused, promptValue]);
+
+  useEffect(() => {
+    if (!hasMediaContext) return;
+    if (isGeminiModelName(modelField?.value)) return;
+    if (firstGeminiModel === undefined) return;
+    handleModelNameChange({ value: firstGeminiModel }, { skipSnapshot: true });
+  }, [
+    firstGeminiModel,
+    handleModelNameChange,
+    hasMediaContext,
+    modelField?.value,
+  ]);
 
   const resolvedPromptValue = isPromptComposing
     ? (promptCompositionValue ?? promptDraftValue)
@@ -1225,8 +1296,8 @@ export default function TextCreationLayout({
         ? templateField.options
         : [];
       const disabledOptions =
-        field.name === "model_name" && hasImageContext
-          ? options.filter((opt) => !String(opt).startsWith("gemini-"))
+        field.name === "model_name" && hasMediaContext
+          ? options.filter((opt) => !isGeminiModelName(opt))
           : undefined;
       const tooltipText =
         DOUBAO_CONTROL_HINTS[field.name] ?? DOUBAO_CONFIG_TOOLTIP;
@@ -1239,7 +1310,7 @@ export default function TextCreationLayout({
         disabledOptions,
       };
     }).filter(Boolean) as Array<DoubaoControlConfig>;
-  }, [hasImageContext, template]);
+  }, [hasMediaContext, template]);
 
   const previewOutputHandles = useMemo(() => {
     const outputs = data.node?.outputs ?? [];
@@ -1271,7 +1342,7 @@ export default function TextCreationLayout({
 
   const handlePreviewInput = (value: string) => {
     setPreviewText(value);
-    handleDraftChange({ value });
+    handleDraftChange({ value: toDraftFieldValue(value, draftFieldIsList) });
     setIsEditing(true);
   };
 
@@ -1703,19 +1774,77 @@ export default function TextCreationLayout({
               </PromptModal>
 
               <div className="flex min-h-[168px] flex-col gap-3">
-                <textarea
+                {upstreamPromptMedia.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {visiblePromptMedia.map((preview, index) => {
+                      const isVideo = preview.kind === "video";
+                      const label =
+                        preview.label ||
+                        `${isVideo ? "Video" : "Image"} ${index + 1}`;
+                      return (
+                        <div
+                          key={preview.id}
+                          className="relative h-16 w-16 overflow-hidden rounded-2xl border border-[#D7DEEF] bg-[#F4F6FB] shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-white/10"
+                          title={label}
+                        >
+                          {preview.previewUrl ? (
+                            isVideo ? (
+                              <video
+                                src={preview.previewUrl}
+                                className="h-full w-full object-cover"
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img
+                                src={preview.previewUrl}
+                                alt={label}
+                                className="h-full w-full object-cover"
+                              />
+                            )
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[#6B7285] dark:text-slate-300">
+                              <ForwardedIconComponent
+                                name={isVideo ? "Clapperboard" : "Image"}
+                                className="h-5 w-5"
+                              />
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-2 pb-1 pt-3">
+                            <div className="truncate text-[10px] font-medium text-white">
+                              {isVideo ? `Video ${index + 1}` : `Image ${index + 1}`}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {upstreamPromptMedia.length > visiblePromptMedia.length && (
+                      <span className="inline-flex h-16 items-center rounded-xl border border-dashed border-[#D7DEEF] px-2 text-xs text-[#5E6484] dark:border-white/20 dark:text-slate-300">
+                        +{upstreamPromptMedia.length - visiblePromptMedia.length}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <MediaReferencePromptInput
                   rows={4}
                   value={resolvedPromptValue}
                   disabled={busy}
                   readOnly={promptReadonly}
+                  suggestions={promptMediaSuggestions}
+                  dropdownPosition="top"
+                  contentClassName={cn(
+                    "min-h-[96px] max-h-[96px] overflow-hidden p-0 pr-20 text-sm leading-6 text-[#1C202D]",
+                    "dark:text-white",
+                  )}
+                  placeholderClassName="text-[#9CA3C0] dark:text-slate-400"
                   placeholder="描述你想要生成的内容，并在下方调整生成参数。（按下 Enter 生成，Shift+Enter 换行）"
                   className={cn(
-                    "nopan nodelete nodrag noflow nowheel custom-scroll w-full resize-none",
+                    "custom-scroll w-full resize-none",
                     "min-h-[96px] max-h-[96px] overflow-y-auto",
-                    "border-0 bg-transparent p-0 pr-20 text-sm leading-6 text-[#1C202D] focus:outline-none",
-                    "placeholder:text-[#9CA3C0]",
+                    "border-0 p-0 pr-20 text-sm leading-6 focus:outline-none",
                     generationPromptInputBusyClass(busy),
-                    "dark:text-white dark:placeholder:text-slate-400",
+                    "dark:text-white",
                   )}
                   onFocus={() => {
                     setPromptFocused(true);
@@ -1727,8 +1856,7 @@ export default function TextCreationLayout({
                   onBlur={() => {
                     setPromptFocused(false);
                   }}
-                  onChange={(e) => {
-                    const next = e.target.value;
+                  onValueChange={(next) => {
                     setPromptDraftValue(next);
                     if (isPromptComposing) {
                       setPromptCompositionValue(next);
@@ -1897,4 +2025,223 @@ export default function TextCreationLayout({
       </Dialog>
     </div>
   );
+}
+
+function isGeminiModelName(value: unknown): boolean {
+  return String(value ?? "").trim().startsWith(GEMINI_MODEL_PREFIX);
+}
+
+function resolvePromptMediaPreviewsFromNode(
+  sourceNode: GenericNodeType | undefined,
+): PromptMediaPreview[] {
+  const nodeType = String(sourceNode?.data?.type ?? "").trim();
+
+  if (nodeType === "UserUploadImage" || nodeType === "UserUploadVideo") {
+    const kind = nodeType === "UserUploadVideo" ? "video" : "image";
+    const fileField = sourceNode?.data?.node?.template?.file as
+      | { file_path?: unknown; value?: unknown }
+      | undefined;
+    const filePath =
+      extractSingleString(fileField?.file_path) ||
+      extractSingleString(fileField?.value);
+    if (!filePath) return [];
+
+    const fileName =
+      extractSingleString(fileField?.value) ||
+      extractFileName(filePath) ||
+      `${kind === "video" ? "Video" : "Image"} 1`;
+    const previewUrl = toStablePreviewUrl(filePath, kind);
+    if (!previewUrl) return [];
+
+    return [
+      {
+        id: `${sourceNode?.id ?? nodeType}-upload`,
+        kind,
+        previewUrl,
+        label: fileName,
+        fileName,
+      },
+    ];
+  }
+
+  if (nodeType !== "DoubaoImageCreator" && nodeType !== "DoubaoVideoGenerator") {
+    return [];
+  }
+
+  const preview = parseDoubaoPreviewData(
+    nodeType,
+    sourceNode?.data?.node?.template?.draft_output?.value,
+  );
+  if (!preview?.available) return [];
+
+  if (preview.kind === "image") {
+    const images =
+      Array.isArray(preview.payload?.images) && preview.payload.images.length
+        ? preview.payload.images
+        : [preview.payload];
+
+    return images
+      .map((image: any, index: number) => {
+        const previewUrl = resolveImagePreviewUrl(image);
+        if (!previewUrl) return null;
+        const label =
+          image?.display_name ??
+          image?.name ??
+          image?.filename ??
+          `Image ${index + 1}`;
+        return {
+          id: `${sourceNode?.id ?? nodeType}-image-${index}`,
+          kind: "image" as const,
+          previewUrl,
+          label,
+          fileName: image?.filename,
+        };
+      })
+      .filter(Boolean) as PromptMediaPreview[];
+  }
+
+  if (preview.kind === "video") {
+    const videos =
+      Array.isArray(preview.payload?.videos) && preview.payload.videos.length
+        ? preview.payload.videos
+        : [preview.payload];
+
+    return videos
+      .map((video: any, index: number) => {
+        const previewUrl = resolveVideoPreviewUrl(video);
+        const videoSource = resolveVideoSourceUrl(video);
+        if (!previewUrl && !videoSource) return null;
+        const label =
+          video?.display_name ??
+          video?.name ??
+          video?.filename ??
+          `Video ${index + 1}`;
+        return {
+          id: `${sourceNode?.id ?? nodeType}-video-${index}`,
+          kind: "video" as const,
+          previewUrl: previewUrl ?? videoSource ?? undefined,
+          label,
+          fileName: video?.filename,
+        };
+      })
+      .filter(Boolean) as PromptMediaPreview[];
+  }
+
+  return [];
+}
+
+function resolveImagePreviewUrl(payload: any): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const inlineSource = sanitizePreviewDataUrl(
+    payload.image_data_url ??
+      payload.preview_base64 ??
+      payload.preview_data_url ??
+      payload.data_url,
+  );
+  if (inlineSource) return inlineSource;
+
+  const remoteSource = [
+    payload.image_url,
+    payload.url,
+    payload.edited_image_url,
+    payload.original_image_url,
+  ].find((candidate) => typeof candidate === "string" && candidate.trim());
+
+  return typeof remoteSource === "string" ? remoteSource.trim() : undefined;
+}
+
+function resolveVideoPreviewUrl(payload: any): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const inlineCover = sanitizePreviewDataUrl(
+    payload.cover_preview_base64 ??
+      payload.preview_base64 ??
+      payload.preview_data_url,
+  );
+  if (inlineCover) return inlineCover;
+
+  const remoteCover = [payload.cover_url, payload.last_frame_url].find(
+    (candidate) => typeof candidate === "string" && candidate.trim(),
+  );
+
+  return typeof remoteCover === "string" ? remoteCover.trim() : undefined;
+}
+
+function resolveVideoSourceUrl(payload: any): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const source = [payload.video_url, payload.url, payload.video].find(
+    (candidate) => typeof candidate === "string" && candidate.trim(),
+  );
+  return typeof source === "string" ? source.trim() : undefined;
+}
+
+function dedupePromptMediaPreviews(
+  previews: PromptMediaPreview[],
+): PromptMediaPreview[] {
+  const seen = new Set<string>();
+  const result: PromptMediaPreview[] = [];
+
+  previews.forEach((preview) => {
+    const key = `${preview.kind}:${preview.previewUrl ?? preview.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(preview);
+  });
+
+  return result;
+}
+
+function normalizeDraftTextValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .join("\n");
+}
+
+function toDraftFieldValue(value: string, isList: boolean): string | string[] {
+  if (!isList) return value;
+  const trimmed = value.trim();
+  return trimmed ? [value] : [];
+}
+
+function extractSingleString(value: unknown): string {
+  if (!value && value !== 0) return "";
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0] : "";
+  }
+  return typeof value === "string" ? value : "";
+}
+
+function extractFileName(value: string): string | undefined {
+  if (!value) return undefined;
+  const sanitized = value.replace(/\\/g, "/");
+  const parts = sanitized.split("/");
+  return parts.pop() || undefined;
+}
+
+function toStablePreviewUrl(
+  raw: string,
+  kind: "image" | "video",
+): string | null {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return null;
+  if (/^(data:|blob:|https?:)/i.test(trimmed)) return trimmed;
+
+  const normalized = trimmed.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (normalized.startsWith("api/v1/files/")) {
+    return `/${normalized}`;
+  }
+  if (normalized.startsWith("files/")) {
+    return `${BASE_URL_API}${normalized}`;
+  }
+
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length < 2) return null;
+  const [flowId, ...rest] = parts;
+  const encodedFlow = encodeURIComponent(flowId);
+  const encodedFile = rest.map((part) => encodeURIComponent(part)).join("/");
+  const prefix = kind === "image" ? "files/images/" : "files/media/";
+  return `${BASE_URL_API}${prefix}${encodedFlow}/${encodedFile}`;
 }

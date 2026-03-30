@@ -174,6 +174,7 @@ export function getAvailableVideoGenerationModes(
   inputProfile: {
     hasImageUpstream: boolean;
     hasVideoUpstream: boolean;
+    hasVisualUpstream?: boolean;
   },
 ): VideoGenerationMode[] {
   const supported = getSupportedVideoGenerationModes(modelName);
@@ -195,6 +196,10 @@ export function getAvailableVideoGenerationModes(
     return supported.filter((mode) => imageModes.has(mode));
   }
 
+  if (inputProfile.hasVisualUpstream) {
+    return supported.filter((mode) => mode !== "text");
+  }
+
   return supported.filter((mode) => mode === "text");
 }
 
@@ -209,10 +214,10 @@ export function normalizeAvailableVideoGenerationMode(
   mode: unknown,
   availableModes: VideoGenerationMode[],
 ): VideoGenerationMode {
-  const normalizedMode =
-    typeof mode === "string" ? (mode.trim() as VideoGenerationMode) : "";
-  if (availableModes.includes(normalizedMode)) {
-    return normalizedMode;
+  const normalizedMode: string =
+    typeof mode === "string" ? mode.trim() : "";
+  if (availableModes.includes(normalizedMode as VideoGenerationMode)) {
+    return normalizedMode as VideoGenerationMode;
   }
   return availableModes[0] ?? getDefaultVideoGenerationMode(modelName);
 }
@@ -221,11 +226,11 @@ export function normalizeVideoGenerationMode(
   modelName: string,
   mode: unknown,
 ): VideoGenerationMode {
-  const normalizedMode =
-    typeof mode === "string" ? (mode.trim() as VideoGenerationMode) : "";
+  const normalizedMode: string =
+    typeof mode === "string" ? mode.trim() : "";
   const supported = getSupportedVideoGenerationModes(modelName);
-  if (supported.includes(normalizedMode)) {
-    return normalizedMode;
+  if (supported.includes(normalizedMode as VideoGenerationMode)) {
+    return normalizedMode as VideoGenerationMode;
   }
   return getDefaultVideoGenerationMode(modelName);
 }
@@ -240,6 +245,24 @@ export function getDoubaoVideoGenerationMode(
   return normalizeVideoGenerationMode(getDoubaoVideoModelName(node), rawMode);
 }
 
+export function isLikelyVisualSourceType(nodeType?: string): boolean {
+  const normalized = String(nodeType ?? "").trim().toLowerCase();
+  return normalized.includes("image") || normalized.includes("video");
+}
+
+export function getPreferredVisualGenerationMode(
+  modelName: string,
+  sourceType?: string,
+): VideoGenerationMode | null {
+  const supported = getSupportedVideoGenerationModes(modelName);
+  const candidates: VideoGenerationMode[] = isLikelyVisualSourceType(sourceType) &&
+    String(sourceType ?? "").trim().toLowerCase().includes("video")
+    ? ["reference_video", "video_edit"]
+    : ["first_frame", "first_last_frame", "reference_image"];
+
+  return candidates.find((mode) => supported.includes(mode)) ?? null;
+}
+
 export function getImageRoleLimitsForGenerationMode(
   modelName: string,
   generationMode: unknown,
@@ -252,8 +275,17 @@ export function getImageRoleLimitsForGenerationMode(
     return { allowedRoles: [], maxTotal: 0, maxReference: 0 };
   }
 
-  if (normalizedMode === "first_frame" || normalizedMode === "first_last_frame") {
+  if (normalizedMode === "first_frame") {
     return { allowedRoles: ["first"], maxTotal: 1, maxReference: 0 };
+  }
+
+  if (normalizedMode === "first_last_frame") {
+    const supportsLast = baseLimits.allowedRoles.includes("last");
+    return {
+      allowedRoles: supportsLast ? ["first", "last"] : ["first"],
+      maxTotal: supportsLast ? 2 : 1,
+      maxReference: 0,
+    };
   }
 
   if (normalizedMode === "reference_image") {
@@ -444,7 +476,10 @@ export function getImageRoleCounts(
     counts[role] += 1;
   });
   if (targetNode) {
-    const limits = getImageRoleLimits(getDoubaoVideoModelName(targetNode));
+    const limits = getImageRoleLimitsForGenerationMode(
+      getDoubaoVideoModelName(targetNode),
+      getDoubaoVideoGenerationMode(targetNode),
+    );
     const localCounts = getLocalImageRoleCounts(targetNode, limits);
     counts.total += localCounts.total;
     counts.first += localCounts.first;
@@ -1074,6 +1109,18 @@ export function isValidConnection(
   const resolvedSourceType =
     sourceNode?.data?.type ?? (sourceHandleObject?.dataType as string | undefined);
   const targetFieldName = targetHandleObject?.fieldName ?? targetHandleObject?.name;
+  const allowVisualMediaConnection =
+    targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+    (targetFieldName === IMAGE_ROLE_FIELD ||
+      targetFieldName === "last_frame_image") &&
+    isLikelyVisualSourceType(resolvedSourceType);
+  if (
+    targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+    targetFieldName === "prompt" &&
+    isLikelyVisualSourceType(resolvedSourceType)
+  ) {
+    return false;
+  }
   if (
     targetNode?.data?.type === IMAGE_ROLE_TARGET &&
     (targetFieldName === IMAGE_ROLE_FIELD || targetFieldName === "last_frame_image") &&
@@ -1149,6 +1196,7 @@ export function isValidConnection(
   };
 
   if (
+    allowVisualMediaConnection ||
     targetHandleObject.inputTypes?.some(
       (n) => n === sourceHandleObject.dataType,
     ) ||
@@ -1166,6 +1214,9 @@ export function isValidConnection(
     )
   ) {
     const targetNodeDataNode = targetNode?.data?.node;
+    const allowLegacyMultiDraftConnections =
+      targetNode?.data?.type === "TextCreation" &&
+      targetHandleObject.fieldName === "draft_text";
     if (
       (!targetNodeDataNode &&
         !edgesArray.find((e) => e.targetHandle === effectiveTargetHandle)) ||
@@ -1174,9 +1225,11 @@ export function isValidConnection(
         !edgesArray.find((e) => e.targetHandle === effectiveTargetHandle)) ||
       (targetNodeDataNode &&
         !targetHandleObject.output_types &&
-        ((!targetNodeDataNode.template[targetHandleObject.fieldName].list &&
+        (((!targetNodeDataNode.template[targetHandleObject.fieldName].list &&
+          !allowLegacyMultiDraftConnections) &&
           !edgesArray.find((e) => e.targetHandle === effectiveTargetHandle)) ||
-          targetNodeDataNode.template[targetHandleObject.fieldName].list))
+          targetNodeDataNode.template[targetHandleObject.fieldName].list ||
+          allowLegacyMultiDraftConnections))
     ) {
       // If the current target handle is a loop component, allow connection immediately
       if (targetHandleObject.output_types) {
@@ -1205,20 +1258,49 @@ export function isValidConnection(
         targetNode?.data?.type === IMAGE_ROLE_TARGET &&
         targetHandleObject?.fieldName === IMAGE_ROLE_FIELD
       ) {
-        // Video-to-video "bridge" edges (e.g. Wan r2v reference videos) shouldn't consume
-        // the image-role budget for first_frame_image.
+        const modelName = getDoubaoVideoModelName(targetNode);
+        const generationMode = getDoubaoVideoGenerationMode(targetNode);
+        // Video-to-video "bridge" edges (e.g. Wan r2v reference videos) use a dedicated
+        // video budget and are only allowed in video-driven modes.
         const isVideoSourceType = (nodeType?: string) =>
           nodeType === IMAGE_ROLE_TARGET || nodeType === "UserUploadVideo";
         const isVideoBridgeSource =
           isVideoSourceType(sourceNode?.data?.type);
+        const preferredVideoMode = getPreferredVisualGenerationMode(modelName, resolvedSourceType);
+        
+        const effectiveGenerationMode =
+          (generationMode === "text" || (isVideoBridgeSource && preferredVideoMode))
+            ? preferredVideoMode ?? generationMode
+            : generationMode;
+            
         const isVideoBridgeEdge =
           isVideoBridgeSource &&
           targetNode?.data?.type === IMAGE_ROLE_TARGET;
         if (isVideoBridgeEdge) {
-          return true;
+          const maxVideoEdges =
+            String(modelName ?? "").trim().toLowerCase() === "viduq2-pro" ? 2 : 1;
+          const existingVideoEdges = edgesArray.filter((edge) => {
+            if (edge.target !== target) return false;
+            const fieldName = getEdgeTargetFieldName(edge);
+            if (fieldName !== IMAGE_ROLE_FIELD) return false;
+            const edgeVideoReferType = edge.data?.videoReferType;
+            if (
+              edgeVideoReferType === "base" ||
+              edgeVideoReferType === "feature"
+            ) {
+              return true;
+            }
+            const edgeSourceNode = nodesArray.find(
+              (node) => node.id === edge.source,
+            );
+            return isVideoSourceType(edgeSourceNode?.data?.type);
+          }).length;
+          return existingVideoEdges < maxVideoEdges;
         }
-        const modelName = getDoubaoVideoModelName(targetNode);
-        const limits = getImageRoleLimits(modelName);
+        const limits = getImageRoleLimitsForGenerationMode(
+          modelName,
+          effectiveGenerationMode,
+        );
         const counts = getImageRoleCounts(edgesArray, target!, targetNode);
         const hasIncomingVideoSourceEdge = edgesArray.some((edge) => {
           if (edge.target !== target) return false;
@@ -1234,6 +1316,21 @@ export function isValidConnection(
           return counts.reference < maxReference;
         }
         if (!pickImageRoleForNewEdge(limits, counts)) {
+          return false;
+        }
+      }
+      if (
+        targetNode?.data?.type === IMAGE_ROLE_TARGET &&
+        targetHandleObject?.fieldName === "last_frame_image"
+      ) {
+        const generationMode = getDoubaoVideoGenerationMode(targetNode);
+        if (generationMode !== "first_last_frame") {
+          return false;
+        }
+        const isVideoSourceType =
+          sourceNode?.data?.type === IMAGE_ROLE_TARGET ||
+          sourceNode?.data?.type === "UserUploadVideo";
+        if (isVideoSourceType) {
           return false;
         }
       }

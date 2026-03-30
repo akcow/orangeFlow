@@ -144,6 +144,7 @@ export type LoginType = {
   grant_type?: string;
   username: string;
   password: string;
+  remember_me?: boolean;
   scrope?: string;
   client_id?: string;
   client_secret?: string;

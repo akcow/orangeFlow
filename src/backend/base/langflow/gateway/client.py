@@ -43,7 +43,7 @@ def _run_coro_sync(coro):
 def chat_completions(
     *, model: str, messages: list[dict[str, Any]], stream: bool = False, user_id: str | None = None, **kwargs
 ) -> dict[str, Any]:
-    provider_name, provider = resolve_provider(model)
+    provider_name, provider = resolve_provider(model, service_type="text")
     req = ChatCompletionRequest(model=model, messages=messages, stream=stream, **kwargs)
     out = _run_coro_sync(provider.chat_completion(req))
     if stream:
@@ -52,13 +52,13 @@ def chat_completions(
 
 
 def images_generations(*, model: str, prompt: str, user_id: str | None = None, **kwargs) -> dict[str, Any]:
-    _provider_name, provider = resolve_provider(model)
+    _provider_name, provider = resolve_provider(model, service_type="image")
     req = ImageGenerationRequest(model=model, prompt=prompt, **kwargs)
     return _run_coro_sync(provider.image_generation(req))
 
 
 def videos_create(*, model: str, prompt: str, user_id: str | None = None, **kwargs) -> dict[str, Any]:
-    provider_name, provider = resolve_provider(model)
+    provider_name, provider = resolve_provider(model, service_type="video")
     req = VideoGenerationRequest(model=model, prompt=prompt, **kwargs)
     result = _run_coro_sync(provider.video_generation(req))
     if isinstance(result, dict) and result.get("id"):
@@ -75,17 +75,17 @@ def videos_status(*, video_id: str, user_id: str | None = None) -> dict[str, Any
     raw_id = decoded.raw_id
 
     if provider_name == "doubao":
-        _n, provider = resolve_provider("doubao-seedance-1-5-pro-251215")
+        _n, provider = resolve_provider("doubao-seedance-1-5-pro-251215", service_type="video")
     elif provider_name == "dashscope":
-        _n, provider = resolve_provider("wan2.6-t2v")
+        _n, provider = resolve_provider("wan2.6-t2v", service_type="video")
     elif provider_name == "sora":
-        _n, provider = resolve_provider("sora-2")
+        _n, provider = resolve_provider("sora-2", service_type="video")
     elif provider_name == "veo":
-        _n, provider = resolve_provider("veo-3.1-generate-preview")
+        _n, provider = resolve_provider("veo-3.1-generate-preview", service_type="video")
     elif provider_name == "vidu":
-        _n, provider = resolve_provider("viduq3-pro")
+        _n, provider = resolve_provider("viduq3-pro", service_type="video")
     elif provider_name == "kling":
-        _n, provider = resolve_provider("kling-video-o1")
+        _n, provider = resolve_provider("kling-video-o1", service_type="video")
     else:
         raise ValueError(f"Unknown provider in task id: {provider_name!r}")
 
@@ -140,7 +140,7 @@ def videos_content(*, video_id: str, user_id: str | None = None) -> bytes:
     if provider_name != "veo":
         raise ValueError("Only Veo content download is supported by the sync gateway client.")
 
-    _n, provider = resolve_provider("veo-3.1-generate-preview")
+    _n, provider = resolve_provider("veo-3.1-generate-preview", service_type="video")
     url = f"{provider.base_url.rstrip('/')}/v1/videos/{raw_id}/content"
 
     headers = {}
@@ -153,6 +153,6 @@ def videos_content(*, video_id: str, user_id: str | None = None) -> bytes:
 
 
 def audio_speech(*, model: str, input: str, voice: str, user_id: str | None = None, **kwargs) -> bytes:
-    _provider_name, provider = resolve_provider(model)
+    _provider_name, provider = resolve_provider(model, service_type="audio")
     req = AudioSpeechRequest(model=model, input=input, voice=voice, **kwargs)
     return _run_coro_sync(provider.audio_speech(req))

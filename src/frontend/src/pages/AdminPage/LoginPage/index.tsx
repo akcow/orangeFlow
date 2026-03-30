@@ -4,6 +4,7 @@ import LangflowLogo from "@/assets/LangflowLogo.svg?react";
 import { useLoginUser } from "@/controllers/API/queries/auth";
 import { t } from "@/i18n/t";
 import { Button } from "../../../components/ui/button";
+import { Checkbox } from "../../../components/ui/checkbox";
 import { Input } from "../../../components/ui/input";
 import { SIGNIN_ERROR_ALERT } from "../../../constants/alerts_constants";
 import { CONTROL_LOGIN_STATE } from "../../../constants/constants";
@@ -20,7 +21,7 @@ export default function LoginAdminPage() {
     useState<loginInputStateType>(CONTROL_LOGIN_STATE);
   const { login } = useContext(AuthContext);
   const queryClient = useQueryClient();
-  const { password, username } = inputState;
+  const { password, username, rememberMe } = inputState;
   const setErrorData = useAlertStore((state) => state.setErrorData);
   function handleInput({
     target: { name, value },
@@ -34,6 +35,7 @@ export default function LoginAdminPage() {
     const user: LoginType = {
       username: username,
       password: password,
+      remember_me: rememberMe,
     };
 
     mutate(user, {
@@ -72,6 +74,21 @@ export default function LoginAdminPage() {
           className="bg-background"
           placeholder={t("Password")}
         />
+        <label
+          htmlFor="admin-remember-me"
+          className="flex w-full cursor-pointer items-center gap-2 text-sm text-muted-foreground"
+        >
+          <Checkbox
+            id="admin-remember-me"
+            checked={rememberMe}
+            onCheckedChange={(checked) => {
+              handleInput({
+                target: { name: "rememberMe", value: checked === true },
+              });
+            }}
+          />
+          <span>{t("Remember me")}</span>
+        </label>
         <Button
           onClick={() => {
             signIn();

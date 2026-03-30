@@ -11,6 +11,20 @@ import { updateHiddenOutputs } from "./update-hidden-outputs";
 // Map to store debounced functions for each node ID
 const debouncedFunctions = new Map<string, ReturnType<typeof debounce>>();
 
+export const cancelMutateTemplateDebounce = (
+  nodeId: string | string[],
+): void => {
+  const nodeIds = Array.isArray(nodeId) ? nodeId : [nodeId];
+
+  nodeIds.forEach((id) => {
+    const debouncedFn = debouncedFunctions.get(id);
+    if (!debouncedFn) return;
+
+    debouncedFn.cancel();
+    debouncedFunctions.delete(id);
+  });
+};
+
 export const mutateTemplate = async (
   newValue,
   nodeId: string,
@@ -60,15 +74,7 @@ export const mutateTemplate = async (
               );
               newNode.tool_mode = toolMode ?? node.tool_mode;
               newNode.last_updated = newTemplate.last_updated;
-              try {
-                setNodeClass(newNode);
-              } catch (e) {
-                if (e instanceof Error && e.message === "Node not found") {
-                  console.error("Node not found");
-                } else {
-                  throw e;
-                }
-              }
+              setNodeClass(newNode);
             }
             callback?.();
           } catch (e) {

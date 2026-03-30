@@ -1,9 +1,11 @@
 import * as Form from "@radix-ui/react-form";
-import { useContext, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useContext, useState } from "react";
+import { useTranslation } from "react-i18next";
 import IconComponent from "@/components/common/genericIconComponent";
 import InputComponent from "@/components/core/parameterRenderComponent/components/inputComponent";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,7 +27,6 @@ import type {
   loginInputStateType,
 } from "../../types/components";
 import { cn } from "../../utils/utils";
-import { useTranslation } from "react-i18next";
 
 export default function LoginPage(): JSX.Element {
   const [inputState, setInputState] =
@@ -34,7 +35,7 @@ export default function LoginPage(): JSX.Element {
   const [iconLoadFailed, setIconLoadFailed] = useState(false);
   const [wordmarkLoadFailed, setWordmarkLoadFailed] = useState(false);
 
-  const { username, password } = inputState;
+  const { username, password, rememberMe } = inputState;
 
   useSanitizeRedirectUrl();
 
@@ -55,6 +56,10 @@ export default function LoginPage(): JSX.Element {
   const usernameInvalid = isZh
     ? "请输入有效的邮箱地址"
     : "Please enter a valid email address";
+  const rememberMeLabel = isZh ? "记住我" : "Remember me";
+  const rememberMeHint = isZh
+    ? "在这台设备上保持登录状态"
+    : "Keep me signed in on this device";
 
   const changeLanguage = (nextLang: "zh-CN" | "en") => {
     void i18n.changeLanguage(nextLang);
@@ -73,6 +78,7 @@ export default function LoginPage(): JSX.Element {
     const user: LoginType = {
       username: username.trim(),
       password: password.trim(),
+      remember_me: rememberMe,
     };
 
     mutate(user, {
@@ -229,6 +235,35 @@ export default function LoginPage(): JSX.Element {
                 {t("Please enter your password")}
               </Form.Message>
             </Form.Field>
+
+            <div className="flex items-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+              <label
+                htmlFor="remember-me"
+                className="flex cursor-pointer items-center gap-3"
+              >
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(checked) => {
+                    handleInput({
+                      target: {
+                        name: "rememberMe",
+                        value: checked === true,
+                      },
+                    });
+                  }}
+                  className="border-white/30 data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500"
+                />
+                <span className="flex flex-col">
+                  <span className="text-sm font-medium text-white">
+                    {rememberMeLabel}
+                  </span>
+                  <span className="text-xs text-white/45">
+                    {rememberMeHint}
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
 
           <div className="mt-6 w-full">
@@ -247,7 +282,7 @@ export default function LoginPage(): JSX.Element {
           <div className="my-8 flex w-full items-center">
             <div className="h-[1px] flex-1 bg-white/10" />
             <div className="px-4 text-[13px] text-white/40">
-              {isZh ? "或者" : "Or"}
+              {isZh ? "或" : "Or"}
             </div>
             <div className="h-[1px] flex-1 bg-white/10" />
           </div>

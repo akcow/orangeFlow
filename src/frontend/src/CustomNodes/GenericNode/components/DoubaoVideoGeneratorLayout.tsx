@@ -10,6 +10,7 @@ import RenderInputParameters from "./RenderInputParameters";
 import PromptModal from "@/modals/promptModal";
 import { cn } from "@/utils/utils";
 import type {
+  AllNodeType,
   EdgeType,
   GenericNodeType,
   NodeDataType,
@@ -61,6 +62,7 @@ import useHandleNodeClass from "@/CustomNodes/hooks/use-handle-node-class";
 import useHandleOnNewValue, {
   type handleOnNewValueType,
 } from "../../hooks/use-handle-new-value";
+import { parseDoubaoPreviewData } from "../../hooks/use-doubao-preview";
 import type { InputFieldType } from "@/types/api";
 import { createFileUpload } from "@/helpers/create-file-upload";
 import useAlertStore from "@/stores/alertStore";
@@ -478,6 +480,7 @@ export default function DoubaoVideoGeneratorLayout({
   const upstreamGenerationInputProfile = useMemo(() => {
     let hasImageUpstream = false;
     let hasVideoUpstream = false;
+    let hasVisualUpstream = false;
 
     edges.forEach((edge) => {
       if (edge.target !== data.id) return;
@@ -486,19 +489,15 @@ export default function DoubaoVideoGeneratorLayout({
         (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
       const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
       if (fieldName !== FIRST_FRAME_FIELD && fieldName !== LAST_FRAME_FIELD) return;
+      hasVisualUpstream = true;
 
-      const sourceType = String(
-        nodes.find((node) => node.id === edge.source)?.data?.type ?? "",
-      );
-      if (sourceType === "DoubaoImageCreator" || sourceType === "UserUploadImage") {
-        hasImageUpstream = true;
-      }
-      if (sourceType === "DoubaoVideoGenerator" || sourceType === "UserUploadVideo") {
-        hasVideoUpstream = true;
-      }
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const mediaKind = inferUpstreamVisualMediaKind(sourceNode, fieldName, edge);
+      if (mediaKind === "image") hasImageUpstream = true;
+      if (mediaKind === "video") hasVideoUpstream = true;
     });
 
-    return { hasImageUpstream, hasVideoUpstream };
+    return { hasImageUpstream, hasVideoUpstream, hasVisualUpstream };
   }, [LAST_FRAME_FIELD, FIRST_FRAME_FIELD, data.id, edges, nodes]);
   const availableGenerationModes = useMemo(
     () =>
@@ -1247,10 +1246,8 @@ export default function DoubaoVideoGeneratorLayout({
       const targetHandle = parsedTargetHandle;
       const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
       if (fieldName !== FIRST_FRAME_FIELD) return false;
-      const edgeVideoReferType = edge.data?.videoReferType;
-      if (edgeVideoReferType === "base" || edgeVideoReferType === "feature") return true;
       const sourceNode = nodes.find((node) => node.id === edge.source);
-      return sourceNode?.data?.type === "DoubaoVideoGenerator" || sourceNode?.data?.type === "UserUploadVideo";
+      return inferUpstreamVisualMediaKind(sourceNode, fieldName, edge) === "video";
     });
   }, [FIRST_FRAME_FIELD, data.id, edges, nodes]);
   const canRunViduUpscale =
@@ -1607,6 +1604,13 @@ export default function DoubaoVideoGeneratorLayout({
       if (field.name === "generation_mode") {
         options = availableGenerationModes;
         value = selectedGenerationMode;
+        if (hasIncomingVideoBridge) {
+          const allowedModes = new Set(["reference_video", "video_edit"]);
+          options = options.filter((opt) => allowedModes.has(String(opt)));
+          if (!allowedModes.has(String(value))) {
+            value = options.length > 0 ? options[0] : "video_edit";
+          }
+        }
         disabledOptions = [];
       }
 
@@ -1877,8 +1881,7 @@ export default function DoubaoVideoGeneratorLayout({
           "wan2.6",
           "viduq2-pro",
         ]);
-        const extraDisabled = options.filter((option) => !allowed.has(String(option).trim().toLowerCase()));
-        disabledOptions = [...(disabledOptions ?? []), ...extraDisabled];
+        options = options.filter((option) => allowed.has(String(option).trim().toLowerCase()));
         const normalizedValue = String(value ?? "").trim().toLowerCase();
         if (!allowed.has(normalizedValue)) {
           const normalizedOptions = options.map((opt) => String(opt).trim());
@@ -2007,8 +2010,9 @@ export default function DoubaoVideoGeneratorLayout({
   );
 
   useEffect(() => {
-    const pendingTemplateUpdates: Array<{ name: string; value: string | number }> = [];
+    const pendingTemplateUpdates: Array<{ name: string; value: any }> = [];
     const syncableConfigs = [
+      modelNameConfig,
       generationModeConfig,
       aspectRatioConfig,
       resolutionConfig,
@@ -2080,6 +2084,57 @@ export default function DoubaoVideoGeneratorLayout({
     setNode,
     template,
     updateNodeInternals,
+  ]);
+
+  useEffect(() => {
+    const nextEdges = edges.map((edge) => {
+      if (edge.target !== data.id) return edge;
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
+      if (fieldName !== PROMPT_NAME) return edge;
+
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      if (inferUpstreamVisualMediaKind(sourceNode, FIRST_FRAME_FIELD, edge) === null) {
+        return edge;
+      }
+
+      const nextTargetHandle = {
+        ...(targetHandle ?? {}),
+        inputTypes: firstFrameField.input_types,
+        type: firstFrameField.type,
+        id: data.id,
+        fieldName: FIRST_FRAME_FIELD,
+        ...(firstFrameField.proxy ? { proxy: firstFrameField.proxy } : {}),
+      };
+
+      return {
+        ...edge,
+        targetHandle: scapedJSONStringfy(nextTargetHandle),
+        data: {
+          ...(edge.data ?? {}),
+          targetHandle: nextTargetHandle,
+        },
+      } as any;
+    });
+
+    const changed = nextEdges.some((edge, index) => edge !== edges[index]);
+    if (!changed) return;
+
+    takeSnapshot();
+    setEdges(nextEdges);
+  }, [
+    FIRST_FRAME_FIELD,
+    PROMPT_NAME,
+    data.id,
+    edges,
+    firstFrameField.input_types,
+    firstFrameField.proxy,
+    firstFrameField.type,
+    nodes,
+    setEdges,
+    takeSnapshot,
   ]);
 
   // Reset config params to defaults when model changes
@@ -2223,6 +2278,237 @@ export default function DoubaoVideoGeneratorLayout({
     template,
   ]);
 
+  useEffect(() => {
+    const getTargetFieldName = (edge: EdgeType) => {
+      const targetHandle =
+        edge.data?.targetHandle ??
+        (edge.targetHandle ? scapeJSONParse(edge.targetHandle) : null);
+      return targetHandle?.fieldName ?? targetHandle?.name;
+    };
+    const updateEdge = (
+      edge: EdgeType,
+      patch: Partial<NonNullable<EdgeType["data"]>>,
+    ): EdgeType => {
+      const nextData = {
+        ...(edge.data ?? {}),
+        ...patch,
+      };
+      const hasChanged = Object.entries(patch).some(
+        ([key, value]) => (edge.data as Record<string, unknown> | undefined)?.[key] !== value,
+      );
+      if (!hasChanged) return edge;
+      return {
+        ...edge,
+        data: nextData,
+      } as any;
+    };
+
+    const incomingRoleEdges = edges.filter(
+      (edge) => edge.target === data.id && getTargetFieldName(edge) === FIRST_FRAME_FIELD,
+    );
+    const totalRoleEdges = incomingRoleEdges.length;
+    const referenceLimits = getImageRoleLimitsForGenerationMode(
+      normalizedModelName,
+      selectedGenerationMode,
+    );
+    const maxReference = referenceLimits.maxReference ?? referenceLimits.maxTotal;
+    const maxVideoEdges = normalizedModelName === "viduq2-pro" ? 2 : 1;
+
+    let changed = false;
+    let keptFirstFrameImage = false;
+    let keptLastFrame = false;
+    let keptReferenceImages = 0;
+    let keptVideoEdges = 0;
+
+    const nextEdges: EdgeType[] = [];
+    edges.forEach((edge) => {
+      if (edge.target !== data.id) {
+        nextEdges.push(edge);
+        return;
+      }
+
+      const fieldName = getTargetFieldName(edge);
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const isVideoBridgeEdge =
+        fieldName === FIRST_FRAME_FIELD &&
+        inferUpstreamVisualMediaKind(sourceNode, fieldName, edge) === "video";
+      const isImageRoleEdge =
+        fieldName === FIRST_FRAME_FIELD && !isVideoBridgeEdge;
+      const isLastFrameEdge = fieldName === LAST_FRAME_FIELD;
+
+      if (!isImageRoleEdge && !isVideoBridgeEdge && !isLastFrameEdge) {
+        nextEdges.push(edge);
+        return;
+      }
+
+      if (selectedGenerationMode === "text") {
+        changed = true;
+        return;
+      }
+
+      if (selectedGenerationMode === "first_frame") {
+        if (isVideoBridgeEdge || isLastFrameEdge) {
+          changed = true;
+          return;
+        }
+        if (!keptFirstFrameImage) {
+          keptFirstFrameImage = true;
+          const nextEdge = updateEdge(edge, { imageRole: "first" });
+          if (nextEdge !== edge) changed = true;
+          nextEdges.push(nextEdge);
+          return;
+        }
+        changed = true;
+        return;
+      }
+
+      if (selectedGenerationMode === "first_last_frame") {
+        if (isVideoBridgeEdge) {
+          changed = true;
+          return;
+        }
+        if (isLastFrameEdge) {
+          if (!allowLastFrame || keptLastFrame) {
+            changed = true;
+            return;
+          }
+          keptLastFrame = true;
+          const nextEdge = updateEdge(edge, { imageRole: "last" });
+          if (nextEdge !== edge) changed = true;
+          nextEdges.push(nextEdge);
+          return;
+        }
+
+        if (!isImageRoleEdge) {
+          nextEdges.push(edge);
+          return;
+        }
+
+        if (!keptFirstFrameImage) {
+          keptFirstFrameImage = true;
+          const nextEdge = updateEdge(edge, { imageRole: "first" });
+          if (nextEdge !== edge) changed = true;
+          nextEdges.push(nextEdge);
+          return;
+        }
+
+        if (referenceLimits.allowedRoles.includes("last") && !keptLastFrame) {
+          keptLastFrame = true;
+          const nextEdge = updateEdge(edge, { imageRole: "last" });
+          if (nextEdge !== edge) changed = true;
+          nextEdges.push(nextEdge);
+          return;
+        }
+
+        changed = true;
+        return;
+      }
+
+      if (selectedGenerationMode === "reference_image") {
+        if (isVideoBridgeEdge || isLastFrameEdge) {
+          changed = true;
+          return;
+        }
+        if (!isImageRoleEdge || keptReferenceImages >= maxReference) {
+          changed = true;
+          return;
+        }
+        keptReferenceImages += 1;
+        const nextEdge = updateEdge(edge, { imageRole: "reference" });
+        if (nextEdge !== edge) changed = true;
+        nextEdges.push(nextEdge);
+        return;
+      }
+
+      if (
+        selectedGenerationMode === "reference_video" ||
+        selectedGenerationMode === "video_edit"
+      ) {
+        if (isLastFrameEdge) {
+          changed = true;
+          return;
+        }
+        if (isVideoBridgeEdge) {
+          if (keptVideoEdges >= maxVideoEdges) {
+            changed = true;
+            return;
+          }
+          keptVideoEdges += 1;
+          const desiredReferType = selectedGenerationMode === "video_edit" ? "base" : "feature";
+          const nextEdge = updateEdge(edge, { videoReferType: desiredReferType });
+          if (nextEdge !== edge) changed = true;
+          nextEdges.push(nextEdge);
+          return;
+        }
+        if (!isImageRoleEdge || keptReferenceImages >= maxReference) {
+          changed = true;
+          return;
+        }
+        keptReferenceImages += 1;
+        const nextEdge = updateEdge(edge, { imageRole: "reference" });
+        if (nextEdge !== edge) changed = true;
+        nextEdges.push(nextEdge);
+        return;
+      }
+
+      if (isImageRoleEdge) {
+        const resolvedRole = resolveEdgeImageRole(edge, totalRoleEdges);
+        if (!referenceLimits.allowedRoles.includes(resolvedRole)) {
+          changed = true;
+          return;
+        }
+      }
+
+      nextEdges.push(edge);
+    });
+
+    if (!changed) return;
+    takeSnapshot();
+    setEdges(nextEdges);
+  }, [
+    FIRST_FRAME_FIELD,
+    LAST_FRAME_FIELD,
+    allowLastFrame,
+    data.id,
+    edges,
+    nodes,
+    normalizedModelName,
+    selectedGenerationMode,
+    setEdges,
+    takeSnapshot,
+  ]);
+
+  const incomingSourceIds = useMemo(() => {
+    return Array.from(new Set(edges.filter((e) => e.target === data.id).map((e) => e.source)));
+  }, [edges, data.id]);
+
+  const upstreamNodesCache = useRef<Array<any>>([]);
+  const upstreamNodesFixed = useMemo(() => {
+    const relevantNodes = nodes.filter((n) => incomingSourceIds.includes(n.id));
+    let changed = false;
+    if (relevantNodes.length !== upstreamNodesCache.current.length) {
+      changed = true;
+    } else {
+      for (let i = 0; i < relevantNodes.length; i++) {
+        const a: any = relevantNodes[i]?.data?.node?.template;
+        const b: any = upstreamNodesCache.current[i]?.data?.node?.template;
+        if (
+          a?.draft_output?.value !== b?.draft_output?.value ||
+          a?.file?.value !== b?.file?.value ||
+          a?.first_frame_image?.value !== b?.first_frame_image?.value ||
+          a?.reference_images?.value !== b?.reference_images?.value
+        ) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) {
+      upstreamNodesCache.current = relevantNodes;
+    }
+    return upstreamNodesCache.current;
+  }, [incomingSourceIds, nodes]);
+
   const upstreamFirstFrameFields = useMemo<InputFieldType[]>(() => {
     const incomingEdges = edges?.filter(
       (edge) => edge.target === data.id && edge.targetHandle,
@@ -2243,7 +2529,7 @@ export default function DoubaoVideoGeneratorLayout({
     const totalRoleEdges = roleEdges.length;
 
     roleEdges.forEach((edge) => {
-      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const sourceNode = upstreamNodesFixed.find((node) => node.id === edge.source);
       if (!sourceNode) return;
       const sourceType = sourceNode?.data?.type;
 
@@ -2255,17 +2541,19 @@ export default function DoubaoVideoGeneratorLayout({
         sourceType === "UserUploadImage" ||
         sourceType === "UserUploadVideo";
 
-      if (!isDoubaoSource && !isUploadSource) {
+      if (!isDoubaoSource && !isUploadSource && !extractUpstreamVisualField(sourceNode, FIRST_FRAME_FIELD)) {
         return;
       }
 
-      let sourceTemplateField: InputFieldType | undefined;
+      let sourceTemplateField: InputFieldType | undefined =
+        extractUpstreamVisualField(sourceNode, FIRST_FRAME_FIELD);
 
-      if (isDoubaoSource) {
+      if (!sourceTemplateField && isDoubaoSource) {
         sourceTemplateField =
+          buildFirstFramePreviewFieldFromGeneratedOutput(sourceNode, FIRST_FRAME_FIELD) ??
           sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
           sourceNode.data?.node?.template?.["reference_images"];
-      } else if (isUploadSource) {
+      } else if (!sourceTemplateField && isUploadSource) {
         // UserUploadImage/UserUploadVideo 的数据在 template.file 字段中
         const fileField = sourceNode.data?.node?.template?.file;
         if (fileField) {
@@ -2315,7 +2603,7 @@ export default function DoubaoVideoGeneratorLayout({
         return;
       }
 
-      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const sourceNode = upstreamNodesFixed.find((node) => node.id === edge.source);
       if (!sourceNode) return;
       const sourceType = sourceNode?.data?.type;
 
@@ -2327,17 +2615,19 @@ export default function DoubaoVideoGeneratorLayout({
         sourceType === "UserUploadImage" ||
         sourceType === "UserUploadVideo";
 
-      if (!isDoubaoSource && !isUploadSource) {
+      if (!isDoubaoSource && !isUploadSource && !extractUpstreamVisualField(sourceNode, LAST_FRAME_FIELD)) {
         return;
       }
 
-      let sourceTemplateField: InputFieldType | undefined;
+      let sourceTemplateField: InputFieldType | undefined =
+        extractUpstreamVisualField(sourceNode, LAST_FRAME_FIELD);
 
-      if (isDoubaoSource) {
+      if (!sourceTemplateField && isDoubaoSource) {
         sourceTemplateField =
+          buildFirstFramePreviewFieldFromGeneratedOutput(sourceNode, LAST_FRAME_FIELD) ??
           sourceNode.data?.node?.template?.[FIRST_FRAME_FIELD] ??
           sourceNode.data?.node?.template?.["reference_images"];
-      } else if (isUploadSource) {
+      } else if (!sourceTemplateField && isUploadSource) {
         // UserUploadImage/UserUploadVideo 的数据在 template.file 字段中
         const fileField = sourceNode.data?.node?.template?.file;
         if (fileField) {
@@ -2467,6 +2757,16 @@ export default function DoubaoVideoGeneratorLayout({
       ),
     [normalizedFirstFramePreviews, normalizedUpstreamFirstFramePreviews],
   );
+  
+  const previewPanelImages = useMemo<DoubaoReferenceImage[]>(() => {
+    return combinedFirstFramePreviews.filter((preview) => {
+      const isUpstream = normalizedUpstreamFirstFramePreviews.some((up) => up.id === preview.id);
+      if (!isUpstream) return true;
+      const source = preview.imageSource ?? preview.downloadSource ?? "";
+      return !isVideoCandidate(source, preview.fileName);
+    });
+  }, [combinedFirstFramePreviews, normalizedUpstreamFirstFramePreviews]);
+
   const lastFramePreviews = useMemo<DoubaoReferenceImage[]>(
     () => buildFirstFramePreviewItems(lastFrameField),
     [lastFrameField],
@@ -2553,8 +2853,8 @@ export default function DoubaoVideoGeneratorLayout({
         id: preview.id ?? `${kind}-${suggestionIndex}-${index}`,
         kind,
         index: suggestionIndex,
-        label: `${kind === "video" ? "Video" : "Image"} ${suggestionIndex}`,
-        token: `{{${kind === "video" ? "Video" : "Image"} ${suggestionIndex}}}`,
+        label: `${kind === "video" ? "video" : "image"}${suggestionIndex}`,
+        token: `{{${kind === "video" ? "video" : "image"}${suggestionIndex}}}`,
         sourceLabel: preview.label ?? preview.fileName,
         previewUrl: previewSource || undefined,
       };
@@ -2784,11 +3084,8 @@ export default function DoubaoVideoGeneratorLayout({
       const fieldName = targetHandle?.fieldName ?? targetHandle?.name;
       if (fieldName !== FIRST_FRAME_FIELD) return;
 
-      const sourceNode = nodes.find((node) => node.id === edge.source);
-      if (
-        sourceNode?.data?.type === "DoubaoVideoGenerator" ||
-        sourceNode?.data?.type === "UserUploadVideo"
-      ) {
+      const sourceNode = upstreamNodesFixed.find((node) => node.id === edge.source);
+      if (inferUpstreamVisualMediaKind(sourceNode, fieldName, edge) === "video") {
         videoEdges += 1;
       } else {
         imageEdges += 1;
@@ -2844,11 +3141,8 @@ export default function DoubaoVideoGeneratorLayout({
         return;
       }
 
-      const sourceNode = nodes.find((node) => node.id === edge.source);
-      if (
-        sourceNode?.data?.type === "DoubaoVideoGenerator" ||
-        sourceNode?.data?.type === "UserUploadVideo"
-      ) {
+      const sourceNode = upstreamNodesFixed.find((node) => node.id === edge.source);
+      if (inferUpstreamVisualMediaKind(sourceNode, fieldName, edge) === "video") {
         videoEdges += 1;
       } else {
         imageEdges += 1;
@@ -3517,6 +3811,7 @@ export default function DoubaoVideoGeneratorLayout({
       data: {
         sourceHandle: sourceHandle,
         targetHandle: targetHandle,
+        connectedAt: Date.now(),
       },
     } as EdgeType;
 
@@ -3656,6 +3951,7 @@ export default function DoubaoVideoGeneratorLayout({
       data: {
         sourceHandle: sourceHandle,
         targetHandle: targetHandle,
+        connectedAt: Date.now(),
         videoReferType: "base",
       },
     } as EdgeType;
@@ -4471,6 +4767,18 @@ export default function DoubaoVideoGeneratorLayout({
     }
   }, [allowLastFrame, lastFrameField, handleClearLastFrame]);
 
+  useEffect(() => {
+    if (selectedGenerationMode === "first_last_frame") return;
+    if (!forceFirstLastFrameMode) return;
+    if (hasLastFrameEdge || hasLastFrameValue) return;
+    setForceFirstLastFrameMode(false);
+  }, [
+    forceFirstLastFrameMode,
+    hasLastFrameEdge,
+    hasLastFrameValue,
+    selectedGenerationMode,
+  ]);
+
   const previewOutputHandles = useMemo(() => {
     const outputs = data.node?.outputs ?? [];
     return outputs
@@ -4787,7 +5095,7 @@ export default function DoubaoVideoGeneratorLayout({
               nodeId={data.id}
               componentName={data.type}
               appearance="videoGenerator"
-              referenceImages={normalizedFirstFramePreviews}
+              referenceImages={previewPanelImages}
               onRequestUpload={openFirstFrameDialog}
               onRequestTopBarUpload={triggerTopBarUpload}
               onSuggestionClick={handlePreviewSuggestionClick}
@@ -4999,8 +5307,10 @@ export default function DoubaoVideoGeneratorLayout({
                           : preview.role === "last"
                             ? "尾"
                             : preview.role === "reference"
-                              ? "参"
+                              ? (selectedGenerationMode === "video_edit" ? "原" : "参")
                               : null;
+                      const suggestion = promptMediaSuggestions.find((s) => s.id === preview.id || s.previewUrl === previewSource);
+                      const mediaLabel = suggestion ? `${suggestion.kind}${suggestion.index}` : '';
                       return (
                         <div
                           key={preview.id ?? `${previewSource}-${preview.role ?? "none"}-${index}`}
@@ -5014,6 +5324,10 @@ export default function DoubaoVideoGeneratorLayout({
                                 muted
                                 playsInline
                                 preload="metadata"
+                                disablePictureInPicture
+                                disableRemotePlayback
+                                controls={false}
+                                onContextMenu={(e) => e.preventDefault()}
                               />
                             ) : (
                               <img
@@ -5032,9 +5346,9 @@ export default function DoubaoVideoGeneratorLayout({
                               {roleBadge}
                             </span>
                           )}
-                          {index === 0 && promptMediaPreviews.length > 1 && (
-                            <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[#1B66FF] px-1 text-center text-[10px] font-semibold leading-5 text-white shadow">
-                              {promptMediaPreviews.length}
+                          {mediaLabel && (
+                            <span className="absolute bottom-1 right-1 rounded bg-[#111827]/80 px-1 text-[10px] leading-4 text-white hover:bg-[#111827] cursor-default">
+                              {mediaLabel}
                             </span>
                           )}
                         </div>
@@ -5228,7 +5542,7 @@ export default function DoubaoVideoGeneratorLayout({
                 )}
 
                 {(!isViduUpscaleModel &&
-                  (aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingMultiShotModel)) ? (
+                  (generationModeConfig || aspectRatioConfig || resolutionConfig || durationConfig || showAudioToggle || isKlingMultiShotModel)) ? (
                   <DoubaoVideoGeneratorResolutionAspectDurationButton
                     data={data}
                     generationModeConfig={generationModeConfig}
@@ -5487,7 +5801,7 @@ export default function DoubaoVideoGeneratorLayout({
                               ? "尾帧"
                               : isVeoModel && veoHasFirstOrLastLocally
                                 ? "参考(将忽略)"
-                                : "参考"
+                                : (selectedGenerationMode === "video_edit" ? "原视频" : "参考")
                           : undefined;
                         const roleBadgeClass =
                           previewRole === "last"
@@ -6033,6 +6347,127 @@ function applyEdgeRoleToField(
   };
 }
 
+type UpstreamVisualMediaKind = "image" | "video";
+
+function normalizeUpstreamVisualField(
+  rawField: unknown,
+  targetFieldName: string,
+): InputFieldType | undefined {
+  if (!rawField || typeof rawField !== "object") return undefined;
+  const field = rawField as InputFieldType;
+  const normalizedPaths = Array.isArray(field.file_path)
+    ? field.file_path.filter((value) => typeof value === "string" && value.trim())
+    : typeof field.file_path === "string" && field.file_path.trim()
+      ? [field.file_path]
+      : [];
+  const valueCount = Array.isArray(field.value)
+    ? field.value.length
+    : field.value !== undefined && field.value !== null && field.value !== ""
+      ? 1
+      : 0;
+  const declaredTypes = [
+    ...(Array.isArray(field.file_types) ? field.file_types : []),
+    ...(Array.isArray(field.fileTypes) ? field.fileTypes : []),
+  ]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  const looksLikeFileField =
+    field.type === "file" || normalizedPaths.length > 0 || declaredTypes.length > 0;
+
+  if (!looksLikeFileField || (normalizedPaths.length === 0 && valueCount === 0)) {
+    return undefined;
+  }
+
+  return {
+    ...field,
+    name: targetFieldName,
+    input_types: field.input_types?.length ? field.input_types : ["Data"],
+  };
+}
+
+function extractUpstreamVisualField(
+  sourceNode: AllNodeType | undefined,
+  targetFieldName: string,
+): InputFieldType | undefined {
+  const generatedField = buildFirstFramePreviewFieldFromGeneratedOutput(
+    sourceNode,
+    targetFieldName,
+  );
+  if (generatedField) return generatedField;
+
+  const template = sourceNode?.data?.node?.template;
+  if (!template || typeof template !== "object") return undefined;
+
+  const preferredKeys = Array.from(
+    new Set([
+      targetFieldName,
+      "first_frame_image",
+      "last_frame_image",
+      "reference_images",
+      "reference_video",
+      "file",
+      "image",
+      "video",
+    ]),
+  );
+
+  for (const key of preferredKeys) {
+    const normalized = normalizeUpstreamVisualField((template as Record<string, unknown>)[key], targetFieldName);
+    if (normalized) return normalized;
+  }
+
+  for (const value of Object.values(template)) {
+    const normalized = normalizeUpstreamVisualField(value, targetFieldName);
+    if (normalized) return normalized;
+  }
+
+  return undefined;
+}
+
+function inferMediaKindFromInputField(
+  field: InputFieldType | undefined,
+): UpstreamVisualMediaKind | null {
+  if (!field) return null;
+
+  const entries = collectFirstFrameEntries(field);
+  if (entries.length > 0) {
+    return entries.some((entry) => isVideoCandidate(entry.path, entry.name))
+      ? "video"
+      : "image";
+  }
+
+  const declaredTypes = [
+    ...(Array.isArray(field.file_types) ? field.file_types : []),
+    ...(Array.isArray(field.fileTypes) ? field.fileTypes : []),
+  ]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (declaredTypes.some((value) => value.includes("video"))) return "video";
+  if (declaredTypes.some((value) => value.includes("image"))) return "image";
+
+  return null;
+}
+
+function inferUpstreamVisualMediaKind(
+  sourceNode: AllNodeType | undefined,
+  targetFieldName: string,
+  edge?: EdgeType,
+): UpstreamVisualMediaKind | null {
+  if (targetFieldName === LAST_FRAME_FIELD) return "image";
+
+  const referType = edge?.data?.videoReferType;
+  if (referType === "base" || referType === "feature") return "video";
+
+  const sourceType = String(sourceNode?.data?.type ?? "").trim().toLowerCase();
+  if (sourceType.includes("video")) return "video";
+  if (sourceType.includes("image")) return "image";
+
+  return inferMediaKindFromInputField(
+    extractUpstreamVisualField(sourceNode, targetFieldName),
+  );
+}
+
 function buildFirstFramePreviewItemsFromFields(
   fields: InputFieldType[],
 ): DoubaoReferenceImage[] {
@@ -6042,6 +6477,108 @@ function buildFirstFramePreviewItemsFromFields(
     previews.push(...buildFirstFramePreviewItems(field));
   });
   return dedupePreviews(previews);
+}
+
+function buildFirstFramePreviewFieldFromGeneratedOutput(
+  sourceNode: AllNodeType | undefined,
+  fieldName: string,
+): InputFieldType | undefined {
+  const componentName = String(sourceNode?.data?.type ?? "").trim();
+  if (componentName !== "DoubaoImageCreator" && componentName !== "DoubaoVideoGenerator") {
+    return undefined;
+  }
+
+  const payload = sourceNode?.data?.node?.template?.draft_output?.value;
+  const preview = parseDoubaoPreviewData(componentName, payload);
+  if (!preview?.available) return undefined;
+
+  if (preview.kind === "image") {
+    const images = Array.isArray(preview.payload?.images) && preview.payload.images.length
+      ? preview.payload.images
+      : [preview.payload];
+    const entries = images
+      .map((image: any, index: number) => {
+        const source = [
+          image?.image_url,
+          image?.url,
+          image?.edited_image_url,
+          image?.original_image_url,
+          image?.image_data_url,
+          image?.preview_data_url,
+          image?.preview_base64,
+          image?.data_url,
+        ].find((candidate) => typeof candidate === "string" && candidate.trim());
+        if (!source) return null;
+        const label =
+          image?.display_name ??
+          image?.name ??
+          image?.filename ??
+          `生成图片 ${index + 1}`;
+        return { source, label };
+      })
+      .filter(Boolean) as Array<{ source: string; label: string }>;
+
+    if (!entries.length) return undefined;
+    return {
+      type: "file",
+      required: false,
+      placeholder: "",
+      list: entries.length > 1,
+      show: true,
+      readonly: false,
+      name: fieldName,
+      display_name: "生成图片",
+      input_types: ["Data"],
+      file_path: entries.map((entry) => entry.source),
+      value: entries.map((entry) => ({
+        display_name: entry.label,
+        name: entry.label,
+      })),
+    };
+  }
+
+  if (preview.kind === "video") {
+    const videos = Array.isArray(preview.payload?.videos) && preview.payload.videos.length
+      ? preview.payload.videos
+      : [preview.payload];
+    const entries = videos
+      .map((video: any, index: number) => {
+        const source = [
+          video?.video_url,
+          video?.url,
+          video?.video,
+          video?.video_base64,
+        ].find((candidate) => typeof candidate === "string" && candidate.trim());
+        if (!source) return null;
+        const label =
+          video?.display_name ??
+          video?.name ??
+          video?.filename ??
+          `生成视频 ${index + 1}`;
+        return { source, label };
+      })
+      .filter(Boolean) as Array<{ source: string; label: string }>;
+
+    if (!entries.length) return undefined;
+    return {
+      type: "file",
+      required: false,
+      placeholder: "",
+      list: entries.length > 1,
+      show: true,
+      readonly: false,
+      name: fieldName,
+      display_name: "生成视频",
+      input_types: ["Data"],
+      file_path: entries.map((entry) => entry.source),
+      value: entries.map((entry) => ({
+        display_name: entry.label,
+        name: entry.label,
+      })),
+    };
+  }
+
+  return undefined;
 }
 
 function mergeReferencePreviewLists<T extends DoubaoReferenceImage>(base: T[], extras: T[]): T[] {

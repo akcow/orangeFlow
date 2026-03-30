@@ -180,6 +180,12 @@ export default function NodeStatus({
     }
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
   const handleDisconnect = () => {
     setIsPolling(true);
     mutateTemplate(

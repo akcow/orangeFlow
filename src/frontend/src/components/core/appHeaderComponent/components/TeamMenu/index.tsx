@@ -192,9 +192,6 @@ export default function TeamMenu() {
               </DropdownMenuItem>
             ))}
           </div>
-
-          <DropdownMenuSeparator className="my-2 bg-zinc-800" />
-
           <DropdownMenuItem
             onClick={() => setIsCreateOpen(true)}
             className="cursor-pointer gap-2 rounded-md py-2 text-[#1BB3E4] hover:bg-zinc-800"
