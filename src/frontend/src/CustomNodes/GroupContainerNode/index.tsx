@@ -1,5 +1,6 @@
 import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import useFlowStore from "@/stores/flowStore";
 import type { GroupContainerNodeType } from "@/types/flow";
 import { cn } from "@/utils/utils";
@@ -55,6 +56,9 @@ export default function GroupContainerNode({
 }: NodeProps<GroupContainerNodeType>) {
   const setNode = useFlowStore((state) => state.setNode);
   const nodes = useFlowStore((state) => state.nodes);
+  const referenceSelectionActive = useCanvasUiStore(
+    (state) => state.referenceSelection.active,
+  );
 
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -98,11 +102,13 @@ export default function GroupContainerNode({
       style={{ backgroundColor: bgColor, borderColor }}
       className={cn(
         "relative h-full w-full rounded-xl border border-dashed !overflow-visible",
+        referenceSelectionActive &&
+          "pointer-events-none opacity-35 blur-[3px] saturate-[0.72]",
         selected ? "ring-2 ring-indigo-400" : "",
       )}
     >
       {/* Corner arc visuals (no visible drag points). */}
-      {selected && (
+      {selected && !referenceSelectionActive && (
         <div className="pointer-events-none absolute inset-0 z-20">
           <div className="absolute -left-4 -top-4 text-black drop-shadow-[0_0_10px_rgba(255,255,255,0.45)]">
             <CornerArc corner="tl" />
@@ -122,7 +128,7 @@ export default function GroupContainerNode({
       <NodeResizer
         minWidth={minSize.minWidth}
         minHeight={minSize.minHeight}
-        isVisible={!!selected}
+        isVisible={Boolean(selected) && !referenceSelectionActive}
         lineClassName="!border !border-muted-foreground"
         // 130x130 invisible hit-area (user wants much larger resize affordance).
         // NOTE: we use handleStyle to force dimensions and z-index to ensure it sits on top.

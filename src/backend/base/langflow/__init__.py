@@ -155,7 +155,7 @@ def _setup_compatibility_modules():
                         current_module.template = compat_module
                     elif langflow_name == "langflow.components":
                         current_module.components = compat_module
-            except (ImportError, ValueError):
+            except Exception:
                 # Skip modules that don't exist in lfx
                 continue
 
@@ -218,7 +218,7 @@ def _setup_compatibility_modules():
                             parent_module = sys.modules.get("langflow.components")
                             if parent_module is not None:
                                 parent_module.knowledge_bases = module
-            except (ImportError, AttributeError):
+            except Exception:
                 # If direct file loading fails, skip silently
                 continue
 

@@ -10,12 +10,13 @@ import SkeletonGroup from "@/components/ui/skeletonGroup";
 import { t } from "@/i18n/t";
 import useSaveFlow from "@/hooks/flows/use-save-flow";
 import { nodeColors } from "@/utils/styleUtils";
-import { removeCountFromString } from "@/utils/utils";
+import { cn, removeCountFromString } from "@/utils/utils";
 import { createFileUpload } from "@/helpers/create-file-upload";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
 import useAlertStore from "@/stores/alertStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
+import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import { getNodeId } from "@/utils/reactflowUtils";
 import { useAddComponent } from "@/hooks/use-add-component";
 import { api } from "@/controllers/API/api";
@@ -182,6 +183,18 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const { validateFileSize } = useFileSizeValidator();
   const { mutateAsync: uploadFile } = usePostUploadFile();
+  const referenceSelectionActive = useCanvasUiStore(
+    (state) => state.referenceSelection.active,
+  );
+
+  useEffect(() => {
+    if (!referenceSelectionActive) return;
+    setComponentsOpen(false);
+    setHistoryOpen(false);
+    setWorkflowsOpen(false);
+    setAssetsOpen(false);
+    setAdvancedEditorOpen(false);
+  }, [referenceSelectionActive]);
 
   const getNextUserUploadIndex = useCallback(() => {
     let max = 0;
@@ -465,7 +478,13 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
         onOpenChange={setStudioOpen}
         initialTab={studioInitialTab}
       />
-      <div className="fixed left-4 top-1/2 z-50 -translate-y-1/2 pointer-events-auto">
+      <div
+        className={cn(
+          "fixed left-4 top-1/2 z-50 -translate-y-1/2 pointer-events-auto transition-all duration-300 ease-out",
+          referenceSelectionActive &&
+            "-translate-x-[calc(100%+2rem)] opacity-0 pointer-events-none",
+        )}
+      >
         <div className="flex flex-col items-center gap-2 rounded-3xl border border-border bg-popover/80 p-2 shadow-lg backdrop-blur">
           <Popover
             open={componentsOpen}

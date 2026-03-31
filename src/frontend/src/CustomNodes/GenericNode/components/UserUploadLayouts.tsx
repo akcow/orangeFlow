@@ -10,6 +10,7 @@ import { BuildStatus } from "@/constants/enums";
 import { BASE_URL_API } from "@/constants/constants";
 import { createFileUpload } from "@/helpers/create-file-upload";
 import useAlertStore from "@/stores/alertStore";
+import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
@@ -42,6 +43,62 @@ type BaseProps = {
 };
 
 const FILE_FIELD = "file";
+
+function ReferenceSelectionPreviewGlow({ glowId }: { glowId: string }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[760] overflow-hidden rounded-[28px]">
+      <svg
+        className="h-full w-full overflow-visible"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <defs>
+          <filter id={glowId} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="1.6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <rect
+          x="1.5"
+          y="1.5"
+          width="97"
+          height="97"
+          rx="10"
+          ry="10"
+          fill="none"
+          stroke="rgba(255,255,255,0.12)"
+          strokeWidth="1.4"
+        />
+        <rect
+          x="1.5"
+          y="1.5"
+          width="97"
+          height="97"
+          rx="10"
+          ry="10"
+          fill="none"
+          stroke="rgba(255,255,255,0.96)"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeDasharray="22 240"
+          filter={`url(#${glowId})`}
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            from="0"
+            to="-262"
+            dur="1.8s"
+            repeatCount="indefinite"
+          />
+        </rect>
+      </svg>
+    </div>
+  );
+}
 
 function toStablePreviewUrl(raw: string, kind: "image" | "video" | "audio") {
   const trimmed = String(raw ?? "").trim();
@@ -163,6 +220,16 @@ function UserUploadLayout({
           })
         : null,
     [data.id, fileName, filePath, kind],
+  );
+  const referenceSelection = useCanvasUiStore((s) => s.referenceSelection);
+  const showReferenceSelectionPreviewGlow =
+    kind === "image" &&
+    referenceSelection.active &&
+    referenceSelection.targetNodeId !== data.id &&
+    referenceSelection.hoveredNodeId === data.id;
+  const previewGlowId = useMemo(
+    () => `reference-preview-glow-${String(data.id).replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+    [data.id],
   );
 
   const setErrorData = useAlertStore((s) => s.setErrorData);
@@ -531,6 +598,9 @@ function UserUploadLayout({
                 : startHidePlus("right", event.clientX, event.clientY)
             }
           />
+          {showReferenceSelectionPreviewGlow && (
+            <ReferenceSelectionPreviewGlow glowId={previewGlowId} />
+          )}
 
         <DoubaoPreviewPanel
           nodeId={data.id}

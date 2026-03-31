@@ -1,4 +1,4 @@
-import {
+﻿import {
   ArrowUpToLine,
   KeyRound,
   Pencil,
@@ -30,6 +30,7 @@ import {
   Typography,
 } from "antd";
 import {
+  useGetProviderRelayModelCatalogQuery,
   useCreateProviderRelay,
   useDeleteProviderRelay,
   useGetProviderRelaysQuery,
@@ -40,12 +41,12 @@ import useAlertStore from "@/stores/alertStore";
 import type {
   CreateProviderRelayRequest,
   ProviderRelay,
+  ProviderRelayModelCatalogItem,
   ProviderRelayProvider,
   ProviderRelayServiceType,
 } from "@/types/providerRelays";
 
 const { Title, Text } = Typography;
-const { TextArea } = Input;
 
 type RelayFormValues = {
   name: string;
@@ -53,7 +54,9 @@ type RelayFormValues = {
   provider: ProviderRelayProvider;
   base_url?: string | null;
   api_key?: string | null;
-  model_patterns_text: string;
+  access_key?: string | null;
+  secret_key?: string | null;
+  model_patterns: string[];
   priority: number;
   enabled: boolean;
   is_default: boolean;
@@ -85,6 +88,7 @@ const relayProviderOptions: Array<{
   { label: "通义千问 TTS", value: "qwen" },
   { label: "Vidu", value: "vidu" },
   { label: "可灵", value: "kling" },
+  { label: "Jimeng Visual", value: "jimeng" },
 ];
 
 const providerLabels: Record<ProviderRelayProvider, string> = {
@@ -98,6 +102,7 @@ const providerLabels: Record<ProviderRelayProvider, string> = {
   veo: "Veo",
   vidu: "Vidu",
   kling: "可灵",
+  jimeng: "Jimeng Visual",
 };
 
 const credentialProviderLabels: Record<string, string> = {
@@ -108,6 +113,7 @@ const credentialProviderLabels: Record<string, string> = {
   dashscope: "阿里云百炼",
   vidu: "Vidu",
   kling: "可灵",
+  jimeng_visual: "Jimeng Visual",
 };
 
 const builtinRelayNameOverrides: Record<string, string> = {
@@ -121,15 +127,24 @@ const builtinRelayNameOverrides: Record<string, string> = {
   "builtin:qwen-audio": "系统默认 通义千问音频线路",
   "builtin:vidu-video": "系统默认 Vidu 视频线路",
   "builtin:kling-any": "系统默认 可灵线路",
+  "builtin:jimeng-image": "系统默认 Jimeng 图像线路",
 };
 
 const builtinRelaySupportedModels: Record<string, string[]> = {
+  "builtin:openai-text": [
+    "GPT-4o Mini",
+    "GPT-4o",
+    "GPT-4.1",
+    "GPT-4.1 Mini",
+    "GPT-4.1 Nano",
+  ],
   "builtin:deepseek-text": ["DeepSeek Chat", "DeepSeek Reasoner"],
   "builtin:doubao-any": [
     "Doubao Seedream 5.0 Lite",
     "Doubao Seedream 4.5",
     "Doubao Seedream 4.0",
-    "Doubao Seedance 1.5",
+    "Doubao Seedance 1.0 Pro",
+    "Doubao Seedance 1.5 Pro",
   ],
   "builtin:12api-gemini": [
     "Gemini 3 Pro",
@@ -144,17 +159,31 @@ const builtinRelaySupportedModels: Record<string, string[]> = {
     "Wan 2.6 I2I",
     "Wan 2.5 T2I",
     "Wan 2.5 I2I",
+    "WanX 2.1 Image Edit",
+    "Qwen Image Edit Max",
+    "Wan 2.6 Video",
     "Wan 2.6 T2V",
     "Wan 2.6 I2V",
-    "qwen-image-edit-max",
+    "Wan 2.6 I2V Flash",
+    "Wan 2.6 R2V",
+    "Wan 2.6 R2V Flash",
+    "Wan 2.5 Video",
+    "Wan 2.5 T2V",
+    "Wan 2.5 I2V",
   ],
-  "builtin:qwen-audio": ["Qwen TTS"],
-  "builtin:vidu-video": ["viduq3-pro", "viduq2-pro", "vidu-upscale"],
-  "builtin:kling-any": ["kling O1", "kling V3", "kling O3"],
+  "builtin:qwen-audio": ["Qwen TTS Flash"],
+  "builtin:vidu-video": ["Vidu Q3 Pro", "Vidu Q2 Pro", "Vidu Upscale"],
+  "builtin:kling-any": [
+    "Kling O1 Image",
+    "Kling V3 Image",
+    "Kling O1 Video",
+    "Kling O3 Video",
+  ],
+  "builtin:jimeng-image": ["Jimeng Smart HD"],
 };
 
 const builtinRelayModelSummaries: Record<string, string> = {
-  "builtin:openai-text": "按 gpt-* 动态匹配当前项目可用的 OpenAI 文本模型。",
+  "builtin:openai-text": "按 gpt-* 自动映射当前项目可用的 OpenAI 文本模型。",
 };
 
 const darkCardStyle = {
@@ -164,16 +193,41 @@ const darkCardStyle = {
   boxShadow: "0 24px 72px rgba(0, 0, 0, 0.22)",
 };
 
+const modelTypeLabels: Record<string, string> = {
+  text: "文本",
+  image: "图像",
+  video: "视频",
+  audio: "音频",
+};
+
+function relayUsesKeyPairCredentials(value?: ProviderRelay | ProviderRelayProvider | null) {
+  if (!value) return false;
+  if (typeof value === "string") {
+    return value === "jimeng";
+  }
+  return (
+    value.provider === "jimeng" ||
+    Boolean(value.editable_fields?.includes("access_key")) ||
+    Boolean(value.editable_fields?.includes("secret_key"))
+  );
+}
+
+function getRelayCredentialLabel(relay: ProviderRelay) {
+  return relayUsesKeyPairCredentials(relay) ? "Access Key / Secret Key" : "API Key";
+}
+
+function getRelayCredentialValue(relay: ProviderRelay) {
+  if (relayUsesKeyPairCredentials(relay)) {
+    const accessKey = relay.access_key_masked || "未配置";
+    const secretKey = relay.secret_key_masked || "未配置";
+    return "AK: " + accessKey + " / SK: " + secretKey;
+  }
+  return relay.api_key_masked || "未配置";
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "未记录";
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
-}
-
-function parseRelayPatterns(value: string) {
-  return value
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function getServiceTypeLabel(value: ProviderRelayServiceType) {
@@ -197,14 +251,24 @@ function getBuiltinRelaySupportedModels(relayId: string) {
   return builtinRelaySupportedModels[relayId] ?? [];
 }
 
-function getRelayModelTagItems(relay: ProviderRelay) {
+function getModelPatternLabel(
+  pattern: string,
+  modelCatalogById: Map<string, ProviderRelayModelCatalogItem>,
+) {
+  return modelCatalogById.get(pattern)?.full_name ?? pattern;
+}
+
+function getRelayModelTagItems(
+  relay: ProviderRelay,
+  modelCatalogById: Map<string, ProviderRelayModelCatalogItem>,
+) {
   const builtinModels = getBuiltinRelaySupportedModels(relay.id);
   if (builtinModels.length > 0) {
     return builtinModels;
   }
 
   if (relay.model_patterns.length > 0) {
-    return relay.model_patterns;
+    return relay.model_patterns.map((pattern) => getModelPatternLabel(pattern, modelCatalogById));
   }
 
   const builtinSummary = builtinRelayModelSummaries[relay.id];
@@ -215,7 +279,10 @@ function getRelayModelTagItems(relay: ProviderRelay) {
   return [];
 }
 
-function getSupportedModelsSummary(relay: ProviderRelay) {
+function getSupportedModelsDisplaySummary(
+  relay: ProviderRelay,
+  modelCatalogById: Map<string, ProviderRelayModelCatalogItem>,
+) {
   const builtinModels = getBuiltinRelaySupportedModels(relay.id);
   if (builtinModels.length > 0) {
     return builtinModels.join("、");
@@ -227,7 +294,9 @@ function getSupportedModelsSummary(relay: ProviderRelay) {
   }
 
   if (relay.model_patterns.length > 0) {
-    return `按匹配规则生效：${relay.model_patterns.join("、")}`;
+    return `按模型生效：${relay.model_patterns
+      .map((pattern) => getModelPatternLabel(pattern, modelCatalogById))
+      .join("、")}`;
   }
 
   return "使用该服务类型的默认匹配规则。";
@@ -241,7 +310,9 @@ function getInitialValues(relay?: ProviderRelay | null): RelayFormValues {
       provider: "openai",
       base_url: "",
       api_key: "",
-      model_patterns_text: "",
+      access_key: "",
+      secret_key: "",
+      model_patterns: [],
       priority: 100,
       enabled: true,
       is_default: false,
@@ -254,11 +325,21 @@ function getInitialValues(relay?: ProviderRelay | null): RelayFormValues {
     provider: relay.provider,
     base_url: relay.base_url ?? "",
     api_key: relay.api_key_masked ?? "",
-    model_patterns_text: relay.model_patterns.join("\n"),
+    access_key: relay.access_key_masked ?? "",
+    secret_key: relay.secret_key_masked ?? "",
+    model_patterns: relay.model_patterns,
     priority: relay.priority,
     enabled: relay.enabled,
     is_default: relay.is_default,
   };
+}
+
+function isLegacyPattern(pattern: string) {
+  return /[*?[\]]/.test(pattern);
+}
+
+function getModelOptionText(item: ProviderRelayModelCatalogItem) {
+  return `${item.full_name} (${modelTypeLabels[item.model_type] ?? item.model_type})`;
 }
 
 function isSystemRelay(relay?: ProviderRelay | null) {
@@ -269,6 +350,7 @@ function RelayListPanel({
   title,
   description,
   relays,
+  modelCatalogById,
   draggingRelayId,
   onDragStart,
   onDrop,
@@ -283,6 +365,7 @@ function RelayListPanel({
   title: string;
   description: string;
   relays: ProviderRelay[];
+  modelCatalogById: Map<string, ProviderRelayModelCatalogItem>;
   draggingRelayId: string | null;
   onDragStart: (relayId: string | null) => void;
   onDrop: (targetId: string) => void;
@@ -369,13 +452,13 @@ function RelayListPanel({
 
                         <div>
                           <Text style={{ color: "rgba(226, 232, 240, 0.88)" }}>
-                            支持模型：{getSupportedModelsSummary(relay)}
+                            支持模型：{getSupportedModelsDisplaySummary(relay, modelCatalogById)}
                           </Text>
                         </div>
 
                         <Space wrap size={[6, 6]}>
-                          {getRelayModelTagItems(relay).length > 0 ? (
-                            getRelayModelTagItems(relay).map((item) => (
+                          {getRelayModelTagItems(relay, modelCatalogById).length > 0 ? (
+                            getRelayModelTagItems(relay, modelCatalogById).map((item) => (
                               <Tag key={`${relay.id}-${item}`}>{item}</Tag>
                             ))
                           ) : (
@@ -398,8 +481,8 @@ function RelayListPanel({
                             },
                             {
                               key: "apiKey",
-                              label: "API Key",
-                              children: relay.api_key_masked || "未配置",
+                              label: getRelayCredentialLabel(relay),
+                              children: getRelayCredentialValue(relay),
                             },
                             {
                               key: "updated",
@@ -477,10 +560,15 @@ export default function AdminRelayWorkspace() {
   const [viewMode, setViewMode] = useState<RelayViewMode>("system");
 
   const { data: relays = [], isLoading, refetch } = useGetProviderRelaysQuery();
+  const { data: modelCatalog = [] } = useGetProviderRelayModelCatalogQuery();
   const { mutate: createRelay, isPending: isCreating } = useCreateProviderRelay();
   const { mutate: updateRelay, isPending: isUpdating } = useUpdateProviderRelay();
   const { mutate: deleteRelay, isPending: isDeleting } = useDeleteProviderRelay();
   const { mutate: reorderRelays, isPending: isReordering } = useReorderProviderRelays();
+  const watchedProvider = Form.useWatch("provider", form);
+  const watchedServiceType = Form.useWatch("service_type", form);
+  const watchedSelectedModels = Form.useWatch("model_patterns", form) ?? [];
+  const isKeyPairProvider = relayUsesKeyPairCredentials(editingRelay ?? watchedProvider);
 
   const customRelays = useMemo(
     () =>
@@ -500,6 +588,85 @@ export default function AdminRelayWorkspace() {
 
   const currentRelays = viewMode === "system" ? builtinRelays : customRelays;
   const systemRelayEditing = isSystemRelay(editingRelay);
+  const modelCatalogById = useMemo(
+    () => new Map(modelCatalog.map((item) => [item.id, item])),
+    [modelCatalog],
+  );
+  const relayModelSelectOptions = useMemo(() => {
+    const selectedValues = Array.from(new Set(watchedSelectedModels));
+    const visibleCatalogItems = modelCatalog.filter((item) => {
+      if (watchedProvider && item.relay_provider !== watchedProvider) return false;
+      if (
+        watchedServiceType &&
+        watchedServiceType !== "any" &&
+        item.relay_service_type !== watchedServiceType
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    const mergedKnownItems = new Map<string, ProviderRelayModelCatalogItem>();
+    for (const item of visibleCatalogItems) {
+      mergedKnownItems.set(item.id, item);
+    }
+    for (const value of selectedValues) {
+      const selectedItem = modelCatalogById.get(value);
+      if (selectedItem) {
+        mergedKnownItems.set(selectedItem.id, selectedItem);
+      }
+    }
+
+    const legacyOptions = selectedValues
+      .filter((value) => !modelCatalogById.has(value))
+      .map((value) => ({
+        value,
+        label: `旧规则：${value}`,
+        searchText: value,
+      }));
+
+    const knownOptions = Array.from(mergedKnownItems.values())
+      .sort((a, b) => {
+        if (a.model_type !== b.model_type) {
+          return a.model_type.localeCompare(b.model_type);
+        }
+        return a.full_name.localeCompare(b.full_name);
+      })
+      .map((item) => ({
+        value: item.id,
+        label: getModelOptionText(item),
+        searchText: `${item.full_name} ${item.id} ${item.owned_by} ${modelTypeLabels[item.model_type] ?? item.model_type}`,
+      }));
+
+    return [...legacyOptions, ...knownOptions];
+  }, [modelCatalog, modelCatalogById, watchedProvider, watchedSelectedModels, watchedServiceType]);
+  const incompatibleSelectedModels = useMemo(
+    () =>
+      watchedSelectedModels
+        .map((value) => modelCatalogById.get(value))
+        .filter((item): item is ProviderRelayModelCatalogItem => Boolean(item))
+        .filter((item) => {
+          if (watchedProvider && item.relay_provider !== watchedProvider) {
+            return true;
+          }
+          if (
+            watchedServiceType &&
+            watchedServiceType !== "any" &&
+            item.relay_service_type !== watchedServiceType
+          ) {
+            return true;
+          }
+          return false;
+        }),
+    [modelCatalogById, watchedProvider, watchedSelectedModels, watchedServiceType],
+  );
+  const legacySelectedPatterns = useMemo(
+    () =>
+      watchedSelectedModels.filter(
+        (value) => !modelCatalogById.has(value) || isLegacyPattern(value),
+      ),
+    [modelCatalogById, watchedSelectedModels],
+  );
 
   function openCreateDrawer() {
     setEditingRelay(null);
@@ -565,7 +732,15 @@ export default function AdminRelayWorkspace() {
             {
               relayId: editingRelay.id,
               payload: {
-                api_key: values.api_key?.trim() || null,
+                api_key: relayUsesKeyPairCredentials(editingRelay)
+                  ? null
+                  : values.api_key?.trim() || null,
+                access_key: relayUsesKeyPairCredentials(editingRelay)
+                  ? values.access_key?.trim() || null
+                  : null,
+                secret_key: relayUsesKeyPairCredentials(editingRelay)
+                  ? values.secret_key?.trim() || null
+                  : null,
               },
             },
             { onSuccess: () => setDrawerOpen(false) },
@@ -578,17 +753,41 @@ export default function AdminRelayWorkspace() {
           service_type: values.service_type,
           provider: values.provider,
           base_url: values.base_url?.trim() || null,
-          api_key: values.api_key?.trim() || null,
-          model_patterns: parseRelayPatterns(values.model_patterns_text),
+          api_key: relayUsesKeyPairCredentials(values.provider)
+            ? null
+            : values.api_key?.trim() || null,
+          access_key: relayUsesKeyPairCredentials(values.provider)
+            ? values.access_key?.trim() || null
+            : null,
+          secret_key: relayUsesKeyPairCredentials(values.provider)
+            ? values.secret_key?.trim() || null
+            : null,
+          model_patterns: values.model_patterns ?? [],
           priority: values.priority,
           enabled: values.enabled,
           is_default: values.is_default,
         };
 
+        if (incompatibleSelectedModels.length > 0) {
+          setErrorData({
+            title: "当前已选模型与供应商或服务类型不一致",
+            list: incompatibleSelectedModels.map((item) => getModelOptionText(item)),
+          });
+          return;
+        }
+
+        if (relayUsesKeyPairCredentials(payload.provider) && (!payload.access_key || !payload.secret_key)) {
+          setErrorData({
+            title: "Jimeng 凭证不完整",
+            list: ["请同时填写 Access Key 和 Secret Key。"],
+          });
+          return;
+        }
+
         if (!payload.is_default && payload.model_patterns.length === 0) {
           setErrorData({
-            title: "非默认线路必须填写模型匹配规则",
-            list: ["例如 `gpt-*`、`gemini-*`、`sora-*`，至少填写一条。"],
+            title: "非默认线路必须至少选择一个具体模型",
+            list: ["例如 `Kling O1`、`Sora 2`、`Gemini 3 Pro`。"],
           });
           return;
         }
@@ -637,7 +836,11 @@ export default function AdminRelayWorkspace() {
         type="info"
         showIcon
         message="当前路由规则"
-        description="自定义线路按优先级与模型匹配规则参与路由；系统默认线路用于映射项目内置供应商配置，主要用于直接维护 API Key，不需要再去修改 .env。"
+        description={
+          isKeyPairProvider
+            ? "当前线路使用 Access Key / Secret Key 双凭证；Base URL、服务类型和所选模型仍会一起参与最终路由。"
+            : "自定义线路会按优先级、服务类型、模型选择和 Base URL 参与路由；系统默认线路则主要用于直接维护当前供应商凭证。"
+        }
       />
 
       <Row gutter={[16, 16]}>
@@ -693,6 +896,7 @@ export default function AdminRelayWorkspace() {
                       title="系统默认线路"
                       description="用于承接项目内置模型供应商配置，适合直接维护 API Key，并查看各线路支持的模型范围。"
                       relays={currentRelays}
+                      modelCatalogById={modelCatalogById}
                       draggingRelayId={draggingRelayId}
                       onDragStart={setDraggingRelayId}
                       onDrop={handleDrop}
@@ -709,6 +913,7 @@ export default function AdminRelayWorkspace() {
                       title="自定义线路"
                       description="适合配置中转站、多条备选 Base URL，以及专门的模型匹配规则。"
                       relays={currentRelays}
+                      modelCatalogById={modelCatalogById}
                       draggingRelayId={draggingRelayId}
                       onDragStart={setDraggingRelayId}
                       onDrop={handleDrop}
@@ -747,7 +952,7 @@ export default function AdminRelayWorkspace() {
                 type="success"
                 showIcon
                 message="系统默认线路"
-                description="OpenAI、DeepSeek、豆包、12API、百炼、Vidu、可灵等项目内置能力会自动映射成可见线路，便于管理员统一查看。"
+                description="OpenAI、DeepSeek、豆包、12API、百炼、Vidu、可灵、Jimeng 等项目内置能力会自动映射成可见线路，便于管理员统一查看。"
               />
               <Alert
                 type="warning"
@@ -831,22 +1036,79 @@ export default function AdminRelayWorkspace() {
             <Input placeholder="https://relay.example.com/v1" disabled={systemRelayEditing} />
           </Form.Item>
 
-          <Form.Item
-            label="API Key"
-            name="api_key"
-            extra={systemRelayEditing ? "留空或保持掩码不变时，将沿用当前密钥。" : undefined}
-          >
-            <Input.Password placeholder="输入新的 API Key" />
-          </Form.Item>
+          {!isKeyPairProvider ? (
+            <Form.Item
+              label="API Key"
+              name="api_key"
+              extra={systemRelayEditing ? "留空或保持当前掩码不变时，将沿用现有 API Key。" : undefined}
+            >
+              <Input.Password placeholder="请输入 API Key" />
+            </Form.Item>
+          ) : (
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item
+                  label="Access Key"
+                  name="access_key"
+                  extra={systemRelayEditing ? "留空或保持当前掩码不变时，将沿用现有 Access Key。" : undefined}
+                >
+                  <Input.Password placeholder="请输入 Access Key" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="Secret Key"
+                  name="secret_key"
+                  extra={systemRelayEditing ? "留空或保持当前掩码不变时，将沿用现有 Secret Key。" : undefined}
+                >
+                  <Input.Password placeholder="请输入 Secret Key" />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
+          {!systemRelayEditing && incompatibleSelectedModels.length > 0 ? (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="当前已选模型与供应商或服务类型不一致"
+              description={incompatibleSelectedModels.map((item) => getModelOptionText(item)).join("、")}
+            />
+          ) : null}
+
+          {!systemRelayEditing && legacySelectedPatterns.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="检测到旧版匹配规则"
+              description={`以下旧规则会继续保留，直到你改成精确模型：${legacySelectedPatterns.join("、")}`}
+            />
+          ) : null}
 
           <Form.Item
-            label="模型匹配规则"
-            name="model_patterns_text"
-            extra="支持按行或逗号分隔填写，例如 gpt-*、gemini-*、sora-*。默认线路可不填。"
+            label="适用模型"
+            name="model_patterns"
+            extra="按当前供应商类型和服务类型筛选。保存后会写入精确模型 ID，不再依赖手工输入匹配规则。默认线路可不选。"
           >
-            <TextArea
-              rows={6}
-              placeholder={"gpt-*\ngemini-*\nsora-*"}
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={relayModelSelectOptions}
+              placeholder="请选择一个或多个具体模型"
+              maxTagCount="responsive"
+              popupMatchSelectWidth={false}
+              filterOption={(input, option) =>
+                String(option?.label ?? "")
+                  .toLowerCase()
+                  .includes(input.toLowerCase()) ||
+                String((option as { searchText?: string } | undefined)?.searchText ?? "")
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
+              }
               disabled={systemRelayEditing}
             />
           </Form.Item>

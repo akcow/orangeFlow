@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from pydantic import field_serializer
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Column, UniqueConstraint, text
+from sqlalchemy import Column, DateTime, Text, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -34,8 +34,14 @@ class CreditAccountBase(SQLModel):
     balance: int = Field(default=0, nullable=False)
     total_recharged: int = Field(default=0, nullable=False)
     total_consumed: int = Field(default=0, nullable=False)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
 
     @field_serializer("created_at", "updated_at")
     def _serialize_datetime_fields(self, value: datetime) -> str:
@@ -69,8 +75,14 @@ class CreditPricingRuleBase(SQLModel):
     display_name: str = Field(max_length=120)
     credits_cost: int = Field(default=0, nullable=False)
     is_active: bool = Field(default=True, nullable=False)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
 
     @field_serializer("created_at", "updated_at")
     def _serialize_datetime_fields(self, value: datetime) -> str:
@@ -120,9 +132,12 @@ class CreditLedgerEntryBase(SQLModel):
     run_id: str | None = Field(default=None, max_length=120, nullable=True, index=True)
     vertex_id: str | None = Field(default=None, max_length=120, nullable=True, index=True)
     dedupe_key: str | None = Field(default=None, max_length=255, nullable=True)
-    remark: str | None = Field(default=None, nullable=True)
+    remark: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     created_by_id: UUID | None = Field(default=None, foreign_key="user.id", nullable=True, index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
 
     @field_serializer("created_at")
     def _serialize_created_at(self, value: datetime) -> str:

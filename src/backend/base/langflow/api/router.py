@@ -7,6 +7,7 @@ from langflow.api.v1 import (
     community_router,
     credits_router,
     endpoints_router,
+    feedback_router,
     files_router,
     flows_router,
     folders_router,
@@ -53,6 +54,7 @@ router_v1.include_router(users_router)
 router_v1.include_router(login_router)
 router_v1.include_router(variables_router)
 router_v1.include_router(files_router)
+router_v1.include_router(feedback_router)
 router_v1.include_router(monitor_router)
 router_v1.include_router(folders_router)
 router_v1.include_router(projects_router)

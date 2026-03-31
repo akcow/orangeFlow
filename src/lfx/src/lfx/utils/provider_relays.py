@@ -24,6 +24,7 @@ SUPPORTED_RELAY_PROVIDERS = (
     "veo",
     "vidu",
     "kling",
+    "jimeng",
 )
 SUPPORTED_RELAY_SERVICE_TYPES = ("any", "text", "image", "video", "audio")
 
@@ -36,6 +37,8 @@ class ProviderRelay:
     provider: str
     base_url: str | None
     api_key: str | None
+    access_key: str | None
+    secret_key: str | None
     model_patterns: list[str]
     priority: int
     enabled: bool
@@ -109,6 +112,20 @@ def _normalize_api_key(value: str | None) -> str | None:
     return "".join(cleaned.split()) or None
 
 
+def _normalize_access_key(value: str | None) -> str | None:
+    cleaned = _normalize_optional_text(value)
+    if not cleaned or cleaned.startswith("****"):
+        return None
+    return "".join(cleaned.split()) or None
+
+
+def _normalize_secret_key(value: str | None) -> str | None:
+    cleaned = _normalize_optional_text(value)
+    if not cleaned or cleaned.startswith("****"):
+        return None
+    return "".join(cleaned.split()) or None
+
+
 def _normalize_model_patterns(value: list[str] | None) -> list[str]:
     patterns = []
     for pattern in value or []:
@@ -151,6 +168,8 @@ def _coerce_relay(raw: dict[str, Any]) -> ProviderRelay | None:
             provider=provider,
             base_url=_normalize_optional_text(raw.get("base_url")),
             api_key=_normalize_api_key(raw.get("api_key")),
+            access_key=_normalize_access_key(raw.get("access_key")),
+            secret_key=_normalize_secret_key(raw.get("secret_key")),
             model_patterns=_normalize_model_patterns(raw.get("model_patterns")),
             priority=priority,
             enabled=bool(raw.get("enabled", True)),
@@ -173,6 +192,8 @@ def _serialize_relay(relay: ProviderRelay, *, include_secrets: bool) -> dict[str
     payload.pop("editable_fields", None)
     if not include_secrets:
         payload["api_key"] = None
+        payload["access_key"] = None
+        payload["secret_key"] = None
     return payload
 
 
@@ -215,6 +236,24 @@ def _validate_relay_payload(payload: dict[str, Any], *, is_create: bool) -> dict
     elif is_create:
         normalized["api_key"] = None
 
+    if "access_key" in payload:
+        raw_access_key = payload.get("access_key")
+        if isinstance(raw_access_key, str) and raw_access_key.strip().startswith("****"):
+            pass
+        else:
+            normalized["access_key"] = _normalize_access_key(raw_access_key)
+    elif is_create:
+        normalized["access_key"] = None
+
+    if "secret_key" in payload:
+        raw_secret_key = payload.get("secret_key")
+        if isinstance(raw_secret_key, str) and raw_secret_key.strip().startswith("****"):
+            pass
+        else:
+            normalized["secret_key"] = _normalize_secret_key(raw_secret_key)
+    elif is_create:
+        normalized["secret_key"] = None
+
     if is_create or "model_patterns" in payload:
         normalized["model_patterns"] = _normalize_model_patterns(payload.get("model_patterns"))
 
@@ -251,35 +290,65 @@ def _dedupe_defaults(relays: list[ProviderRelay], target: ProviderRelay) -> list
     return updated
 
 
-def _credential_env_vars(provider: str) -> list[str]:
+def _credential_env_vars(provider: str) -> dict[str, list[str]]:
     provider_key = (provider or "").strip().lower()
     if provider_key == "openai":
-        return ["OPENAI_API_KEY"]
+        return {"api_key": ["OPENAI_API_KEY"]}
     if provider_key == "deepseek":
-        return ["DEEPSEEK_API_KEY"]
+        return {"api_key": ["DEEPSEEK_API_KEY"]}
     if provider_key in {"doubao", "model_provider"}:
-        return ["ARK_API_KEY"]
+        return {"api_key": ["ARK_API_KEY"]}
     if provider_key in {"gemini", "google"}:
-        return ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+        return {"api_key": ["GEMINI_API_KEY", "GOOGLE_API_KEY"]}
     if provider_key in {"dashscope", "dashscope_tts", "qwen_tts"}:
-        return ["DASHSCOPE_API_KEY"]
+        return {"api_key": ["DASHSCOPE_API_KEY"]}
     if provider_key == "vidu":
-        return ["VIDU_API_KEY"]
+        return {"api_key": ["VIDU_API_KEY"]}
     if provider_key in {"kling", "klingai"}:
-        return ["KLING_API_KEY"]
-    return []
+        return {
+            "api_key": ["KLING_API_KEY"],
+            "access_key": ["KLING_ACCESS_KEY", "KLING_ACCESSKEY"],
+            "secret_key": ["KLING_SECRET_KEY", "KLING_SECRETKEY"],
+        }
+    if provider_key in {"jimeng", "jimeng_visual"}:
+        return {
+            "access_key": [
+                "JIMENG_CV_ACCESS_KEY",
+                "VOLC_ACCESSKEY",
+                "VOLC_ACCESS_KEY",
+                "VOLCENGINE_ACCESS_KEY",
+            ],
+            "secret_key": [
+                "JIMENG_CV_SECRET_KEY",
+                "VOLC_SECRETKEY",
+                "VOLC_SECRET_KEY",
+                "VOLCENGINE_SECRET_KEY",
+            ],
+        }
+    return {}
 
 
-def _resolve_builtin_api_key(credential_provider: str, config_dir: str | Path) -> str | None:
+def _resolve_builtin_credentials(credential_provider: str, config_dir: str | Path) -> dict[str, str | None]:
     creds = get_provider_credentials(credential_provider, config_dir)
-    stored = _normalize_api_key(creds.api_key)
-    if stored:
-        return stored
-    for env_var in _credential_env_vars(credential_provider):
-        env_value = _normalize_api_key(os.getenv(env_var))
-        if env_value:
-            return env_value
-    return None
+    resolved = {
+        "api_key": _normalize_api_key(creds.api_key),
+        "access_key": _normalize_access_key(creds.app_id),
+        "secret_key": _normalize_secret_key(creds.access_token),
+    }
+    for field, env_vars in _credential_env_vars(credential_provider).items():
+        if resolved.get(field):
+            continue
+        normalizer = {
+            "api_key": _normalize_api_key,
+            "access_key": _normalize_access_key,
+            "secret_key": _normalize_secret_key,
+        }[field]
+        for env_var in env_vars:
+            env_value = normalizer(os.getenv(env_var))
+            if env_value:
+                resolved[field] = env_value
+                break
+    return resolved
 
 
 def _builtin_relay_specs() -> list[dict[str, Any]]:
@@ -384,14 +453,25 @@ def _builtin_relay_specs() -> list[dict[str, Any]]:
             "model_patterns": ["kling*"],
             "priority": 9090,
         },
+        {
+            "id": "builtin:jimeng-image",
+            "name": "系统默认 Jimeng 图像线路",
+            "service_type": "image",
+            "provider": "jimeng",
+            "credential_provider": "jimeng_visual",
+            "base_url": os.getenv("JIMENG_VISUAL_API_BASE", "https://visual.volcengineapi.com"),
+            "model_patterns": ["jimeng*"],
+            "priority": 9100,
+            "editable_fields": ["access_key", "secret_key"],
+        },
     ]
 
 
 def _build_builtin_relays(config_dir: str | Path) -> list[ProviderRelay]:
     builtins: list[ProviderRelay] = []
     for spec in _builtin_relay_specs():
-        api_key = _resolve_builtin_api_key(spec["credential_provider"], config_dir)
-        creds = get_provider_credentials(spec["credential_provider"], config_dir)
+        resolved_credentials = _resolve_builtin_credentials(spec["credential_provider"], config_dir)
+        stored_credentials = get_provider_credentials(spec["credential_provider"], config_dir)
         builtins.append(
             ProviderRelay(
                 id=spec["id"],
@@ -399,19 +479,21 @@ def _build_builtin_relays(config_dir: str | Path) -> list[ProviderRelay]:
                 service_type=spec["service_type"],
                 provider=spec["provider"],
                 base_url=spec["base_url"],
-                api_key=api_key,
+                api_key=resolved_credentials["api_key"],
+                access_key=resolved_credentials["access_key"],
+                secret_key=resolved_credentials["secret_key"],
                 model_patterns=spec["model_patterns"],
                 priority=spec["priority"],
                 enabled=True,
                 is_default=True,
                 created_at=None,
-                updated_at=creds.updated_at,
+                updated_at=stored_credentials.updated_at,
                 managed_via="provider_credentials",
                 system_default=True,
                 credential_provider=spec["credential_provider"],
                 deletable=False,
                 reorderable=False,
-                editable_fields=["api_key"],
+                editable_fields=spec.get("editable_fields", ["api_key"]),
             )
         )
     return builtins
@@ -439,6 +521,8 @@ def list_provider_relays(config_dir: str | Path, *, include_secrets: bool = Fals
             **{
                 **asdict(relay),
                 "api_key": None,
+                "access_key": None,
+                "secret_key": None,
             }
         )
         for relay in relays
@@ -456,10 +540,12 @@ def list_provider_relays_for_admin(
         builtin_relays = [
             ProviderRelay(
                 **{
-                    **asdict(relay),
-                    "api_key": None,
-                }
-            )
+                **asdict(relay),
+                "api_key": None,
+                "access_key": None,
+                "secret_key": None,
+            }
+        )
             for relay in builtin_relays
         ]
     return [*custom_relays, *builtin_relays]
@@ -477,6 +563,8 @@ def create_provider_relay(payload: dict[str, Any], config_dir: str | Path) -> Pr
         provider=normalized["provider"],
         base_url=normalized.get("base_url"),
         api_key=normalized.get("api_key"),
+        access_key=normalized.get("access_key"),
+        secret_key=normalized.get("secret_key"),
         model_patterns=normalized.get("model_patterns", []),
         priority=normalized.get("priority", (len(relays) + 1) * 10),
         enabled=normalized.get("enabled", True),
@@ -499,7 +587,11 @@ def update_provider_relay(relay_id: str, payload: dict[str, Any], config_dir: st
             raise ValueError("built-in relay is missing credential provider")
         save_provider_credentials(
             provider=credential_provider,
-            payload={"api_key": payload.get("api_key")},
+            payload={
+                "api_key": payload.get("api_key"),
+                "app_id": payload.get("access_key"),
+                "access_token": payload.get("secret_key"),
+            },
             config_dir=config_dir,
         )
         refreshed = _find_builtin_relay(relay_id, config_dir)
@@ -586,7 +678,7 @@ def get_matching_provider_relay(model: str, config_dir: str | Path, *, service_t
         relay
         for relay in list_provider_relays_for_admin(config_dir, include_secrets=True)
         if relay.enabled
-        and relay.api_key
+        and (relay.api_key or (relay.access_key and relay.secret_key))
         and (relay.service_type == "any" or relay.service_type == service_key)
     ]
 
@@ -615,5 +707,11 @@ def serialize_provider_relay_for_response(relay: ProviderRelay) -> dict[str, Any
     payload = asdict(relay)
     payload["api_key_present"] = bool(relay.api_key)
     payload["api_key_masked"] = mask_secret(relay.api_key)
+    payload["access_key_present"] = bool(relay.access_key)
+    payload["access_key_masked"] = mask_secret(relay.access_key)
+    payload["secret_key_present"] = bool(relay.secret_key)
+    payload["secret_key_masked"] = mask_secret(relay.secret_key)
     payload.pop("api_key", None)
+    payload.pop("access_key", None)
+    payload.pop("secret_key", None)
     return payload

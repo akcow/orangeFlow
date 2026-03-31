@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from pydantic import field_serializer
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Text, UniqueConstraint, text
+from sqlalchemy import DateTime, Text, UniqueConstraint, text
 from sqlmodel import JSON, Column, Field, SQLModel
 
 if TYPE_CHECKING:
@@ -74,9 +74,15 @@ class CommunityItemBase(SQLModel):
     view_count: int = Field(default=0, nullable=False)
     like_count: int = Field(default=0, nullable=False)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
     # Keep this unindexed to avoid model/db drift across existing deployments.
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
     @field_serializer("created_at", "updated_at")
     def _serialize_dt(self, value: datetime):
@@ -100,7 +106,10 @@ class CommunityItemLike(SQLModel, table=True):  # type: ignore[call-arg]
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     item_id: UUID = Field(foreign_key="community_item.id", index=True)
     user_id: UUID = Field(foreign_key="user.id", index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
 
     @field_serializer("created_at")
     def _serialize_created_at(self, value: datetime):
@@ -171,7 +180,10 @@ class CommunityItemReviewLogBase(SQLModel):
         ),
     )
     comment: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
 
     @field_serializer("created_at")
     def _serialize_log_dt(self, value: datetime):

@@ -26,9 +26,15 @@ class UserWorkflowBase(SQLModel):
 
     resource_map: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_used_at: datetime | None = Field(default=None, nullable=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(sa.DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(sa.DateTime(timezone=True), nullable=False),
+    )
+    last_used_at: datetime | None = Field(default=None, sa_column=Column(sa.DateTime(timezone=True), nullable=True))
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

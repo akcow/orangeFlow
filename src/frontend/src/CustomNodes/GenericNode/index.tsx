@@ -15,6 +15,7 @@ import { ICON_STROKE_WIDTH } from "../../constants/constants";
 import NodeToolbarComponent from "../../pages/FlowPage/components/nodeToolbarComponent";
 import { useChangeOnUnfocus } from "../../shared/hooks/use-change-on-unfocus";
 import useAlertStore from "../../stores/alertStore";
+import { useCanvasUiStore } from "../../stores/canvasUiStore";
 import useFlowStore from "../../stores/flowStore";
 import useFlowsManagerStore from "../../stores/flowsManagerStore";
 import { useShortcutsStore } from "../../stores/shortcuts";
@@ -911,6 +912,10 @@ function GenericNode({
   const [isTextCreationLogsOpen, setTextCreationLogsOpen] = useState(false);
   const [textCreationPreviewActions, setTextCreationPreviewActions] =
     useState<DoubaoPreviewPanelActions | null>(null);
+  const referenceSelection = useCanvasUiStore((state) => state.referenceSelection);
+  const setReferenceSelectionHoveredNode = useCanvasUiStore(
+    (state) => state.setReferenceSelectionHoveredNode,
+  );
 
   // Used to sync the floating top bar with the persistent preview frame resize animation
   // (the node is bottom-anchored via ResizeObserver, so without this the top bar "jumps" at the end).
@@ -1045,6 +1050,18 @@ function GenericNode({
     isUserUploadImage ||
     isUserUploadVideo ||
     isUserUploadAudio;
+  const isReferenceSelectionActive = referenceSelection.active;
+  const referenceSelectionTargetNodeId = referenceSelection.targetNodeId;
+  const isReferenceSelectionSourceNode =
+    isReferenceSelectionActive &&
+    (isDoubaoImageCreator || isUserUploadImage) &&
+    data.id !== referenceSelectionTargetNodeId;
+  const isReferenceSelectionTargetNode =
+    isReferenceSelectionActive && data.id === referenceSelectionTargetNodeId;
+  const shouldDimForReferenceSelection =
+    isReferenceSelectionActive &&
+    !isReferenceSelectionSourceNode &&
+    !isReferenceSelectionTargetNode;
   const hideTitleRow =
     isDoubaoImageCreator &&
     Boolean(
@@ -1052,6 +1069,20 @@ function GenericNode({
         imageCreatorPreviewActions?.isMultiAngleCameraOpen ||
         imageCreatorPreviewActions?.isEnhanceOpen,
     );
+
+  useEffect(() => {
+    if (isReferenceSelectionActive && isReferenceSelectionSourceNode) return;
+    if (referenceSelection.hoveredNodeId === data.id) {
+      setReferenceSelectionHoveredNode(null);
+    }
+  }, [
+    data.id,
+    isReferenceSelectionActive,
+    isReferenceSelectionSourceNode,
+    referenceSelection.hoveredNodeId,
+    setReferenceSelectionHoveredNode,
+  ]);
+
   const nodeWidthClass = useMemo(() => {
     if (!showNode) return "w-48";
     if (isTextCreation) return "w-[520px]";
@@ -1347,6 +1378,7 @@ function GenericNode({
     const isSelectedSingle = selected && selectedNodesCount === 1;
     // Creator nodes use a cursor-anchored context menu instead of a fixed "more actions" button.
     const shouldShowToolbar =
+      !isReferenceSelectionActive &&
       !(
         isDoubaoImageCreator ||
         isDoubaoVideoGenerator ||
@@ -1464,6 +1496,7 @@ function GenericNode({
     isUserUploadImage,
     isUserUploadVideo,
     isUserUploadAudio,
+    isReferenceSelectionActive,
     selected,
     shortcuts,
     editNameDescription,
@@ -1522,7 +1555,27 @@ function GenericNode({
             : "rounded-xl border shadow-sm hover:shadow-md",
           !hasOutputs && "pb-4",
           usesWideDoubaoLayout && "overflow-visible",
+          isReferenceSelectionSourceNode &&
+            "cursor-pointer transition-[filter,opacity,transform,box-shadow] duration-200 ease-out",
+          shouldDimForReferenceSelection &&
+            "pointer-events-none opacity-35 blur-[3px] saturate-[0.72]",
         )}
+        onMouseEnter={() => {
+          if (!isReferenceSelectionActive || !isReferenceSelectionSourceNode) return;
+          setReferenceSelectionHoveredNode(data.id);
+        }}
+        onMouseMove={() => {
+          if (!isReferenceSelectionActive || !isReferenceSelectionSourceNode) return;
+          if (referenceSelection.hoveredNodeId !== data.id) {
+            setReferenceSelectionHoveredNode(data.id);
+          }
+        }}
+        onMouseLeave={() => {
+          if (!isReferenceSelectionSourceNode) return;
+          if (referenceSelection.hoveredNodeId === data.id) {
+            setReferenceSelectionHoveredNode(null);
+          }
+        }}
       >
         {openUpdateModal && (
           <UpdateComponentModal
@@ -1565,7 +1618,8 @@ function GenericNode({
           {showNode &&
             usesWideDoubaoLayout &&
             (isDoubaoImageCreator || isUserUploadImage) &&
-            selected && (
+            selected &&
+            !isReferenceSelectionActive && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
                 {imageCreatorPreviewActions?.hasRenderablePreview ? (
                   <DoubaoImageCreatorTopBar
@@ -1617,6 +1671,7 @@ function GenericNode({
             usesWideDoubaoLayout &&
             (isDoubaoVideoGenerator || isUserUploadVideo) &&
             selected &&
+            !isReferenceSelectionActive &&
             !videoGeneratorPreviewActions?.isClipOpen &&
             (!isViduUpscaleVideoNode ||
               Boolean(
@@ -1659,7 +1714,8 @@ function GenericNode({
           {showNode &&
             usesWideDoubaoLayout &&
             (isDoubaoAudioGenerator || isUserUploadAudio) &&
-            selected && (
+            selected &&
+            !isReferenceSelectionActive && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
               <DoubaoAudioTopBar
                 nodeId={data.id}
@@ -1671,7 +1727,11 @@ function GenericNode({
               />
             </div>
           )}
-          {showNode && usesWideDoubaoLayout && isTextCreation && selected && (
+          {showNode &&
+            usesWideDoubaoLayout &&
+            isTextCreation &&
+            selected &&
+            !isReferenceSelectionActive && (
             <div className="absolute left-0 right-0 top-0 z-[1700] -translate-y-full">
               <TextCreationTopBar
                 nodeId={data.id}

@@ -6,6 +6,7 @@ from langflow.api.v1.endpoints import router as endpoints_router
 from langflow.api.v1.files import router as files_router
 from langflow.api.v1.flows import router as flows_router
 from langflow.api.v1.folders import router as folders_router
+from langflow.api.v1.feedback import router as feedback_router
 from langflow.api.v1.knowledge_bases import router as knowledge_bases_router
 from langflow.api.v1.login import router as login_router
 from langflow.api.v1.mcp import router as mcp_router
@@ -31,6 +32,7 @@ __all__ = [
     "credits_router",
     "endpoints_router",
     "files_router",
+    "feedback_router",
     "flows_router",
     "folders_router",
     "knowledge_bases_router",

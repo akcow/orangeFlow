@@ -64,6 +64,7 @@ import {
 import type { TypesStoreType } from "@/types/zustand/types";
 import { createFileUpload } from "@/helpers/create-file-upload";
 import useAlertStore from "@/stores/alertStore";
+import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
@@ -448,6 +449,62 @@ type DoubaoImageCreatorLayoutProps = {
   onPersistentPreviewMotionCommit?: () => void;
 };
 
+function ReferenceSelectionPreviewGlow({ glowId }: { glowId: string }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[760] overflow-hidden rounded-[28px]">
+      <svg
+        className="h-full w-full overflow-visible"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <defs>
+          <filter id={glowId} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="1.6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <rect
+          x="1.5"
+          y="1.5"
+          width="97"
+          height="97"
+          rx="10"
+          ry="10"
+          fill="none"
+          stroke="rgba(255,255,255,0.12)"
+          strokeWidth="1.4"
+        />
+        <rect
+          x="1.5"
+          y="1.5"
+          width="97"
+          height="97"
+          rx="10"
+          ry="10"
+          fill="none"
+          stroke="rgba(255,255,255,0.96)"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeDasharray="22 240"
+          filter={`url(#${glowId})`}
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            from="0"
+            to="-262"
+            dur="1.8s"
+            repeatCount="indefinite"
+          />
+        </rect>
+      </svg>
+    </div>
+  );
+}
+
 export default function DoubaoImageCreatorLayout({
   data,
   types,
@@ -772,6 +829,13 @@ export default function DoubaoImageCreatorLayout({
     name: "resolution",
   });
   const setErrorData = useAlertStore((state) => state.setErrorData);
+  const referenceSelection = useCanvasUiStore((state) => state.referenceSelection);
+  const startReferenceSelection = useCanvasUiStore(
+    (state) => state.startReferenceSelection,
+  );
+  const exitReferenceSelection = useCanvasUiStore(
+    (state) => state.exitReferenceSelection,
+  );
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
   const { mutateAsync: uploadReferenceFile } = usePostUploadFile();
   const { validateFileSize } = useFileSizeValidator();
@@ -1773,6 +1837,17 @@ export default function DoubaoImageCreatorLayout({
   const canAddMoreReferences =
     localReferenceCount < maxLocalEntries &&
     selectedReferenceCount < maxReferenceEntries;
+  const canSelectCanvasReference = selectedReferenceCount < maxReferenceEntries;
+  const isCanvasReferenceSelectionActiveForNode =
+    referenceSelection.active && referenceSelection.targetNodeId === data.id;
+  const showReferenceSelectionPreviewGlow =
+    referenceSelection.active &&
+    referenceSelection.targetNodeId !== data.id &&
+    referenceSelection.hoveredNodeId === data.id;
+  const previewGlowId = useMemo(
+    () => `reference-preview-glow-${String(data.id).replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+    [data.id],
+  );
 
   useEffect(() => {
     if (!edgeImageCountLimit) return;
@@ -1797,6 +1872,16 @@ export default function DoubaoImageCreatorLayout({
     setErrorData,
   ]);
 
+  useEffect(() => {
+    if (!isCanvasReferenceSelectionActiveForNode) return;
+    if (showExpanded) return;
+    exitReferenceSelection();
+  }, [
+    exitReferenceSelection,
+    isCanvasReferenceSelectionActiveForNode,
+    showExpanded,
+  ]);
+
   const allowedExtensions = useMemo(() => {
     if (isWanModel) {
       return WAN_REFERENCE_EXTENSIONS;
@@ -1811,6 +1896,29 @@ export default function DoubaoImageCreatorLayout({
     () => allowedExtensions.map((ext) => `.${ext}`).join(","),
     [allowedExtensions],
   );
+
+  const handleCanvasReferenceSelectionToggle = useCallback(() => {
+    if (isCanvasReferenceSelectionActiveForNode) {
+      exitReferenceSelection();
+      return;
+    }
+    if (!canSelectCanvasReference) {
+      setErrorData({
+        title: "已达到参考图上限",
+        list: [`当前模型最多允许 ${maxReferenceEntries} 张参考图。`],
+      });
+      return;
+    }
+    startReferenceSelection(data.id);
+  }, [
+    canSelectCanvasReference,
+    data.id,
+    exitReferenceSelection,
+    isCanvasReferenceSelectionActiveForNode,
+    maxReferenceEntries,
+    setErrorData,
+    startReferenceSelection,
+  ]);
 
   const openUploadDialog = useCallback(() => {
     if (isReferenceUploadPending) return;
@@ -3141,6 +3249,9 @@ export default function DoubaoImageCreatorLayout({
                 : startHidePlus("right", event.clientX, event.clientY)
             }
           />
+          {showReferenceSelectionPreviewGlow && (
+            <ReferenceSelectionPreviewGlow glowId={previewGlowId} />
+          )}
           <DoubaoPreviewPanel
             nodeId={data.id}
             componentName={data.type}
@@ -3282,8 +3393,33 @@ export default function DoubaoImageCreatorLayout({
 
             <div className="text-sm text-[#3C4057] dark:text-slate-100">
               <div className="flex min-h-[168px] flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="group relative">
+                    <button
+                      type="button"
+                      onClick={handleCanvasReferenceSelectionToggle}
+                      disabled={!canSelectCanvasReference && !isCanvasReferenceSelectionActiveForNode}
+                      className={cn(
+                        "inline-flex h-16 w-16 items-center justify-center rounded-2xl border transition-all duration-200",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
+                        isCanvasReferenceSelectionActiveForNode
+                          ? "border-[#1D9BF0]/40 bg-[#1D9BF0]/12 text-[#1D9BF0] shadow-[0_14px_36px_rgba(29,155,240,0.16)] dark:border-[#4FB8FF]/40 dark:bg-[#1D9BF0]/18 dark:text-[#8BD3FF]"
+                          : "border-[#D7DEEF] bg-[#F4F6FB] text-[#3C4057] shadow-[0_10px_30px_rgba(15,23,42,0.08)] hover:border-[#C5D4F8] hover:bg-[#EEF3FF] dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/14",
+                        !canSelectCanvasReference &&
+                          !isCanvasReferenceSelectionActiveForNode &&
+                          "cursor-not-allowed opacity-50",
+                      )}
+                      aria-label="参考"
+                    >
+                      <ForwardedIconComponent name="Plus" className="h-6 w-6" />
+                    </button>
+                    <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#2E2E32] px-3 py-1 text-xs font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-all duration-200 translate-y-1 group-hover:translate-y-0 group-hover:opacity-100">
+                      参考
+                    </div>
+                  </div>
+                </div>
                 {promptReferencePreviews.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="-mt-[76px] flex flex-wrap items-center gap-2 pl-[80px]">
                     {visiblePromptReferencePreviews.map((preview, index) => {
                       const previewSource =
                         preview.imageSource ?? preview.downloadSource ?? "";

@@ -62,9 +62,9 @@ describe("HelpDropdownView", () => {
     const onToggleHelperLines = jest.fn();
     const navigateTo = jest.fn();
     const openLink = jest.fn();
+    const onReportIssue = jest.fn();
     const urls = {
       docs: "https://docs",
-      bugReport: "https://bugs",
     };
 
     render(
@@ -75,6 +75,7 @@ describe("HelpDropdownView", () => {
         onToggleHelperLines={onToggleHelperLines}
         navigateTo={navigateTo}
         openLink={openLink}
+        onReportIssue={onReportIssue}
         urls={urls}
       />,
     );
@@ -90,7 +91,7 @@ describe("HelpDropdownView", () => {
     fireEvent.click(
       screen.getByTestId("canvas_controls_dropdown_report_a_bug"),
     );
-    expect(openLink).toHaveBeenCalledWith("https://bugs");
+    expect(onReportIssue).toHaveBeenCalled();
 
     fireEvent.click(
       screen.getByTestId("canvas_controls_dropdown_enable_smart_guides"),

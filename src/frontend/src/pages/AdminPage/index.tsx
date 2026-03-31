@@ -96,6 +96,7 @@ import ConfirmationModal from "../../modals/confirmationModal";
 import UserManagementModal from "../../modals/userManagementModal";
 import useAlertStore from "../../stores/alertStore";
 import type { UserInputType } from "../../types/components";
+import IssueFeedbackPanel from "./IssueFeedbackPanel";
 
 type NotificationFormState = {
   title: string;
@@ -817,8 +818,9 @@ export default function AdminPage({
           ) : null}
 
           {userData.is_superuser ? (
-            <div className="grid gap-4 px-4 pb-4 pt-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-              <Card className="border-border bg-background">
+            <div className="space-y-4 px-4 pb-4 pt-2">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+                <Card className="border-border bg-background">
                 <CardHeader className="pb-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -1057,9 +1059,9 @@ export default function AdminPage({
                     </div>
                   </div>
                 </CardContent>
-              </Card>
+                </Card>
 
-              <Card className="border-border bg-background">
+                <Card className="border-border bg-background">
                 <CardHeader className="pb-4">
                   <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
@@ -1217,7 +1219,10 @@ export default function AdminPage({
                     </div>
                   )}
                 </CardContent>
-              </Card>
+                </Card>
+              </div>
+
+              <IssueFeedbackPanel />
             </div>
           ) : null}
 

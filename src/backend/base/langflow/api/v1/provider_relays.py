@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from langflow.gateway.model_catalog import serialize_gateway_model_catalog
 from langflow.services.auth.utils import get_current_active_superuser
 from langflow.services.deps import get_settings_service
 from lfx.utils.provider_relays import (
@@ -34,6 +35,7 @@ RelayProvider = Literal[
     "veo",
     "vidu",
     "kling",
+    "jimeng",
 ]
 RelayServiceType = Literal["any", "text", "image", "video", "audio"]
 
@@ -44,6 +46,8 @@ class ProviderRelayCreate(BaseModel):
     provider: RelayProvider
     base_url: str | None = Field(default=None)
     api_key: str | None = Field(default=None)
+    access_key: str | None = Field(default=None)
+    secret_key: str | None = Field(default=None)
     model_patterns: list[str] = Field(default_factory=list)
     priority: int = Field(default=100)
     enabled: bool = Field(default=True)
@@ -56,6 +60,8 @@ class ProviderRelayUpdate(BaseModel):
     provider: RelayProvider | None = None
     base_url: str | None = None
     api_key: str | None = None
+    access_key: str | None = None
+    secret_key: str | None = None
     model_patterns: list[str] | None = None
     priority: int | None = None
     enabled: bool | None = None
@@ -70,6 +76,10 @@ class ProviderRelayResponse(BaseModel):
     base_url: str | None
     api_key_present: bool
     api_key_masked: str | None
+    access_key_present: bool = False
+    access_key_masked: str | None = None
+    secret_key_present: bool = False
+    secret_key_masked: str | None = None
     model_patterns: list[str]
     priority: int
     enabled: bool
@@ -82,6 +92,15 @@ class ProviderRelayResponse(BaseModel):
     deletable: bool = True
     reorderable: bool = True
     editable_fields: list[str] | None = None
+
+
+class ProviderRelayModelCatalogItem(BaseModel):
+    id: str
+    full_name: str
+    model_type: str
+    owned_by: str
+    relay_provider: RelayProvider
+    relay_service_type: RelayServiceType
 
 
 class DeleteProviderRelayResponse(BaseModel):
@@ -107,6 +126,14 @@ def get_provider_relays_handler() -> list[ProviderRelayResponse]:
             include_secrets=True,
         )
         return _serialize_many(relays)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/model-catalog", response_model=list[ProviderRelayModelCatalogItem])
+def get_provider_relay_model_catalog_handler() -> list[ProviderRelayModelCatalogItem]:
+    try:
+        return [ProviderRelayModelCatalogItem(**item) for item in serialize_gateway_model_catalog()]
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

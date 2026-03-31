@@ -38,7 +38,7 @@ import useAutoSaveFlow from "@/hooks/flows/use-autosave-flow";
 import useSaveFlow from "@/hooks/flows/use-save-flow";
 import useUploadFlow from "@/hooks/flows/use-upload-flow";
 import { useAddComponent } from "@/hooks/use-add-component";
-import { isSupportedNodeTypes } from "@/utils/utils";
+import { cn, isSupportedNodeTypes } from "@/utils/utils";
 import GenericNode from "../../../../CustomNodes/GenericNode";
 import { Link } from "react-router-dom";
 import { Button } from "../../../../components/ui/button";
@@ -77,6 +77,7 @@ import {
   getNodeId,
   isValidConnection,
   scapeJSONParse,
+  scapedJSONStringfy,
 } from "../../../../utils/reactflowUtils";
 import ConnectionLineComponent from "../ConnectionLineComponent";
 import SelectionMenu from "../SelectionMenuComponent";
@@ -158,6 +159,13 @@ type UserUploadNodeType =
   | "UserUploadVideo"
   | "UserUploadAudio";
 
+const IMAGE_REFERENCE_SOURCE_TYPES = new Set([
+  "DoubaoImageCreator",
+  "UserUploadImage",
+]);
+const IMAGE_OUTPUT_NAME = "image";
+const REFERENCE_IMAGES_FIELD = "reference_images";
+
 function inferClipboardResourceNodeType(file: File): UserUploadNodeType | null {
   const mime = String(file.type || "").toLowerCase();
   const ext = (file.name.split(".").pop() || "").toLowerCase();
@@ -183,6 +191,66 @@ function getClipboardFileName(file: File, nodeType: UserUploadNodeType): string 
         ? "mp4"
         : "mp3";
   return `${nodeType.toLowerCase()}-${Date.now()}.${fallbackExt}`;
+}
+
+function isImageReferenceSourceNode(node: AllNodeType | undefined): boolean {
+  return (
+    node?.type === "genericNode" &&
+    IMAGE_REFERENCE_SOURCE_TYPES.has(String(node.data?.type ?? ""))
+  );
+}
+
+function buildReferenceSelectionConnection(
+  sourceNode: AllNodeType | undefined,
+  targetNode: AllNodeType | undefined,
+): Connection | null {
+  if (!isImageReferenceSourceNode(sourceNode)) return null;
+  if (
+    targetNode?.type !== "genericNode" ||
+    targetNode.data?.type !== "DoubaoImageCreator"
+  ) {
+    return null;
+  }
+
+  const sourceOutputs = sourceNode.data?.node?.outputs ?? [];
+  const outputDefinition =
+    sourceOutputs.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
+    sourceOutputs.find((output) => !output.hidden) ??
+    sourceOutputs[0];
+  const referenceField =
+    targetNode.data?.node?.template?.[REFERENCE_IMAGES_FIELD];
+
+  if (!outputDefinition || !referenceField) return null;
+
+  const sourceOutputTypes =
+    outputDefinition.types && outputDefinition.types.length === 1
+      ? outputDefinition.types
+      : outputDefinition.selected
+        ? [outputDefinition.selected]
+        : ["Data"];
+
+  const sourceHandle = {
+    output_types: sourceOutputTypes,
+    id: sourceNode.id,
+    dataType: sourceNode.data.type,
+    name: outputDefinition.name ?? IMAGE_OUTPUT_NAME,
+    ...(outputDefinition.proxy ? { proxy: outputDefinition.proxy } : {}),
+  };
+
+  const targetHandle = {
+    inputTypes: referenceField.input_types,
+    type: referenceField.type,
+    id: targetNode.id,
+    fieldName: REFERENCE_IMAGES_FIELD,
+    ...(referenceField.proxy ? { proxy: referenceField.proxy } : {}),
+  };
+
+  return {
+    source: sourceNode.id,
+    target: targetNode.id,
+    sourceHandle: scapedJSONStringfy(sourceHandle),
+    targetHandle: scapedJSONStringfy(targetHandle),
+  };
 }
 
 export default function Page({
@@ -238,9 +306,19 @@ export default function Page({
   );
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const updateCurrentFlow = useFlowStore((state) => state.updateCurrentFlow);
+  const currentFlowName = useFlowStore((state) => state.currentFlow?.name) ?? "未命名画布";
+  const referenceSelection = useCanvasUiStore((state) => state.referenceSelection);
+  const exitReferenceSelection = useCanvasUiStore(
+    (state) => state.exitReferenceSelection,
+  );
+  const setReferenceSelectionHoveredNode = useCanvasUiStore(
+    (state) => state.setReferenceSelectionHoveredNode,
+  );
   const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
   const [openExportModal, setOpenExportModal] = useState(false);
   const edgeUpdateSuccessful = useRef(true);
+  const isReferenceSelectionActive = referenceSelection.active;
+  const referenceSelectionTargetNodeId = referenceSelection.targetNodeId;
 
   const isLocked = useFlowStore(
     useShallow((state) => state.currentFlow?.locked),
@@ -1205,6 +1283,10 @@ export default function Page({
 
   // Workaround to show the menu only after the selection has ended.
   useEffect(() => {
+    if (isReferenceSelectionActive) {
+      setSelectionMenuVisible(false);
+      return;
+    }
     const rawNodes = lastSelection?.nodes ?? [];
     const isGroupOnly =
       rawNodes.length === 1 && rawNodes[0]?.type === "groupNode";
@@ -1215,7 +1297,25 @@ export default function Page({
     }
 
     setSelectionMenuVisible(false);
-  }, [selectionEnded, lastSelection]);
+  }, [selectionEnded, lastSelection, isReferenceSelectionActive]);
+
+  useEffect(() => {
+    if (!isReferenceSelectionActive) return;
+    setRightClickedNodeId(null);
+    setImageCreatorMoreActionsMenu(null);
+    setVideoGeneratorMoreActionsMenu(null);
+    setAudioCreatorMoreActionsMenu(null);
+    setTextCreationMoreActionsMenu(null);
+    setProCameraMoreActionsMenu(null);
+  }, [
+    isReferenceSelectionActive,
+    setRightClickedNodeId,
+    setImageCreatorMoreActionsMenu,
+    setVideoGeneratorMoreActionsMenu,
+    setAudioCreatorMoreActionsMenu,
+    setTextCreationMoreActionsMenu,
+    setProCameraMoreActionsMenu,
+  ]);
 
   const onSelectionChange = useCallback(
     (flow: OnSelectionChangeParams): void => {
@@ -1258,6 +1358,7 @@ export default function Page({
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: AllNodeType) => {
       event.preventDefault();
+      if (isReferenceSelectionActive) return;
       if (isLocked) return;
 
       // Image nodes (creator + user upload): show menu at cursor, and do NOT change selection.
@@ -1364,6 +1465,7 @@ export default function Page({
       });
     },
     [
+      isReferenceSelectionActive,
       isLocked,
       setRightClickedNodeId,
       setNodes,
@@ -1372,6 +1474,57 @@ export default function Page({
       setAudioCreatorMoreActionsMenu,
       setTextCreationMoreActionsMenu,
       setProCameraMoreActionsMenu,
+    ],
+  );
+
+  const onNodeClick = useCallback(
+    (event: React.MouseEvent, node: AllNodeType) => {
+      if (!isReferenceSelectionActive) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (!referenceSelectionTargetNodeId) return;
+      if (!isImageReferenceSourceNode(node)) return;
+      if (node.id === referenceSelectionTargetNodeId) return;
+
+      const targetNode = nodes.find((candidate) => candidate.id === referenceSelectionTargetNodeId);
+      const connection = buildReferenceSelectionConnection(node, targetNode);
+      if (!connection) return;
+
+      onConnectMod(connection);
+      setReferenceSelectionHoveredNode(null);
+      exitReferenceSelection();
+      if (targetNode && reactFlowInstance) {
+        window.requestAnimationFrame(() => {
+          const { width, height } = getNodeDimensions(targetNode);
+          const centerX = targetNode.position.x + width / 2;
+          const centerY = targetNode.position.y + height / 2;
+          const zoom = Number(reactFlowInstance.getViewport?.().zoom ?? 1) || 1;
+          if (typeof (reactFlowInstance as any).setCenter === "function") {
+            void (reactFlowInstance as any).setCenter(centerX, centerY, {
+              zoom,
+              duration: 260,
+            });
+            return;
+          }
+          reactFlowInstance.fitView({
+            nodes: [{ id: targetNode.id }],
+            duration: 260,
+            padding: 0.28,
+            maxZoom: zoom,
+            minZoom: zoom,
+          });
+        });
+      }
+    },
+    [
+      exitReferenceSelection,
+      isReferenceSelectionActive,
+      nodes,
+      onConnectMod,
+      reactFlowInstance,
+      referenceSelectionTargetNodeId,
+      setReferenceSelectionHoveredNode,
     ],
   );
 
@@ -1509,13 +1662,68 @@ export default function Page({
     return () => window.cancelAnimationFrame(frameId);
   }, [view, reactFlowInstance, currentFlowId, nodes.length]);
 
+  useEffect(() => {
+    if (!isReferenceSelectionActive || !referenceSelectionTargetNodeId) return;
+    const targetExists = nodes.some((node) => node.id === referenceSelectionTargetNodeId);
+    if (!targetExists) {
+      setReferenceSelectionHoveredNode(null);
+      exitReferenceSelection();
+    }
+  }, [
+    exitReferenceSelection,
+    isReferenceSelectionActive,
+    nodes,
+    referenceSelectionTargetNodeId,
+    setReferenceSelectionHoveredNode,
+  ]);
+
+  useEffect(() => {
+    if (!isReferenceSelectionActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setReferenceSelectionHoveredNode(null);
+      exitReferenceSelection();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [
+    exitReferenceSelection,
+    isReferenceSelectionActive,
+    setReferenceSelectionHoveredNode,
+  ]);
+
   return (
     <div className="h-full w-full bg-canvas" ref={reactFlowWrapper}>
       {showCanvas ? (
         <>
           <div id="react-flow-id" className="h-full w-full bg-canvas relative">
+            {isReferenceSelectionActive && (
+              <div className="pointer-events-none absolute inset-x-0 top-6 z-[70] flex justify-center px-4">
+                <div className="pointer-events-auto inline-flex items-center gap-3 rounded-full bg-[#1D9BF0] px-5 py-2 text-sm font-semibold text-white shadow-[0_16px_40px_rgba(29,155,240,0.32)]">
+                  <span>从画布选择参考</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReferenceSelectionHoveredNode(null);
+                      exitReferenceSelection();
+                    }}
+                    className="rounded-full bg-white/18 px-3 py-1 text-xs font-medium transition hover:bg-white/26"
+                  >
+                    退出
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="absolute left-0 top-0 z-50 flex w-full justify-between p-4 pointer-events-none">
-              <div className="flex items-center gap-4 pointer-events-auto">
+              <div
+                className={cn(
+                  "flex items-center gap-4 pointer-events-auto transition-all duration-300 ease-out",
+                  isReferenceSelectionActive &&
+                    "-translate-y-6 opacity-0 pointer-events-none",
+                )}
+              >
                 <Link to="/home" className="flex items-center gap-3 transition-opacity hover:opacity-85">
                   <img src="/branding/orangeflow-icon-512.png" alt="OrangeFlow icon" className="h-9 w-9 rounded-2xl object-cover" />
                 </Link>
@@ -1523,13 +1731,31 @@ export default function Page({
                   <FlowMenu />
                 </div>
               </div>
-              <div className="flex items-center gap-3 pointer-events-auto">
+              <div
+                className={cn(
+                  "flex items-center gap-3 pointer-events-auto transition-all duration-300 ease-out",
+                  isReferenceSelectionActive &&
+                    "-translate-y-6 opacity-0 pointer-events-none",
+                )}
+              >
                 <CreditsBalanceButton />
                 <Button variant="secondary" className="h-10 rounded-full px-5 text-sm font-medium text-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:bg-[#3D3D42]" style={{ backgroundColor: "#2E2E32" }}>
                   <IconComponent name="Sparkles" className="mr-1.5 h-[18px] w-[18px] text-yellow-500" />
                   社区
                 </Button>
                 <PublishDropdown />
+              </div>
+              <div
+                className={cn(
+                  "pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 transition-all duration-300 ease-out",
+                  isReferenceSelectionActive
+                    ? "translate-y-0 opacity-100"
+                    : "-translate-y-4 opacity-0",
+                )}
+              >
+                <div className="pointer-events-auto inline-flex h-10 items-center rounded-full border border-white/14 bg-black/35 px-5 text-sm font-medium text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md">
+                  {currentFlowName}
+                </div>
               </div>
             </div>
             <MemoizedCanvasControls
@@ -1628,11 +1854,11 @@ export default function Page({
               // Disable click-to-connect globally; our "+" handles use click for menus.
               connectOnClick={false}
               disableKeyboardA11y={true}
-              nodesFocusable={!isLocked && !view}
-              edgesFocusable={!isLocked && !view}
-              nodesDraggable={!view && !isLocked}
-              nodesConnectable={!view && !isLocked}
-              elementsSelectable={!view && !isLocked}
+              nodesFocusable={!isLocked && !view && !isReferenceSelectionActive}
+              edgesFocusable={!isLocked && !view && !isReferenceSelectionActive}
+              nodesDraggable={!view && !isLocked && !isReferenceSelectionActive}
+              nodesConnectable={!view && !isLocked && !isReferenceSelectionActive}
+              elementsSelectable={!view && !isLocked && !isReferenceSelectionActive}
               onInit={setReactFlowInstance}
               nodeTypes={nodeTypes}
               defaultViewport={{
@@ -1671,6 +1897,7 @@ export default function Page({
               panActivationKeyCode={""}
               proOptions={{ hideAttribution: true }}
               onPaneClick={onPaneClick}
+              onNodeClick={view ? undefined : onNodeClick}
               onEdgeClick={handleEdgeClick}
               onKeyDown={handleKeyDown}
               onNodeContextMenu={onNodeContextMenu}

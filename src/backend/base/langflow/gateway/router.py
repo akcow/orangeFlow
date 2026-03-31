@@ -6,7 +6,16 @@ from fastapi.responses import Response, StreamingResponse
 
 from langflow.gateway.auth import get_hosted_key
 from langflow.gateway.errors import GatewayError, ModelNotFoundError
-from langflow.gateway.kling_auth import resolve_kling_bearer_token
+from langflow.gateway.jimeng_auth import (
+    extract_jimeng_access_secret_pair,
+    resolve_jimeng_access_secret_pair,
+)
+from langflow.gateway.kling_auth import build_kling_bearer_token, resolve_kling_bearer_token
+from langflow.gateway.model_catalog import (
+    find_gateway_model_by_full_name,
+    list_gateway_models_payload,
+    list_model_page_records,
+)
 from langflow.gateway.task_ids import decode_task_id, encode_task_id
 from langflow.gateway.schemas import (
     ChatCompletionRequest,
@@ -90,7 +99,9 @@ def _build_relay_provider(
     *,
     model: str,
     service_type: str,
-    api_key: str,
+    api_key: str | None,
+    access_key: str | None,
+    secret_key: str | None,
     base_url: str | None,
 ) -> Any:
     if provider_name == "openai":
@@ -117,7 +128,24 @@ def _build_relay_provider(
     if provider_name == "vidu":
         return ViduProvider(api_key=api_key, base_url=base_url)
     if provider_name == "kling":
-        return KlingProvider(api_key=api_key, base_url=base_url)
+        token = api_key
+        if not token and access_key and secret_key:
+            token = build_kling_bearer_token(access_key=access_key, secret_key=secret_key)
+        return KlingProvider(api_key=token, base_url=base_url)
+    if provider_name == "jimeng":
+        pair = (access_key, secret_key) if access_key and secret_key else extract_jimeng_access_secret_pair(api_key)
+        if not pair:
+            raise GatewayError(
+                401,
+                "PROVIDER_KEY_MISSING",
+                "Jimeng relay requires access_key + secret_key.",
+            )
+        resolved_access_key, resolved_secret_key = pair
+        return JimengVisualProvider(
+            access_key=resolved_access_key,
+            secret_key=resolved_secret_key,
+            base_url=base_url,
+        )
     raise ModelNotFoundError(provider_name)
 
 
@@ -132,13 +160,15 @@ def _resolve_provider_from_relay(model: str, *, service_type: str) -> tuple[str,
     except Exception:
         return None
 
-    if relay is None or not relay.api_key:
+    if relay is None or not (relay.api_key or (relay.access_key and relay.secret_key)):
         return None
     return relay.provider, _build_relay_provider(
         relay.provider,
         model=model,
         service_type=service_type,
         api_key=relay.api_key,
+        access_key=relay.access_key,
+        secret_key=relay.secret_key,
         base_url=relay.base_url,
     )
 
@@ -313,20 +343,9 @@ def resolve_provider(model: str, service_type: str = "any") -> tuple[str, Any]:
 
     # Jimeng Visual CV APIs (super-resolution, etc.).
     if model.startswith("jimeng"):
-        access_key = _normalize_key(
-            os.getenv("JIMENG_CV_ACCESS_KEY")
-            or os.getenv("VOLC_ACCESSKEY")
-            or os.getenv("VOLC_ACCESS_KEY")
-            or os.getenv("VOLCENGINE_ACCESS_KEY")
-        )
-        secret_key = _normalize_key(
-            os.getenv("JIMENG_CV_SECRET_KEY")
-            or os.getenv("VOLC_SECRETKEY")
-            or os.getenv("VOLC_SECRET_KEY")
-            or os.getenv("VOLCENGINE_SECRET_KEY")
-        )
+        pair = resolve_jimeng_access_secret_pair(providers=["jimeng_visual", "jimeng"])
         base_url = os.getenv("JIMENG_VISUAL_API_BASE", "https://visual.volcengineapi.com")
-        if not access_key or not secret_key:
+        if not pair:
             raise GatewayError(
                 401,
                 "PROVIDER_KEY_MISSING",
@@ -335,6 +354,7 @@ def resolve_provider(model: str, service_type: str = "any") -> tuple[str, Any]:
                     "Set JIMENG_CV_ACCESS_KEY + JIMENG_CV_SECRET_KEY (or VOLC_ACCESSKEY/VOLC_SECRETKEY)."
                 ),
             )
+        access_key, secret_key = pair
         return "jimeng_visual", JimengVisualProvider(access_key=access_key, secret_key=secret_key, base_url=base_url)
 
     # Audio/Qwen.
@@ -363,24 +383,7 @@ async def list_models(
     """
     List supported models.
     """
-    # Static list from design doc
-    models = [
-        {"id": "deepseek-chat", "object": "model", "owned_by": "deepseek"},
-        {"id": "deepseek-reasoner", "object": "model", "owned_by": "deepseek"},
-        {"id": "gemini-3-pro-preview", "object": "model", "owned_by": "google"},
-        {"id": "gemini-3.1-flash-image-preview", "object": "model", "owned_by": "google"},
-        {"id": "gemini-3-pro-image-preview", "object": "model", "owned_by": "google"},
-        {"id": "doubao-seedream-5-0-260128", "object": "model", "owned_by": "doubao"},
-        {"id": "doubao-seedream-4-5-251128", "object": "model", "owned_by": "doubao"},
-        {"id": "sora-2", "object": "model", "owned_by": "sora"},
-        {"id": "kling-video-o1", "object": "model", "owned_by": "kling"},
-        {"id": "kling-v3-omni", "object": "model", "owned_by": "kling"},
-        {"id": "kling-v3", "object": "model", "owned_by": "kling"},
-        {"id": "kling-image-o1", "object": "model", "owned_by": "kling"},
-        # ... add others from doc ...
-    ]
-
-    return {"object": "list", "data": models}
+    return {"object": "list", "data": list_gateway_models_payload()}
 
 
 # --- Compatibility Endpoints ---
@@ -394,33 +397,8 @@ async def list_model_page(
     token: str = Depends(get_hosted_key)
 ) -> ModelPageResponse:
     """Compatibility endpoint for huobao-canvas model list."""
-    # MVP: Static mapping
-    all_models = [
-        {"id": "deepseek-chat", "fullName": "DeepSeek Chat", "type": "chat"},
-        {"id": "deepseek-reasoner", "fullName": "DeepSeek Reasoner", "type": "chat"},
-        {"id": "gemini-3-pro-preview", "fullName": "Gemini 3 Pro", "type": "chat"},
-        
-        {"id": "doubao-seedream-5-0-260128", "fullName": "Doubao Seedream 5.0 Lite", "type": "image"},
-        {"id": "doubao-seedream-4-5-251128", "fullName": "Doubao Seedream 4.5", "type": "image"},
-        {"id": "gemini-3.1-flash-image-preview", "fullName": "Nano Banana 2", "type": "image"},
-        {"id": "gemini-3-pro-image-preview", "fullName": "Nano Banana Pro", "type": "image"},
-        {"id": "wan2.6-image", "fullName": "Wan 2.6 Image", "type": "image"},
-        {"id": "kling-image-o1", "fullName": "kling O1", "type": "image"},
-        {"id": "kling-v3", "fullName": "kling V3", "type": "image"},
-        
-        {"id": "sora-2", "fullName": "Sora 2", "type": "video"},
-        {"id": "doubao-seedance-1-5-pro-251215", "fullName": "Doubao Seedance 1.5", "type": "video"},
-        {"id": "wan2.6", "fullName": "Wan 2.6 Video", "type": "video"},
-        {"id": "veo-3.1-generate-preview", "fullName": "Google Veo 3.1", "type": "video"},
-        {"id": "kling-video-o1", "fullName": "kling O1", "type": "video"},
-        {"id": "kling-v3-omni", "fullName": "kling O3", "type": "video"},
-         
-        {"id": "qwen3-tts-flash-2025-11-27", "fullName": "Qwen TTS", "type": "audio"},
-    ]
-    
-    # Filter
-    filtered = [m for m in all_models if (not type or m["type"] == type)]
-    
+    filtered = list_model_page_records(type)
+
     # Pagination (MVP: simple slice)
     start = (current - 1) * size
     end = start + size
@@ -438,37 +416,7 @@ async def get_model_by_full_name(
     token: str = Depends(get_hosted_key),
 ) -> dict[str, Any]:
     """Compatibility endpoint for huobao-canvas model lookup."""
-    all_models = [
-        {"id": "deepseek-chat", "fullName": "DeepSeek Chat", "type": "chat"},
-        {"id": "deepseek-reasoner", "fullName": "DeepSeek Reasoner", "type": "chat"},
-        {"id": "gemini-3-pro-preview", "fullName": "Gemini 3 Pro", "type": "chat"},
-        {"id": "gemini-3-flash-preview", "fullName": "Gemini 3 Flash", "type": "chat"},
-
-        {"id": "doubao-seedream-5-0-260128", "fullName": "Doubao Seedream 5.0 Lite", "type": "image"},
-        {"id": "doubao-seedream-4-5-251128", "fullName": "Doubao Seedream 4.5", "type": "image"},
-        {"id": "doubao-seedream-4-0-250828", "fullName": "Doubao Seedream 4.0", "type": "image"},
-        {"id": "gemini-3.1-flash-image-preview", "fullName": "Nano Banana 2", "type": "image"},
-        {"id": "gemini-3-pro-image-preview", "fullName": "Nano Banana Pro", "type": "image"},
-        {"id": "wan2.6-t2i", "fullName": "Wan 2.6 T2I", "type": "image"},
-        {"id": "wan2.6-image", "fullName": "Wan 2.6 I2I", "type": "image"},
-        {"id": "wan2.5-t2i-preview", "fullName": "Wan 2.5 T2I", "type": "image"},
-        {"id": "wan2.5-i2i-preview", "fullName": "Wan 2.5 I2I", "type": "image"},
-        {"id": "kling-image-o1", "fullName": "kling O1", "type": "image"},
-        {"id": "kling-v3", "fullName": "kling V3", "type": "image"},
-
-        {"id": "sora-2", "fullName": "Sora 2", "type": "video"},
-        {"id": "sora-2-pro", "fullName": "Sora 2 Pro", "type": "video"},
-        {"id": "doubao-seedance-1-5-pro-251215", "fullName": "Doubao Seedance 1.5", "type": "video"},
-        {"id": "wan2.6-t2v", "fullName": "Wan 2.6 T2V", "type": "video"},
-        {"id": "wan2.6-i2v", "fullName": "Wan 2.6 I2V", "type": "video"},
-        {"id": "veo-3.1-generate-preview", "fullName": "Veo 3.1", "type": "video"},
-        {"id": "veo-3.1-fast-generate-preview", "fullName": "Veo 3.1 Fast", "type": "video"},
-        {"id": "kling-video-o1", "fullName": "kling O1", "type": "video"},
-        {"id": "kling-v3-omni", "fullName": "kling O3", "type": "video"},
-  
-        {"id": "qwen3-tts-flash-2025-11-27", "fullName": "Qwen TTS", "type": "audio"},
-    ]
-    match = next((m for m in all_models if m["fullName"] == fullName), None)
+    match = find_gateway_model_by_full_name(fullName)
     return {"code": 200, "msg": "success", "data": match}
 
 @router.get("/model/types")

@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from pydantic import field_serializer
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Column, UniqueConstraint, text
+from sqlalchemy import Column, DateTime, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -31,7 +31,10 @@ class TeamMembershipBase(SQLModel):
             server_default=text("'MEMBER'"),
         ),
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
 
     @field_serializer("created_at")
     def _serialize_created_at(self, value: datetime):

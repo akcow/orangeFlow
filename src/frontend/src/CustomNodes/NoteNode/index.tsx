@@ -9,6 +9,7 @@ import {
   NOTE_NODE_MIN_WIDTH,
 } from "@/constants/constants";
 import { useAlternate } from "@/shared/hooks/use-alternate";
+import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import useFlowStore from "@/stores/flowStore";
 import type { NoteDataType } from "@/types/flow";
 import { cn } from "@/utils/utils";
@@ -35,6 +36,9 @@ function NoteNode({
   const currentFlow = useFlowStore((state) => state.currentFlow);
   const setNode = useFlowStore((state) => state.setNode);
   const [isResizing, setIsResizing] = useState(false);
+  const referenceSelectionActive = useCanvasUiStore(
+    (state) => state.referenceSelection.active,
+  );
 
   const nodeData = useMemo(
     () => currentFlow?.data?.nodes.find((node) => node.id === data.id),
@@ -95,7 +99,7 @@ function NoteNode({
           const { width, height } = params;
           debouncedResize(width, height);
         }}
-        isVisible={selected}
+        isVisible={Boolean(selected) && !referenceSelectionActive}
         lineClassName="!border !border-muted-foreground"
         onResizeStart={() => {
           setResizedNote(true);
@@ -120,6 +124,8 @@ function NoteNode({
           !isResizing && "transition-transform",
           COLOR_OPTIONS[bgColor] !== null &&
             `border ${!selected && "-z-50 shadow-sm"}`,
+          referenceSelectionActive &&
+            "pointer-events-none opacity-35 blur-[3px] saturate-[0.72]",
         )}
       >
         {MemoNoteToolbarComponent}

@@ -36,6 +36,7 @@ export const URLs = {
   COMMUNITY: "community",
   CREDITS: "credits",
   NOTIFICATIONS: "notifications",
+  FEEDBACK: "feedback",
   ASSETS_LIBRARY: "library/assets",
   TEAMS: "teams",
   WORKFLOWS_LIBRARY: "library/workflows",

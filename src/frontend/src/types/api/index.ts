@@ -245,6 +245,41 @@ export type CreateAdminNotificationResponse = {
   recipient_count: number;
 };
 
+export type IssueFeedbackStatus =
+  | "PENDING"
+  | "IN_PROGRESS"
+  | "RESOLVED"
+  | "CLOSED";
+
+export type IssueFeedbackAttachment = {
+  id: string;
+  original_name: string;
+  content_type: string;
+  file_size: number;
+  created_at: string;
+  preview_url: string;
+};
+
+export type IssueFeedback = {
+  id: string;
+  user_id: string;
+  reporter_name: string;
+  reporter_username: string;
+  description: string;
+  status: IssueFeedbackStatus;
+  latest_admin_reply?: string | null;
+  last_replied_by_name?: string | null;
+  last_replied_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  attachments: IssueFeedbackAttachment[];
+};
+
+export type UpdateIssueFeedbackPayload = {
+  status?: IssueFeedbackStatus;
+  admin_reply?: string | null;
+};
+
 export type TeamRole = "OWNER" | "ADMIN" | "MEMBER";
 
 export type TeamSummary = {

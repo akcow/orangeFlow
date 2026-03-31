@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from pydantic import field_serializer
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Column, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -31,8 +31,11 @@ class AdminNotificationBase(SQLModel):
             nullable=False,
         ),
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
-    expires_at: datetime = Field(index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    expires_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False, index=True))
 
     @field_serializer("created_at", "expires_at")
     def _serialize_datetimes(self, value: datetime):
@@ -73,9 +76,15 @@ class AdminNotificationRecipient(SQLModel, table=True):  # type: ignore[call-arg
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     notification_id: UUID = Field(foreign_key="admin_notification.id", index=True)
     user_id: UUID = Field(foreign_key="user.id", index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
-    read_at: datetime | None = Field(default=None, nullable=True, index=True)
-    hidden_at: datetime | None = Field(default=None, nullable=True, index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    read_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True, index=True))
+    hidden_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
 
     @field_serializer("created_at", "read_at", "hidden_at")
     def _serialize_optional_datetimes(self, value: datetime | None):

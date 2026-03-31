@@ -16,9 +16,9 @@ export type HelpDropdownViewProps = {
   onToggleHelperLines: () => void;
   navigateTo: (path: string) => void;
   openLink: (url: string) => void;
+  onReportIssue: () => void;
   urls: {
     docs: string;
-    bugReport: string;
   };
 };
 
@@ -29,6 +29,7 @@ export const HelpDropdownView = ({
   onToggleHelperLines,
   navigateTo,
   openLink,
+  onReportIssue,
   urls,
 }: HelpDropdownViewProps) => {
   return (
@@ -68,9 +69,8 @@ export const HelpDropdownView = ({
         <DropdownControlButton
           iconName="bug"
           testId="canvas_controls_dropdown_report_a_bug"
-          externalLink
-          label={t("Report a bug")}
-          onClick={() => openLink(urls.bugReport)}
+          label={"\u53cd\u9988\u95ee\u9898"}
+          onClick={onReportIssue}
         />
         <Separator />
         <DropdownControlButton

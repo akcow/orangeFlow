@@ -11,6 +11,10 @@ from .credit import (
     CreditLedgerEntry,
     CreditPricingRule,
 )
+from .issue_feedback import (
+    IssueFeedback,
+    IssueFeedbackAttachment,
+)
 from .file import File
 from .flow import Flow
 from .folder import Folder
@@ -33,6 +37,8 @@ __all__ = [
     "CreditAccount",
     "CreditLedgerEntry",
     "CreditPricingRule",
+    "IssueFeedback",
+    "IssueFeedbackAttachment",
     "File",
     "Flow",
     "Folder",
