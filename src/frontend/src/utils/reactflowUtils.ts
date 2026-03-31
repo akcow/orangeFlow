@@ -61,6 +61,14 @@ import type {
   generateFlowType,
   updateEdgesHandleIdsType,
 } from "../types/utils/reactflowUtils";
+import {
+  getImageRoleCounts as getImageRoleCountsFromFlowMedia,
+  getImageRoleLimitsForGenerationMode as getImageRoleLimitsForGenerationModeFromFlowMedia,
+  getPreferredVisualGenerationMode as getPreferredVisualGenerationModeFromFlowMedia,
+  getVideoBridgeLimitForModel,
+  getVideoInputCapableModelOptions,
+  supportsVideoInputForDoubaoVideoModel,
+} from "./flowMediaUtils";
 import { getLayoutedNodes } from "./layoutUtils";
 import { createRandomKey, toTitleCase } from "./utils";
 
@@ -594,6 +602,47 @@ function isEmptyImageEntry(entry: unknown): boolean {
   return false;
 }
 
+function doesSourceHandleMatchInputField(
+  sourceHandle: sourceHandleType | undefined,
+  field: { input_types?: string[]; type?: string } | undefined,
+): boolean {
+  if (!sourceHandle || !field) return false;
+
+  const inputTypes =
+    Array.isArray(field.input_types) && field.input_types.length > 0
+      ? field.input_types
+      : [];
+  const sourceOutputTypes = Array.isArray(sourceHandle.output_types)
+    ? sourceHandle.output_types
+    : [];
+
+  return (
+    inputTypes.includes(sourceHandle.dataType) ||
+    sourceOutputTypes.some(
+      (outputType) =>
+        inputTypes.includes(outputType) || outputType === field.type,
+    )
+  );
+}
+
+function shouldRouteVideoGeneratorDropToPrompt(
+  targetNode: AllNodeType | undefined,
+  targetFieldName: string | undefined,
+  sourceType: string | undefined,
+  sourceHandle: sourceHandleType | undefined,
+): boolean {
+  if (targetNode?.data?.type !== IMAGE_ROLE_TARGET) return false;
+  if (targetFieldName !== IMAGE_ROLE_FIELD && targetFieldName !== "last_frame_image") {
+    return false;
+  }
+  if (getDoubaoVideoGenerationMode(targetNode) !== "text") return false;
+  if (sourceType === "DoubaoTTS") return false;
+  if (isLikelyVisualSourceType(sourceType)) return false;
+
+  const promptField = targetNode?.data?.node?.template?.prompt;
+  return doesSourceHandleMatchInputField(sourceHandle, promptField);
+}
+
 function extractImageRole(value: unknown): EdgeImageRole | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as any;
@@ -1122,6 +1171,31 @@ export function isValidConnection(
     return false;
   }
   if (
+    shouldRouteVideoGeneratorDropToPrompt(
+      targetNode,
+      targetFieldName,
+      resolvedSourceType,
+      sourceHandleObject,
+    )
+  ) {
+    const promptField = targetNode?.data?.node?.template?.["prompt"];
+    if (promptField) {
+      const inputTypes =
+        promptField.input_types && promptField.input_types.length > 0
+          ? promptField.input_types
+          : ["Message", "Data", "Text"];
+      const resolvedType = promptField.type ?? "data";
+      targetHandleObject = {
+        inputTypes,
+        type: resolvedType,
+        id: target!,
+        fieldName: "prompt",
+        ...(promptField.proxy ? { proxy: promptField.proxy } : {}),
+      };
+      effectiveTargetHandle = scapedJSONStringfy(targetHandleObject);
+    }
+  }
+  if (
     targetNode?.data?.type === IMAGE_ROLE_TARGET &&
     (targetFieldName === IMAGE_ROLE_FIELD || targetFieldName === "last_frame_image") &&
     resolvedSourceType === "DoubaoTTS"
@@ -1266,19 +1340,46 @@ export function isValidConnection(
           nodeType === IMAGE_ROLE_TARGET || nodeType === "UserUploadVideo";
         const isVideoBridgeSource =
           isVideoSourceType(sourceNode?.data?.type);
-        const preferredVideoMode = getPreferredVisualGenerationMode(modelName, resolvedSourceType);
-        
+        const candidateVideoModels = getVideoInputCapableModelOptions(
+          Array.isArray(targetNode?.data?.node?.template?.model_name?.options)
+            ? targetNode.data.node.template.model_name.options
+            : [],
+        );
+        const effectiveModelName =
+          isVideoBridgeSource &&
+          !supportsVideoInputForDoubaoVideoModel(modelName) &&
+          candidateVideoModels.length > 0
+            ? candidateVideoModels[0]
+            : modelName;
+        const preferredVideoMode = getPreferredVisualGenerationModeFromFlowMedia(
+          effectiveModelName,
+          resolvedSourceType,
+        );
         const effectiveGenerationMode =
-          (generationMode === "text" || (isVideoBridgeSource && preferredVideoMode))
+          generationMode === "text"
             ? preferredVideoMode ?? generationMode
-            : generationMode;
-            
+            : isVideoBridgeSource &&
+                (generationMode !== "reference_video" &&
+                  generationMode !== "video_edit")
+              ? preferredVideoMode ?? generationMode
+              : generationMode;
         const isVideoBridgeEdge =
           isVideoBridgeSource &&
           targetNode?.data?.type === IMAGE_ROLE_TARGET;
         if (isVideoBridgeEdge) {
-          const maxVideoEdges =
-            String(modelName ?? "").trim().toLowerCase() === "viduq2-pro" ? 2 : 1;
+          if (
+            !supportsVideoInputForDoubaoVideoModel(modelName) &&
+            candidateVideoModels.length === 0
+          ) {
+            return false;
+          }
+          const isVideoDrivenMode =
+            effectiveGenerationMode === "reference_video" ||
+            effectiveGenerationMode === "video_edit";
+          if (!isVideoDrivenMode) {
+            return false;
+          }
+          const maxVideoEdges = getVideoBridgeLimitForModel(effectiveModelName);
           const existingVideoEdges = edgesArray.filter((edge) => {
             if (edge.target !== target) return false;
             const fieldName = getEdgeTargetFieldName(edge);
@@ -1297,11 +1398,15 @@ export function isValidConnection(
           }).length;
           return existingVideoEdges < maxVideoEdges;
         }
-        const limits = getImageRoleLimitsForGenerationMode(
-          modelName,
+        const limits = getImageRoleLimitsForGenerationModeFromFlowMedia(
+          effectiveModelName,
           effectiveGenerationMode,
         );
-        const counts = getImageRoleCounts(edgesArray, target!, targetNode);
+        const counts = getImageRoleCountsFromFlowMedia(
+          edgesArray,
+          target!,
+          targetNode,
+        );
         const hasIncomingVideoSourceEdge = edgesArray.some((edge) => {
           if (edge.target !== target) return false;
           const fieldName = getEdgeTargetFieldName(edge);

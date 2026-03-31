@@ -76,8 +76,20 @@ Then start the stack:
 docker compose -f production.docker-compose.yml up -d --build
 ```
 
-The production template now binds to `0.0.0.0:7860` by default so direct beta access works immediately.
-If you deploy a reverse proxy, switch the bind address back to `127.0.0.1`.
+The production image now builds the frontend inside Docker, so a fresh server does not need a prebuilt `src/frontend/build`.
+The production template also binds OrangeFlow to `0.0.0.0:7860` by default so direct beta access works immediately.
+
+If you want the bundled HTTPS Nginx sidecar, enable the profile and provide certificates first:
+
+```bash
+mkdir -p ssl
+# place your TLS files at:
+#   ssl/cert.pem
+#   ssl/key.pem
+echo "COMPOSE_PROFILES=https-proxy" >> .env
+```
+
+When you deploy a reverse proxy, switch the app bind address back to `127.0.0.1`.
 
 Check health:
 
@@ -158,6 +170,11 @@ Ready-to-use examples are included:
 
 - `docker/nginx.orangeflow.conf.example`
 - `docker/Caddyfile.example`
+
+If you use the bundled Docker Nginx profile, it exposes:
+
+- `http://server:80` -> redirects to HTTPS
+- `https://server:443` -> OrangeFlow
 
 If you later expose MinIO directly through a CDN/domain, set:
 

@@ -26,8 +26,11 @@ import {
   getAvailableVideoGenerationModes,
   getImageRoleLimitsForGenerationMode,
   getImageRoleLimits,
+  getVideoInputCapableModelOptions,
+  getVideoBridgeLimitForModel,
   normalizeAvailableVideoGenerationMode,
   resolveEdgeImageRole,
+  supportsVideoInputForDoubaoVideoModel,
   type EdgeImageRole,
 } from "@/utils/flowMediaUtils";
 import {
@@ -66,6 +69,7 @@ import { parseDoubaoPreviewData } from "../../hooks/use-doubao-preview";
 import type { InputFieldType } from "@/types/api";
 import { createFileUpload } from "@/helpers/create-file-upload";
 import useAlertStore from "@/stores/alertStore";
+import { useCanvasUiStore } from "@/stores/canvasUiStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { usePostUploadFile } from "@/controllers/API/queries/files/use-post-upload-file";
 import useFileSizeValidator from "@/shared/hooks/use-file-size-validator";
@@ -74,6 +78,10 @@ import KlingElementPickerButton from "@/components/kling/KlingElementPickerButto
 import type { MediaReferenceSuggestion } from "@/components/mediaReferencePromptUtils";
 import { generationPromptInputBusyClass } from "./promptGenerationStyles";
 import type { KlingElement } from "@/stores/klingElementsStore";
+import {
+  canStartReferenceSelection,
+  getReferenceSelectionMeta,
+} from "@/utils/referenceSelectionUtils";
 
 const CONTROL_FIELDS = [
   { name: "model_name", icon: "Sparkles", widthClass: "flex-none basis-[170px]" },
@@ -315,6 +323,62 @@ const FIRST_FRAME_FIELD_FALLBACK: InputFieldType = {
   file_types: DEFAULT_FIRST_FRAME_EXTENSIONS,
   fileTypes: DEFAULT_FIRST_FRAME_EXTENSIONS,
 };
+
+function ReferenceSelectionPreviewGlow({ glowId }: { glowId: string }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[760] overflow-hidden rounded-[28px]">
+      <svg
+        className="h-full w-full overflow-visible"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <defs>
+          <filter id={glowId} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="1.6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <rect
+          x="1.5"
+          y="1.5"
+          width="97"
+          height="97"
+          rx="10"
+          ry="10"
+          fill="none"
+          stroke="rgba(255,255,255,0.12)"
+          strokeWidth="1.4"
+        />
+        <rect
+          x="1.5"
+          y="1.5"
+          width="97"
+          height="97"
+          rx="10"
+          ry="10"
+          fill="none"
+          stroke="rgba(255,255,255,0.96)"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeDasharray="22 240"
+          filter={`url(#${glowId})`}
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            from="0"
+            to="-262"
+            dur="1.8s"
+            repeatCount="indefinite"
+          />
+        </rect>
+      </svg>
+    </div>
+  );
+}
 const LAST_FRAME_FIELD_FALLBACK: InputFieldType = {
   type: "file",
   required: false,
@@ -418,6 +482,19 @@ export default function DoubaoVideoGeneratorLayout({
     (template.model_name?.options?.[0] as string | undefined) ??
     "";
   const normalizedModelName = selectedModel.toString().trim();
+  const modelNameOptions = useMemo(
+    () =>
+      Array.isArray(template.model_name?.options)
+        ? template.model_name.options
+            .map((option) => String(option ?? "").trim())
+            .filter(Boolean)
+        : [],
+    [template.model_name?.options],
+  );
+  const videoInputCapableModelOptions = useMemo(
+    () => getVideoInputCapableModelOptions(modelNameOptions),
+    [modelNameOptions],
+  );
 
   const isWanModel = normalizedModelName.startsWith("wan2.");
   const isVeoFast = normalizedModelName === "veo3.1-fast";
@@ -469,6 +546,13 @@ export default function DoubaoVideoGeneratorLayout({
   const isViduQ2Pro = normalizedModelName === "viduq2-pro";
   const nodes = useFlowStore((state) => state.nodes);
   const edges = useFlowStore((state) => state.edges);
+  const referenceSelection = useCanvasUiStore((state) => state.referenceSelection);
+  const startReferenceSelection = useCanvasUiStore(
+    (state) => state.startReferenceSelection,
+  );
+  const exitReferenceSelection = useCanvasUiStore(
+    (state) => state.exitReferenceSelection,
+  );
   const klingReferType = String(
     template.kling_video_refer_type?.value ??
     template.kling_video_refer_type?.default ??
@@ -499,24 +583,43 @@ export default function DoubaoVideoGeneratorLayout({
 
     return { hasImageUpstream, hasVideoUpstream, hasVisualUpstream };
   }, [LAST_FRAME_FIELD, FIRST_FRAME_FIELD, data.id, edges, nodes]);
+  const hasIncomingVideoBridge = upstreamGenerationInputProfile.hasVideoUpstream;
+  const effectiveVideoInputModelName = useMemo(() => {
+    if (!hasIncomingVideoBridge) return normalizedModelName;
+    if (supportsVideoInputForDoubaoVideoModel(normalizedModelName)) {
+      return normalizedModelName;
+    }
+    return videoInputCapableModelOptions[0] ?? normalizedModelName;
+  }, [
+    hasIncomingVideoBridge,
+    normalizedModelName,
+    videoInputCapableModelOptions,
+  ]);
   const availableGenerationModes = useMemo(
     () =>
-      getAvailableVideoGenerationModes(normalizedModelName, upstreamGenerationInputProfile),
-    [normalizedModelName, upstreamGenerationInputProfile],
+      getAvailableVideoGenerationModes(
+        effectiveVideoInputModelName,
+        upstreamGenerationInputProfile,
+      ),
+    [effectiveVideoInputModelName, upstreamGenerationInputProfile],
   );
   const selectedGenerationMode = normalizeAvailableVideoGenerationMode(
-    normalizedModelName,
+    effectiveVideoInputModelName,
     template.generation_mode?.value ??
       template.generation_mode?.default ??
       template.generation_mode?.options?.[0],
     availableGenerationModes,
   );
   const roleLimits = useMemo(
-    () => getImageRoleLimitsForGenerationMode(normalizedModelName, selectedGenerationMode),
-    [normalizedModelName, selectedGenerationMode],
+    () =>
+      getImageRoleLimitsForGenerationMode(
+        effectiveVideoInputModelName,
+        selectedGenerationMode,
+      ),
+    [effectiveVideoInputModelName, selectedGenerationMode],
   );
   const supportsReferenceRole = roleLimits.allowedRoles.includes("reference");
-  const modelLimits = MODEL_LIMITS[normalizedModelName] ?? null;
+  const modelLimits = MODEL_LIMITS[effectiveVideoInputModelName] ?? null;
   const allowLastFrame =
     selectedGenerationMode === "first_last_frame" &&
     (modelLimits?.enableLastFrame ?? true) &&
@@ -688,6 +791,18 @@ export default function DoubaoVideoGeneratorLayout({
     if (options.length && !options.includes(next)) return;
     handleModelNameChangePreserve(next, { skipSnapshot: true });
   }, [handleModelNameChangePreserve, normalizedModelName, template?.model_name?.options]);
+  useEffect(() => {
+    if (!hasIncomingVideoBridge) return;
+    if (supportsVideoInputForDoubaoVideoModel(normalizedModelName)) return;
+    const fallbackModel = videoInputCapableModelOptions[0];
+    if (!fallbackModel || fallbackModel === normalizedModelName) return;
+    handleModelNameChangePreserve(fallbackModel, { skipSnapshot: true });
+  }, [
+    handleModelNameChangePreserve,
+    hasIncomingVideoBridge,
+    normalizedModelName,
+    videoInputCapableModelOptions,
+  ]);
   const { handleOnNewValue: handleDurationChange } = useHandleOnNewValue({
     node: data.node!,
     nodeId: data.id,
@@ -1282,8 +1397,6 @@ export default function DoubaoVideoGeneratorLayout({
     [handleKlingMultiPromptChange],
   );
 
-  const hasIncomingVideoBridge = upstreamGenerationInputProfile.hasVideoUpstream;
-
   const supportsRoleLast = roleLimits.allowedRoles.includes("last");
   const hasRoleLastEdge = useMemo(() => {
     if (!supportsRoleLast) return false;
@@ -1873,22 +1986,15 @@ export default function DoubaoVideoGeneratorLayout({
         disabledOptions = [...(disabledOptions ?? []), ...wanModels, ...viduModels];
       }
       if (field.name === "model_name" && hasIncomingVideoBridge) {
-        const allowed = new Set<string>([
-          "kling o1",
-          "kling-video-o1",
-          "kling o3",
-          "kling-v3-omni",
-          "wan2.6",
-          "viduq2-pro",
-        ]);
-        options = options.filter((option) => allowed.has(String(option).trim().toLowerCase()));
+        const allowed = new Set(
+          videoInputCapableModelOptions.map((option) => option.toLowerCase()),
+        );
+        options = options.filter((option) =>
+          allowed.has(String(option).trim().toLowerCase()),
+        );
         const normalizedValue = String(value ?? "").trim().toLowerCase();
         if (!allowed.has(normalizedValue)) {
-          const normalizedOptions = options.map((opt) => String(opt).trim());
-          if (normalizedOptions.some((opt) => opt.toLowerCase() === "kling o1")) value = "kling O1";
-          else if (normalizedOptions.some((opt) => opt.toLowerCase() === "kling o3")) value = "kling O3";
-          else if (normalizedOptions.some((opt) => opt.toLowerCase() === "wan2.6")) value = "wan2.6";
-          else if (normalizedOptions.some((opt) => opt.toLowerCase() === "viduq2-pro")) value = "viduq2-pro";
+          value = videoInputCapableModelOptions[0] ?? value;
         }
       }
 
@@ -1928,6 +2034,7 @@ export default function DoubaoVideoGeneratorLayout({
     isReferenceVideoMode,
     isKlingModel,
     isFirstLastFrameMode,
+    videoInputCapableModelOptions,
     isViduUpscaleModel,
     isSoraModel,
     isVeoModel,
@@ -2308,11 +2415,11 @@ export default function DoubaoVideoGeneratorLayout({
     );
     const totalRoleEdges = incomingRoleEdges.length;
     const referenceLimits = getImageRoleLimitsForGenerationMode(
-      normalizedModelName,
+      effectiveVideoInputModelName,
       selectedGenerationMode,
     );
     const maxReference = referenceLimits.maxReference ?? referenceLimits.maxTotal;
-    const maxVideoEdges = normalizedModelName === "viduq2-pro" ? 2 : 1;
+    const maxVideoEdges = getVideoBridgeLimitForModel(effectiveVideoInputModelName);
 
     let changed = false;
     let keptFirstFrameImage = false;
@@ -2860,6 +2967,26 @@ export default function DoubaoVideoGeneratorLayout({
       };
     });
   }, [promptMediaPreviews]);
+  const currentCanvasNode = useMemo<AllNodeType>(
+    () =>
+      nodes.find((node) => node.id === data.id) ??
+      ({
+        id: data.id,
+        type: "genericNode",
+        data,
+      } as AllNodeType),
+    [data, nodes],
+  );
+  const isCanvasReferenceSelectionActiveForNode =
+    referenceSelection.active && referenceSelection.targetNodeId === data.id;
+  const showReferenceSelectionPreviewGlow =
+    referenceSelection.active &&
+    referenceSelection.targetNodeId !== data.id &&
+    referenceSelection.hoveredNodeId === data.id;
+  const previewGlowId = useMemo(
+    () => `reference-preview-glow-${String(data.id).replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+    [data.id],
+  );
   const selectedLastFrame = combinedLastFramePreviews[0] ?? null;
   const selectedLastFrameSource = useMemo(
     () =>
@@ -3061,6 +3188,52 @@ export default function DoubaoVideoGeneratorLayout({
   );
   const firstFrameCount = combinedFirstFramePreviews.length;
   const localFirstFrameCount = firstFramePreviews.length;
+  const isTextGenerationMode = selectedGenerationMode === "text";
+  const isFirstFrameSlotMode = selectedGenerationMode === "first_frame";
+  const isFirstLastFrameSlotMode = selectedGenerationMode === "first_last_frame";
+  const genericReferenceSelectionMeta = useMemo(
+    () =>
+      getReferenceSelectionMeta(currentCanvasNode, edges, nodes, {
+        hoverLabel: isTextGenerationMode ? "上传图片或视频" : undefined,
+      }),
+    [currentCanvasNode, edges, isTextGenerationMode, nodes],
+  );
+  const canvasReferenceHoverLabel =
+    genericReferenceSelectionMeta?.hoverLabel ?? "参考";
+  const canSelectCanvasReference = Boolean(
+    genericReferenceSelectionMeta?.canSelectImageSources ||
+      genericReferenceSelectionMeta?.canSelectVideoSources,
+  );
+  const canSelectFirstFrameSlot = canStartReferenceSelection(
+    currentCanvasNode,
+    edges,
+    nodes,
+    {
+      preferredFieldName: FIRST_FRAME_FIELD,
+      preferredImageRole: "first",
+      hoverLabel: "首帧",
+    },
+  );
+  const canSelectLastFrameSlot = canStartReferenceSelection(
+    currentCanvasNode,
+    edges,
+    nodes,
+    {
+      preferredFieldName: LAST_FRAME_FIELD,
+      preferredImageRole: "last",
+      hoverLabel: "尾帧",
+    },
+  );
+  const shouldShowGenericCanvasReferenceButton =
+    !isFirstFrameSlotMode &&
+    !isFirstLastFrameSlotMode &&
+    (canSelectCanvasReference || isCanvasReferenceSelectionActiveForNode);
+  const shouldShowFirstFrameSlotButton =
+    (isFirstFrameSlotMode || isFirstLastFrameSlotMode) &&
+    !selectedFirstFrame &&
+    canSelectFirstFrameSlot;
+  const shouldShowLastFrameSlotButton =
+    isFirstLastFrameSlotMode && !selectedLastFrame && canSelectLastFrameSlot;
   const upscalePreviewSource = isViduUpscaleModel ? selectedFirstFrameSource : "";
   const upscalePreviewIsVideo =
     Boolean(upscalePreviewSource) &&
@@ -3322,6 +3495,62 @@ export default function DoubaoVideoGeneratorLayout({
       proxy: audioInputField.proxy,
     };
   }, [audioInputField, types, data.id, isViduUpscaleModel]);
+
+  useEffect(() => {
+    if (!isCanvasReferenceSelectionActiveForNode) return;
+    if (showExpanded) return;
+    exitReferenceSelection();
+  }, [
+    exitReferenceSelection,
+    isCanvasReferenceSelectionActiveForNode,
+    showExpanded,
+  ]);
+
+  const handleCanvasReferenceSelectionToggle = useCallback(
+    (options?: {
+      preferredFieldName?: string | null;
+      preferredImageRole?: "first" | "reference" | "last" | null;
+      hoverLabel?: string | null;
+      enabled?: boolean;
+    }) => {
+      const nextFieldName = options?.preferredFieldName ?? null;
+      const nextImageRole = options?.preferredImageRole ?? null;
+      const nextHoverLabel = options?.hoverLabel ?? null;
+      const isSameSelection =
+        isCanvasReferenceSelectionActiveForNode &&
+        referenceSelection.preferredFieldName === nextFieldName &&
+        referenceSelection.preferredImageRole === nextImageRole &&
+        referenceSelection.hoverLabel === nextHoverLabel;
+
+      if (isSameSelection) {
+        exitReferenceSelection();
+        return;
+      }
+      if (options?.enabled === false) {
+        setErrorData({
+          title: "已达到上游连接上限",
+          list: [`当前槽位“${nextHoverLabel ?? canvasReferenceHoverLabel}”已没有可继续添加的上游配额。`],
+        });
+        return;
+      }
+      startReferenceSelection(data.id, {
+        preferredFieldName: nextFieldName,
+        preferredImageRole: nextImageRole,
+        hoverLabel: nextHoverLabel,
+      });
+    },
+    [
+      canvasReferenceHoverLabel,
+      data.id,
+      exitReferenceSelection,
+      isCanvasReferenceSelectionActiveForNode,
+      referenceSelection.hoverLabel,
+      referenceSelection.preferredFieldName,
+      referenceSelection.preferredImageRole,
+      setErrorData,
+      startReferenceSelection,
+    ],
+  );
 
   const openFirstFrameDialog = useCallback(() => {
     if (isFirstFrameUploadPending) return;
@@ -5054,6 +5283,9 @@ export default function DoubaoVideoGeneratorLayout({
           className="relative flex-1"
           data-preview-wrap="doubao"
         >
+          {showReferenceSelectionPreviewGlow && (
+            <ReferenceSelectionPreviewGlow glowId={previewGlowId} />
+          )}
           {/* Hover/capture zones: a 212x212 square centered on the default "+" center point. */}
           <div
             className="absolute left-0 top-1/2 z-[800] hidden h-[212px] w-[212px] -translate-x-full -translate-y-1/2 lg:block"
@@ -5296,8 +5528,176 @@ export default function DoubaoVideoGeneratorLayout({
               <>
                 <div className="text-sm text-[#3C4057] dark:text-slate-100">
               <div className="flex min-h-[168px] flex-col gap-3">
+                {(isFirstFrameSlotMode || isFirstLastFrameSlotMode) && (
+                  <div className="flex items-center gap-3">
+                    <div className="group relative shrink-0">
+                      {selectedFirstFrame ? (
+                        <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-[#E2E7F5] bg-[#F4F6FB] shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:border-white/15 dark:bg-white/10">
+                          {selectedFirstFrameSource ? (
+                            isVideoCandidate(selectedFirstFrameSource, selectedFirstFrame.fileName) ? (
+                              <video
+                                src={selectedFirstFrameSource}
+                                className="h-full w-full object-cover"
+                                muted
+                                playsInline
+                                preload="metadata"
+                                disablePictureInPicture
+                                disableRemotePlayback
+                                controls={false}
+                                onContextMenu={(e) => e.preventDefault()}
+                              />
+                            ) : (
+                              <img
+                                src={selectedFirstFrameSource}
+                                alt={selectedFirstFrame.label ?? selectedFirstFrame.fileName ?? "首帧"}
+                                className="h-full w-full object-cover"
+                              />
+                            )
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[#7D85A8] dark:text-slate-300">
+                              <ForwardedIconComponent name="Image" className="h-4 w-4" />
+                            </div>
+                          )}
+                        </div>
+                      ) : shouldShowFirstFrameSlotButton ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleCanvasReferenceSelectionToggle({
+                                preferredFieldName: FIRST_FRAME_FIELD,
+                                preferredImageRole: "first",
+                                hoverLabel: "首帧",
+                                enabled: canSelectFirstFrameSlot,
+                              })
+                            }
+                            className={cn(
+                              "relative isolate inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border transition-all duration-200 ease-out",
+                              "before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:bg-white/14 before:opacity-0 before:transition-opacity before:duration-200 before:ease-out hover:before:opacity-100 dark:before:bg-white/10",
+                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
+                              isCanvasReferenceSelectionActiveForNode &&
+                                referenceSelection.preferredImageRole === "first"
+                                ? "border-[#1D9BF0]/40 bg-[#1D9BF0]/12 text-[#1D9BF0] shadow-[0_14px_36px_rgba(29,155,240,0.16)] dark:border-[#4FB8FF]/40 dark:bg-[#1D9BF0]/18 dark:text-[#8BD3FF]"
+                                : "border-[#D7DEEF] bg-[#F4F6FB] text-[#3C4057] shadow-[0_10px_30px_rgba(15,23,42,0.08)] hover:border-[#C5D4F8] hover:bg-[#EEF3FF] dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/14",
+                            )}
+                            aria-label="首帧"
+                          >
+                            <span className="relative z-[1]">
+                              <ForwardedIconComponent name="Plus" className="h-6 w-6" />
+                            </span>
+                          </button>
+                          <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-full bg-[#2E2E32] px-3 py-1 text-xs font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+                            首帧
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                    {isFirstLastFrameSlotMode && (
+                      <>
+                        <div className="flex h-16 w-8 items-center justify-center text-[#A7AEC4] dark:text-slate-500">
+                          <ForwardedIconComponent name="ArrowLeftRight" className="h-4 w-4 opacity-90" />
+                        </div>
+                        <div className="group relative shrink-0">
+                          {selectedLastFrame ? (
+                            <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-[#E2E7F5] bg-[#F4F6FB] shadow-[0_10px_30px_rgba(15,23,42,0.08)] dark:border-white/15 dark:bg-white/10">
+                              {selectedLastFrameSource ? (
+                                isVideoCandidate(selectedLastFrameSource, selectedLastFrame.fileName) ? (
+                                  <video
+                                    src={selectedLastFrameSource}
+                                    className="h-full w-full object-cover"
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    disablePictureInPicture
+                                    disableRemotePlayback
+                                    controls={false}
+                                    onContextMenu={(e) => e.preventDefault()}
+                                  />
+                                ) : (
+                                  <img
+                                    src={selectedLastFrameSource}
+                                    alt={selectedLastFrame.label ?? selectedLastFrame.fileName ?? "尾帧"}
+                                    className="h-full w-full object-cover"
+                                  />
+                                )
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-[#7D85A8] dark:text-slate-300">
+                                  <ForwardedIconComponent name="Image" className="h-4 w-4" />
+                                </div>
+                              )}
+                            </div>
+                          ) : shouldShowLastFrameSlotButton ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleCanvasReferenceSelectionToggle({
+                                    preferredFieldName: LAST_FRAME_FIELD,
+                                    preferredImageRole: "last",
+                                    hoverLabel: "尾帧",
+                                    enabled: canSelectLastFrameSlot,
+                                  })
+                                }
+                                className={cn(
+                                  "relative isolate inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border transition-all duration-200 ease-out",
+                                  "before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:bg-white/14 before:opacity-0 before:transition-opacity before:duration-200 before:ease-out hover:before:opacity-100 dark:before:bg-white/10",
+                                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
+                                  isCanvasReferenceSelectionActiveForNode &&
+                                    referenceSelection.preferredImageRole === "last"
+                                    ? "border-[#1D9BF0]/40 bg-[#1D9BF0]/12 text-[#1D9BF0] shadow-[0_14px_36px_rgba(29,155,240,0.16)] dark:border-[#4FB8FF]/40 dark:bg-[#1D9BF0]/18 dark:text-[#8BD3FF]"
+                                    : "border-[#D7DEEF] bg-[#F4F6FB] text-[#3C4057] shadow-[0_10px_30px_rgba(15,23,42,0.08)] hover:border-[#C5D4F8] hover:bg-[#EEF3FF] dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/14",
+                                )}
+                                aria-label="尾帧"
+                              >
+                                <span className="relative z-[1]">
+                                  <ForwardedIconComponent name="Plus" className="h-6 w-6" />
+                                </span>
+                              </button>
+                              <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-full bg-[#2E2E32] px-3 py-1 text-xs font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+                                尾帧
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {!isFirstFrameSlotMode && !isFirstLastFrameSlotMode && (
+                <div className="flex flex-wrap items-start gap-2">
+                  {shouldShowGenericCanvasReferenceButton && (
+                  <div className="group relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCanvasReferenceSelectionToggle({
+                          hoverLabel: canvasReferenceHoverLabel,
+                          enabled: canSelectCanvasReference,
+                        })
+                      }
+                      className={cn(
+                        "relative isolate inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border transition-all duration-200 ease-out",
+                        "before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:bg-white/14 before:opacity-0 before:transition-opacity before:duration-200 before:ease-out hover:before:opacity-100 dark:before:bg-white/10",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
+                        isCanvasReferenceSelectionActiveForNode
+                          && !referenceSelection.preferredImageRole
+                          && !referenceSelection.preferredFieldName
+                          ? "border-[#1D9BF0]/40 bg-[#1D9BF0]/12 text-[#1D9BF0] shadow-[0_14px_36px_rgba(29,155,240,0.16)] dark:border-[#4FB8FF]/40 dark:bg-[#1D9BF0]/18 dark:text-[#8BD3FF]"
+                          : "border-[#D7DEEF] bg-[#F4F6FB] text-[#3C4057] shadow-[0_10px_30px_rgba(15,23,42,0.08)] hover:border-[#C5D4F8] hover:bg-[#EEF3FF] dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/14",
+                      )}
+                      aria-label={canvasReferenceHoverLabel}
+                    >
+                      <span className="relative z-[1]">
+                        <ForwardedIconComponent name="Plus" className="h-6 w-6" />
+                      </span>
+                    </button>
+                    <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-full bg-[#2E2E32] px-3 py-1 text-xs font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+                      {canvasReferenceHoverLabel}
+                    </div>
+                  </div>
+                  )}
                 {promptMediaPreviews.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-1 flex-wrap items-center gap-2">
                     {visiblePromptMediaPreviews.map((preview, index) => {
                       const previewSource =
                         preview.imageSource ?? preview.downloadSource ?? "";
@@ -5360,6 +5760,8 @@ export default function DoubaoVideoGeneratorLayout({
                       </span>
                     )}
                   </div>
+                )}
+                </div>
                 )}
               {isViduUpscaleModel ? null : klingMultiShotEnabled && !klingIntelligentShotEnabled ? (
                 <div className="space-y-3">

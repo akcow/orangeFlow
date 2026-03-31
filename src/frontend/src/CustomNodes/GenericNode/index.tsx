@@ -23,6 +23,7 @@ import { useTypesStore } from "../../stores/typesStore";
 import type { OutputFieldType, VertexBuildTypeAPI } from "../../types/api";
 import type { NodeDataType } from "../../types/flow";
 import { scapedJSONStringfy } from "../../utils/reactflowUtils";
+import { isReferenceSelectionSourceNode as isSelectableReferenceSelectionSourceNode } from "../../utils/referenceSelectionUtils";
 import { classNames, cn } from "../../utils/utils";
 import { processNodeAdvancedFields } from "../helpers/process-node-advanced-fields";
 import useUpdateNodeCode from "../hooks/use-update-node-code";
@@ -993,6 +994,7 @@ function GenericNode({
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const takeSnapshot = useFlowsManagerStore((state) => state.takeSnapshot);
   const edges = useFlowStore((state) => state.edges);
+  const nodes = useFlowStore((state) => state.nodes);
   const setEdges = useFlowStore((state) => state.setEdges);
   const shortcuts = useShortcutsStore((state) => state.shortcuts);
   const buildStatus = useBuildStatus(data, data.id);
@@ -1052,10 +1054,30 @@ function GenericNode({
     isUserUploadAudio;
   const isReferenceSelectionActive = referenceSelection.active;
   const referenceSelectionTargetNodeId = referenceSelection.targetNodeId;
+  const referenceSelectionTargetNode = useMemo(
+    () =>
+      referenceSelectionTargetNodeId
+        ? nodes.find((node) => node.id === referenceSelectionTargetNodeId)
+        : undefined,
+    [nodes, referenceSelectionTargetNodeId],
+  );
   const isReferenceSelectionSourceNode =
     isReferenceSelectionActive &&
-    (isDoubaoImageCreator || isUserUploadImage) &&
-    data.id !== referenceSelectionTargetNodeId;
+    isSelectableReferenceSelectionSourceNode(
+      {
+        id: data.id,
+        type: "genericNode",
+        data,
+      } as any,
+      referenceSelectionTargetNode,
+      edges,
+      nodes,
+      {
+        preferredFieldName: referenceSelection.preferredFieldName,
+        preferredImageRole: referenceSelection.preferredImageRole,
+        hoverLabel: referenceSelection.hoverLabel,
+      },
+    );
   const isReferenceSelectionTargetNode =
     isReferenceSelectionActive && data.id === referenceSelectionTargetNodeId;
   const shouldDimForReferenceSelection =

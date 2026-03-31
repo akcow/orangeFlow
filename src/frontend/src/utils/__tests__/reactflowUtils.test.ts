@@ -402,6 +402,58 @@ describe("video generation mode availability", () => {
     expect(isValidConnection(connection, nodes, edges)).toBe(true);
   });
 
+  it("allows a prompt-compatible non-visual upstream on the visible video handle in text mode", () => {
+    const nodes = [
+      {
+        id: "prompt-source",
+        data: {
+          type: "PromptBuilder",
+        },
+      },
+      {
+        id: "video-node",
+        data: {
+          type: "DoubaoVideoGenerator",
+          node: {
+            template: {
+              model_name: { value: "VEO3.1" },
+              generation_mode: { value: "text" },
+              first_frame_image: {
+                input_types: ["Data"],
+                type: "file",
+                list: true,
+              },
+              prompt: {
+                input_types: ["Message", "Text"],
+                type: "str",
+                list: false,
+              },
+            },
+          },
+        },
+      },
+    ] as any;
+
+    const connection = {
+      source: "prompt-source",
+      target: "video-node",
+      sourceHandle: JSON.stringify({
+        id: "prompt-source",
+        dataType: "PromptBuilder",
+        name: "prompt",
+        output_types: ["Text"],
+      }),
+      targetHandle: JSON.stringify({
+        id: "video-node",
+        fieldName: "first_frame_image",
+        inputTypes: ["Data"],
+        type: "file",
+      }),
+    } as any;
+
+    expect(isValidConnection(connection, nodes, [])).toBe(true);
+  });
+
   it("rejects connecting visual media to the hidden prompt handle", () => {
     const nodes = [
       {

@@ -185,21 +185,47 @@ export function getPreferredVisualGenerationMode(
   return candidates.find((mode) => supported.includes(mode)) ?? null;
 }
 
+export function supportsVideoInputForDoubaoVideoModel(
+  modelName: string,
+): boolean {
+  return getSupportedVideoGenerationModes(modelName).some(
+    (mode) => mode === "reference_video" || mode === "video_edit",
+  );
+}
+
+export function getVideoBridgeLimitForModel(modelName: string): number {
+  return String(modelName ?? "").trim().toLowerCase() === "viduq2-pro" ? 2 : 1;
+}
+
+export function getVideoInputCapableModelOptions(
+  modelOptions: Array<string | number>,
+): string[] {
+  return modelOptions
+    .map((option) => String(option ?? "").trim())
+    .filter(Boolean)
+    .filter((option, index, array) => array.indexOf(option) === index)
+    .filter((option) => supportsVideoInputForDoubaoVideoModel(option));
+}
+
 export function getEffectiveDoubaoVideoGenerationMode(
   node: AllNodeType | undefined,
   sourceType?: string,
 ): VideoGenerationMode {
+  const modelName = getDoubaoVideoModelName(node);
   const currentMode = getDoubaoVideoGenerationMode(node);
-  const isVideoSource = isLikelyVisualSourceType(sourceType) && String(sourceType ?? "").trim().toLowerCase().includes("video");
+  const preferredMode = getPreferredVisualGenerationMode(modelName, sourceType);
+  if (!preferredMode) return currentMode;
+
+  const normalizedSourceType = String(sourceType ?? "").trim().toLowerCase();
+  const isVideoSource = normalizedSourceType.includes("video");
   if (isVideoSource) {
-    const preferred = getPreferredVisualGenerationMode(getDoubaoVideoModelName(node), sourceType);
-    if (preferred) return preferred;
+    return currentMode === "reference_video" || currentMode === "video_edit"
+      ? currentMode
+      : preferredMode;
   }
+
   if (currentMode !== "text") return currentMode;
-  return getPreferredVisualGenerationMode(
-    getDoubaoVideoModelName(node),
-    sourceType,
-  ) ?? currentMode;
+  return preferredMode;
 }
 
 export function getImageRoleLimitsForGenerationMode(

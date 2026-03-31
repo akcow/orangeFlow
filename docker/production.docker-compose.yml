@@ -8,8 +8,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    # ports:
-    #   - "${LANGFLOW_BIND_ADDRESS:-0.0.0.0}:${LANGFLOW_PORT:-7860}:7860"
+    ports:
+      - "${LANGFLOW_BIND_ADDRESS:-0.0.0.0}:${LANGFLOW_PORT:-7860}:7860"
     environment:
       LANGFLOW_DATABASE_URL: "postgresql://${POSTGRES_USER:-orangeflow}:${POSTGRES_PASSWORD:-change-this-password}@postgres:5432/${POSTGRES_DB:-orangeflow}"
       LANGFLOW_CONFIG_DIR: /app/orangeflow_config
@@ -120,17 +120,20 @@ services:
       - orangeflow-network
 
   nginx:
-    image: nginx:latest
+    profiles:
+      - https-proxy
+    image: nginx:1.27-alpine
     container_name: orangeflow-nginx
     restart: unless-stopped
     ports:
-      # 将宿主机的 7860 端口映射到 Nginx 的 HTTPS 443 端口
-      - "${LANGFLOW_BIND_ADDRESS:-0.0.0.0}:${LANGFLOW_PORT:-7860}:443"
+      - "${NGINX_BIND_ADDRESS:-0.0.0.0}:${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_BIND_ADDRESS:-0.0.0.0}:${NGINX_HTTPS_PORT:-443}:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
-      - orangeflow
+      orangeflow:
+        condition: service_healthy
     networks:
       - orangeflow-network
 

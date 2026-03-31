@@ -1,9 +1,20 @@
 import { create } from "zustand";
 
+type CanvasReferenceSelectionImageRole = "first" | "reference" | "last";
+
 type CanvasReferenceSelectionState = {
   active: boolean;
   targetNodeId: string | null;
   hoveredNodeId: string | null;
+  preferredFieldName: string | null;
+  preferredImageRole: CanvasReferenceSelectionImageRole | null;
+  hoverLabel: string | null;
+};
+
+type StartReferenceSelectionOptions = {
+  preferredFieldName?: string | null;
+  preferredImageRole?: CanvasReferenceSelectionImageRole | null;
+  hoverLabel?: string | null;
 };
 
 type CanvasUiStore = {
@@ -11,7 +22,10 @@ type CanvasUiStore = {
   setMiniMapOpen: (open: boolean) => void;
   toggleMiniMapOpen: () => void;
   referenceSelection: CanvasReferenceSelectionState;
-  startReferenceSelection: (targetNodeId: string) => void;
+  startReferenceSelection: (
+    targetNodeId: string,
+    options?: StartReferenceSelectionOptions,
+  ) => void;
   exitReferenceSelection: () => void;
   setReferenceSelectionHoveredNode: (nodeId: string | null) => void;
 };
@@ -24,13 +38,19 @@ export const useCanvasUiStore = create<CanvasUiStore>((set) => ({
     active: false,
     targetNodeId: null,
     hoveredNodeId: null,
+    preferredFieldName: null,
+    preferredImageRole: null,
+    hoverLabel: null,
   },
-  startReferenceSelection: (targetNodeId) =>
+  startReferenceSelection: (targetNodeId, options) =>
     set({
       referenceSelection: {
         active: true,
         targetNodeId,
         hoveredNodeId: null,
+        preferredFieldName: options?.preferredFieldName ?? null,
+        preferredImageRole: options?.preferredImageRole ?? null,
+        hoverLabel: options?.hoverLabel ?? null,
       },
     }),
   exitReferenceSelection: () =>
@@ -39,6 +59,9 @@ export const useCanvasUiStore = create<CanvasUiStore>((set) => ({
         active: false,
         targetNodeId: null,
         hoveredNodeId: null,
+        preferredFieldName: null,
+        preferredImageRole: null,
+        hoverLabel: null,
       },
     }),
   setReferenceSelectionHoveredNode: (nodeId) =>

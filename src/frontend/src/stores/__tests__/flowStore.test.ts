@@ -870,6 +870,80 @@ describe("useFlowStore", () => {
       expect(result.current.edges[0]?.data?.videoReferType).toBe("feature");
     });
 
+    it("reroutes a prompt-compatible non-visual upstream to prompt in text mode", () => {
+      const { result } = renderHook(() => useFlowStore());
+
+      const sourceHandle = JSON.stringify({
+        id: "prompt-source",
+        dataType: "PromptBuilder",
+        name: "prompt",
+        output_types: ["Text"],
+      });
+      const targetHandle = JSON.stringify({
+        id: "video-node",
+        fieldName: "first_frame_image",
+        inputTypes: ["Data"],
+        type: "file",
+      });
+
+      act(() => {
+        useFlowStore.setState({
+          nodes: [
+            {
+              id: "prompt-source",
+              type: "genericNode",
+              position: { x: 0, y: 0 },
+              data: {
+                id: "prompt-source",
+                type: "PromptBuilder",
+                node: {
+                  template: {},
+                },
+              },
+            } as AllNodeType,
+            {
+              id: "video-node",
+              type: "genericNode",
+              position: { x: 300, y: 100 },
+              data: {
+                id: "video-node",
+                type: "DoubaoVideoGenerator",
+                node: {
+                  display_name: "Video Creator",
+                  template: {
+                    model_name: { value: "VEO3.1" },
+                    generation_mode: { value: "text" },
+                    first_frame_image: {
+                      input_types: ["Data"],
+                      type: "file",
+                      list: true,
+                    },
+                    prompt: {
+                      input_types: ["Message", "Text"],
+                      type: "str",
+                      list: false,
+                    },
+                  },
+                },
+              },
+            } as AllNodeType,
+          ],
+        });
+      });
+
+      act(() => {
+        result.current.onConnect({
+          source: "prompt-source",
+          target: "video-node",
+          sourceHandle,
+          targetHandle,
+        } as any);
+      });
+
+      expect(result.current.edges).toHaveLength(1);
+      expect(result.current.edges[0]?.data?.targetHandle?.fieldName).toBe("prompt");
+    });
+
     it("assigns the second image as the last frame in first_last_frame mode", () => {
       const { result } = renderHook(() => useFlowStore());
 

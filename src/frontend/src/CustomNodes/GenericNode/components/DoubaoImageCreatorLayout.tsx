@@ -3394,13 +3394,14 @@ export default function DoubaoImageCreatorLayout({
             <div className="text-sm text-[#3C4057] dark:text-slate-100">
               <div className="flex min-h-[168px] flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2">
+                  {(canSelectCanvasReference || isCanvasReferenceSelectionActiveForNode) && (
                   <div className="group relative">
                     <button
                       type="button"
                       onClick={handleCanvasReferenceSelectionToggle}
-                      disabled={!canSelectCanvasReference && !isCanvasReferenceSelectionActiveForNode}
                       className={cn(
-                        "inline-flex h-16 w-16 items-center justify-center rounded-2xl border transition-all duration-200",
+                        "relative isolate inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border transition-all duration-200 ease-out",
+                        "before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:bg-white/14 before:opacity-0 before:transition-opacity before:duration-200 before:ease-out hover:before:opacity-100 dark:before:bg-white/10",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E7BFF]/30",
                         isCanvasReferenceSelectionActiveForNode
                           ? "border-[#1D9BF0]/40 bg-[#1D9BF0]/12 text-[#1D9BF0] shadow-[0_14px_36px_rgba(29,155,240,0.16)] dark:border-[#4FB8FF]/40 dark:bg-[#1D9BF0]/18 dark:text-[#8BD3FF]"
@@ -3411,15 +3412,24 @@ export default function DoubaoImageCreatorLayout({
                       )}
                       aria-label="参考"
                     >
-                      <ForwardedIconComponent name="Plus" className="h-6 w-6" />
+                      <span className="relative z-[1]">
+                        <ForwardedIconComponent name="Plus" className="h-6 w-6" />
+                      </span>
                     </button>
                     <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#2E2E32] px-3 py-1 text-xs font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-all duration-200 translate-y-1 group-hover:translate-y-0 group-hover:opacity-100">
                       参考
                     </div>
                   </div>
+                  )}
                 </div>
                 {promptReferencePreviews.length > 0 && (
-                  <div className="-mt-[76px] flex flex-wrap items-center gap-2 pl-[80px]">
+                  <div
+                    className={cn(
+                      "-mt-[76px] flex flex-wrap items-center gap-2",
+                      (canSelectCanvasReference || isCanvasReferenceSelectionActiveForNode) &&
+                        "pl-[80px]",
+                    )}
+                  >
                     {visiblePromptReferencePreviews.map((preview, index) => {
                       const previewSource =
                         preview.imageSource ?? preview.downloadSource ?? "";

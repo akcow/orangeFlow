@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$ROOT_DIR/production.docker-compose.yml"
 ENV_FILE="$ROOT_DIR/.env"
+COMPOSE_ARGS=(--env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "production.docker-compose.yml was not found in $ROOT_DIR"
@@ -72,11 +73,38 @@ if command -v openssl >/dev/null 2>&1; then
   replace_placeholder "SECRET_KEY"
 fi
 
+COMPOSE_PROFILES_RAW="$(read_env_value "COMPOSE_PROFILES")"
+HTTPS_PROXY_ENABLED=0
+
+if [[ -n "${COMPOSE_PROFILES_RAW// /}" ]]; then
+  IFS=',' read -r -a compose_profiles <<< "$COMPOSE_PROFILES_RAW"
+  for profile in "${compose_profiles[@]}"; do
+    profile="${profile// /}"
+    if [[ -n "$profile" ]]; then
+      COMPOSE_ARGS+=(--profile "$profile")
+    fi
+    if [[ "$profile" == "https-proxy" ]]; then
+      HTTPS_PROXY_ENABLED=1
+    fi
+  done
+fi
+
+if [[ "$HTTPS_PROXY_ENABLED" == "1" ]]; then
+  if [[ ! -f "$ROOT_DIR/ssl/cert.pem" || ! -f "$ROOT_DIR/ssl/key.pem" ]]; then
+    echo "The https-proxy profile requires docker/ssl/cert.pem and docker/ssl/key.pem."
+    echo "Either place your TLS certificate files there or remove https-proxy from COMPOSE_PROFILES."
+    exit 1
+  fi
+fi
+
+echo "Validating Docker Compose configuration..."
+docker compose "${COMPOSE_ARGS[@]}" config >/dev/null
+
 echo "Building Docker images..."
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build
+docker compose "${COMPOSE_ARGS[@]}" build
 
 echo "Starting services..."
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
+docker compose "${COMPOSE_ARGS[@]}" up -d
 
 LANGFLOW_BIND_ADDRESS="$(read_env_value "LANGFLOW_BIND_ADDRESS")"
 LANGFLOW_PORT="$(read_env_value "LANGFLOW_PORT")"
@@ -114,12 +142,12 @@ echo "Default admin username: admin"
 echo "Admin password source : SUPERUSER_PASSWORD in $ENV_FILE"
 echo
 echo "Useful commands:"
-echo "  docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" logs -f orangeflow"
-echo "  docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" ps"
-echo "  docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" down"
+echo "  docker compose ${COMPOSE_ARGS[*]} logs -f orangeflow"
+echo "  docker compose ${COMPOSE_ARGS[*]} ps"
+echo "  docker compose ${COMPOSE_ARGS[*]} down"
 echo
 
-if [[ "$LANGFLOW_BIND_ADDRESS" == "127.0.0.1" || "$LANGFLOW_BIND_ADDRESS" == "localhost" ]]; then
+if [[ "$LANGFLOW_BIND_ADDRESS" == "127.0.0.1" || "$LANGFLOW_BIND_ADDRESS" == "localhost" ]] && [[ "$HTTPS_PROXY_ENABLED" != "1" ]]; then
   echo "Warning: LANGFLOW_BIND_ADDRESS is loopback-only. External users still need a reverse proxy."
 fi
 

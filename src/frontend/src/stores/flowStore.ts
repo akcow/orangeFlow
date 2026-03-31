@@ -41,9 +41,13 @@ import {
   getDoubaoVideoModelName,
   getImageRoleCounts,
   getImageRoleLimitsForGenerationMode,
+  getPreferredVisualGenerationMode,
+  getVideoBridgeLimitForModel,
+  getVideoInputCapableModelOptions,
   IMAGE_ROLE_FIELD,
   IMAGE_ROLE_TARGET,
   pickImageRoleForNewEdge,
+  supportsVideoInputForDoubaoVideoModel,
 } from "../utils/flowMediaUtils";
 import { getConnectedSubgraph } from "../utils/flowGraphUtils";
 import {
@@ -77,6 +81,52 @@ import useFlowsManagerStore from "./flowsManagerStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore/globalVariables";
 import { useTweaksStore } from "./tweaksStore";
 import { useTypesStore } from "./typesStore";
+
+function isLikelyVisualSourceType(nodeType?: string): boolean {
+  const normalized = String(nodeType ?? "").trim().toLowerCase();
+  return normalized.includes("image") || normalized.includes("video");
+}
+
+function doesSourceHandleMatchInputField(
+  sourceHandle: sourceHandleType | undefined,
+  field: { input_types?: string[]; type?: string } | undefined,
+): boolean {
+  if (!sourceHandle || !field) return false;
+
+  const inputTypes =
+    Array.isArray(field.input_types) && field.input_types.length > 0
+      ? field.input_types
+      : [];
+  const sourceOutputTypes = Array.isArray(sourceHandle.output_types)
+    ? sourceHandle.output_types
+    : [];
+
+  return (
+    inputTypes.includes(sourceHandle.dataType) ||
+    sourceOutputTypes.some(
+      (outputType) =>
+        inputTypes.includes(outputType) || outputType === field.type,
+    )
+  );
+}
+
+function shouldRouteVideoGeneratorDropToPrompt(
+  targetNode: AllNodeType | undefined,
+  targetFieldName: string | undefined,
+  sourceType: string | undefined,
+  sourceHandle: sourceHandleType | undefined,
+): boolean {
+  if (targetNode?.data?.type !== IMAGE_ROLE_TARGET) return false;
+  if (targetFieldName !== IMAGE_ROLE_FIELD && targetFieldName !== "last_frame_image") {
+    return false;
+  }
+  if (getDoubaoVideoGenerationMode(targetNode) !== "text") return false;
+  if (sourceType === "DoubaoTTS") return false;
+  if (isLikelyVisualSourceType(sourceType)) return false;
+
+  const promptField = targetNode?.data?.node?.template?.prompt;
+  return doesSourceHandleMatchInputField(sourceHandle, promptField);
+}
 
 // this is our useStore hook that we can use in our components to get parts of the store and call actions
 const useFlowStore = create<FlowStoreType>((set, get) => ({
@@ -1262,10 +1312,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       let targetFieldName = targetHandle?.fieldName ?? targetHandle?.name;
       const resolvedSourceType =
         sourceNode?.data?.type ?? (sourceHandle?.dataType as string | undefined);
-      const isVisualSourceType = (() => {
-        const normalized = String(resolvedSourceType ?? "").trim().toLowerCase();
-        return normalized.includes("image") || normalized.includes("video");
-      })();
+      const isVisualSourceType = isLikelyVisualSourceType(resolvedSourceType);
 
       // Prevent invalid semantic connections: audio output should not connect to image inputs.
       // If the user drops audio onto the video's "+" input bubble (which is the first_frame_image
@@ -1302,6 +1349,44 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         targetFieldName = "audio_input";
         normalizedConnection = {
           ...connection,
+          targetHandle: scapedJSONStringfy(targetHandle),
+        };
+      }
+
+      if (
+        shouldRouteVideoGeneratorDropToPrompt(
+          targetNode,
+          targetFieldName,
+          resolvedSourceType,
+          sourceHandle,
+        )
+      ) {
+        const promptField = targetNode?.data?.node?.template?.["prompt"];
+        if (!promptField) {
+          setErrorData({
+            title: "æ¶“å¶†æ•®éŽ¸ä½ºæ®‘æ©ç‚´å¸´",
+            list: [
+              "æ©ç‚´å¸´æˆæ’³å†ç»€é¸¿ç˜é¥å‰§å¢–ç¼æ“‚å‹ prompt è¾“å…¥é”æ¿†æ¹é”›å±¾ç¬‰é’æ‹Œî‹æ£°æˆžå½ç»€é¸¿ç˜æˆæ’³å†éŠ†?",
+            ],
+          });
+          return oldEdges;
+        }
+
+        const inputTypes =
+          promptField.input_types && promptField.input_types.length > 0
+            ? promptField.input_types
+            : ["Message", "Data", "Text"];
+        const resolvedType = promptField.type ?? "data";
+        targetHandle = {
+          inputTypes,
+          type: resolvedType,
+          id: connection.target,
+          fieldName: "prompt",
+          ...(promptField.proxy ? { proxy: promptField.proxy } : {}),
+        };
+        targetFieldName = "prompt";
+        normalizedConnection = {
+          ...normalizedConnection,
           targetHandle: scapedJSONStringfy(targetHandle),
         };
       }
@@ -1587,6 +1672,24 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
       const effectiveTargetGenerationMode = targetNode
         ? getEffectiveDoubaoVideoGenerationMode(targetNode, resolvedSourceType)
         : "text";
+      const videoInputCapableModelOptions = getVideoInputCapableModelOptions(
+        Array.isArray(targetNode?.data?.node?.template?.model_name?.options)
+          ? targetNode.data.node.template.model_name.options
+          : [],
+      );
+      const effectiveTargetModelName =
+        isVideoBridgeEdge &&
+        !supportsVideoInputForDoubaoVideoModel(modelName) &&
+        videoInputCapableModelOptions.length > 0
+          ? videoInputCapableModelOptions[0]
+          : modelName;
+      const effectiveVideoTargetGenerationMode =
+        isVideoBridgeEdge
+          ? getPreferredVisualGenerationMode(
+              effectiveTargetModelName,
+              resolvedSourceType,
+            ) ?? effectiveTargetGenerationMode
+          : effectiveTargetGenerationMode;
       const normalizedModelName = modelName.trim().toLowerCase();
       let imageRole: "first" | "reference" | "last" | undefined;
       let videoReferType: "base" | "feature" | undefined;
@@ -1635,7 +1738,9 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
         }
         imageRole = requestedRole === "last" ? requestedRole : "last";
       } else if (isVideoBridgeEdge) {
-        const maxVideoEdges = normalizedModelName === "viduq2-pro" ? 2 : 1;
+        const maxVideoEdges = getVideoBridgeLimitForModel(
+          effectiveTargetModelName,
+        );
         const existingIncomingVideoEdges = oldEdges.filter((edge) => {
           if (edge.target !== connection.target) return false;
           let parsedTargetHandle: any = edge.data?.targetHandle;
@@ -1665,12 +1770,13 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
           return oldEdges;
         }
         videoReferType =
-          effectiveTargetGenerationMode === "video_edit" ? "base" : "feature";
+          effectiveVideoTargetGenerationMode === "video_edit"
+            ? "base"
+            : "feature";
       } else if (isRoleEdge) {
-        const modelName = getDoubaoVideoModelName(targetNode);
         const limits = getImageRoleLimitsForGenerationMode(
-          modelName,
-          effectiveTargetGenerationMode,
+          effectiveTargetModelName,
+          effectiveVideoTargetGenerationMode,
         );
         const counts = getImageRoleCounts(oldEdges, connection.target!, targetNode);
         if (hasIncomingVideoSourceEdge) {
@@ -1686,9 +1792,9 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
           }
           imageRole = "reference";
         } else if (
-          effectiveTargetGenerationMode === "reference_image" ||
-          effectiveTargetGenerationMode === "reference_video" ||
-          effectiveTargetGenerationMode === "video_edit"
+          effectiveVideoTargetGenerationMode === "reference_image" ||
+          effectiveVideoTargetGenerationMode === "reference_video" ||
+          effectiveVideoTargetGenerationMode === "video_edit"
         ) {
           if (!canAddImageRole("reference", counts, limits)) {
             setErrorData({
@@ -1700,7 +1806,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
             return oldEdges;
           }
           imageRole = "reference";
-        } else if (effectiveTargetGenerationMode === "first_frame") {
+        } else if (effectiveVideoTargetGenerationMode === "first_frame") {
           if (!canAddImageRole("first", counts, limits)) {
             setErrorData({
               title: "连接数量已达上限",
@@ -1711,7 +1817,7 @@ const useFlowStore = create<FlowStoreType>((set, get) => ({
             return oldEdges;
           }
           imageRole = "first";
-        } else if (effectiveTargetGenerationMode === "first_last_frame") {
+        } else if (effectiveVideoTargetGenerationMode === "first_last_frame") {
           const nextRole =
             requestedRole && canAddImageRole(requestedRole, counts, limits)
               ? requestedRole

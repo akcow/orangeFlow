@@ -77,8 +77,8 @@ import {
   getNodeId,
   isValidConnection,
   scapeJSONParse,
-  scapedJSONStringfy,
 } from "../../../../utils/reactflowUtils";
+import { buildReferenceSelectionConnection } from "../../../../utils/referenceSelectionUtils";
 import ConnectionLineComponent from "../ConnectionLineComponent";
 import SelectionMenu from "../SelectionMenuComponent";
 import UpdateAllComponents from "../UpdateAllComponents";
@@ -159,13 +159,6 @@ type UserUploadNodeType =
   | "UserUploadVideo"
   | "UserUploadAudio";
 
-const IMAGE_REFERENCE_SOURCE_TYPES = new Set([
-  "DoubaoImageCreator",
-  "UserUploadImage",
-]);
-const IMAGE_OUTPUT_NAME = "image";
-const REFERENCE_IMAGES_FIELD = "reference_images";
-
 function inferClipboardResourceNodeType(file: File): UserUploadNodeType | null {
   const mime = String(file.type || "").toLowerCase();
   const ext = (file.name.split(".").pop() || "").toLowerCase();
@@ -191,66 +184,6 @@ function getClipboardFileName(file: File, nodeType: UserUploadNodeType): string 
         ? "mp4"
         : "mp3";
   return `${nodeType.toLowerCase()}-${Date.now()}.${fallbackExt}`;
-}
-
-function isImageReferenceSourceNode(node: AllNodeType | undefined): boolean {
-  return (
-    node?.type === "genericNode" &&
-    IMAGE_REFERENCE_SOURCE_TYPES.has(String(node.data?.type ?? ""))
-  );
-}
-
-function buildReferenceSelectionConnection(
-  sourceNode: AllNodeType | undefined,
-  targetNode: AllNodeType | undefined,
-): Connection | null {
-  if (!isImageReferenceSourceNode(sourceNode)) return null;
-  if (
-    targetNode?.type !== "genericNode" ||
-    targetNode.data?.type !== "DoubaoImageCreator"
-  ) {
-    return null;
-  }
-
-  const sourceOutputs = sourceNode.data?.node?.outputs ?? [];
-  const outputDefinition =
-    sourceOutputs.find((output) => output.name === IMAGE_OUTPUT_NAME) ??
-    sourceOutputs.find((output) => !output.hidden) ??
-    sourceOutputs[0];
-  const referenceField =
-    targetNode.data?.node?.template?.[REFERENCE_IMAGES_FIELD];
-
-  if (!outputDefinition || !referenceField) return null;
-
-  const sourceOutputTypes =
-    outputDefinition.types && outputDefinition.types.length === 1
-      ? outputDefinition.types
-      : outputDefinition.selected
-        ? [outputDefinition.selected]
-        : ["Data"];
-
-  const sourceHandle = {
-    output_types: sourceOutputTypes,
-    id: sourceNode.id,
-    dataType: sourceNode.data.type,
-    name: outputDefinition.name ?? IMAGE_OUTPUT_NAME,
-    ...(outputDefinition.proxy ? { proxy: outputDefinition.proxy } : {}),
-  };
-
-  const targetHandle = {
-    inputTypes: referenceField.input_types,
-    type: referenceField.type,
-    id: targetNode.id,
-    fieldName: REFERENCE_IMAGES_FIELD,
-    ...(referenceField.proxy ? { proxy: referenceField.proxy } : {}),
-  };
-
-  return {
-    source: sourceNode.id,
-    target: targetNode.id,
-    sourceHandle: scapedJSONStringfy(sourceHandle),
-    targetHandle: scapedJSONStringfy(targetHandle),
-  };
 }
 
 export default function Page({
@@ -1484,11 +1417,20 @@ export default function Page({
       event.stopPropagation();
 
       if (!referenceSelectionTargetNodeId) return;
-      if (!isImageReferenceSourceNode(node)) return;
       if (node.id === referenceSelectionTargetNodeId) return;
 
       const targetNode = nodes.find((candidate) => candidate.id === referenceSelectionTargetNodeId);
-      const connection = buildReferenceSelectionConnection(node, targetNode);
+      const connection = buildReferenceSelectionConnection(
+        node,
+        targetNode,
+        edges,
+        nodes,
+        {
+          preferredFieldName: referenceSelection.preferredFieldName,
+          preferredImageRole: referenceSelection.preferredImageRole,
+          hoverLabel: referenceSelection.hoverLabel,
+        },
+      );
       if (!connection) return;
 
       onConnectMod(connection);
@@ -1520,6 +1462,7 @@ export default function Page({
     [
       exitReferenceSelection,
       isReferenceSelectionActive,
+      edges,
       nodes,
       onConnectMod,
       reactFlowInstance,
