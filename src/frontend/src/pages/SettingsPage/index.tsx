@@ -74,7 +74,7 @@ export default function SettingsPage(): JSX.Element {
     <PageLayout
       backTo={-1 as To}
       title={t("Settings")}
-      description={t("Manage the general settings for Langflow.")}
+      description={t("Manage the general settings for OrangeFlow.")}
     >
       <SidebarProvider width="15rem" defaultOpen={false}>
         <SideBarButtonsComponent items={sidebarNavItems} />

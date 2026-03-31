@@ -12,16 +12,14 @@ import {
 } from "../../../../../../components/ui/card";
 
 type PasswordFormComponentProps = {
+  currentPassword: string;
   password: string;
   cnfPassword: string;
   handleInput: (event: any) => void;
-  handlePatchPassword: (
-    password: string,
-    cnfPassword: string,
-    handleInput: any,
-  ) => void;
+  handlePatchPassword: () => void;
 };
 const PasswordFormComponent = ({
+  currentPassword,
   password,
   cnfPassword,
   handleInput,
@@ -31,7 +29,7 @@ const PasswordFormComponent = ({
     <>
       <Form.Root
         onSubmit={(event) => {
-          handlePatchPassword(password, cnfPassword, handleInput);
+          handlePatchPassword();
           event.preventDefault();
         }}
       >
@@ -39,46 +37,67 @@ const PasswordFormComponent = ({
           <CardHeader>
             <CardTitle>{t("Password")}</CardTitle>
             <CardDescription>
-              {t("Type your new password and confirm it.")}
+              {t("Enter your current password, then set and confirm a new password.")}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex w-full gap-4">
-              <Form.Field name="password" className="w-full">
+            <div className="flex w-full flex-col gap-4">
+              <Form.Field name="currentPassword" className="w-full">
                 <InputComponent
-                  id="pasword"
+                  id="currentPassword"
                   onChange={(value) => {
-                    handleInput({ target: { name: "password", value } });
+                    handleInput({
+                      target: { name: "currentPassword", value },
+                    });
                   }}
-                  value={password}
+                  value={currentPassword}
                   isForm
                   password={true}
-                  placeholder={t("Password")}
+                  placeholder={t("Current Password")}
                   className="w-full"
                 />
                 <Form.Message match="valueMissing" className="field-invalid">
-                  {t("Please enter your password")}
+                  {t("Please enter your current password")}
                 </Form.Message>
               </Form.Field>
-              <Form.Field name="cnfPassword" className="w-full">
-                <InputComponent
-                  id="cnfPassword"
-                  onChange={(value) => {
-                    handleInput({
-                      target: { name: "cnfPassword", value },
-                    });
-                  }}
-                  value={cnfPassword}
-                  isForm
-                  password={true}
-                  placeholder={t("Confirm Password")}
-                  className="w-full"
-                />
 
-                <Form.Message className="field-invalid" match="valueMissing">
-                  {t("Please confirm your password")}
-                </Form.Message>
-              </Form.Field>
+              <div className="flex w-full gap-4">
+                <Form.Field name="password" className="w-full">
+                  <InputComponent
+                    id="password"
+                    onChange={(value) => {
+                      handleInput({ target: { name: "password", value } });
+                    }}
+                    value={password}
+                    isForm
+                    password={true}
+                    placeholder={t("Password")}
+                    className="w-full"
+                  />
+                  <Form.Message match="valueMissing" className="field-invalid">
+                    {t("Please enter your password")}
+                  </Form.Message>
+                </Form.Field>
+                <Form.Field name="cnfPassword" className="w-full">
+                  <InputComponent
+                    id="cnfPassword"
+                    onChange={(value) => {
+                      handleInput({
+                        target: { name: "cnfPassword", value },
+                      });
+                    }}
+                    value={cnfPassword}
+                    isForm
+                    password={true}
+                    placeholder={t("Confirm Password")}
+                    className="w-full"
+                  />
+
+                  <Form.Message className="field-invalid" match="valueMissing">
+                    {t("Please confirm your password")}
+                  </Form.Message>
+                </Form.Field>
+              </div>
             </div>
           </CardContent>
           <CardFooter className="border-t px-6 py-4">

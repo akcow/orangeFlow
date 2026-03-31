@@ -8,6 +8,7 @@ import {
 } from "@/constants/alerts_constants";
 import { useResetPassword } from "@/controllers/API/queries/auth";
 import { CustomTermsLinks } from "@/customization/components/custom-terms-links";
+import { t } from "@/i18n/t";
 import useAuthStore from "@/stores/authStore";
 import { CONTROL_PATCH_USER_STATE } from "../../../../constants/constants";
 import { AuthContext } from "../../../../contexts/authContext";
@@ -30,11 +31,19 @@ export const GeneralPage = () => {
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const { userData } = useContext(AuthContext);
-  const { password, cnfPassword } = inputState;
+  const { currentPassword, password, cnfPassword } = inputState;
   const autoLogin = useAuthStore((state) => state.autoLogin);
   const { mutate: mutateResetPassword } = useResetPassword();
 
   const handlePatchPassword = () => {
+    if (!currentPassword || !password || !cnfPassword) {
+      setErrorData({
+        title: EDIT_PASSWORD_ERROR_ALERT,
+        list: [t("Please complete all password fields")],
+      });
+      return;
+    }
+
     if (password !== cnfPassword) {
       setErrorData({
         title: EDIT_PASSWORD_ERROR_ALERT,
@@ -45,9 +54,13 @@ export const GeneralPage = () => {
 
     if (password !== "") {
       mutateResetPassword(
-        { user_id: userData!.id, password: { password } },
+        {
+          user_id: userData!.id,
+          password: { current_password: currentPassword, password },
+        },
         {
           onSuccess: () => {
+            handleInput({ target: { name: "currentPassword", value: "" } });
             handleInput({ target: { name: "password", value: "" } });
             handleInput({ target: { name: "cnfPassword", value: "" } });
             setSuccessData({ title: SAVE_SUCCESS_ALERT });
@@ -78,6 +91,7 @@ export const GeneralPage = () => {
       <div className="flex w-full flex-col gap-6">
         {!autoLogin && (
           <PasswordFormComponent
+            currentPassword={currentPassword}
             password={password}
             cnfPassword={cnfPassword}
             handleInput={handleInput}

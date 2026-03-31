@@ -4,9 +4,22 @@ This repository is now branded and deployed externally as **OrangeFlow**.
 It still keeps `LANGFLOW_*` environment variables and the `langflow` CLI entrypoint internally for compatibility with the upstream runtime.
 
 If you want a practical step-by-step server checklist, see `docker/ORANGEFLOW_SERVER_CHECKLIST.md`.
+If you want to deploy from a GitHub checkout and manage updates from GitHub, see `docker/GITHUB_DEPLOYMENT_AND_UPDATES.md`.
 
 This repository is now wired for a PostgreSQL-first deployment.
-For a small private beta and later commercialization, the recommended stack is:
+There are now three supported production paths:
+
+- `full`: `docker/production.docker-compose.yml`
+- `full-prebuilt`: `docker/production-prebuilt.docker-compose.yml`
+- `image`: `docker/production-image.docker-compose.yml`
+- `lite`: `docker/production-lite.docker-compose.yml`
+
+Use `full` when the server can build the frontend inside Docker and can reliably pull MinIO images.
+Use `full-prebuilt` when you still want PostgreSQL + MinIO for public multi-user deployment, but you don't want the server to run the frontend build.
+Use `image` when GitHub Actions publishes the production image and the server should only pull and run it.
+Use `lite` only when you explicitly accept local persistent storage for a single-node beta.
+
+For a small private beta and later commercialization, the default recommended stack is:
 
 - `OrangeFlow app`
 - `PostgreSQL`
@@ -16,15 +29,48 @@ This avoids the old SQLite failure mode where history, generated assets, and mul
 
 ## 1. Recommended topology
 
-- Use `docker/production.docker-compose.yml`
+- Default: use `docker/production.docker-compose.yml`
+- Best fallback for public multi-user servers: use `docker/production-prebuilt.docker-compose.yml`
+- Best long-term GitHub-driven production flow: use `docker/production-image.docker-compose.yml`
+- Low-resource fallback: use `docker/production-lite.docker-compose.yml`
 - Keep PostgreSQL on a persistent volume
-- Keep generated media in MinIO/S3, not inside the app container filesystem
+- `full`: keep generated media in MinIO/S3, not inside the app container filesystem
+- `full-prebuilt`: keep generated media in MinIO/S3, not inside the app container filesystem
+- `lite`: keep generated media in the persistent app config volume with `LANGFLOW_STORAGE_TYPE=local`
 - Set `LANGFLOW_PUBLIC_BASE_URL` to the public OrangeFlow URL so signed proxy preview links work
 - Keep `LANGFLOW_AUTO_LOGIN=false` for beta/commercial use
 - Keep `LANGFLOW_SKIP_AUTH_AUTO_LOGIN=false`
 - Keep PostgreSQL and MinIO internal to Docker unless you explicitly need host access
 
-## 2. First deployment
+## 2. Choose the right mode first
+
+Pick `full` if:
+
+- the server has enough memory to run the Docker frontend build
+- Docker Hub access is stable enough to pull MinIO images
+- you want the default object-storage topology now
+
+Pick `full-prebuilt` if:
+
+- you want the same PostgreSQL + MinIO production topology
+- the server previously failed during `npm ci`, `npm run build`, or Docker frontend build
+- you can build `src/frontend/build/` on your workstation or in CI first
+
+Pick `image` if:
+
+- you want the server to deploy from a GitHub checkout without building the app image locally
+- GitHub Actions can publish your production image to GHCR
+- you want the cleanest rollback story using image tags
+
+Pick `lite` if:
+
+- MinIO is not required for this deployment
+- this is a single-node deployment and local storage is acceptable for now
+
+The recurring deployment failures in `DEPLOYMENT_ISSUES.md` came mainly from forcing in-server frontend builds onto a server that should have used `full-prebuilt`.
+For long-term multi-user production, `image` is usually cleaner than source builds on the server.
+
+## 3. First deployment
 
 From the repo root:
 
@@ -70,7 +116,7 @@ LANGFLOW_ACCESS_SECURE=true
 LANGFLOW_REFRESH_SECURE=true
 ```
 
-Then start the stack:
+Then start the full stack:
 
 ```bash
 docker compose -f production.docker-compose.yml up -d --build
@@ -78,6 +124,41 @@ docker compose -f production.docker-compose.yml up -d --build
 
 The production image now builds the frontend inside Docker, so a fresh server does not need a prebuilt `src/frontend/build`.
 The production template also binds OrangeFlow to `0.0.0.0:7860` by default so direct beta access works immediately.
+
+If you need the prebuilt frontend path while keeping MinIO:
+
+1. Build the frontend on your workstation or in CI so `src/frontend/build/` exists.
+2. Copy `docker/.env.production.example` to `docker/.env`.
+3. Start the prebuilt full stack:
+
+```bash
+docker compose -f production-prebuilt.docker-compose.yml up -d --build
+```
+
+The prebuilt image uses `docker/production-prebuilt.Dockerfile`, skips the in-container Node build, and keeps the PostgreSQL + MinIO production topology.
+
+If you explicitly need the lite path instead:
+
+1. Build the frontend on your workstation or in CI so `src/frontend/build/` exists.
+2. Copy `docker/.env.lite.example` to `docker/.env`.
+3. Start the lite stack:
+
+```bash
+docker compose -f production-lite.docker-compose.yml up -d --build
+```
+
+The lite image uses `docker/production-prebuilt.Dockerfile`, skips the in-container Node build, and removes the MinIO dependency.
+
+If you want GitHub to publish the app image and the server to only pull it:
+
+1. Configure `ORANGEFLOW_IMAGE` in `docker/.env`.
+2. Publish the image from GitHub Actions.
+3. Start the image-based stack:
+
+```bash
+docker compose -f production-image.docker-compose.yml pull
+docker compose -f production-image.docker-compose.yml up -d
+```
 
 If you want the bundled HTTPS Nginx sidecar, enable the profile and provide certificates first:
 
@@ -110,25 +191,30 @@ Login check after startup:
 Important: the configured `SUPERUSER_PASSWORD` is used when the superuser is first created. Changing it later in `.env`
 does not reset the password already stored in PostgreSQL.
 
-## 3. Why this is the default now
+## 4. Why these modes exist now
 
 `start_service.py` was changed to reject SQLite defaults and prefer PostgreSQL.
-The production compose file matches that direction:
+The production compose files match that direction:
 
 - database: PostgreSQL only
-- media storage: MinIO by default
-- preview/history URLs: signed OrangeFlow proxy URLs by default
+- `full` media storage: MinIO by default
+- `full-prebuilt` media storage: MinIO by default
+- `image` media storage: MinIO by default
+- `lite` media storage: local persistent volume
+- preview/history URLs: signed OrangeFlow proxy URLs by default when object storage is enabled
 
 This means:
 
 - generated history survives restart
 - workspace preview can still load after restart
 - image/video assets are not tied to one app container
-- the stack can scale to S3 later with the same config model
+- the full and full-prebuilt stacks can scale to S3 later with the same config model
+- the image stack has the cleanest CI/CD and rollback path
+- the lite stack gives a supported escape hatch for weak-network or low-memory servers
 
 The production image now also installs `ffmpeg`, so server-side video trim/edit flows do not fail after deployment.
 
-## 4. MinIO vs S3
+## 5. MinIO vs S3
 
 Use MinIO now if you want:
 
@@ -142,9 +228,9 @@ Move to AWS S3 later if you want:
 - CDN integration
 - easier multi-instance deployment
 
-To switch later, keep `LANGFLOW_STORAGE_TYPE=s3` and replace the S3 env values with your cloud bucket settings.
+To switch later from the full stack, keep `LANGFLOW_STORAGE_TYPE=s3` and replace the S3 env values with your cloud bucket settings.
 
-## 5. Important preview/history notes
+## 6. Important preview/history notes
 
 This repo now supports:
 
@@ -159,7 +245,7 @@ Those changes directly address the old cases where:
 - flow workspace preview did not show the newest generated image
 - restart caused media references to break
 
-## 6. Reverse proxy
+## 7. Reverse proxy
 
 For real users, put Nginx or Caddy in front of OrangeFlow and terminate HTTPS there.
 Minimum routing:
@@ -188,7 +274,7 @@ That is the safer default for a private beta.
 Do not leave `LANGFLOW_ACCESS_SECURE=true` unless the public browser URL is really HTTPS.
 Otherwise browsers can reject the login cookies and users will appear to log in successfully but lose their session.
 
-## 7. Backup
+## 8. Backup
 
 PostgreSQL:
 
@@ -209,7 +295,31 @@ MinIO:
 - snapshot the `orangeflow-minio-data` volume
 - or replicate objects to S3 on a schedule
 
-## 8. Upgrade checklist
+Lite mode:
+
+- back up the `orangeflow-config-data` volume because local-generated media is stored there
+
+## 9. Deployment Script
+
+`docker/deploy.sh` now supports all modes:
+
+```bash
+# Full stack: PostgreSQL + MinIO + OrangeFlow
+ORANGEFLOW_DEPLOY_MODE=full ./deploy.sh
+
+# Full-prebuilt stack: PostgreSQL + MinIO + prebuilt frontend assets
+ORANGEFLOW_DEPLOY_MODE=full-prebuilt ./deploy.sh
+
+# Image stack: GitHub-published production image + PostgreSQL + MinIO
+# Use docker/update-from-git.sh for this mode.
+
+# Lite stack: PostgreSQL + local storage + prebuilt frontend
+ORANGEFLOW_DEPLOY_MODE=lite ./deploy.sh
+```
+
+When using `full-prebuilt` or `lite`, make sure `src/frontend/build/` has already been created before you run the script.
+
+## 10. Upgrade checklist
 
 Before exposing to more users:
 

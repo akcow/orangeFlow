@@ -17,7 +17,7 @@ const GeneralPageHeaderComponent = () => {
             />
           </h2>
           <p className="text-sm text-muted-foreground">
-            {t("Manage settings related to Langflow and your account.")}
+            {t("Manage settings related to OrangeFlow and your account.")}
           </p>
         </div>
       </div>

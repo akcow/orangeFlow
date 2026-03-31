@@ -3,12 +3,40 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_FILE="$ROOT_DIR/production.docker-compose.yml"
 ENV_FILE="$ROOT_DIR/.env"
+DEPLOY_MODE="${ORANGEFLOW_DEPLOY_MODE:-full}"
+ENV_TEMPLATE=""
+EXPECT_MINIO=0
+EXPECT_PREBUILT_FRONTEND=0
+
+case "$DEPLOY_MODE" in
+  full)
+    COMPOSE_FILE="$ROOT_DIR/production.docker-compose.yml"
+    ENV_TEMPLATE="$ROOT_DIR/.env.production.example"
+    EXPECT_MINIO=1
+    ;;
+  full-prebuilt)
+    COMPOSE_FILE="$ROOT_DIR/production-prebuilt.docker-compose.yml"
+    ENV_TEMPLATE="$ROOT_DIR/.env.production.example"
+    EXPECT_MINIO=1
+    EXPECT_PREBUILT_FRONTEND=1
+    ;;
+  lite)
+    COMPOSE_FILE="$ROOT_DIR/production-lite.docker-compose.yml"
+    ENV_TEMPLATE="$ROOT_DIR/.env.lite.example"
+    EXPECT_PREBUILT_FRONTEND=1
+    ;;
+  *)
+    echo "Unsupported ORANGEFLOW_DEPLOY_MODE: $DEPLOY_MODE"
+    echo "Use 'full', 'full-prebuilt', or 'lite'."
+    exit 1
+    ;;
+esac
+
 COMPOSE_ARGS=(--env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
-  echo "production.docker-compose.yml was not found in $ROOT_DIR"
+  echo "Compose file was not found: $COMPOSE_FILE"
   exit 1
 fi
 
@@ -22,13 +50,22 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ "$EXPECT_PREBUILT_FRONTEND" == "1" ]]; then
+  FRONTEND_BUILD_DIR="$ROOT_DIR/../src/frontend/build"
+  if [[ ! -d "$FRONTEND_BUILD_DIR" ]]; then
+    echo "Prebuilt frontend assets are required for deploy mode '$DEPLOY_MODE'."
+    echo "Build them first so this directory exists: $FRONTEND_BUILD_DIR"
+    exit 1
+  fi
+fi
+
 if [[ ! -f "$ENV_FILE" ]]; then
-  if [[ -f "$ROOT_DIR/.env.production.example" ]]; then
-    cp "$ROOT_DIR/.env.production.example" "$ENV_FILE"
+  if [[ -f "$ENV_TEMPLATE" ]]; then
+    cp "$ENV_TEMPLATE" "$ENV_FILE"
   elif [[ -f "$ROOT_DIR/.env.example" ]]; then
     cp "$ROOT_DIR/.env.example" "$ENV_FILE"
   else
-    echo "Neither .env.production.example nor .env.example was found."
+    echo "No env template was found for deploy mode '$DEPLOY_MODE'."
     exit 1
   fi
   echo "Created $ENV_FILE from the example template. Review it before exposing the service publicly."
@@ -69,7 +106,9 @@ read_env_value() {
 if command -v openssl >/dev/null 2>&1; then
   replace_placeholder "POSTGRES_PASSWORD"
   replace_placeholder "SUPERUSER_PASSWORD"
-  replace_placeholder "MINIO_ROOT_PASSWORD"
+  if [[ "$EXPECT_MINIO" == "1" ]]; then
+    replace_placeholder "MINIO_ROOT_PASSWORD"
+  fi
   replace_placeholder "SECRET_KEY"
 fi
 
@@ -127,10 +166,13 @@ done
 
 if [[ "$healthy" != "1" ]]; then
   echo "Warning: OrangeFlow did not pass the health check within the expected time window."
+  echo "Inspect logs with: docker compose ${COMPOSE_ARGS[*]} logs -f orangeflow"
+  echo "If PostgreSQL authentication fails after you changed POSTGRES_PASSWORD, recreate the postgres volume for the selected stack."
 fi
 
 echo
 echo "Deployment complete."
+echo "Deploy mode  : $DEPLOY_MODE"
 echo "Compose file : $COMPOSE_FILE"
 echo "Env file     : $ENV_FILE"
 echo "Local URL    : http://127.0.0.1:${LANGFLOW_PORT}"

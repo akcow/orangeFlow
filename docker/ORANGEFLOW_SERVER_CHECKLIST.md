@@ -8,6 +8,18 @@
 - `MinIO`
 - `Nginx` 或 `Caddy`（正式环境建议启用 HTTPS）
 
+如果你计划用 GitHub 做持续部署，推荐优先使用：
+
+- `docker/production-image.docker-compose.yml`
+- `.github/workflows/publish-orangeflow-image.yml`
+- `docker/update-from-git.sh`
+
+如果服务器资源紧张，或者 Docker Hub 拉取镜像经常超时，优先这样分流：
+
+- 公网多用户：`docker/production-prebuilt.docker-compose.yml`
+- 单机临时内测：`docker/production-lite.docker-compose.yml`
+- 预构建镜像入口：`docker/production-prebuilt.Dockerfile`
+
 注意：OrangeFlow 目前对外品牌已改名，但运行时仍兼容上游 `LANGFLOW_*` 环境变量和 `langflow` CLI。
 
 ## 1. 服务器最低建议配置
@@ -51,7 +63,12 @@ node --max-old-space-size=6144 ./node_modules/vite/bin/vite.js build
 1. 在你自己的电脑或 CI 上执行前端构建
 2. 确认 `src/frontend/build/` 已生成
 3. 把源码（包含 `src/frontend/build/`）上传到服务器
-4. 服务器只负责 `docker compose up -d --build`
+4. 多用户公网部署优先使用 `docker/production-prebuilt.docker-compose.yml` 或 `ORANGEFLOW_DEPLOY_MODE=full-prebuilt ./deploy.sh`
+
+如果你已经接入 GitHub Actions 发布镜像，则更推荐：
+
+4. 服务器只保留 Git 仓库、`.env` 和 compose 文件
+5. 用 `docker/production-image.docker-compose.yml` 拉取 GHCR 镜像部署
 
 优点：
 
@@ -189,6 +206,32 @@ cd /opt/orangeflow/docker
 docker compose --env-file .env -f production.docker-compose.yml up -d --build
 ```
 
+如果你走轻量模式：
+
+```bash
+cd /opt/orangeflow/docker
+cp .env.lite.example .env
+docker compose --env-file .env -f production-lite.docker-compose.yml up -d --build
+```
+
+如果你要保留 MinIO 并避免服务器前端构建：
+
+```bash
+cd /opt/orangeflow/docker
+cp .env.production.example .env
+docker compose --env-file .env -f production-prebuilt.docker-compose.yml up -d --build
+```
+
+如果你使用 GitHub Actions 发布镜像：
+
+```bash
+cd /opt/orangeflow/docker
+cp .env.production.example .env
+# 编辑 .env，设置 ORANGEFLOW_IMAGE=ghcr.io/<owner>/<repo>-orangeflow:main
+docker compose --env-file .env -f production-image.docker-compose.yml pull
+docker compose --env-file .env -f production-image.docker-compose.yml up -d
+```
+
 ## 8. 健康检查
 
 ```bash
@@ -266,9 +309,15 @@ free -h
 
 1. 本地构建 `src/frontend/build/`
 2. 上传完整项目到服务器
-3. 服务器仅执行 `docker compose up -d --build`
+3. 服务器仅执行 `docker compose -f production-prebuilt.docker-compose.yml up -d --build`
 4. PostgreSQL + MinIO + OrangeFlow 同机运行
 5. 同时配置 2-4 GB swap
+
+如果你有 GitHub Actions 镜像发布：
+
+1. GitHub 构建并推送镜像到 GHCR
+2. 服务器执行 `docker/update-from-git.sh`
+3. 应用层不再在服务器本地 build
 
 ## 12. 2 GB 服务器建议
 
@@ -302,6 +351,32 @@ cp .env.production.example .env
 # 编辑 .env
 docker compose --env-file .env -f production.docker-compose.yml up -d --build
 docker compose --env-file .env -f production.docker-compose.yml logs -f orangeflow
+```
+
+轻量模式：
+
+```bash
+cd /opt/orangeflow/src/frontend
+npm install
+npm run build
+
+cd /opt/orangeflow/docker
+cp .env.production.example .env
+docker compose --env-file .env -f production-prebuilt.docker-compose.yml up -d --build
+docker compose --env-file .env -f production-prebuilt.docker-compose.yml logs -f orangeflow
+```
+
+GitHub 镜像模式：
+
+```bash
+cd /opt/orangeflow
+git clone <your-github-repo-url> .
+
+cd /opt/orangeflow/docker
+cp .env.production.example .env
+# 编辑 .env，设置 ORANGEFLOW_IMAGE
+docker compose --env-file .env -f production-image.docker-compose.yml pull
+docker compose --env-file .env -f production-image.docker-compose.yml up -d
 ```
 
 ---

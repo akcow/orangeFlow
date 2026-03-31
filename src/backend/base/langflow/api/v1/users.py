@@ -21,7 +21,7 @@ from langflow.services.database.models.user.crud import (
     get_user_by_username,
     update_user,
 )
-from langflow.services.database.models.user.model import User, UserCreate, UserRead, UserUpdate
+from langflow.services.database.models.user.model import User, UserCreate, UserPasswordReset, UserRead, UserUpdate
 router = APIRouter(tags=["Users"], prefix="/users")
 
 
@@ -121,7 +121,7 @@ async def patch_user(
 @router.patch("/{user_id}/reset-password", response_model=UserRead)
 async def reset_password(
     user_id: UUID,
-    user_update: UserUpdate,
+    user_update: UserPasswordReset,
     user: CurrentActiveUser,
     session: DbSession,
 ) -> User:
@@ -131,6 +131,8 @@ async def reset_password(
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(user_update.current_password, user.password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
     if verify_password(user_update.password, user.password):
         raise HTTPException(status_code=400, detail="You can't use your current password")
     new_password = get_password_hash(user_update.password)

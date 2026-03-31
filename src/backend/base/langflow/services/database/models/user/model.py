@@ -134,3 +134,17 @@ class UserUpdate(SQLModel):
         if not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", value):
             raise ValueError("Please provide a valid email address.")
         return value
+
+
+class UserPasswordReset(SQLModel):
+    current_password: str = Field()
+    password: str = Field()
+
+    @field_validator("current_password", "password")
+    @classmethod
+    def validate_password_fields(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            msg = "This field cannot be empty."
+            raise ValueError(msg)
+        return value

@@ -423,6 +423,7 @@ export type loginInputStateType = {
 };
 
 export type patchUserInputStateType = {
+  currentPassword: string;
   password: string;
   cnfPassword: string;
   profilePicture: string;
