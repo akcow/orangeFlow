@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
     git \
-    libpq5 \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -51,6 +51,9 @@ COPY --from=frontend-builder /app/src/frontend/build/ ./src/backend/base/langflo
 
 # Install Python deps (and workspace packages) deterministically from uv.lock.
 RUN uv sync --frozen --no-dev --extra postgresql
+
+# Fail the image build immediately if psycopg cannot load a working libpq wrapper.
+RUN /app/.venv/bin/python -c "import psycopg; from psycopg import pq; print({'psycopg': psycopg.__version__, 'impl': pq.__impl__, 'libpq': pq.version()})"
 
 ENV PATH="/app/.venv/bin:$PATH"
 

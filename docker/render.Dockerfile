@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
     git \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -42,6 +43,9 @@ RUN rm -rf ./src/backend/base/langflow/frontend/*
 COPY --from=frontend-build /app/src/frontend/build/ ./src/backend/base/langflow/frontend/
 
 RUN uv sync --frozen --no-dev --extra postgresql
+
+# Fail the image build immediately if psycopg cannot load a working libpq wrapper.
+RUN /app/.venv/bin/python -c "import psycopg; from psycopg import pq; print({'psycopg': psycopg.__version__, 'impl': pq.__impl__, 'libpq': pq.version()})"
 
 ENV PATH="/app/.venv/bin:$PATH"
 
