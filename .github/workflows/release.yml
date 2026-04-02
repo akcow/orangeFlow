@@ -141,7 +141,7 @@ jobs:
         with:
           ref: ${{ inputs.release_tag }}
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -211,7 +211,7 @@ jobs:
         with:
           ref: ${{ inputs.release_tag }}
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -303,7 +303,7 @@ jobs:
           name: dist-base
           path: src/backend/base/dist
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
           python-version: "3.13"
@@ -326,7 +326,7 @@ jobs:
           name: dist-main
           path: dist
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
           python-version: "3.13"
@@ -350,7 +350,7 @@ jobs:
         with:
           ref: ${{ inputs.release_tag }}
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -402,7 +402,7 @@ jobs:
           name: dist-lfx
           path: dist-lfx
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
           python-version: ${{ matrix.python-version }}
@@ -423,7 +423,7 @@ jobs:
           name: dist-lfx
           path: src/lfx/dist
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
           python-version: "3.13"

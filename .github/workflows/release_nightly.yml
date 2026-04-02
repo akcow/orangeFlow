@@ -63,7 +63,7 @@ jobs:
           ref: ${{ inputs.nightly_tag_main }}
           persist-credentials: true
       - name: "Setup Environment"
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -129,7 +129,7 @@ jobs:
           ref: ${{ inputs.nightly_tag_main }}
           persist-credentials: true
       - name: "Setup Environment"
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -210,7 +210,7 @@ jobs:
           ref: ${{ inputs.nightly_tag_main}}
           persist-credentials: true
       - name: "Setup Environment"
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -293,7 +293,7 @@ jobs:
           name: dist-nightly-lfx
           path: src/lfx/dist
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
           python-version: "3.13"
@@ -321,7 +321,7 @@ jobs:
           name: dist-nightly-base
           path: src/backend/base/dist
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
           python-version: "3.13"
@@ -349,7 +349,7 @@ jobs:
           name: dist-nightly-main
           path: dist
       - name: Setup Environment
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
           python-version: "3.13"
