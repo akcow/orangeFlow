@@ -19,6 +19,7 @@ from lfx.utils.helpers import build_content_type_from_extension
 from lfx.utils.public_files import verify_public_file_token
 from pydantic import BaseModel, Field
 
+from langflow.api.v1.access import require_flow_access
 from langflow.api.utils import CurrentActiveUser, DbSession
 from langflow.api.v1.schemas import UploadFileResponse
 from langflow.services.database.models.flow.model import Flow
@@ -42,13 +43,7 @@ async def get_flow(
     current_user: CurrentActiveUser,
     session: DbSession,
 ):
-    # AttributeError: 'SelectOfScalar' object has no attribute 'first'
-    flow = await session.get(Flow, flow_id)
-    if not flow:
-        raise HTTPException(status_code=404, detail="Flow not found")
-    if flow.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You don't have access to this flow")
-    return flow
+    return await require_flow_access(session, flow_id, current_user)
 
 
 @router.post("/upload/{flow_id}", status_code=HTTPStatus.CREATED)
@@ -64,9 +59,6 @@ async def upload_file(
         max_file_size_upload = settings_service.settings.max_file_size_upload
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-    if flow.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You don't have access to this flow")
 
     try:
         file_content = await file.read()
@@ -134,9 +126,6 @@ async def trim_video(
     - No duration restriction is applied.
     - Uses ffmpeg for accurate trimming (re-encodes to H.264/AAC).
     """
-
-    if flow.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You don't have access to this flow")
 
     start_s = float(payload.start_s)
     end_s = float(payload.end_s)

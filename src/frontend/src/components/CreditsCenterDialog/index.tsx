@@ -49,6 +49,7 @@ import useCreditsCenterStore, {
 import type { CreditLedgerEntry, CreditPricingRule } from "@/types/api";
 import { cn } from "@/utils/utils";
 import { EditTeamProfileModal } from "../core/appHeaderComponent/components/TeamMenu/EditTeamProfileModal";
+import { TeamSettingsSection as TeamSettingsPanel } from "../core/appHeaderComponent/components/TeamMenu/TeamSettingsSection";
 import {
   type Role,
   useTeamMockData,
@@ -159,7 +160,7 @@ function getLedgerTypeLabel(entry: CreditLedgerEntry, isZh: boolean) {
   return isZh ? "支出" : "Usage";
 }
 
-function TeamSettingsPanel({
+function LegacyTeamSettingsPanel({
   isZh,
   team,
   canEditTeam,
@@ -428,7 +429,6 @@ export function CreditsCenterDialog() {
   const avatarFallback = accountName.slice(0, 1).toUpperCase();
   const currentUserRole = currentTeam.members.find((member) => member.isCurrentUser)?.role;
   const canEditTeam = currentUserRole === "owner";
-
   const handleSidebarAction = (key: SidebarItem["key"]) => {
     if (key === "topup" || key === "billing" || key === "teamBenefits" || key === "teamSettings") {
       setSection(key);

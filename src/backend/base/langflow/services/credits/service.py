@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +20,13 @@ from langflow.services.database.models.credit.model import (
     CreditPricingRule,
     CreditResourceType,
 )
+from langflow.services.database.models.flow.model import Flow
+from langflow.services.database.models.team_membership.model import (
+    TeamCreditLimitInterval,
+    TeamCreditLimitKind,
+    TeamMembership,
+    TeamRoleEnum,
+)
 from langflow.services.database.models.user.model import User
 
 DEFAULT_INITIAL_CREDITS = int(os.getenv("LANGFLOW_CREDITS_INITIAL_BALANCE", "100"))
@@ -32,6 +39,44 @@ SALES_PRICE_MULTIPLIER = Decimal("1.2")
 CREDIT_MULTIPLIER = CREDITS_PER_RMB * SALES_PRICE_MULTIPLIER
 MILLION = Decimal("1000000")
 SEEDANCE_FPS = Decimal("24")
+
+
+def current_month_start() -> datetime:
+    now = datetime.now(timezone.utc)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def current_week_start() -> datetime:
+    now = datetime.now(timezone.utc)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start_of_day - timedelta(days=start_of_day.weekday())
+
+
+def current_day_start() -> datetime:
+    now = datetime.now(timezone.utc)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def resolve_credit_limit_period_start(membership: TeamMembership) -> datetime | None:
+    if resolve_credit_limit_kind(membership) != TeamCreditLimitKind.RECURRING:
+        return None
+    interval = membership.credit_limit_interval or TeamCreditLimitInterval.MONTHLY
+    if interval == TeamCreditLimitInterval.DAILY:
+        return current_day_start()
+    if interval == TeamCreditLimitInterval.WEEKLY:
+        return current_week_start()
+    return current_month_start()
+
+
+def resolve_credit_limit_kind(membership: TeamMembership) -> TeamCreditLimitKind:
+    if membership.credit_limit is None:
+        return TeamCreditLimitKind.UNLIMITED
+    if membership.credit_limit_kind in {
+        TeamCreditLimitKind.RECURRING,
+        TeamCreditLimitKind.FIXED,
+    }:
+        return membership.credit_limit_kind
+    return TeamCreditLimitKind.FIXED
 
 
 @dataclass(slots=True)
@@ -1183,6 +1228,52 @@ async def apply_usage_charge(
     existing_entry = (await session.exec(select(CreditLedgerEntry).where(CreditLedgerEntry.dedupe_key == dedupe_key))).first()
     if existing_entry:
         return existing_entry
+
+    flow = await session.get(Flow, flow_id)
+    if flow and flow.folder_id:
+        membership = (
+            await session.exec(
+                select(TeamMembership).where(
+                    TeamMembership.folder_id == flow.folder_id,
+                    TeamMembership.user_id == user_id,
+                )
+            )
+        ).first()
+        if membership and membership.credit_limit is not None:
+            credit_limit_kind = resolve_credit_limit_kind(membership)
+            usage_conditions: list[Any] = [
+                CreditLedgerEntry.user_id == user_id,
+                CreditLedgerEntry.entry_type == CreditLedgerEntryType.USAGE_CHARGE,
+                Flow.folder_id == flow.folder_id,
+            ]
+            if credit_limit_kind == TeamCreditLimitKind.RECURRING:
+                period_start = resolve_credit_limit_period_start(membership)
+                if period_start is not None:
+                    usage_conditions.append(CreditLedgerEntry.created_at >= period_start)
+            used_in_team = int(
+                (
+                    await session.exec(
+                        select(func.coalesce(func.sum(-CreditLedgerEntry.delta), 0))
+                        .join(Flow, Flow.id == CreditLedgerEntry.flow_id)
+                        .where(*usage_conditions)
+                    )
+                ).one()
+                or 0
+            )
+            next_total = used_in_team + credits_cost
+            if next_total > membership.credit_limit:
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "code": "TEAM_CREDIT_LIMIT_EXCEEDED",
+                        "message": "Team credit limit exceeded",
+                        "team_id": str(flow.folder_id),
+                        "credit_limit": membership.credit_limit,
+                        "current_used": used_in_team,
+                        "required_credits": credits_cost,
+                        "shortage": next_total - membership.credit_limit,
+                    },
+                )
 
     account = await get_or_create_credit_account(session, user_id)
     if account.balance < credits_cost:

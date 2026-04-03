@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from lfx.utils.provider_credentials import get_provider_credentials
 
+from langflow.api.v1.access import require_flow_access
 from langflow.api.utils import CurrentActiveUser, DbSession
 from langflow.api.v1.schemas import StreamData
 from langflow.services.database.models.flow.model import Flow
@@ -335,12 +336,7 @@ async def _get_flow_for_user(
     user: CurrentActiveUser,
     session: DbSession,
 ) -> Flow:
-    flow = await session.get(Flow, flow_id)
-    if not flow:
-        raise HTTPException(status_code=404, detail="Flow not found")
-    if flow.user_id != user.id:
-        raise HTTPException(status_code=403, detail="You don't have access to this flow")
-    return flow
+    return await require_flow_access(session, flow_id, user)
 
 
 class InspirationImage(BaseModel):

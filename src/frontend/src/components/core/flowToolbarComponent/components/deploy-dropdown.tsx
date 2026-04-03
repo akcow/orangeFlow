@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import IconComponent from "@/components/common/genericIconComponent";
-import { useTeamMockData } from "@/components/core/appHeaderComponent/components/TeamMenu/useTeamMockData";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,6 +15,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useGetTeamsQuery } from "@/controllers/API/queries/teams";
 import { usePostAddFlow } from "@/controllers/API/queries/flows/use-post-add-flow";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import { t } from "@/i18n/t";
@@ -25,6 +32,7 @@ import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import { cn } from "@/utils/utils";
 import useDeleteFlow from "@/hooks/flows/use-delete-flow";
+import { getAvailableTeamProjects } from "./deploy-dropdown.utils";
 
 type DeployMenuItem = {
   key: "publish" | "share" | "move";
@@ -54,15 +62,49 @@ export default function PublishDropdown() {
   const setSuccessData = useAlertStore((state) => state.setSuccessData);
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const navigate = useCustomNavigate();
-  const { currentTeam } = useTeamMockData();
   const { deleteFlow } = useDeleteFlow();
   const { mutate: postAddFlow } = usePostAddFlow();
+  const { data: teamSummaries = [] } = useGetTeamsQuery();
+  const [selectedTargetTeamProjectId, setSelectedTargetTeamProjectId] =
+    useState("");
 
-  const targetTeamId =
-    folderId ?? currentFlow?.folder_id ?? myCollectionId ?? "";
   const personalProjectId = myCollectionId ?? "";
   const isTeamContext = Boolean(localStorage.getItem("mock_current_team_id"));
-  const teamName = currentTeam?.name || "Team";
+  const availableTeamProjects = useMemo(
+    () => getAvailableTeamProjects(teamSummaries, personalProjectId),
+    [teamSummaries, personalProjectId],
+  );
+  const selectedTargetTeamProject = useMemo(
+    () =>
+      availableTeamProjects.find(
+        (folder) => folder.id === selectedTargetTeamProjectId,
+      ) ?? null,
+    [availableTeamProjects, selectedTargetTeamProjectId],
+  );
+  const teamName = selectedTargetTeamProject?.name || "Team";
+
+  useEffect(() => {
+    if (isTeamContext) {
+      return;
+    }
+
+    const currentFolderId = folderId ?? currentFlow?.folder_id ?? "";
+    const preferredTarget =
+      availableTeamProjects.find((folder) => folder.id === currentFolderId)
+        ?.id ??
+      availableTeamProjects[0]?.id ??
+      "";
+
+    setSelectedTargetTeamProjectId((currentValue) => {
+      if (
+        currentValue &&
+        availableTeamProjects.some((folder) => folder.id === currentValue)
+      ) {
+        return currentValue;
+      }
+      return preferredTarget;
+    });
+  }, [availableTeamProjects, currentFlow?.folder_id, folderId, isTeamContext]);
 
   const restoreTeamContext = (teamId: string | null) => {
     if (teamId) {
@@ -123,7 +165,7 @@ export default function PublishDropdown() {
       return;
     }
 
-    if (!targetTeamId) {
+    if (!selectedTargetTeamProjectId) {
       setErrorData({
         title: "\u65e0\u6cd5\u79fb\u52a8\u6d41\u7a0b",
         list: ["\u672a\u627e\u5230\u76ee\u6807\u56e2\u961f\u9879\u76ee"],
@@ -135,20 +177,27 @@ export default function PublishDropdown() {
     setIsTransferring(true);
 
     try {
-      localStorage.setItem("mock_current_team_id", targetTeamId);
-      await createFlowCopy(targetTeamId);
+      localStorage.setItem("mock_current_team_id", selectedTargetTeamProjectId);
+      await createFlowCopy(selectedTargetTeamProjectId);
 
       restoreTeamContext(previousTeamId);
       await deleteFlow({ id: flowId });
 
       localStorage.setItem("lf_workspace_scope", "team");
-      localStorage.setItem("mock_current_team_id", targetTeamId);
+      localStorage.setItem(
+        "lf_last_team_folder_id",
+        selectedTargetTeamProjectId,
+      );
+      localStorage.setItem(
+        "mock_current_team_id",
+        selectedTargetTeamProjectId,
+      );
 
       setSuccessData({
         title: "\u6d41\u7a0b\u5df2\u79fb\u52a8\u5230\u56e2\u961f\u9879\u76ee",
       });
       setOpenMoveDialog(false);
-      navigate(`/all/folder/${targetTeamId}`);
+      navigate(`/all/folder/${selectedTargetTeamProjectId}`);
     } catch (error) {
       restoreTeamContext(previousTeamId);
       setErrorData({
@@ -334,14 +383,52 @@ export default function PublishDropdown() {
             <DialogTitle className="text-[22px] font-semibold leading-tight">
               {isTeamContext
                 ? "\u514b\u9686\u81f3\u4e2a\u4eba\u9879\u76ee"
-                : `\u79fb\u52a8\u81f3 ${teamName}'s Team`}
+                : "\u79fb\u52a8\u5230\u56e2\u961f\u9879\u76ee"}
             </DialogTitle>
             <DialogDescription className="text-[14px] leading-relaxed text-white/80">
               {isTeamContext
                 ? "\u5c06\u56e2\u961f\u9879\u76ee\u590d\u5236\u4e00\u4efd\u81f3\u4e2a\u4eba\u8fdb\u884c\u4f7f\u7528\u3002\u4f60\u53ef\u4ee5\u5728\"\u4e2a\u4eba\u9879\u76ee\"\u4e2d\u8bbf\u95ee\u3002"
-                : "\u5c06\u9879\u76ee\u8f6c\u79fb\u81f3\u56e2\u961f\u8fdb\u884c\u534f\u4f5c\u3002\u4f60\u53ef\u4ee5\u5728\"\u56e2\u961f\u9879\u76ee\"\u4e2d\u8bbf\u95ee\u3002"}
+                : "\u9009\u62e9\u8981\u79fb\u5165\u7684\u5177\u4f53\u56e2\u961f\u9879\u76ee\uff0c\u4ee5\u4fbf\u56e2\u961f\u6210\u5458\u5728\u540c\u4e00\u753b\u5e03\u4e2d\u534f\u4f5c\u3002"}
             </DialogDescription>
           </DialogHeader>
+
+          {!isTeamContext ? (
+            <div className="mt-5 space-y-2">
+              <div className="text-sm font-medium text-white/85">
+                {"\u76ee\u6807\u56e2\u961f\u9879\u76ee"}
+              </div>
+              <Select
+                value={selectedTargetTeamProjectId}
+                onValueChange={setSelectedTargetTeamProjectId}
+              >
+                <SelectTrigger className="h-11 w-full rounded-lg border border-[#4b4d59] bg-[#2a2c34] px-4 text-left text-white hover:bg-[#2f3139]">
+                  <SelectValue
+                    placeholder={"\u8bf7\u9009\u62e9\u56e2\u961f\u9879\u76ee"}
+                  />
+                </SelectTrigger>
+                <SelectContent className="border-[#4b4d59] bg-[#23242b] text-white">
+                  {availableTeamProjects.map((folder) => (
+                    <SelectItem
+                      key={folder.id}
+                      value={folder.id}
+                      className="focus:bg-white/10 focus:text-white"
+                    >
+                      {folder.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedTargetTeamProject ? (
+                <div className="text-xs text-white/55">
+                  {`\u5f53\u524d\u9009\u62e9: ${teamName}`}
+                </div>
+              ) : (
+                <div className="text-xs text-[#ffb86b]">
+                  {"\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u7684\u56e2\u961f\u9879\u76ee"}
+                </div>
+              )}
+            </div>
+          ) : null}
 
           <div className="mt-5 grid grid-cols-2 gap-2.5">
             <Button
@@ -357,6 +444,7 @@ export default function PublishDropdown() {
               type="button"
               className="h-10 rounded-lg border-0 bg-white text-[15px] font-semibold text-black hover:bg-white/90"
               loading={isTransferring}
+              disabled={!isTeamContext && !selectedTargetTeamProjectId}
               onClick={isTeamContext ? handleCloneToPersonal : handleMoveToTeam}
               data-testid="confirm-move-to-team-btn"
             >

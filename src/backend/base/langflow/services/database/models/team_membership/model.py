@@ -16,9 +16,45 @@ class TeamRoleEnum(str, Enum):
     MEMBER = "MEMBER"
 
 
+class TeamCreditLimitKind(str, Enum):
+    UNLIMITED = "UNLIMITED"
+    RECURRING = "RECURRING"
+    FIXED = "FIXED"
+
+
+class TeamCreditLimitInterval(str, Enum):
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+
+
 class TeamMembershipBase(SQLModel):
     folder_id: UUID = Field(foreign_key="folder.id", index=True)
     user_id: UUID = Field(foreign_key="user.id", index=True)
+    credit_limit: int | None = Field(default=None, nullable=True)
+    credit_limit_kind: TeamCreditLimitKind = Field(
+        default=TeamCreditLimitKind.UNLIMITED,
+        sa_column=Column(
+            SQLEnum(
+                TeamCreditLimitKind,
+                name="team_credit_limit_kind_enum",
+                values_callable=lambda enum: [member.value for member in enum],
+            ),
+            nullable=False,
+            server_default=text("'UNLIMITED'"),
+        ),
+    )
+    credit_limit_interval: TeamCreditLimitInterval | None = Field(
+        default=None,
+        sa_column=Column(
+            SQLEnum(
+                TeamCreditLimitInterval,
+                name="team_credit_limit_interval_enum",
+                values_callable=lambda enum: [member.value for member in enum],
+            ),
+            nullable=True,
+        ),
+    )
     role: TeamRoleEnum = Field(
         default=TeamRoleEnum.MEMBER,
         sa_column=Column(

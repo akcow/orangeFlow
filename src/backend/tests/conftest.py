@@ -1,11 +1,17 @@
 import asyncio
+import importlib.metadata as importlib_metadata
 import json
+import os
 import shutil
+import sys
+import types
+from enum import Enum
 
 # we need to import tmpdir
 import tempfile
 from collections.abc import AsyncGenerator
 from contextlib import suppress
+from contextvars import ContextVar
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -17,6 +23,207 @@ from blockbuster import blockbuster_ctx
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
+
+try:
+    import importlib_metadata as importlib_metadata_backport
+except ImportError:  # pragma: no cover
+    importlib_metadata_backport = None
+
+
+os.environ.setdefault("OTEL_PYTHON_CONTEXT", "contextvars_context")
+
+
+class _FallbackOpenTelemetryRuntimeContext:
+    """Minimal runtime context used when the OpenTelemetry entry point is missing."""
+
+    _current_context = ContextVar("opentelemetry_context", default={})
+
+    def attach(self, context):
+        return self._current_context.set(context)
+
+    def get_current(self):
+        return self._current_context.get()
+
+    def detach(self, token) -> None:
+        self._current_context.reset(token)
+
+
+class _FallbackOpenTelemetryEntryPoint:
+    name = "contextvars_context"
+    group = "opentelemetry_context"
+
+    def load(self):
+        return _FallbackOpenTelemetryRuntimeContext
+
+
+def _patch_opentelemetry_entry_points(module) -> None:
+    if module is None or getattr(module, "_langflow_otel_patch_applied", False):
+        return
+
+    original_entry_points = module.entry_points
+
+    def patched_entry_points(*args, **kwargs):
+        result = original_entry_points(*args, **kwargs)
+        group = kwargs.get("group")
+        name = kwargs.get("name")
+        if group == "opentelemetry_context" and name in (None, "contextvars_context"):
+            try:
+                has_results = len(result) > 0
+            except TypeError:
+                has_results = bool(result)
+            if not has_results:
+                return (_FallbackOpenTelemetryEntryPoint(),)
+        return result
+
+    module.entry_points = patched_entry_points
+    module._langflow_otel_patch_applied = True
+
+
+_patch_opentelemetry_entry_points(importlib_metadata)
+_patch_opentelemetry_entry_points(importlib_metadata_backport)
+
+
+def _patch_distribution_version(module) -> None:
+    if module is None or getattr(module, "_langflow_version_patch_applied", False):
+        return
+
+    original_version = module.version
+
+    def patched_version(distribution_name: str) -> str:
+        try:
+            return original_version(distribution_name)
+        except Exception:
+            return "0.0.0"
+
+    module.version = patched_version
+    module._langflow_version_patch_applied = True
+
+
+_patch_distribution_version(importlib_metadata)
+_patch_distribution_version(importlib_metadata_backport)
+
+
+def _install_opentelemetry_context_stub() -> None:
+    if "opentelemetry.context" in sys.modules:
+        return
+
+    class _Context(dict):
+        pass
+
+    class _RuntimeContext:
+        _current_context = ContextVar("opentelemetry_context_runtime", default=_Context())
+
+        def attach(self, context):
+            return self._current_context.set(context)
+
+        def get_current(self):
+            return self._current_context.get()
+
+        def detach(self, token) -> None:
+            self._current_context.reset(token)
+
+    runtime_context = _RuntimeContext()
+
+    context_module = types.ModuleType("opentelemetry.context")
+    context_module.Context = _Context
+    context_module._RuntimeContext = _RuntimeContext
+    context_module._RUNTIME_CONTEXT = runtime_context
+    context_module.create_key = lambda key: key
+    context_module.get_current = runtime_context.get_current
+    context_module.attach = runtime_context.attach
+    context_module.detach = runtime_context.detach
+    context_module.get_value = lambda key, context=None: (context or runtime_context.get_current()).get(key)
+    context_module.set_value = lambda key, value, context=None: _Context(
+        {**(context or runtime_context.get_current()), key: value}
+    )
+
+    context_submodule = types.ModuleType("opentelemetry.context.context")
+    context_submodule.Context = _Context
+
+    contextvars_submodule = types.ModuleType("opentelemetry.context.contextvars_context")
+    contextvars_submodule.ContextVarsRuntimeContext = _RuntimeContext
+
+    sys.modules["opentelemetry.context"] = context_module
+    sys.modules["opentelemetry.context.context"] = context_submodule
+    sys.modules["opentelemetry.context.contextvars_context"] = contextvars_submodule
+
+
+_install_opentelemetry_context_stub()
+
+
+def _install_langsmith_stub() -> None:
+    if "langsmith" in sys.modules:
+        return
+
+    class _DummyClient:
+        pass
+
+    class _DummyRunTree:
+        pass
+
+    def _traceable(*args, **kwargs):
+        if args and callable(args[0]) and len(args) == 1 and not kwargs:
+            return args[0]
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def _tracing_context(*args, **kwargs):
+        return suppress()
+
+    langsmith_module = types.ModuleType("langsmith")
+    langsmith_module.Client = _DummyClient
+    langsmith_module.RunTree = _DummyRunTree
+    langsmith_module.traceable = _traceable
+    langsmith_module.get_tracing_context = lambda *args, **kwargs: {}
+    langsmith_module.tracing_context = _tracing_context
+
+    client_module = types.ModuleType("langsmith.client")
+    client_module.Client = _DummyClient
+
+    run_helpers_module = types.ModuleType("langsmith.run_helpers")
+    run_helpers_module.traceable = _traceable
+    run_helpers_module.tracing_context = _tracing_context
+    run_helpers_module.get_tracing_context = lambda *args, **kwargs: {}
+    run_helpers_module._set_tracing_context = lambda *args, **kwargs: None
+    run_helpers_module.is_traceable_function = lambda *args, **kwargs: False
+
+    run_trees_module = types.ModuleType("langsmith.run_trees")
+    run_trees_module.RunTree = _DummyRunTree
+
+    class _RunTypeEnum(str, Enum):
+        LLM = "llm"
+        CHAIN = "chain"
+        TOOL = "tool"
+        RETRIEVER = "retriever"
+        EMBEDDING = "embedding"
+        PROMPT = "prompt"
+        PARSER = "parser"
+
+    schemas_module = types.ModuleType("langsmith.schemas")
+    schemas_module.RunBase = object
+    schemas_module.Run = object
+    schemas_module.RunTree = _DummyRunTree
+    schemas_module.RunTypeEnum = _RunTypeEnum
+    schemas_module.TracerSession = object
+    schemas_module.TracerSessionV1 = object
+    schemas_module.TracerSessionBase = object
+
+    utils_module = types.ModuleType("langsmith.utils")
+    utils_module.get_env_var = lambda *args, **kwargs: None
+
+    sys.modules["langsmith"] = langsmith_module
+    sys.modules["langsmith.client"] = client_module
+    sys.modules["langsmith.run_helpers"] = run_helpers_module
+    sys.modules["langsmith.run_trees"] = run_trees_module
+    sys.modules["langsmith.schemas"] = schemas_module
+    sys.modules["langsmith.utils"] = utils_module
+
+
+_install_langsmith_stub()
+
 from langflow.initial_setup.constants import STARTER_FOLDER_NAME
 from langflow.main import create_app
 from langflow.services.auth.utils import get_password_hash
@@ -426,6 +633,8 @@ async def client_fixture(
             db_path = Path(db_dir) / "test.db"
             monkeypatch.setenv("LANGFLOW_DATABASE_URL", f"sqlite:///{db_path}")
             monkeypatch.setenv("LANGFLOW_AUTO_LOGIN", "false")
+            monkeypatch.setenv("DO_NOT_TRACK", "true")
+            monkeypatch.setenv("LANGFLOW_DO_NOT_TRACK", "true")
             if "load_flows" in request.keywords:
                 shutil.copyfile(
                     pytest.BASIC_EXAMPLE_PATH, Path(load_flows_dir) / "c54f9130-f2fa-4a3e-b22a-3856d946351b.json"

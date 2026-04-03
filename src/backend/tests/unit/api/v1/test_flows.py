@@ -21,7 +21,6 @@ async def test_create_flow(client: AsyncClient, logged_in_headers):
             "webhook": False,
             "endpoint_name": "string",
             "tags": ["string"],
-            "folder_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
             "fs_path": str(flow_file),
         }
         response = await client.post("api/v1/flows/", json=basic_case, headers=logged_in_headers)
@@ -78,7 +77,6 @@ async def test_read_flow(client: AsyncClient, logged_in_headers):
         "webhook": False,
         "endpoint_name": "string",
         "tags": ["string"],
-        "folder_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     }
     response_ = await client.post("api/v1/flows/", json=basic_case, headers=logged_in_headers)
     id_ = response_.json()["id"]
@@ -116,7 +114,6 @@ async def test_update_flow(client: AsyncClient, logged_in_headers):
         "webhook": False,
         "endpoint_name": "string",
         "tags": ["string"],
-        "folder_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     }
     basic_case["name"] = name
     response_ = await client.post("api/v1/flows/", json=basic_case, headers=logged_in_headers)
@@ -164,7 +161,6 @@ async def test_create_flows(client: AsyncClient, logged_in_headers):
         "is_component": False,
         "webhook": False,
         "tags": ["string"],
-        "folder_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     }
     cases = []
     for i in range(amount_flows):
@@ -190,6 +186,81 @@ async def test_read_basic_examples(client: AsyncClient, logged_in_headers):
     assert len(result) > 0, "The result must have at least one flow"
 
 
+async def test_team_member_can_read_and_update_shared_flow(
+    client: AsyncClient,
+    logged_in_headers,
+    user_two,
+):
+    create_project_response = await client.post(
+        "api/v1/projects/",
+        json={"name": "Shared Flow Team", "description": ""},
+        headers=logged_in_headers,
+    )
+    assert create_project_response.status_code == status.HTTP_201_CREATED
+    project_id = create_project_response.json()["id"]
+
+    create_flow_response = await client.post(
+        "api/v1/flows/",
+        json={
+            "name": "Team Shared Flow",
+            "description": "Initial shared flow",
+            "data": {"nodes": [], "edges": []},
+            "folder_id": project_id,
+            "is_component": False,
+            "endpoint_name": "team_shared_flow_endpoint",
+        },
+        headers=logged_in_headers,
+    )
+    assert create_flow_response.status_code == status.HTTP_201_CREATED
+    flow_id = create_flow_response.json()["id"]
+
+    invite_response = await client.post(
+        f"api/v1/teams/{project_id}/invite",
+        json={"user_id": str(user_two.id), "role": "MEMBER"},
+        headers=logged_in_headers,
+    )
+    assert invite_response.status_code == status.HTTP_201_CREATED
+
+    login_response = await client.post(
+        "api/v1/login",
+        data={"username": user_two.username, "password": "hashed_password"},
+    )
+    assert login_response.status_code == status.HTTP_200_OK
+    team_user_headers = {
+        "Authorization": f"Bearer {login_response.json()['access_token']}",
+    }
+
+    read_flows_response = await client.get(
+        "api/v1/flows/",
+        params={
+            "remove_example_flows": False,
+            "components_only": False,
+            "get_all": True,
+            "header_flows": False,
+            "page": 1,
+            "size": 50,
+        },
+        headers=team_user_headers,
+    )
+    assert read_flows_response.status_code == status.HTTP_200_OK
+    assert any(flow["id"] == flow_id for flow in read_flows_response.json())
+
+    read_flow_response = await client.get(
+        f"api/v1/flows/{flow_id}",
+        headers=team_user_headers,
+    )
+    assert read_flow_response.status_code == status.HTTP_200_OK
+    assert read_flow_response.json()["id"] == flow_id
+
+    update_flow_response = await client.patch(
+        f"api/v1/flows/{flow_id}",
+        json={"name": "Updated By Team Member"},
+        headers=team_user_headers,
+    )
+    assert update_flow_response.status_code == status.HTTP_200_OK
+    assert update_flow_response.json()["name"] == "Updated By Team Member"
+
+
 async def test_read_flows_user_isolation(client: AsyncClient, logged_in_headers, active_user):
     """Test that read_flows returns only flows from the current user."""
     from uuid import uuid4
@@ -204,6 +275,7 @@ async def test_read_flows_user_isolation(client: AsyncClient, logged_in_headers,
         other_user = User(
             id=other_user_id,
             username="other_test_user",
+            nickname="other_test_user",
             password=get_password_hash("testpassword"),
             is_active=True,
             is_superuser=False,
@@ -231,7 +303,6 @@ async def test_read_flows_user_isolation(client: AsyncClient, logged_in_headers,
         "webhook": False,
         "endpoint_name": "user1_flow_1_endpoint",
         "tags": ["user1"],
-        "folder_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     }
 
     flow_user1_2 = {
@@ -245,7 +316,6 @@ async def test_read_flows_user_isolation(client: AsyncClient, logged_in_headers,
         "webhook": False,
         "endpoint_name": "user1_flow_2_endpoint",
         "tags": ["user1"],
-        "folder_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     }
 
     # Create flows for the second user
@@ -260,7 +330,6 @@ async def test_read_flows_user_isolation(client: AsyncClient, logged_in_headers,
         "webhook": False,
         "endpoint_name": "user2_flow_1_endpoint",
         "tags": ["user2"],
-        "folder_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     }
 
     # Create flows using the appropriate user headers

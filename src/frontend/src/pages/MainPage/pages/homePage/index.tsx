@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import PaginatorComponent from "@/components/common/paginatorComponent";
 import CardsWrapComponent from "@/components/core/cardsWrapComponent";
@@ -15,6 +15,12 @@ import { t } from "@/i18n/t";
 import { useFolderStore } from "@/stores/foldersStore";
 import useAuthStore from "@/stores/authStore";
 import useAlertStore from "@/stores/alertStore";
+import {
+  getStoredCurrentTeamId,
+  getStoredLastTeamFolderId,
+  getStoredWorkspaceScope,
+  syncWorkspaceSelection,
+} from "@/utils/workspace-selection";
 import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
 import useFileDrop from "../../hooks/use-on-file-drop";
@@ -55,11 +61,8 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
     const saved = localStorage.getItem("flow_sort_order");
     return saved === "asc" ? "asc" : "desc";
   });
-  const [workspaceScope, setWorkspaceScope] = useState<"personal" | "team">(
-    () => {
-      const savedScope = localStorage.getItem("lf_workspace_scope");
-      return savedScope === "team" ? "team" : "personal";
-    },
+  const [workspaceScope, setWorkspaceScope] = useState<"personal" | "team">(() =>
+    getStoredWorkspaceScope(),
   );
   const navigate = useCustomNavigate();
   const createBlankFlow = useCreateBlankFlow();
@@ -71,21 +74,23 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
   const folders = useFolderStore((state) => state.folders);
   const [isCreatingTeamProject, setIsCreatingTeamProject] = useState(false);
   const [lastTeamFolderId, setLastTeamFolderId] = useState(() => {
-    return (
-      localStorage.getItem("lf_last_team_folder_id") ||
-      localStorage.getItem("mock_current_team_id") ||
-      ""
-    );
+    return getStoredLastTeamFolderId() || getStoredCurrentTeamId() || "";
   });
   const personalFolderId = myCollectionId ?? "";
+  const areFoldersReady = Boolean(personalFolderId) && folders.length > 0;
+  const doesFolderExist = useCallback(
+    (candidateId: string) =>
+      Boolean(candidateId && folders.some((folder) => folder.id === candidateId)),
+    [folders],
+  );
   const isFolderAvailable = useCallback(
     (candidateId: string) =>
       Boolean(
         candidateId &&
           candidateId !== personalFolderId &&
-          folders.some((folder) => folder.id === candidateId),
+          doesFolderExist(candidateId),
       ),
-    [folders, personalFolderId],
+    [doesFolderExist, personalFolderId],
   );
   const firstTeamFolderId = useMemo(
     () =>
@@ -102,8 +107,15 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
     }
     return firstTeamFolderId;
   }, [folderId, firstTeamFolderId, isFolderAvailable, lastTeamFolderId]);
-  const scopedFolderId =
-    workspaceScope === "team" ? teamFolderId : personalFolderId;
+  const isCurrentRouteKnownFolder = useMemo(
+    () => Boolean(folderId && doesFolderExist(folderId)),
+    [doesFolderExist, folderId],
+  );
+  const scopedFolderId = isCurrentRouteKnownFolder
+    ? (folderId ?? "")
+    : workspaceScope === "team"
+      ? teamFolderId
+      : personalFolderId;
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [selectedFlows, setSelectedFlows] = useState<string[]>([]);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
@@ -111,19 +123,21 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
   );
   const [isShiftPressed, setIsShiftPressed] = useState(false);
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+  const previousTeamIdRef = useRef(getStoredCurrentTeamId());
 
   const handleWorkspaceScopeChange = useCallback(
     (scope: "personal" | "team") => {
       const nextFolderId = scope === "team" ? teamFolderId : personalFolderId;
       setWorkspaceScope(scope);
-      localStorage.setItem("lf_workspace_scope", scope);
+      syncWorkspaceSelection(
+        scope,
+        scope === "team" ? nextFolderId : undefined,
+      );
       setPageIndex(1);
       setSelectedFlows([]);
       setLastSelectedIndex(null);
 
       if (scope === "team" && nextFolderId) {
-        localStorage.setItem("lf_last_team_folder_id", nextFolderId);
-        localStorage.setItem("mock_current_team_id", nextFolderId);
         setLastTeamFolderId(nextFolderId);
       }
 
@@ -152,44 +166,96 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
   }, [isFolderAvailable, lastTeamFolderId]);
 
   useEffect(() => {
-    if (!scopedFolderId || folderId === scopedFolderId) {
+    if (!areFoldersReady || !folderId || !isCurrentRouteKnownFolder) {
       return;
     }
-    navigate(`/all/folder/${scopedFolderId}`);
-  }, [folderId, navigate, scopedFolderId]);
 
-  useEffect(() => {
-    const previousTeamId = localStorage.getItem("mock_current_team_id") || "";
-    const nextTeamId =
-      workspaceScope === "team" ? teamFolderId || lastTeamFolderId : "";
-
-    if (nextTeamId) {
-      localStorage.setItem("mock_current_team_id", nextTeamId);
-      localStorage.setItem("lf_last_team_folder_id", nextTeamId);
-      setLastTeamFolderId(nextTeamId);
-    } else {
-      localStorage.removeItem("mock_current_team_id");
+    if (folderId === personalFolderId) {
+      if (workspaceScope !== "personal") {
+        setWorkspaceScope("personal");
+      }
+      syncWorkspaceSelection("personal");
+      return;
     }
 
-    if (previousTeamId !== nextTeamId) {
+    setLastTeamFolderId(folderId);
+    if (workspaceScope !== "team") {
+      setWorkspaceScope("team");
+    }
+    syncWorkspaceSelection("team", folderId);
+  }, [
+    areFoldersReady,
+    folderId,
+    isCurrentRouteKnownFolder,
+    personalFolderId,
+    workspaceScope,
+  ]);
+
+  useEffect(() => {
+    if (!areFoldersReady || isCurrentRouteKnownFolder) {
+      return;
+    }
+
+    if (!scopedFolderId) {
+      if (workspaceScope === "team" && folderId) {
+        navigate("/all");
+      }
+      return;
+    }
+
+    if (folderId !== scopedFolderId) {
+      navigate(`/all/folder/${scopedFolderId}`);
+    }
+  }, [
+    areFoldersReady,
+    folderId,
+    isCurrentRouteKnownFolder,
+    navigate,
+    scopedFolderId,
+    workspaceScope,
+  ]);
+
+  useEffect(() => {
+    const nextTeamId = isCurrentRouteKnownFolder
+      ? folderId && folderId !== personalFolderId
+        ? folderId
+        : ""
+      : workspaceScope === "team"
+        ? teamFolderId || lastTeamFolderId
+        : "";
+
+    if (nextTeamId) {
+      syncWorkspaceSelection("team", nextTeamId);
+      setLastTeamFolderId((currentValue) =>
+        currentValue === nextTeamId ? currentValue : nextTeamId,
+      );
+    } else {
+      syncWorkspaceSelection("personal");
+    }
+
+    if (previousTeamIdRef.current !== nextTeamId) {
       void queryClient.invalidateQueries({ queryKey: ["useGetFolder"] });
       void queryClient.invalidateQueries({
         queryKey: ["useGetRefreshFlowsQuery"],
       });
+      previousTeamIdRef.current = nextTeamId;
     }
-  }, [workspaceScope, teamFolderId, lastTeamFolderId, queryClient]);
+  }, [
+    folderId,
+    isCurrentRouteKnownFolder,
+    lastTeamFolderId,
+    personalFolderId,
+    queryClient,
+    teamFolderId,
+    workspaceScope,
+  ]);
 
   useEffect(() => {
-    // Only check if we have a folderId and folders have loaded
-    if (folderId && folders && folders.length > 0) {
-      const folderExists = folders.find((folder) => folder.id === folderId);
-      if (!folderExists) {
-        // Folder doesn't exist for this user, redirect to /all
-        console.error("Invalid folderId. Redirecting to /all.");
-        navigate("/all");
-      }
+    if (!areFoldersReady || !folderId || isCurrentRouteKnownFolder) {
+      return;
     }
-  }, [folderId, folders, navigate]);
+    console.error("Invalid folderId. Redirecting to workspace target.");
+  }, [areFoldersReady, folderId, isCurrentRouteKnownFolder]);
 
   const { data: folderData, isLoading } = useGetFolderQuery({
     id: scopedFolderId ?? "",
@@ -284,9 +350,7 @@ const HomePage = ({ type: _type }: { type: "flows" | "components" }) => {
         }
       }
 
-      localStorage.setItem("lf_last_team_folder_id", targetFolderId);
-      localStorage.setItem("lf_workspace_scope", "team");
-      localStorage.setItem("mock_current_team_id", targetFolderId);
+      syncWorkspaceSelection("team", targetFolderId);
       setLastTeamFolderId(targetFolderId);
       setWorkspaceScope("team");
 

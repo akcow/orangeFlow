@@ -14,37 +14,44 @@ import { useGetMyCreditsQuery } from "@/controllers/API/queries/credits";
 import useCreditsCenterStore from "@/stores/creditsCenterStore";
 import { cn } from "@/utils/utils";
 import { CreateTeamModal } from "./CreateTeamModal";
+import { QuotaProgress } from "./QuotaProgress";
 import { useTeamMockData } from "./useTeamMockData";
 
 export default function TeamMenu() {
   const { i18n } = useTranslation();
   const { teams, currentTeam, switchTeam, createTeam } = useTeamMockData();
   const { data: creditAccount } = useGetMyCreditsQuery();
-  const openCreditsCenter = useCreditsCenterStore((state) => state.openCreditsCenter);
+  const openCreditsCenter = useCreditsCenterStore(
+    (state) => state.openCreditsCenter,
+  );
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith("zh") ?? true;
-  const currentUserRole = currentTeam.members.find((member) => member.isCurrentUser)?.role;
+  const currentUserRole =
+    currentTeam.currentUserRole ??
+    currentTeam.members.find((member) => member.isCurrentUser)?.role;
   const roleText =
     currentUserRole === "owner"
       ? isZh
-        ? "拥有者"
+        ? "\u6240\u6709\u8005"
         : "Owner"
       : currentUserRole === "admin"
         ? isZh
-          ? "管理员"
+          ? "\u7ba1\u7406\u5458"
           : "Admin"
         : isZh
-          ? "成员"
+          ? "\u6210\u5458"
           : "Member";
-  const memberCountText = `${currentTeam.members.length} ${
-    isZh ? "位成员" : "members"
+  const memberCountText = `${currentTeam.memberCount ?? currentTeam.members.length} ${
+    isZh ? "\u540d\u6210\u5458" : "members"
   }`;
   const creditBalance = creditAccount?.balance ?? 0;
 
-  const handleOpenSection = (section: Parameters<typeof openCreditsCenter>[0]) => {
+  const handleOpenSection = (
+    section: Parameters<typeof openCreditsCenter>[0],
+  ) => {
     setIsMenuOpen(false);
     openCreditsCenter(section);
   };
@@ -72,7 +79,9 @@ export default function TeamMenu() {
                 {currentTeam.name[0].toUpperCase()}
               </span>
             )}
-            <span className="max-w-[180px] truncate text-sm font-medium">{currentTeam.name}</span>
+            <span className="max-w-[180px] truncate text-sm font-medium">
+              {currentTeam.name}
+            </span>
             <IconComponent
               name="ChevronDown"
               className={cn(
@@ -103,7 +112,7 @@ export default function TeamMenu() {
               <div className="flex flex-col">
                 <span className="text-sm font-semibold">{currentTeam.name}</span>
                 <span className="text-xs text-zinc-400">
-                  {roleText} · {memberCountText}
+                  {roleText} {"\u00b7"} {memberCountText}
                 </span>
               </div>
             </div>
@@ -137,7 +146,7 @@ export default function TeamMenu() {
                 type="button"
                 onClick={() => handleOpenSection("teamBenefits")}
                 className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-                aria-label={isZh ? "查看团队权益" : "Open team benefits"}
+                aria-label={isZh ? "\u6253\u5f00\u56e2\u961f\u6743\u76ca" : "Open team benefits"}
               >
                 <IconComponent name="ChevronRight" className="h-4 w-4" />
               </button>
@@ -145,14 +154,20 @@ export default function TeamMenu() {
 
             <div className="mt-1 flex items-center justify-between text-xs">
               <div className="flex items-center gap-1 text-[#1BB3E4]">
-                <span>{isZh ? "当前积分余额" : "Current credit balance"}</span>
-                <IconComponent name="HelpCircle" className="h-3 w-3 text-zinc-500" />
+                <span>
+                  {isZh ? "\u5269\u4f59 / \u603b\u989d" : "Remaining / Total"}
+                </span>
+                <IconComponent
+                  name="HelpCircle"
+                  className="h-3 w-3 text-zinc-500"
+                />
               </div>
-              <span className="font-medium text-[#1BB3E4]">{creditBalance}</span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full w-full bg-[#1BB3E4]" />
-            </div>
+            <QuotaProgress
+              isZh={isZh}
+              summary={currentTeam.quota}
+              className="mt-1"
+            />
           </div>
 
           <DropdownMenuSeparator className="my-2 bg-zinc-800" />
@@ -161,7 +176,10 @@ export default function TeamMenu() {
             {teams.map((team) => (
               <DropdownMenuItem
                 key={team.id}
-                onClick={() => switchTeam(team.id)}
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  switchTeam(team.id);
+                }}
                 className="cursor-pointer justify-between rounded-md py-2 hover:bg-zinc-800"
               >
                 <div className="flex items-center gap-2">
@@ -192,17 +210,25 @@ export default function TeamMenu() {
               </DropdownMenuItem>
             ))}
           </div>
+
           <DropdownMenuItem
-            onClick={() => setIsCreateOpen(true)}
+            onClick={() => {
+              setIsMenuOpen(false);
+              setIsCreateOpen(true);
+            }}
             className="cursor-pointer gap-2 rounded-md py-2 text-[#1BB3E4] hover:bg-zinc-800"
           >
             <IconComponent name="Plus" className="h-4 w-4" />
-            <span>{isZh ? "创建团队" : "Create team"}</span>
+            <span>{isZh ? "\u521b\u5efa\u56e2\u961f" : "Create team"}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <CreateTeamModal open={isCreateOpen} onOpenChange={setIsCreateOpen} onCreate={createTeam} />
+      <CreateTeamModal
+        open={isCreateOpen}
+        onOpenChange={setIsCreateOpen}
+        onCreate={createTeam}
+      />
       <CreditsCenterDialog />
     </>
   );

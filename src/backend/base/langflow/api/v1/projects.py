@@ -18,6 +18,7 @@ from sqlalchemy import or_, update
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
+from langflow.api.v1.access import require_folder_access
 from langflow.api.utils import CurrentActiveUser, DbSession, cascade_delete_flow, custom_params, remove_api_keys
 from langflow.api.utils.mcp.config_utils import validate_mcp_server_for_project
 from langflow.api.v1.auth_helpers import handle_auth_settings_update
@@ -42,7 +43,7 @@ from langflow.services.database.models.folder.model import (
 )
 from langflow.services.database.models.folder.pagination_model import FolderWithPaginatedFlows
 from langflow.services.database.models.team_membership.crud import ensure_team_membership
-from langflow.services.database.models.team_membership.model import TeamRoleEnum
+from langflow.services.database.models.team_membership.model import TeamMembership, TeamRoleEnum
 from langflow.services.deps import get_service, get_settings_service, get_storage_service
 from langflow.services.schema import ServiceType
 
@@ -216,10 +217,15 @@ async def read_projects(
     current_user: CurrentActiveUser,
 ):
     try:
+        accessible_team_folder_ids = select(TeamMembership.folder_id).where(TeamMembership.user_id == current_user.id)
         projects = (
             await session.exec(
                 select(Folder).where(
-                    or_(Folder.user_id == current_user.id, Folder.user_id == None)  # noqa: E711
+                    or_(
+                        Folder.user_id == current_user.id,
+                        Folder.user_id == None,  # noqa: E711
+                        Folder.id.in_(accessible_team_folder_ids),  # type: ignore[attr-defined]
+                    )
                 )
             )
         ).all()
@@ -244,13 +250,16 @@ async def read_project(
     search: str = "",
 ):
     try:
+        await require_folder_access(session, project_id, current_user)
         project = (
             await session.exec(
                 select(Folder)
                 .options(selectinload(Folder.flows))
-                .where(Folder.id == project_id, Folder.user_id == current_user.id)
+                .where(Folder.id == project_id)
             )
         ).first()
+    except HTTPException:
+        raise
     except Exception as e:
         if "No result found" in str(e):
             raise HTTPException(status_code=404, detail="Project not found") from e
@@ -285,9 +294,7 @@ async def read_project(
 
             return FolderWithPaginatedFlows(folder=FolderRead.model_validate(project), flows=paginated_flows)
 
-        # If no pagination requested, return all flows for the current user
-        flows_from_current_user_in_project = [flow for flow in project.flows if flow.user_id == current_user.id]
-        project.flows = flows_from_current_user_in_project
+        # If no pagination requested, return all flows accessible through the shared project.
         return project  # noqa: TRY300
 
     except Exception as e:

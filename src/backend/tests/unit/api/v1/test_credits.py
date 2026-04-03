@@ -1,3 +1,4 @@
+from datetime import timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -14,9 +15,16 @@ from langflow.services.credits.service import (
     get_pricing_rules,
     normalize_model_name,
 )
+from langflow.services.database.models.folder.model import Folder
 from langflow.services.database.models.credit.model import CreditPricingRule, CreditResourceType
 from langflow.services.database.models.flow.model import Flow
+from langflow.services.database.models.team_membership.model import (
+    TeamCreditLimitInterval,
+    TeamCreditLimitKind,
+    TeamRoleEnum,
+)
 from langflow.services.database.models.user.model import User
+from langflow.services.database.models.team_membership.crud import ensure_team_membership
 from langflow.services.deps import get_db_service
 from langflow.services.database.utils import session_getter
 
@@ -129,6 +137,400 @@ async def test_apply_usage_charge_is_idempotent(async_session):
 
     account = await get_or_create_credit_account(async_session, user.id)
     assert account.balance == 90
+
+
+@pytest.mark.asyncio
+async def test_apply_usage_charge_enforces_team_credit_limit(async_session):
+    owner = User(
+        username="credits-owner@example.com",
+        nickname="credits-owner",
+        password="hashed-password",
+        is_active=True,
+    )
+    member = User(
+        username="credits-member@example.com",
+        nickname="credits-member",
+        password="hashed-password",
+        is_active=True,
+    )
+    async_session.add(owner)
+    async_session.add(member)
+    await async_session.commit()
+    await async_session.refresh(owner)
+    await async_session.refresh(member)
+
+    folder = Folder(name=f"credits-team-{uuid4()}", user_id=owner.id)
+    async_session.add(folder)
+    await async_session.commit()
+    await async_session.refresh(folder)
+
+    await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=owner.id,
+        role=TeamRoleEnum.OWNER,
+    )
+    membership = await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=member.id,
+        role=TeamRoleEnum.MEMBER,
+    )
+    membership.credit_limit = 15
+    async_session.add(membership)
+
+    flow = Flow(
+        name=f"credits-team-flow-{uuid4()}",
+        data={"nodes": [], "edges": []},
+        user_id=owner.id,
+        folder_id=folder.id,
+    )
+    async_session.add(flow)
+    await async_session.commit()
+    await async_session.refresh(flow)
+
+    await get_or_create_credit_account(async_session, member.id)
+
+    first_entry = await apply_usage_charge(
+        async_session,
+        user_id=member.id,
+        flow_id=flow.id,
+        run_id="team-run-1",
+        vertex_id="TextCreation-1",
+        component_key="TextCreation",
+        resource_type=CreditResourceType.TEXT,
+        model_key="gemini-3-pro-preview",
+        credits_cost=10,
+    )
+
+    assert first_entry is not None
+
+    with pytest.raises(HTTPException) as exc_info:
+        await apply_usage_charge(
+            async_session,
+            user_id=member.id,
+            flow_id=flow.id,
+            run_id="team-run-2",
+            vertex_id="TextCreation-1",
+            component_key="TextCreation",
+            resource_type=CreditResourceType.TEXT,
+            model_key="gemini-3-pro-preview",
+            credits_cost=6,
+        )
+
+    assert exc_info.value.status_code == 402
+    assert exc_info.value.detail["code"] == "TEAM_CREDIT_LIMIT_EXCEEDED"
+    assert exc_info.value.detail["team_id"] == str(folder.id)
+    assert exc_info.value.detail["credit_limit"] == 15
+    assert exc_info.value.detail["current_used"] == 10
+    assert exc_info.value.detail["required_credits"] == 6
+    assert exc_info.value.detail["shortage"] == 1
+
+    account = await get_or_create_credit_account(async_session, member.id)
+    assert account.balance == 90
+
+
+@pytest.mark.asyncio
+async def test_apply_usage_charge_recurring_limit_only_counts_current_month(async_session):
+    owner = User(
+        username="credits-recurring-owner@example.com",
+        nickname="credits-recurring-owner",
+        password="hashed-password",
+        is_active=True,
+    )
+    member = User(
+        username="credits-recurring-member@example.com",
+        nickname="credits-recurring-member",
+        password="hashed-password",
+        is_active=True,
+    )
+    async_session.add(owner)
+    async_session.add(member)
+    await async_session.commit()
+    await async_session.refresh(owner)
+    await async_session.refresh(member)
+
+    folder = Folder(name=f"credits-recurring-team-{uuid4()}", user_id=owner.id)
+    async_session.add(folder)
+    await async_session.commit()
+    await async_session.refresh(folder)
+
+    await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=owner.id,
+        role=TeamRoleEnum.OWNER,
+    )
+    membership = await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=member.id,
+        role=TeamRoleEnum.MEMBER,
+    )
+    membership.credit_limit = 15
+    membership.credit_limit_kind = TeamCreditLimitKind.RECURRING
+    membership.credit_limit_interval = TeamCreditLimitInterval.MONTHLY
+    async_session.add(membership)
+
+    flow = Flow(
+        name=f"credits-recurring-flow-{uuid4()}",
+        data={"nodes": [], "edges": []},
+        user_id=owner.id,
+        folder_id=folder.id,
+    )
+    async_session.add(flow)
+    await async_session.commit()
+    await async_session.refresh(flow)
+
+    await get_or_create_credit_account(async_session, member.id)
+
+    first_entry = await apply_usage_charge(
+        async_session,
+        user_id=member.id,
+        flow_id=flow.id,
+        run_id="team-recurring-run-1",
+        vertex_id="TextCreation-1",
+        component_key="TextCreation",
+        resource_type=CreditResourceType.TEXT,
+        model_key="gemini-3-pro-preview",
+        credits_cost=10,
+    )
+    assert first_entry is not None
+
+    first_entry.created_at = first_entry.created_at - timedelta(days=32)
+    async_session.add(first_entry)
+    await async_session.commit()
+
+    second_entry = await apply_usage_charge(
+        async_session,
+        user_id=member.id,
+        flow_id=flow.id,
+        run_id="team-recurring-run-2",
+        vertex_id="TextCreation-1",
+        component_key="TextCreation",
+        resource_type=CreditResourceType.TEXT,
+        model_key="gemini-3-pro-preview",
+        credits_cost=10,
+    )
+    assert second_entry is not None
+
+    with pytest.raises(HTTPException) as exc_info:
+        await apply_usage_charge(
+            async_session,
+            user_id=member.id,
+            flow_id=flow.id,
+            run_id="team-recurring-run-3",
+            vertex_id="TextCreation-1",
+            component_key="TextCreation",
+            resource_type=CreditResourceType.TEXT,
+            model_key="gemini-3-pro-preview",
+            credits_cost=6,
+        )
+
+    assert exc_info.value.status_code == 402
+    assert exc_info.value.detail["current_used"] == 10
+
+
+@pytest.mark.asyncio
+async def test_apply_usage_charge_recurring_limit_only_counts_current_week(async_session):
+    owner = User(
+        username="credits-weekly-owner@example.com",
+        nickname="credits-weekly-owner",
+        password="hashed-password",
+        is_active=True,
+    )
+    member = User(
+        username="credits-weekly-member@example.com",
+        nickname="credits-weekly-member",
+        password="hashed-password",
+        is_active=True,
+    )
+    async_session.add(owner)
+    async_session.add(member)
+    await async_session.commit()
+    await async_session.refresh(owner)
+    await async_session.refresh(member)
+
+    folder = Folder(name=f"credits-weekly-team-{uuid4()}", user_id=owner.id)
+    async_session.add(folder)
+    await async_session.commit()
+    await async_session.refresh(folder)
+
+    await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=owner.id,
+        role=TeamRoleEnum.OWNER,
+    )
+    membership = await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=member.id,
+        role=TeamRoleEnum.MEMBER,
+    )
+    membership.credit_limit = 15
+    membership.credit_limit_kind = TeamCreditLimitKind.RECURRING
+    membership.credit_limit_interval = TeamCreditLimitInterval.WEEKLY
+    async_session.add(membership)
+
+    flow = Flow(
+        name=f"credits-weekly-flow-{uuid4()}",
+        data={"nodes": [], "edges": []},
+        user_id=owner.id,
+        folder_id=folder.id,
+    )
+    async_session.add(flow)
+    await async_session.commit()
+    await async_session.refresh(flow)
+
+    await get_or_create_credit_account(async_session, member.id)
+
+    first_entry = await apply_usage_charge(
+        async_session,
+        user_id=member.id,
+        flow_id=flow.id,
+        run_id="team-weekly-run-1",
+        vertex_id="TextCreation-1",
+        component_key="TextCreation",
+        resource_type=CreditResourceType.TEXT,
+        model_key="gemini-3-pro-preview",
+        credits_cost=10,
+    )
+    assert first_entry is not None
+
+    first_entry.created_at = first_entry.created_at - timedelta(days=8)
+    async_session.add(first_entry)
+    await async_session.commit()
+
+    second_entry = await apply_usage_charge(
+        async_session,
+        user_id=member.id,
+        flow_id=flow.id,
+        run_id="team-weekly-run-2",
+        vertex_id="TextCreation-1",
+        component_key="TextCreation",
+        resource_type=CreditResourceType.TEXT,
+        model_key="gemini-3-pro-preview",
+        credits_cost=10,
+    )
+    assert second_entry is not None
+
+    with pytest.raises(HTTPException) as exc_info:
+        await apply_usage_charge(
+            async_session,
+            user_id=member.id,
+            flow_id=flow.id,
+            run_id="team-weekly-run-3",
+            vertex_id="TextCreation-1",
+            component_key="TextCreation",
+            resource_type=CreditResourceType.TEXT,
+            model_key="gemini-3-pro-preview",
+            credits_cost=6,
+        )
+
+    assert exc_info.value.status_code == 402
+    assert exc_info.value.detail["current_used"] == 10
+
+
+@pytest.mark.asyncio
+async def test_apply_usage_charge_recurring_limit_only_counts_current_day(async_session):
+    owner = User(
+        username="credits-daily-owner@example.com",
+        nickname="credits-daily-owner",
+        password="hashed-password",
+        is_active=True,
+    )
+    member = User(
+        username="credits-daily-member@example.com",
+        nickname="credits-daily-member",
+        password="hashed-password",
+        is_active=True,
+    )
+    async_session.add(owner)
+    async_session.add(member)
+    await async_session.commit()
+    await async_session.refresh(owner)
+    await async_session.refresh(member)
+
+    folder = Folder(name=f"credits-daily-team-{uuid4()}", user_id=owner.id)
+    async_session.add(folder)
+    await async_session.commit()
+    await async_session.refresh(folder)
+
+    await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=owner.id,
+        role=TeamRoleEnum.OWNER,
+    )
+    membership = await ensure_team_membership(
+        async_session,
+        folder_id=folder.id,
+        user_id=member.id,
+        role=TeamRoleEnum.MEMBER,
+    )
+    membership.credit_limit = 15
+    membership.credit_limit_kind = TeamCreditLimitKind.RECURRING
+    membership.credit_limit_interval = TeamCreditLimitInterval.DAILY
+    async_session.add(membership)
+
+    flow = Flow(
+        name=f"credits-daily-flow-{uuid4()}",
+        data={"nodes": [], "edges": []},
+        user_id=owner.id,
+        folder_id=folder.id,
+    )
+    async_session.add(flow)
+    await async_session.commit()
+    await async_session.refresh(flow)
+
+    await get_or_create_credit_account(async_session, member.id)
+
+    first_entry = await apply_usage_charge(
+        async_session,
+        user_id=member.id,
+        flow_id=flow.id,
+        run_id="team-daily-run-1",
+        vertex_id="TextCreation-1",
+        component_key="TextCreation",
+        resource_type=CreditResourceType.TEXT,
+        model_key="gemini-3-pro-preview",
+        credits_cost=10,
+    )
+    assert first_entry is not None
+
+    first_entry.created_at = first_entry.created_at - timedelta(days=2)
+    async_session.add(first_entry)
+    await async_session.commit()
+
+    second_entry = await apply_usage_charge(
+        async_session,
+        user_id=member.id,
+        flow_id=flow.id,
+        run_id="team-daily-run-2",
+        vertex_id="TextCreation-1",
+        component_key="TextCreation",
+        resource_type=CreditResourceType.TEXT,
+        model_key="gemini-3-pro-preview",
+        credits_cost=10,
+    )
+    assert second_entry is not None
+
+    with pytest.raises(HTTPException) as exc_info:
+        await apply_usage_charge(
+            async_session,
+            user_id=member.id,
+            flow_id=flow.id,
+            run_id="team-daily-run-3",
+            vertex_id="TextCreation-1",
+            component_key="TextCreation",
+            resource_type=CreditResourceType.TEXT,
+            model_key="gemini-3-pro-preview",
+            credits_cost=6,
+        )
+
+    assert exc_info.value.status_code == 402
+    assert exc_info.value.detail["current_used"] == 10
 
 
 def test_normalize_seedream_5_lite_aliases():

@@ -281,6 +281,8 @@ export type UpdateIssueFeedbackPayload = {
 };
 
 export type TeamRole = "OWNER" | "ADMIN" | "MEMBER";
+export type TeamCreditLimitKind = "UNLIMITED" | "RECURRING" | "FIXED";
+export type TeamCreditLimitInterval = "DAILY" | "WEEKLY" | "MONTHLY";
 
 export type TeamSummary = {
   id: string;
@@ -289,6 +291,32 @@ export type TeamSummary = {
   owner_id?: string | null;
   member_count: number;
   current_user_role?: TeamRole | null;
+};
+
+export type TeamMemberRecord = {
+  user_id: string;
+  username: string;
+  nickname: string;
+  email: string;
+  profile_image?: string | null;
+  role: TeamRole;
+  credit_limit?: number | null;
+  credit_limit_kind?: TeamCreditLimitKind | null;
+  credit_limit_interval?: TeamCreditLimitInterval | null;
+  credits_used: number;
+  credits_remaining?: number | null;
+  created_at: string;
+};
+
+export type TeamUserSearchResult = {
+  user_id: string;
+  username: string;
+  nickname: string;
+  email: string;
+  profile_image?: string | null;
+  is_current_user: boolean;
+  is_member: boolean;
+  role?: TeamRole | null;
 };
 
 export type CreditResourceType = "IMAGE" | "VIDEO" | "TEXT";

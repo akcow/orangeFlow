@@ -131,3 +131,51 @@ async def test_team_targeted_notification_is_visible_to_team_member(
     notifications = mine_response.json()
     assert len(notifications) == 1
     assert notifications[0]["title"] == "Team Update"
+
+
+async def test_team_invite_creates_my_notifications_entry(
+    client: AsyncClient,
+    user_two: User,
+    logged_in_headers,
+):
+    project_response = await client.post(
+        "api/v1/projects/",
+        json={"name": f"Invite-Team-{uuid4()}", "description": ""},
+        headers=logged_in_headers,
+    )
+    assert project_response.status_code == 201, project_response.json()
+    project_id = project_response.json()["id"]
+
+    invite_response = await client.post(
+        f"api/v1/teams/{project_id}/invite",
+        json={"user_id": str(user_two.id), "role": "MEMBER"},
+        headers=logged_in_headers,
+    )
+    assert invite_response.status_code == 201, invite_response.json()
+
+    login_response = await client.post(
+        "api/v1/login",
+        data={"username": user_two.username, "password": "hashed_password"},
+    )
+    assert login_response.status_code == 200, login_response.json()
+    team_user_headers = {
+        "Authorization": f"Bearer {login_response.json()['access_token']}",
+    }
+
+    mine_response = await client.get(
+        "api/v1/notifications/mine",
+        headers=team_user_headers,
+    )
+    assert mine_response.status_code == 200, mine_response.json()
+    notifications = mine_response.json()
+    invitation = next(
+        (
+            notification
+            for notification in notifications
+            if notification["link"] == f"/all/folder/{project_id}"
+        ),
+        None,
+    )
+
+    assert invitation is not None
+    assert "invited you to join" in invitation["title"]

@@ -172,6 +172,130 @@ async def test_create_and_read_project_cyrillic(client: AsyncClient, logged_in_h
     assert fetched["description"] == CYRILLIC_DESC
 
 
+async def test_team_member_can_read_shared_project(
+    client: AsyncClient,
+    logged_in_headers,
+    user_two,
+):
+    project_payload = {
+        "name": "Shared Team Project",
+        "description": "Project shared with team members",
+        "flows_list": [],
+        "components_list": [],
+    }
+    create_project_response = await client.post(
+        "api/v1/projects/",
+        json=project_payload,
+        headers=logged_in_headers,
+    )
+    assert create_project_response.status_code == status.HTTP_201_CREATED
+    project = create_project_response.json()
+    project_id = project["id"]
+
+    create_flow_response = await client.post(
+        "api/v1/flows/",
+        json={
+            "name": "Shared Canvas",
+            "description": "Shared flow",
+            "data": {"nodes": [], "edges": []},
+            "folder_id": project_id,
+            "is_component": False,
+            "endpoint_name": "shared_team_canvas",
+        },
+        headers=logged_in_headers,
+    )
+    assert create_flow_response.status_code == status.HTTP_201_CREATED
+
+    invite_response = await client.post(
+        f"api/v1/teams/{project_id}/invite",
+        json={"user_id": str(user_two.id), "role": "MEMBER"},
+        headers=logged_in_headers,
+    )
+    assert invite_response.status_code == status.HTTP_201_CREATED
+
+    login_response = await client.post(
+        "api/v1/login",
+        data={"username": user_two.username, "password": "hashed_password"},
+    )
+    assert login_response.status_code == status.HTTP_200_OK
+    team_user_headers = {
+        "Authorization": f"Bearer {login_response.json()['access_token']}",
+    }
+
+    read_projects_response = await client.get(
+        "api/v1/projects/",
+        headers=team_user_headers,
+    )
+    assert read_projects_response.status_code == status.HTTP_200_OK
+    shared_project_ids = {project_item["id"] for project_item in read_projects_response.json()}
+    assert project_id in shared_project_ids
+
+    read_project_response = await client.get(
+        f"api/v1/projects/{project_id}",
+        headers=team_user_headers,
+    )
+    assert read_project_response.status_code == status.HTTP_200_OK
+    read_project = read_project_response.json()
+    project_data = read_project.get("project") or read_project.get("folder") or read_project
+    flows = read_project.get("flows") or project_data.get("flows") or []
+
+    assert project_data["id"] == project_id
+    assert any(flow["name"] == "Shared Canvas" for flow in flows)
+
+
+async def test_team_member_read_projects_includes_all_joined_team_projects(
+    client: AsyncClient,
+    logged_in_headers,
+    user_two,
+):
+    first_project_response = await client.post(
+        "api/v1/projects/",
+        json={"name": f"Shared-Team-One-{uuid4()}", "description": ""},
+        headers=logged_in_headers,
+    )
+    second_project_response = await client.post(
+        "api/v1/projects/",
+        json={"name": f"Shared-Team-Two-{uuid4()}", "description": ""},
+        headers=logged_in_headers,
+    )
+    assert first_project_response.status_code == status.HTTP_201_CREATED
+    assert second_project_response.status_code == status.HTTP_201_CREATED
+
+    first_project_id = first_project_response.json()["id"]
+    second_project_id = second_project_response.json()["id"]
+
+    first_invite_response = await client.post(
+        f"api/v1/teams/{first_project_id}/invite",
+        json={"user_id": str(user_two.id), "role": "MEMBER"},
+        headers=logged_in_headers,
+    )
+    second_invite_response = await client.post(
+        f"api/v1/teams/{second_project_id}/invite",
+        json={"user_id": str(user_two.id), "role": "MEMBER"},
+        headers=logged_in_headers,
+    )
+    assert first_invite_response.status_code == status.HTTP_201_CREATED
+    assert second_invite_response.status_code == status.HTTP_201_CREATED
+
+    login_response = await client.post(
+        "api/v1/login",
+        data={"username": user_two.username, "password": "hashed_password"},
+    )
+    assert login_response.status_code == status.HTTP_200_OK
+    team_user_headers = {
+        "Authorization": f"Bearer {login_response.json()['access_token']}",
+    }
+
+    read_projects_response = await client.get(
+        "api/v1/projects/",
+        headers=team_user_headers,
+    )
+    assert read_projects_response.status_code == status.HTTP_200_OK
+    project_ids = {project["id"] for project in read_projects_response.json()}
+    assert first_project_id in project_ids
+    assert second_project_id in project_ids
+
+
 async def test_update_project_preserves_flows(client: AsyncClient, logged_in_headers):
     """Test that renaming a project preserves all associated flows (regression test for flow loss bug)."""
     # Create a project
