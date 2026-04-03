@@ -559,8 +559,18 @@ export default function AdminRelayWorkspace() {
   const [draggingRelayId, setDraggingRelayId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<RelayViewMode>("system");
 
-  const { data: relays = [], isLoading, refetch } = useGetProviderRelaysQuery();
-  const { data: modelCatalog = [] } = useGetProviderRelayModelCatalogQuery();
+  const {
+    data: relays = [],
+    isLoading,
+    isError: relaysLoadFailed,
+    error: relaysLoadError,
+    refetch,
+  } = useGetProviderRelaysQuery();
+  const {
+    data: modelCatalog = [],
+    isError: modelCatalogLoadFailed,
+    error: modelCatalogLoadError,
+  } = useGetProviderRelayModelCatalogQuery();
   const { mutate: createRelay, isPending: isCreating } = useCreateProviderRelay();
   const { mutate: updateRelay, isPending: isUpdating } = useUpdateProviderRelay();
   const { mutate: deleteRelay, isPending: isDeleting } = useDeleteProviderRelay();
@@ -667,6 +677,15 @@ export default function AdminRelayWorkspace() {
       ),
     [modelCatalogById, watchedSelectedModels],
   );
+  const relayLoadErrorMessage = useMemo(() => {
+    const detail =
+      (relaysLoadError as any)?.response?.data?.detail ||
+      (modelCatalogLoadError as any)?.response?.data?.detail;
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
+    return relaysLoadError?.message || modelCatalogLoadError?.message || "加载线路配置失败";
+  }, [modelCatalogLoadError, relaysLoadError]);
 
   function openCreateDrawer() {
     setEditingRelay(null);
@@ -880,6 +899,13 @@ export default function AdminRelayWorkspace() {
                 <div style={{ padding: 32 }}>
                   <Text style={{ color: "rgba(226, 232, 240, 0.72)" }}>正在加载线路配置...</Text>
                 </div>
+              ) : relaysLoadFailed || modelCatalogLoadFailed ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="线路列表加载失败"
+                  description={`后端没有返回可用线路数据。常见原因是当前会话不是 superuser，或者公网部署后的登录态、Cookie、反向代理配置导致管理接口返回 401/403。详细错误：${relayLoadErrorMessage}`}
+                />
               ) : relays.length === 0 ? (
                 <Empty description="暂无线路配置" />
               ) : (

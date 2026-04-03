@@ -187,9 +187,16 @@ Login check after startup:
 3. Sign in with that new user and confirm the home page, file upload, and generation history all work.
 4. Sign out and sign back in with `SUPERUSER_USERNAME` and `SUPERUSER_PASSWORD`.
 5. Confirm the admin account can open `/admin`.
+6. Confirm `/admin/provider-relays` shows the 11 built-in system relays.
 
 Important: the configured `SUPERUSER_PASSWORD` is used when the superuser is first created. Changing it later in `.env`
 does not reset the password already stored in PostgreSQL.
+
+If `/admin/provider-relays` shows an empty list after Docker deployment, treat that as an authentication/session problem first, not as missing built-in relay data:
+
+- `/api/v1/provider-relays` is a superuser-only backend route
+- the built-in relay entries are generated in backend code and appended for admins on every request
+- a normal user session, stale superuser password, or broken public cookie/proxy setup can make the page appear empty if the frontend cannot complete the authenticated admin request
 
 ## 4. Why these modes exist now
 

@@ -12,9 +12,10 @@ export const useGetProviderRelayModelCatalogQuery: useQueryFunctionType<
 > = (options?) => {
   const { query } = UseRequestProcessor();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isAdmin = useAuthStore((state) => state.isAdmin);
 
   const fetchModelCatalog = async (): Promise<ProviderRelayModelCatalogItem[]> => {
-    if (!isAuthenticated) return [];
+    if (!isAuthenticated || !isAdmin) return [];
     const res = await api.get(`${getURL("PROVIDER_RELAYS")}/model-catalog`);
     return res.data;
   };
@@ -24,7 +25,7 @@ export const useGetProviderRelayModelCatalogQuery: useQueryFunctionType<
     fetchModelCatalog,
     {
       refetchOnWindowFocus: false,
-      enabled: isAuthenticated && (options?.enabled ?? true),
+      enabled: isAuthenticated && isAdmin && (options?.enabled ?? true),
       retry: options?.retry ?? 0,
       ...options,
     },

@@ -12,7 +12,9 @@ export const ProtectedAdminRoute = ({ children }) => {
 
   if (!isAuthenticated) {
     return <LoadingPage />;
-  } else if ((userData && !isAdmin) || autoLogin) {
+  } else if (!userData) {
+    return <LoadingPage />;
+  } else if (!isAdmin || autoLogin) {
     return <CustomNavigate to="/" replace />;
   } else {
     return children;
@@ -28,7 +30,9 @@ export const ProtectedReviewRoute = ({ children }) => {
 
   if (!isAuthenticated) {
     return <LoadingPage />;
-  } else if ((userData && !canReview) || autoLogin) {
+  } else if (!userData) {
+    return <LoadingPage />;
+  } else if (!canReview || autoLogin) {
     return <CustomNavigate to="/" replace />;
   } else {
     return children;

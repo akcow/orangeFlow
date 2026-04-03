@@ -12,9 +12,10 @@ export const useGetProviderRelaysQuery: useQueryFunctionType<
 > = (options?) => {
   const { query } = UseRequestProcessor();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isAdmin = useAuthStore((state) => state.isAdmin);
 
   const fetchProviderRelays = async (): Promise<ProviderRelay[]> => {
-    if (!isAuthenticated) return [];
+    if (!isAuthenticated || !isAdmin) return [];
     const res = await api.get(getURL("PROVIDER_RELAYS"));
     return res.data;
   };
@@ -24,7 +25,7 @@ export const useGetProviderRelaysQuery: useQueryFunctionType<
     fetchProviderRelays,
     {
       refetchOnWindowFocus: false,
-      enabled: isAuthenticated && (options?.enabled ?? true),
+      enabled: isAuthenticated && isAdmin && (options?.enabled ?? true),
       retry: options?.retry ?? 0,
       ...options,
     },
